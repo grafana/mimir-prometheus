@@ -1438,6 +1438,7 @@ type memSeries struct {
 	lset          labels.Labels
 	hash          uint64
 	mmappedChunks []*mmappedChunk
+	mmMaxTime     int64 // Max time of any mmapped chunk, only used during WAL replay.
 	headChunk     *memChunk
 	chunkRange    int64
 	firstChunkID  int
