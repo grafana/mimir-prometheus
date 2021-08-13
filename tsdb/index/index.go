@@ -1848,6 +1848,7 @@ func (dec *Decoder) LabelValueFor(b []byte, label string) (string, error) {
 }
 
 // Series decodes a series entry from the given byte slice into lset and chks.
+// Skips reading chunks metadata if chks is nil.
 func (dec *Decoder) Series(b []byte, lbls *labels.Labels, chks *[]chunks.Meta) error {
 	*lbls = (*lbls)[:0]
 	if chks != nil {
@@ -1880,14 +1881,14 @@ func (dec *Decoder) Series(b []byte, lbls *labels.Labels, chks *[]chunks.Meta) e
 
 	// Skip reading chunks metadata if chks is nil.
 	if chks == nil {
-		return nil
+		return d.Err()
 	}
 
 	// Read the chunks meta data.
 	k = d.Uvarint()
 
 	if k == 0 {
-		return nil
+		return d.Err()
 	}
 
 	t0 := d.Varint64()
