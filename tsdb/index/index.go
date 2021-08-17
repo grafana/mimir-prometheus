@@ -29,7 +29,6 @@ import (
 	"unsafe"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/prometheus/tsdb/hashcache"
 
 	"github.com/prometheus/prometheus/pkg/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -37,6 +36,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/encoding"
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
+	"github.com/prometheus/prometheus/tsdb/hashcache"
 )
 
 const (
