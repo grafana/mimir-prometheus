@@ -814,9 +814,9 @@ func (c *PostingsCloner) Clone() Postings {
 	return &clonedPostings{c: c, idx: idxUninitialised}
 }
 
-func (c *PostingsCloner) seek(idx int) bool {
+func (c *PostingsCloner) readUntil(pos int) bool {
 	c.mtx.RLock()
-	if idx < len(c.v) {
+	if pos < len(c.v) {
 		c.mtx.RUnlock()
 		return true
 	}
@@ -827,7 +827,7 @@ func (c *PostingsCloner) seek(idx int) bool {
 	defer c.mtx.Unlock()
 
 	length := len(c.v)
-	for pos := length; pos <= idx; pos++ {
+	for i := length; i <= pos; i++ {
 		if !c.wrapped.Next() {
 			return false
 		}
@@ -835,6 +835,33 @@ func (c *PostingsCloner) seek(idx int) bool {
 	}
 
 	return true
+}
+
+func (c *PostingsCloner) seek(startIdx int, value uint64) int {
+	// if there's a start index and its value satisfies, then return it.
+	if startIdx >= 0 && c.v[startIdx] >= value {
+		return startIdx
+	}
+
+	// do binary search between start and the full length of the slice
+	c.mtx.RLock()
+	length := len(c.v)
+	c.mtx.RUnlock()
+
+	// offset for the position of the cloned Postings
+	offset := startIdx + 1
+
+	idx := sort.Search(length-offset, func(i int) bool {
+		return c.v[offset+i] >= value
+	}) + offset
+
+	if idx < length {
+		return idx
+	}
+
+	// TODO: call Next() until it's > value or Next() returns false
+
+	return -3
 }
 
 const (
@@ -848,20 +875,21 @@ type clonedPostings struct {
 }
 
 func (p *clonedPostings) Next() bool {
-	return p.Seek(1)
-}
-
-func (p *clonedPostings) Seek(v uint64) bool {
 	if p.idx == idxFinished {
 		return false
 	}
-	next := p.idx + int(v)
-	if p.c.seek(next) {
-		p.idx = next
+	nidx := p.idx + 1
+	if p.c.readUntil(nidx) {
+		p.idx = nidx
 		return true
 	}
 	p.idx = idxFinished
 	return false
+}
+
+func (p *clonedPostings) Seek(value uint64) bool {
+	// TODO use p.c.Seek
+	panic("TODO")
 }
 
 func (p *clonedPostings) At() uint64 {

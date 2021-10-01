@@ -879,30 +879,27 @@ func TestMemPostings_Delete(t *testing.T) {
 }
 
 func TestPostingsCloner(t *testing.T) {
-	rc := newListPostings(1, 2, 3)
-	require.False(t, rc.Seek(4))
-	require.Equal(t, uint64(0), rc.At())
-	require.False(t, rc.Next())
-	require.Equal(t, uint64(0), rc.At())
 
-	pc := NewPostingsCloner(newListPostings(1, 2, 3))
+	pc := NewPostingsCloner(newListPostings(1, 2, 4, 8))
 
 	for _, tc := range []struct {
 		name  string
 		check func(testing.TB, Postings)
 	}{
 		{
-			name: "seek beyond length of postings",
+			name: "seek beyond highest value of postings",
 			check: func(t testing.TB, p Postings) {
-				require.False(t, p.Seek(4))
+				require.False(t, p.Seek(9))
 				require.Equal(t, uint64(0), p.At())
 			},
 		},
 		{
-			name: "seek to second posting",
+			name: "seek to posting with value 3 or higher",
 			check: func(t testing.TB, p Postings) {
-				require.True(t, p.Seek(2))
-				require.Equal(t, uint64(2), p.At())
+				require.True(t, p.Seek(3))
+				require.Equal(t, uint64(4), p.At())
+				require.True(t, p.Seek(4))
+				require.Equal(t, uint64(4), p.At())
 			},
 		},
 		{
@@ -913,7 +910,7 @@ func TestPostingsCloner(t *testing.T) {
 				require.True(t, p.Next())
 				require.Equal(t, uint64(2), p.At())
 				require.True(t, p.Next())
-				require.Equal(t, uint64(3), p.At())
+				require.Equal(t, uint64(4), p.At())
 			},
 		},
 		{
@@ -925,7 +922,7 @@ func TestPostingsCloner(t *testing.T) {
 		{
 			name: "ensure a failed seek doesn't allow more next calls",
 			check: func(t testing.TB, p Postings) {
-				require.False(t, p.Seek(4))
+				require.False(t, p.Seek(9))
 				require.Equal(t, uint64(0), p.At())
 				require.False(t, p.Next())
 				require.Equal(t, uint64(0), p.At())
