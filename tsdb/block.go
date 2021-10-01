@@ -75,9 +75,7 @@ type IndexReader interface {
 	// during background garbage collections. Input values must be sorted.
 	Postings(name string, values ...string) (index.Postings, error)
 
-	// PostingsForMatchers assembles a single postings iterator based on the
-	// given matchers. The resulting postings are not ordered by series.
-	PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error)
+	PostingsForMatchersProvider
 
 	// SortedPostings returns a postings list that is reordered to be sorted
 	// by the label set of the underlying series.
@@ -329,7 +327,7 @@ func OpenBlockWithCache(logger log.Logger, dir string, pool chunkenc.Pool, cache
 		dir:               dir,
 		meta:              *meta,
 		chunkr:            cr,
-		indexr:            indexReaderWithPostingsForMatchers{ir},
+		indexr:            indexReaderWithPostingsForMatchers{ir, func(ms ...*labels.Matcher) (index.Postings, error) { return PostingsForMatchers(ir, ms...) }},
 		tombstones:        tr,
 		symbolTableSize:   ir.SymbolTableSize(),
 		logger:            logger,
