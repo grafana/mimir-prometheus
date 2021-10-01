@@ -41,12 +41,16 @@ func (h *Head) indexRange(mint, maxt int64) *headIndexReader {
 	if hmin := h.MinTime(); hmin > mint {
 		mint = hmin
 	}
-	return &headIndexReader{head: h, mint: mint, maxt: maxt}
+	r := &headIndexReader{head: h, mint: mint, maxt: maxt}
+	r.PostingsForMatchersProvider = h.pmpfProvider.WithIndex(r)
+	return r
 }
 
 type headIndexReader struct {
 	head       *Head
 	mint, maxt int64
+
+	PostingsForMatchersProvider
 }
 
 func (h *headIndexReader) Close() error {
@@ -108,12 +112,6 @@ func (h *headIndexReader) Postings(name string, values ...string) (index.Posting
 		res = append(res, h.head.postings.Get(name, value))
 	}
 	return index.Merge(res...), nil
-}
-
-func (h *headIndexReader) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
-	// TODO oleg: headIndexReader depends on the requested time range,
-	// TODO oleg: so holding a single PostingsForMatcherProvider instance has to be done per-range combination too
-	return PostingsForMatchers(h, ms...)
 }
 
 func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
