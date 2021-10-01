@@ -273,7 +273,6 @@ type Block struct {
 
 	chunkr     ChunkReader
 	indexr     IndexReader
-	pfmp       PostingsForMatchersProvider
 	tombstones tombstones.Reader
 
 	logger log.Logger
@@ -318,10 +317,8 @@ func OpenBlockWithCache(logger log.Logger, dir string, pool chunkenc.Pool, cache
 	}
 	closers = append(closers, indexReader)
 
-	ir := indexReaderWithPostingsForMatchers{
-		Reader: indexReader,
-		pfm:    NewPromisePostingsForMatchersProvider(indexReader).PostingsForMatchers,
-	}
+	pfmp := NewPromisePostingsForMatchersProvider().WithIndex(indexReader)
+	ir := indexReaderWithPostingsForMatchers{indexReader, pfmp}
 
 	tr, sizeTomb, err := tombstones.ReadTombstones(dir)
 	if err != nil {
@@ -334,7 +331,6 @@ func OpenBlockWithCache(logger log.Logger, dir string, pool chunkenc.Pool, cache
 		meta:              *meta,
 		chunkr:            cr,
 		indexr:            ir,
-		pfmp:              NewPromisePostingsForMatchersProvider(ir),
 		tombstones:        tr,
 		symbolTableSize:   ir.SymbolTableSize(),
 		logger:            logger,
@@ -401,7 +397,7 @@ func (pb *Block) Index() (IndexReader, error) {
 	if err := pb.startRead(); err != nil {
 		return nil, err
 	}
-	return blockIndexReader{ir: pb.indexr, b: pb, PostingsForMatchersProvider: pb.pfmp}, nil
+	return blockIndexReader{ir: pb.indexr, b: pb, PostingsForMatchersProvider: pb.indexr}, nil
 }
 
 // Chunks returns a new ChunkReader against the block data.

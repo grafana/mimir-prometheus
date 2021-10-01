@@ -12,9 +12,9 @@ import (
 
 func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 	// newPromisePostingsForMatchersProvider tests the NewPromisePostingsForMatchersProvider constructor, but overrides the postingsForMatchers func
-	newPromisePostingsForMatchersProvider := func(pfm func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error)) *PromisePostingsForMatchersProvider {
+	newPromisePostingsForMatchersProvider := func(pfm func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error)) PromisePostingsForMatchersProvider {
 		ifpMock := indexForPostingsMock{}
-		p := NewPromisePostingsForMatchersProvider(ifpMock)
+		p := NewPromisePostingsForMatchersProvider().WithIndex(ifpMock)
 		if p.postingsForMatchers == nil {
 			t.Fatalf("NewPromisePostingsForMatchersProvider() didn't assign postingsForMatchers func")
 		}

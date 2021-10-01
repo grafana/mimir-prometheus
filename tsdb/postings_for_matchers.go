@@ -28,8 +28,21 @@ type PostingsForMatchersProvider interface {
 	PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error)
 }
 
-func NewPromisePostingsForMatchersProvider(ifp IndexForPostings) *PromisePostingsForMatchersProvider {
-	return &PromisePostingsForMatchersProvider{
+// NewPromisePostingsForMatchersProvider creates a new builder for PromisePostingsForMatchersProvider.
+func NewPromisePostingsForMatchersProvider() PromisePostingsForMatchersProviderBuilder {
+	return PromisePostingsForMatchersProviderBuilder{calls: &sync.Map{}}
+}
+
+// PromisePostingsForMatchersProviderBuilder builds PromisePostingsForMatchersProvider that all share the same concurrent calls
+type PromisePostingsForMatchersProviderBuilder struct {
+	calls *sync.Map
+}
+
+// WithIndex creates a PostingsForMatchersProvider for a provided index.
+// This should be called always for the same underlying block (like different head ranges calls).
+// Each block should instantiate its own builder, otherwise PostingsForMatchers would mix postings from different blocks.
+func (b PromisePostingsForMatchersProviderBuilder) WithIndex(ifp IndexForPostings) PromisePostingsForMatchersProvider {
+	return PromisePostingsForMatchersProvider{
 		indexForPostings:    ifp,
 		postingsForMatchers: PostingsForMatchers,
 		calls:               &sync.Map{},
@@ -43,7 +56,7 @@ type PromisePostingsForMatchersProvider struct {
 	calls *sync.Map
 }
 
-func (p *PromisePostingsForMatchersProvider) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
+func (p PromisePostingsForMatchersProvider) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
 	type call struct {
 		sync.Once
 		sync.WaitGroup
@@ -96,14 +109,10 @@ func matchersKey(ms []*labels.Matcher) string {
 	return sb.String()
 }
 
-// indexReaderWithPostingsForMatchers adapts an index.Reader to be an IndexReader by implementing the PostingsForMatchers method
+// indexReaderWithPostingsForMatchers adapts an index.Reader to be an IndexReader by adding the PostingsForMatchers method
 type indexReaderWithPostingsForMatchers struct {
 	*index.Reader
-	pfm func(ms ...*labels.Matcher) (index.Postings, error)
+	PostingsForMatchersProvider
 }
 
 var _ IndexReader = indexReaderWithPostingsForMatchers{}
-
-func (idx indexReaderWithPostingsForMatchers) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
-	return idx.pfm(ms...)
-}
