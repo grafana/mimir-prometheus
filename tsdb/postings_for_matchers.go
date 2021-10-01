@@ -30,35 +30,36 @@ type PostingsForMatchersProvider interface {
 	PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error)
 }
 
-// NewPromisePostingsForMatchersProvider creates a new builder for PromisePostingsForMatchersProvider.
-func NewPromisePostingsForMatchersProvider() PromisePostingsForMatchersProviderBuilder {
-	return PromisePostingsForMatchersProviderBuilder{calls: &sync.Map{}}
+// NewPostingsForMatchersProvider creates a new builder for PostingsForMatchersProviderImpl.
+func NewPostingsForMatchersProvider() PostingsForMatchersProviderBuilder {
+	return PostingsForMatchersProviderBuilder{calls: &sync.Map{}}
 }
 
-// PromisePostingsForMatchersProviderBuilder builds PromisePostingsForMatchersProvider that all share the same concurrent calls
-type PromisePostingsForMatchersProviderBuilder struct {
+// PostingsForMatchersProviderBuilder builds PostingsForMatchersProviderImpl that all share the same concurrent calls
+// when the concurrent hint is passed in.
+type PostingsForMatchersProviderBuilder struct {
 	calls *sync.Map
 }
 
 // WithIndex creates a PostingsForMatchersProvider for a provided index.
 // This should be called always for the same underlying block (like different head ranges calls).
 // Each block should instantiate its own builder, otherwise PostingsForMatchers would mix postings from different blocks.
-func (b PromisePostingsForMatchersProviderBuilder) WithIndex(ifp IndexForPostings) PromisePostingsForMatchersProvider {
-	return PromisePostingsForMatchersProvider{
+func (b PostingsForMatchersProviderBuilder) WithIndex(ifp IndexForPostings) PostingsForMatchersProviderImpl {
+	return PostingsForMatchersProviderImpl{
 		indexForPostings:    ifp,
 		postingsForMatchers: PostingsForMatchers,
 		calls:               &sync.Map{},
 	}
 }
 
-type PromisePostingsForMatchersProvider struct {
+type PostingsForMatchersProviderImpl struct {
 	indexForPostings    IndexForPostings
 	postingsForMatchers func(ix IndexForPostings, ms ...*labels.Matcher) (index.Postings, error)
 
 	calls *sync.Map
 }
 
-func (p PromisePostingsForMatchersProvider) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (p PostingsForMatchersProviderImpl) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	if !concurrent {
 		return p.postingsForMatchers(p.indexForPostings, ms...)
 	}

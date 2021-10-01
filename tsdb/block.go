@@ -317,7 +317,7 @@ func OpenBlockWithCache(logger log.Logger, dir string, pool chunkenc.Pool, cache
 	}
 	closers = append(closers, indexReader)
 
-	pfmp := NewPromisePostingsForMatchersProvider().WithIndex(indexReader)
+	pfmp := NewPostingsForMatchersProvider().WithIndex(indexReader)
 	ir := indexReaderWithPostingsForMatchers{indexReader, pfmp}
 
 	tr, sizeTomb, err := tombstones.ReadTombstones(dir)

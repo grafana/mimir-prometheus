@@ -83,7 +83,7 @@ type Head struct {
 	deleted    map[uint64]int // Deleted series, and what WAL segment they must be kept until.
 
 	postings     *index.MemPostings // Postings lists for terms.
-	pmpfProvider PromisePostingsForMatchersProviderBuilder
+	pmpfProvider PostingsForMatchersProviderBuilder
 
 	tombstones *tombstones.MemTombstones
 
@@ -189,7 +189,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal *wal.WAL, opts *HeadOpti
 		stats: stats,
 		reg:   r,
 
-		pmpfProvider: NewPromisePostingsForMatchersProvider(),
+		pmpfProvider: NewPostingsForMatchersProvider(),
 	}
 	if err := h.resetInMemoryState(); err != nil {
 		return nil, err
