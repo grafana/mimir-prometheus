@@ -1216,7 +1216,7 @@ func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 	return index.NewListPostings(ep)
 }
 
-func (m mockIndex) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
+func (m mockIndex) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	var ps []uint64
 	for p, s := range m.series {
 		if matches(ms, s.l) {
@@ -2088,7 +2088,7 @@ func (m mockMatcherIndex) Postings(name string, values ...string) (index.Posting
 	return index.EmptyPostings(), nil
 }
 
-func (m mockMatcherIndex) PostingsForMatchers(matchers ...*labels.Matcher) (index.Postings, error) {
+func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {
 	return index.EmptyPostings(), nil
 }
 

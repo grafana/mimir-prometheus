@@ -23,9 +23,11 @@ type IndexForPostings interface {
 // PostingsForMatchersProvider provides a PostingsForMatcher method implementations, some of them might just call
 // PostingsForMatchers, others might deduplicate concurrent calls, or even cache the results.
 type PostingsForMatchersProvider interface {
-	// PostingsForMatchers assembles a single postings iterator based on the
-	// given matchers. The resulting postings are not ordered by series.
-	PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error)
+	// PostingsForMatchers assembles a single postings iterator based on the  given matchers.
+	// The resulting postings are not ordered by series.
+	// If concurrent is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
+	// avoiding same calculations twice, however this implementation may lead to a worse performance when called once.
+	PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error)
 }
 
 // NewPromisePostingsForMatchersProvider creates a new builder for PromisePostingsForMatchersProvider.
@@ -56,7 +58,11 @@ type PromisePostingsForMatchersProvider struct {
 	calls *sync.Map
 }
 
-func (p PromisePostingsForMatchersProvider) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
+func (p PromisePostingsForMatchersProvider) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	if !concurrent {
+		return p.postingsForMatchers(p.indexForPostings, ms...)
+	}
+
 	type call struct {
 		sync.Once
 		sync.WaitGroup

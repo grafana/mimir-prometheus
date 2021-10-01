@@ -23,33 +23,37 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 	}
 
 	t.Run("happy case one call", func(t *testing.T) {
-		expectedMatchers := []*labels.Matcher{
-			labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"),
-		}
-		expectedPostingsErr := fmt.Errorf("failed successfully")
+		for _, concurrent := range []bool{true, false} {
+			t.Run(fmt.Sprintf("concurrent=%t", concurrent), func(t *testing.T) {
+				expectedMatchers := []*labels.Matcher{
+					labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"),
+				}
+				expectedPostingsErr := fmt.Errorf("failed successfully")
 
-		p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
-			if _, mocked := ifp.(indexForPostingsMock); !mocked {
-				t.Fatalf("Incorrect IndexForPostings was provided to PostingsForMatchers, expected the mock, was given %v (%T)", ifp, ifp)
-			}
-			if len(ms) != 1 || ms[0].Name != "foo" {
-				t.Fatalf("Wrong label matchers provided, expected %v, got %v", expectedMatchers, ms)
-			}
-			return index.ErrPostings(expectedPostingsErr), nil
-		})
+				p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
+					if _, mocked := ifp.(indexForPostingsMock); !mocked {
+						t.Fatalf("Incorrect IndexForPostings was provided to PostingsForMatchers, expected the mock, was given %v (%T)", ifp, ifp)
+					}
+					if len(ms) != 1 || ms[0].Name != "foo" {
+						t.Fatalf("Wrong label matchers provided, expected %v, got %v", expectedMatchers, ms)
+					}
+					return index.ErrPostings(expectedPostingsErr), nil
+				})
 
-		got, err := p.PostingsForMatchers(expectedMatchers...)
-		if err != nil {
-			t.Fatalf("Unexpected err: %s", err)
-		}
-		if got == nil {
-			t.Fatalf("Nil postings returned")
-		}
-		if got.Err() == nil {
-			t.Fatalf("Expected ErrPostings with non nil error, got %T with nil error", got)
-		}
-		if got.Err().Error() != expectedPostingsErr.Error() {
-			t.Fatalf("Expected ErrPostings with err %q, got %T with err %q", expectedPostingsErr, got, got.Err())
+				got, err := p.PostingsForMatchers(concurrent, expectedMatchers...)
+				if err != nil {
+					t.Fatalf("Unexpected err: %s", err)
+				}
+				if got == nil {
+					t.Fatalf("Nil postings returned")
+				}
+				if got.Err() == nil {
+					t.Fatalf("Expected ErrPostings with non nil error, got %T with nil error", got)
+				}
+				if got.Err().Error() != expectedPostingsErr.Error() {
+					t.Fatalf("Expected ErrPostings with err %q, got %T with err %q", expectedPostingsErr, got, got.Err())
+				}
+			})
 		}
 	})
 
@@ -63,7 +67,7 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 			return nil, expectedErr
 		})
 
-		_, err := p.PostingsForMatchers(expectedMatchers...)
+		_, err := p.PostingsForMatchers(true, expectedMatchers...)
 		if err == nil || err.Error() != expectedErr.Error() {
 			t.Fatalf("Expected error %q, got %q", expectedErr, err)
 		}
@@ -115,12 +119,12 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 		// we'll make all calls async except the first one
 		for i := 1; i < len(calls); i++ {
 			go func(i int) {
-				_, err := p.PostingsForMatchers(calls[i]...)
+				_, err := p.PostingsForMatchers(true, calls[i]...)
 				results[i] = err.Error()
 				resultsWg.Done()
 			}(i)
 		}
-		_, err := p.PostingsForMatchers(calls[0]...)
+		_, err := p.PostingsForMatchers(true, calls[0]...)
 		results[0] = err.Error()
 		resultsWg.Wait()
 

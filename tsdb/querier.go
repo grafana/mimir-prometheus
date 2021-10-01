@@ -123,7 +123,7 @@ func NewBlockQuerier(b BlockReader, mint, maxt int64) (storage.Querier, error) {
 func (q *blockQuerier) Select(sortSeries bool, hints *storage.SelectHints, ms ...*labels.Matcher) storage.SeriesSet {
 	mint := q.mint
 	maxt := q.maxt
-	p, err := q.index.PostingsForMatchers(ms...)
+	p, err := q.index.PostingsForMatchers(hints.ShardCount > 0, ms...)
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
@@ -167,7 +167,7 @@ func (q *blockChunkQuerier) Select(sortSeries bool, hints *storage.SelectHints, 
 		mint = hints.Start
 		maxt = hints.End
 	}
-	p, err := q.index.PostingsForMatchers(ms...)
+	p, err := q.index.PostingsForMatchers(hints.ShardCount > 0, ms...)
 	if err != nil {
 		return storage.ErrChunkSeriesSet(err)
 	}
@@ -383,7 +383,7 @@ func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Mat
 	}
 
 	var p index.Postings
-	p, err = r.PostingsForMatchers(append(matchers, requireLabel)...)
+	p, err = r.PostingsForMatchers(false, append(matchers, requireLabel)...)
 	if err != nil {
 		return nil, err
 	}
@@ -414,7 +414,7 @@ func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Mat
 }
 
 func labelNamesWithMatchers(r IndexReader, matchers ...*labels.Matcher) ([]string, error) {
-	p, err := r.PostingsForMatchers(matchers...)
+	p, err := r.PostingsForMatchers(false, matchers...)
 	if err != nil {
 		return nil, err
 	}
