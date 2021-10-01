@@ -798,20 +798,23 @@ func (it *bigEndianPostings) Err() error {
 	return nil
 }
 
+// PostingsCloner takes an existing Postings and allows indepedently clone them
 type PostingsCloner struct {
 	mtx     sync.RWMutex
 	v       []uint64
 	wrapped Postings
 }
 
+// NewPostingsCloner takes an existing Postings and allows indepedently clone them
 func NewPostingsCloner(p Postings) *PostingsCloner {
 	return &PostingsCloner{
 		wrapped: p,
 	}
 }
 
+// Clone returns another indepedent Postings interface
 func (c *PostingsCloner) Clone() Postings {
-	return &clonedPostings{c: c, idx: idxUninitialised}
+	return &clonedPostings{c: c, pos: posUninitialized}
 }
 
 func (c *PostingsCloner) readUntil(pos int) bool {
@@ -848,7 +851,7 @@ func (c *PostingsCloner) seek(pos int, value uint64) int {
 	length := len(c.v)
 	c.mtx.RUnlock()
 
-	// offset for the position of the cloned Postings
+	// offset for the position of the clonedPostings
 	offset := pos + 1
 
 	idx := sort.Search(length-offset, func(i int) bool {
@@ -874,7 +877,7 @@ func (c *PostingsCloner) seek(pos int, value uint64) int {
 	// no luck, check if we have more elements to bring
 	for ; len(c.v) == 0 || c.v[pos] < value; pos++ {
 		if !c.wrapped.Next() {
-			return idxFinished
+			return posFinished
 		}
 		c.v = append(c.v, c.wrapped.At())
 	}
@@ -883,37 +886,38 @@ func (c *PostingsCloner) seek(pos int, value uint64) int {
 }
 
 const (
-	idxUninitialised = -1
-	idxFinished      = -2
+	posUninitialized = -1
+	posFinished      = -2
 )
 
 type clonedPostings struct {
 	c   *PostingsCloner
-	idx int // -1 uninititinialisioed -2 finished
+	pos int // stores the position how far the clonedPostings has advanced or posUninitialized=-1, posFinished=-3
 }
 
 func (p *clonedPostings) Next() bool {
-	if p.idx == idxFinished {
+	if p.pos == posFinished {
 		return false
 	}
-	p.idx++
-	if p.c.readUntil(p.idx) {
+	p.pos++
+	if p.c.readUntil(p.pos) {
 		return true
 	}
-	p.idx = idxFinished
+
+	p.pos = posFinished
 	return false
 }
 
 func (p *clonedPostings) Seek(value uint64) bool {
-	p.idx = p.c.seek(p.idx, value)
-	return p.idx != idxFinished
+	p.pos = p.c.seek(p.pos, value)
+	return p.pos != posFinished
 }
 
 func (p *clonedPostings) At() uint64 {
-	if p.idx < 0 {
+	if p.pos < 0 {
 		return 0
 	}
-	return p.c.v[p.idx]
+	return p.c.v[p.pos]
 }
 
 func (p *clonedPostings) Err() error {
