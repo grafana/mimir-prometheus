@@ -273,6 +273,7 @@ type Block struct {
 
 	chunkr     ChunkReader
 	indexr     IndexReader
+	pfmp       PostingsForMatchersProvider
 	tombstones tombstones.Reader
 
 	logger log.Logger
@@ -311,11 +312,16 @@ func OpenBlockWithCache(logger log.Logger, dir string, pool chunkenc.Pool, cache
 	}
 	closers = append(closers, cr)
 
-	ir, err := index.NewFileReaderWithCache(filepath.Join(dir, indexFilename), cache)
+	indexReader, err := index.NewFileReaderWithCache(filepath.Join(dir, indexFilename), cache)
 	if err != nil {
 		return nil, err
 	}
-	closers = append(closers, ir)
+	closers = append(closers, indexReader)
+
+	ir := indexReaderWithPostingsForMatchers{
+		Reader: indexReader,
+		pfm:    NewPromisePostingsForMatchersProvider(indexReader).PostingsForMatchers,
+	}
 
 	tr, sizeTomb, err := tombstones.ReadTombstones(dir)
 	if err != nil {
@@ -327,7 +333,8 @@ func OpenBlockWithCache(logger log.Logger, dir string, pool chunkenc.Pool, cache
 		dir:               dir,
 		meta:              *meta,
 		chunkr:            cr,
-		indexr:            indexReaderWithPostingsForMatchers{ir, func(ms ...*labels.Matcher) (index.Postings, error) { return PostingsForMatchers(ir, ms...) }},
+		indexr:            ir,
+		pfmp:              NewPromisePostingsForMatchersProvider(ir),
 		tombstones:        tr,
 		symbolTableSize:   ir.SymbolTableSize(),
 		logger:            logger,
@@ -394,7 +401,7 @@ func (pb *Block) Index() (IndexReader, error) {
 	if err := pb.startRead(); err != nil {
 		return nil, err
 	}
-	return blockIndexReader{ir: pb.indexr, b: pb}, nil
+	return blockIndexReader{ir: pb.indexr, b: pb, PostingsForMatchersProvider: pb.pfmp}, nil
 }
 
 // Chunks returns a new ChunkReader against the block data.
@@ -431,6 +438,7 @@ func (pb *Block) setCompactionFailed() error {
 type blockIndexReader struct {
 	ir IndexReader
 	b  *Block
+	PostingsForMatchersProvider
 }
 
 func (r blockIndexReader) Symbols() index.StringIter {
@@ -476,10 +484,6 @@ func (r blockIndexReader) Postings(name string, values ...string) (index.Posting
 		return p, errors.Wrapf(err, "block: %s", r.b.Meta().ULID)
 	}
 	return p, nil
-}
-
-func (r blockIndexReader) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
-	return PostingsForMatchers(r, ms...)
 }
 
 func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {

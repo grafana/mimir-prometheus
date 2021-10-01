@@ -111,6 +111,8 @@ func (h *headIndexReader) Postings(name string, values ...string) (index.Posting
 }
 
 func (h *headIndexReader) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
+	// TODO oleg: headIndexReader depends on the requested time range,
+	// TODO oleg: so holding a single PostingsForMatcherProvider instance has to be done per-range combination too
 	return PostingsForMatchers(h, ms...)
 }
 
