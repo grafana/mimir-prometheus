@@ -75,6 +75,10 @@ type IndexReader interface {
 	// during background garbage collections. Input values must be sorted.
 	Postings(name string, values ...string) (index.Postings, error)
 
+	// PostingsForMatchers assembles a single postings iterator based on the
+	// given matchers. The resulting postings are not ordered by series.
+	PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error)
+
 	// SortedPostings returns a postings list that is reordered to be sorted
 	// by the label set of the underlying series.
 	SortedPostings(index.Postings) index.Postings
@@ -325,7 +329,7 @@ func OpenBlockWithCache(logger log.Logger, dir string, pool chunkenc.Pool, cache
 		dir:               dir,
 		meta:              *meta,
 		chunkr:            cr,
-		indexr:            ir,
+		indexr:            indexReaderWithPostingsForMatchers{ir},
 		tombstones:        tr,
 		symbolTableSize:   ir.SymbolTableSize(),
 		logger:            logger,
@@ -476,6 +480,10 @@ func (r blockIndexReader) Postings(name string, values ...string) (index.Posting
 	return p, nil
 }
 
+func (r blockIndexReader) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
+	return PostingsForMatchers(r, ms...)
+}
+
 func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {
 	return r.ir.SortedPostings(p)
 }
@@ -536,7 +544,7 @@ func (pb *Block) Delete(mint, maxt int64, ms ...*labels.Matcher) error {
 		return ErrClosing
 	}
 
-	p, err := PostingsForMatchers(pb.indexr, ms...)
+	p, err := pb.indexr.PostingsForMatchers(ms...)
 	if err != nil {
 		return errors.Wrap(err, "select series")
 	}

@@ -110,6 +110,10 @@ func (h *headIndexReader) Postings(name string, values ...string) (index.Posting
 	return index.Merge(res...), nil
 }
 
+func (h *headIndexReader) PostingsForMatchers(ms ...*labels.Matcher) (index.Postings, error) {
+	return PostingsForMatchers(h, ms...)
+}
+
 func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
 	series := make([]*memSeries, 0, 128)
 
