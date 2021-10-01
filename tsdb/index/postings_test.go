@@ -879,23 +879,38 @@ func TestMemPostings_Delete(t *testing.T) {
 }
 
 func TestPostingsCloner(t *testing.T) {
-
-	pc := NewPostingsCloner(newListPostings(1, 2, 4, 8))
-
 	for _, tc := range []struct {
 		name  string
-		check func(testing.TB, Postings)
+		check func(testing.TB, *PostingsCloner)
 	}{
 		{
-			name: "seek beyond highest value of postings",
-			check: func(t testing.TB, p Postings) {
-				require.False(t, p.Seek(9))
-				require.Equal(t, uint64(0), p.At())
+			name: "seek beyond highest value of postings, then other clone seeks higher",
+			check: func(t testing.TB, pc *PostingsCloner) {
+				p1 := pc.Clone()
+				require.False(t, p1.Seek(9))
+				require.Equal(t, uint64(0), p1.At())
+
+				p2 := pc.Clone()
+				require.False(t, p2.Seek(10))
+				require.Equal(t, uint64(0), p2.At())
+			},
+		},
+		{
+			name: "seek beyond highest value of postings, then other clone seeks lower",
+			check: func(t testing.TB, pc *PostingsCloner) {
+				p1 := pc.Clone()
+				require.False(t, p1.Seek(9))
+				require.Equal(t, uint64(0), p1.At())
+
+				p2 := pc.Clone()
+				require.True(t, p2.Seek(2))
+				require.Equal(t, uint64(2), p2.At())
 			},
 		},
 		{
 			name: "seek to posting with value 3 or higher",
-			check: func(t testing.TB, p Postings) {
+			check: func(t testing.TB, pc *PostingsCloner) {
+				p := pc.Clone()
 				require.True(t, p.Seek(3))
 				require.Equal(t, uint64(4), p.At())
 				require.True(t, p.Seek(4))
@@ -903,25 +918,67 @@ func TestPostingsCloner(t *testing.T) {
 			},
 		},
 		{
+			name: "seek alternatively on different postings",
+			check: func(t testing.TB, pc *PostingsCloner) {
+				p1 := pc.Clone()
+				require.True(t, p1.Seek(1))
+				require.Equal(t, uint64(1), p1.At())
+
+				p2 := pc.Clone()
+				require.True(t, p2.Seek(2))
+				require.Equal(t, uint64(2), p2.At())
+
+				p3 := pc.Clone()
+				require.True(t, p3.Seek(4))
+				require.Equal(t, uint64(4), p3.At())
+
+				p4 := pc.Clone()
+				require.True(t, p4.Seek(5))
+				require.Equal(t, uint64(8), p4.At())
+
+				require.True(t, p1.Seek(3))
+				require.Equal(t, uint64(4), p1.At())
+				require.True(t, p1.Seek(4))
+				require.Equal(t, uint64(4), p1.At())
+			},
+		},
+		{
 			name: "iterate through the postings",
-			check: func(t testing.TB, p Postings) {
-				require.True(t, p.Next())
-				require.Equal(t, uint64(1), p.At())
-				require.True(t, p.Next())
-				require.Equal(t, uint64(2), p.At())
-				require.True(t, p.Next())
-				require.Equal(t, uint64(4), p.At())
+			check: func(t testing.TB, pc *PostingsCloner) {
+				p1 := pc.Clone()
+				p2 := pc.Clone()
+
+				// both one step
+				require.True(t, p1.Next())
+				require.Equal(t, uint64(1), p1.At())
+				require.True(t, p2.Next())
+				require.Equal(t, uint64(1), p2.At())
+
+				require.True(t, p1.Next())
+				require.Equal(t, uint64(2), p1.At())
+				require.True(t, p1.Next())
+				require.Equal(t, uint64(4), p1.At())
+				require.True(t, p1.Next())
+				require.Equal(t, uint64(8), p1.At())
+				require.False(t, p1.Next())
+
+				require.True(t, p2.Next())
+				require.Equal(t, uint64(2), p2.At())
+				require.True(t, p2.Next())
+				require.Equal(t, uint64(4), p2.At())
 			},
 		},
 		{
 			name: "at before call of next shouldn't panic",
-			check: func(t testing.TB, p Postings) {
+			check: func(t testing.TB, pc *PostingsCloner) {
+				p := pc.Clone()
 				require.Equal(t, uint64(0), p.At())
 			},
 		},
 		{
 			name: "ensure a failed seek doesn't allow more next calls",
-			check: func(t testing.TB, p Postings) {
+			check: func(t testing.TB, pc *PostingsCloner) {
+				p := pc.Clone()
 				require.False(t, p.Seek(9))
 				require.Equal(t, uint64(0), p.At())
 				require.False(t, p.Next())
@@ -930,8 +987,8 @@ func TestPostingsCloner(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			c := pc.Clone()
-			tc.check(t, c)
+			pc := NewPostingsCloner(newListPostings(1, 2, 4, 8))
+			tc.check(t, pc)
 		})
 	}
 }

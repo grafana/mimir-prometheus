@@ -837,10 +837,10 @@ func (c *PostingsCloner) readUntil(pos int) bool {
 	return true
 }
 
-func (c *PostingsCloner) seek(startIdx int, value uint64) int {
+func (c *PostingsCloner) seek(pos int, value uint64) int {
 	// if there's a start index and its value satisfies, then return it.
-	if startIdx >= 0 && c.v[startIdx] >= value {
-		return startIdx
+	if pos >= 0 && c.v[pos] >= value {
+		return pos
 	}
 
 	// do binary search between start and the full length of the slice
@@ -849,7 +849,7 @@ func (c *PostingsCloner) seek(startIdx int, value uint64) int {
 	c.mtx.RUnlock()
 
 	// offset for the position of the cloned Postings
-	offset := startIdx + 1
+	offset := pos + 1
 
 	idx := sort.Search(length-offset, func(i int) bool {
 		return c.v[offset+i] >= value
@@ -859,9 +859,27 @@ func (c *PostingsCloner) seek(startIdx int, value uint64) int {
 		return idx
 	}
 
-	// TODO: call Next() until it's > value or Next() returns false
+	// go to the last element
+	pos = length - 1
 
-	return -3
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+	// check if we have more elements in case someone called Next() while we were doing binary search
+	// don't check the last element, next loop expects `pos < len(c.v)`
+	for ; pos < len(c.v)-1; pos++ {
+		if c.v[pos] >= value {
+			return pos
+		}
+	}
+	// no luck, check if we have more elements to bring
+	for ; len(c.v) == 0 || c.v[pos] < value; pos++ {
+		if !c.wrapped.Next() {
+			return idxFinished
+		}
+		c.v = append(c.v, c.wrapped.At())
+	}
+
+	return pos
 }
 
 const (
@@ -878,9 +896,8 @@ func (p *clonedPostings) Next() bool {
 	if p.idx == idxFinished {
 		return false
 	}
-	nidx := p.idx + 1
-	if p.c.readUntil(nidx) {
-		p.idx = nidx
+	p.idx++
+	if p.c.readUntil(p.idx) {
 		return true
 	}
 	p.idx = idxFinished
@@ -888,8 +905,8 @@ func (p *clonedPostings) Next() bool {
 }
 
 func (p *clonedPostings) Seek(value uint64) bool {
-	// TODO use p.c.Seek
-	panic("TODO")
+	p.idx = p.c.seek(p.idx, value)
+	return p.idx != idxFinished
 }
 
 func (p *clonedPostings) At() uint64 {
