@@ -797,3 +797,80 @@ func (it *bigEndianPostings) Seek(x uint64) bool {
 func (it *bigEndianPostings) Err() error {
 	return nil
 }
+
+type PostingsCloner struct {
+	mtx     sync.RWMutex
+	v       []uint64
+	wrapped Postings
+}
+
+func NewPostingsCloner(p Postings) *PostingsCloner {
+	return &PostingsCloner{
+		wrapped: p,
+	}
+}
+
+func (c *PostingsCloner) Clone() Postings {
+	return &clonedPostings{c: c, idx: idxUninitialised}
+}
+
+func (c *PostingsCloner) seek(idx int) bool {
+	c.mtx.RLock()
+	if idx < len(c.v) {
+		c.mtx.RUnlock()
+		return true
+	}
+	c.mtx.RUnlock()
+
+	// next needs to be called
+	c.mtx.Lock()
+	defer c.mtx.Unlock()
+
+	length := len(c.v)
+	for pos := length; pos <= idx; pos++ {
+		if !c.wrapped.Next() {
+			return false
+		}
+		c.v = append(c.v, c.wrapped.At())
+	}
+
+	return true
+}
+
+const (
+	idxUninitialised = -1
+	idxFinished      = -2
+)
+
+type clonedPostings struct {
+	c   *PostingsCloner
+	idx int // -1 uninititinialisioed -2 finished
+}
+
+func (p *clonedPostings) Next() bool {
+	return p.Seek(1)
+}
+
+func (p *clonedPostings) Seek(v uint64) bool {
+	if p.idx == idxFinished {
+		return false
+	}
+	next := p.idx + int(v)
+	if p.c.seek(next) {
+		p.idx = next
+		return true
+	}
+	p.idx = idxFinished
+	return false
+}
+
+func (p *clonedPostings) At() uint64 {
+	if p.idx < 0 {
+		return 0
+	}
+	return p.c.v[p.idx]
+}
+
+func (p *clonedPostings) Err() error {
+	return p.c.wrapped.Err()
+}

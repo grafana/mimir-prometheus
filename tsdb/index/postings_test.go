@@ -877,3 +877,64 @@ func TestMemPostings_Delete(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 0, len(expanded), "expected empty postings, got %v", expanded)
 }
+
+func TestPostingsCloner(t *testing.T) {
+	rc := newListPostings(1, 2, 3)
+	require.False(t, rc.Seek(4))
+	require.Equal(t, uint64(0), rc.At())
+	require.False(t, rc.Next())
+	require.Equal(t, uint64(0), rc.At())
+
+	pc := NewPostingsCloner(newListPostings(1, 2, 3))
+
+	for _, tc := range []struct {
+		name  string
+		check func(testing.TB, Postings)
+	}{
+		{
+			name: "seek beyond length of postings",
+			check: func(t testing.TB, p Postings) {
+				require.False(t, p.Seek(4))
+				require.Equal(t, uint64(0), p.At())
+			},
+		},
+		{
+			name: "seek to second posting",
+			check: func(t testing.TB, p Postings) {
+				require.True(t, p.Seek(2))
+				require.Equal(t, uint64(2), p.At())
+			},
+		},
+		{
+			name: "iterate through the postings",
+			check: func(t testing.TB, p Postings) {
+				require.True(t, p.Next())
+				require.Equal(t, uint64(1), p.At())
+				require.True(t, p.Next())
+				require.Equal(t, uint64(2), p.At())
+				require.True(t, p.Next())
+				require.Equal(t, uint64(3), p.At())
+			},
+		},
+		{
+			name: "at before call of next shouldn't panic",
+			check: func(t testing.TB, p Postings) {
+				require.Equal(t, uint64(0), p.At())
+			},
+		},
+		{
+			name: "ensure a failed seek doesn't allow more next calls",
+			check: func(t testing.TB, p Postings) {
+				require.False(t, p.Seek(4))
+				require.Equal(t, uint64(0), p.At())
+				require.False(t, p.Next())
+				require.Equal(t, uint64(0), p.At())
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := pc.Clone()
+			tc.check(t, c)
+		})
+	}
+}
