@@ -42,7 +42,7 @@ func (h *Head) indexRange(mint, maxt int64) *headIndexReader {
 		mint = hmin
 	}
 	r := &headIndexReader{head: h, mint: mint, maxt: maxt}
-	r.PostingsForMatchersProvider = h.pmpfProvider.WithIndex(r)
+	r.PostingsForMatchersProvider = h.pfmp.WithIndex(r)
 	return r
 }
 

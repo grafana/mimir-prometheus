@@ -82,8 +82,8 @@ type Head struct {
 	deletedMtx sync.Mutex
 	deleted    map[uint64]int // Deleted series, and what WAL segment they must be kept until.
 
-	postings     *index.MemPostings // Postings lists for terms.
-	pmpfProvider PostingsForMatchersProviderBuilder
+	postings *index.MemPostings // Postings lists for terms.
+	pfmp     *PostingsForMatchersProviderBuilder
 
 	tombstones *tombstones.MemTombstones
 
@@ -189,7 +189,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal *wal.WAL, opts *HeadOpti
 		stats: stats,
 		reg:   r,
 
-		pmpfProvider: NewPostingsForMatchersProvider(),
+		pfmp: NewPostingsForMatchersProvider(defaultPostingsForMatchersCacheTTL),
 	}
 	if err := h.resetInMemoryState(); err != nil {
 		return nil, err
@@ -1183,6 +1183,7 @@ func (h *Head) Close() error {
 	if h.wal != nil {
 		errs.Add(h.wal.Close())
 	}
+	errs.Add(h.pfmp.Close())
 	if errs.Err() == nil && h.opts.EnableMemorySnapshotOnShutdown {
 		errs.Add(h.performChunkSnapshot())
 	}

@@ -14,7 +14,7 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 	// newPromisePostingsForMatchersProvider tests the NewPostingsForMatchersProvider constructor, but overrides the postingsForMatchers func
 	newPromisePostingsForMatchersProvider := func(pfm func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error)) PostingsForMatchersProviderImpl {
 		ifpMock := indexForPostingsMock{}
-		p := NewPostingsForMatchersProvider().WithIndex(ifpMock)
+		p := NewPostingsForMatchersProvider(defaultPostingsForMatchersCacheTTL).WithIndex(ifpMock)
 		if p.postingsForMatchers == nil {
 			t.Fatalf("NewPostingsForMatchersProvider() didn't assign postingsForMatchers func")
 		}
@@ -39,6 +39,7 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 					}
 					return index.ErrPostings(expectedPostingsErr), nil
 				})
+				t.Cleanup(func() { p.Close() })
 
 				got, err := p.PostingsForMatchers(concurrent, expectedMatchers...)
 				if err != nil {
@@ -66,6 +67,7 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 		p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
 			return nil, expectedErr
 		})
+		t.Cleanup(func() { p.Close() })
 
 		_, err := p.PostingsForMatchers(true, expectedMatchers...)
 		if err == nil || err.Error() != expectedErr.Error() {
@@ -102,30 +104,40 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 
 		expectedPostingsForMatchersCalls := 5
 		// we'll block all the calls until we receive the exact amount. if we receive more, WaitGroup will panic
-		wg := sync.WaitGroup{}
-		wg.Add(expectedPostingsForMatchersCalls)
+		called := make(chan struct{}, expectedPostingsForMatchersCalls)
+		release := make(chan struct{})
 		p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
-			// mark this one as done
-			wg.Done()
-			// but wait until all calls arrive,
-			// otherwise we can calculate this PostingsForMatchers, remove the promise and calculate again
-			wg.Wait()
+			select {
+			case called <- struct{}{}:
+			default:
+			}
+			<-release
 			return nil, fmt.Errorf(matchersString(ms))
 		})
+		t.Cleanup(func() { p.Close() })
 
 		results := make([]string, len(calls))
 		resultsWg := sync.WaitGroup{}
-		resultsWg.Add(len(calls) - 1)
-		// we'll make all calls async except the first one
-		for i := 1; i < len(calls); i++ {
+		resultsWg.Add(len(calls))
+
+		// make all calls
+		for i := 0; i < len(calls); i++ {
 			go func(i int) {
 				_, err := p.PostingsForMatchers(true, calls[i]...)
 				results[i] = err.Error()
 				resultsWg.Done()
 			}(i)
 		}
-		_, err := p.PostingsForMatchers(true, calls[0]...)
-		results[0] = err.Error()
+
+		// wait until all calls arrive to the mocked function
+		for i := 0; i < expectedPostingsForMatchersCalls; i++ {
+			<-called
+		}
+
+		// let them all return
+		close(release)
+
+		// wait for the results
 		resultsWg.Wait()
 
 		// check that we got correct results
