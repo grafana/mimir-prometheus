@@ -48,7 +48,7 @@ func (b PostingsForMatchersProviderBuilder) WithIndex(ifp IndexForPostings) Post
 	return PostingsForMatchersProviderImpl{
 		indexForPostings:    ifp,
 		postingsForMatchers: PostingsForMatchers,
-		calls:               &sync.Map{},
+		calls:               b.calls,
 	}
 }
 
@@ -113,7 +113,8 @@ func matchersKey(ms []*labels.Matcher) string {
 		sb.WriteString(m.Value)
 		sb.WriteByte(0)
 	}
-	return sb.String()
+	key := sb.String()
+	return key
 }
 
 // indexReaderWithPostingsForMatchers adapts an index.Reader to be an IndexReader by adding the PostingsForMatchers method
