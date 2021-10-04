@@ -1223,6 +1223,7 @@ func (m mockIndex) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (
 			ps = append(ps, p)
 		}
 	}
+	sort.Slice(ps, func(i, j int) bool { return ps[i] < ps[j] })
 	return index.NewListPostings(ps), nil
 }
 
