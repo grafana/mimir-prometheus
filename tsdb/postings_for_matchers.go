@@ -106,7 +106,16 @@ func (p PostingsForMatchersProviderImpl) PostingsForMatchers(concurrent bool, ms
 // NOTE: different orders of matchers will produce different keys,
 // but it's unlikely that we'll receive same matchers in different orders at the same time
 func matchersKey(ms []*labels.Matcher) string {
+	const (
+		typeLen = 2
+		sepLen  = 1
+	)
+	var size int
+	for _, m := range ms {
+		size += len(m.Name) + len(m.Value) + typeLen + sepLen
+	}
 	sb := strings.Builder{}
+	sb.Grow(size)
 	for _, m := range ms {
 		sb.WriteString(m.Name)
 		sb.WriteString(m.Type.String())

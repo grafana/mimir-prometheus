@@ -146,3 +146,19 @@ func (idx indexForPostingsMock) LabelValues(name string, matchers ...*labels.Mat
 func (idx indexForPostingsMock) Postings(name string, values ...string) (index.Postings, error) {
 	panic("implement me")
 }
+
+func BenchmarkMatchersKey(b *testing.B) {
+	const totalMatchers = 10
+	const matcherSets = 100
+	sets := make([][]*labels.Matcher, matcherSets)
+	for i := 0; i < matcherSets; i++ {
+		for j := 0; j < totalMatchers; j++ {
+			sets[i] = append(sets[i], labels.MustNewMatcher(labels.MatchType(j%4), fmt.Sprintf("%d_%d", i*13, j*65537), fmt.Sprintf("%x_%x", i*127, j*2_147_483_647)))
+		}
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = matchersKey(sets[i%matcherSets])
+	}
+}
