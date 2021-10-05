@@ -47,21 +47,6 @@ func NewPostingsForMatchersProvider(ttl time.Duration) *PostingsForMatchersProvi
 		ttl:    ttl,
 		close:  make(chan struct{}),
 	}
-	if ttl > 0 {
-		go func() {
-			ticker := time.NewTicker(ttl)
-			defer ticker.Stop()
-
-			for {
-				select {
-				case <-ticker.C:
-					b.expire()
-				case <-b.close:
-					return
-				}
-			}
-		}()
-	}
 
 	return b
 }
