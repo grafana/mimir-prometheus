@@ -46,6 +46,23 @@ func NewPostingsForMatchersProvider(ttl time.Duration) *PostingsForMatchersProvi
 		cached: list.New(),
 		ttl:    ttl,
 		close:  make(chan struct{}),
+		closed: make(chan struct{}),
+	}
+	if ttl > 0 {
+		go func() {
+			defer close(b.closed)
+			ticker := time.NewTicker(ttl)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ticker.C:
+					b.expire()
+				case <-b.close:
+					return
+				}
+			}
+		}()
 	}
 
 	return b
@@ -61,9 +78,8 @@ type PostingsForMatchersProviderBuilder struct {
 
 	ttl time.Duration
 
-	closeMtx sync.Mutex
-	closed   bool
-	close    chan struct{}
+	closed chan struct{}
+	close  chan struct{}
 }
 
 // WithIndex creates a PostingsForMatchersProvider for a provided index.
@@ -79,14 +95,13 @@ func (b *PostingsForMatchersProviderBuilder) WithIndex(ifp IndexForPostings) Pos
 
 // Close stops the cache expiration goroutine. It shouldn't be called twice.
 func (b *PostingsForMatchersProviderBuilder) Close() error {
-	b.closeMtx.Lock()
-	defer b.closeMtx.Unlock()
-	if b.closed {
+	select {
+	case <-b.closed:
 		return fmt.Errorf("already closed")
+	case b.close <- struct{}{}:
+		<-b.closed
+		return nil
 	}
-	close(b.close)
-	b.closed = true
-	return nil
 }
 
 type PostingsForMatchersProviderImpl struct {
