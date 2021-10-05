@@ -396,7 +396,7 @@ func (pb *Block) Index() (IndexReader, error) {
 	if err := pb.startRead(); err != nil {
 		return nil, err
 	}
-	return blockIndexReader{ir: pb.indexr, b: pb, PostingsForMatchersProvider: pb.indexr}, nil
+	return blockIndexReader{ir: pb.indexr, b: pb}, nil
 }
 
 // Chunks returns a new ChunkReader against the block data.
@@ -433,7 +433,6 @@ func (pb *Block) setCompactionFailed() error {
 type blockIndexReader struct {
 	ir IndexReader
 	b  *Block
-	PostingsForMatchersProvider
 }
 
 func (r blockIndexReader) Symbols() index.StringIter {
@@ -479,6 +478,10 @@ func (r blockIndexReader) Postings(name string, values ...string) (index.Posting
 		return p, errors.Wrapf(err, "block: %s", r.b.Meta().ULID)
 	}
 	return p, nil
+}
+
+func (r blockIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return r.ir.PostingsForMatchers(concurrent, ms...)
 }
 
 func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {
