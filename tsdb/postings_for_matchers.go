@@ -141,7 +141,7 @@ func (p PostingsForMatchersProviderImpl) PostingsForMatchers(concurrent bool, ms
 	if loaded {
 		promise = wi.(*postingsForMatchersPromise)
 	} else {
-		p.created(key)
+		defer p.created(key, p.timeNow())
 	}
 
 	promise.Do(func() {
@@ -199,8 +199,11 @@ func (b *PostingsForMatchersProviderBuilder) headExpired() bool {
 	return b.timeNow().Sub(ts) >= b.ttl
 }
 
-func (b *PostingsForMatchersProviderBuilder) created(key string) {
+// created has to be called when returning from the PostingsForMatchers call that creates the promise.
+// the ts provided should be the call time.
+func (b *PostingsForMatchersProviderBuilder) created(key string, ts time.Time) {
 	if b.ttl <= 0 {
+		b.calls.Delete(key)
 		return
 	}
 
@@ -209,7 +212,7 @@ func (b *PostingsForMatchersProviderBuilder) created(key string) {
 
 	b.cached.PushBack(&postingsForMatchersCachedCall{
 		key: key,
-		ts:  b.timeNow(),
+		ts:  ts,
 	})
 }
 

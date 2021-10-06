@@ -15,9 +15,9 @@ import (
 
 func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 	// newPromisePostingsForMatchersProvider tests the NewPostingsForMatchersProvider constructor, but overrides the postingsForMatchers func
-	newPromisePostingsForMatchersProvider := func(pfm func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error), timeMock *timeNowMock) PostingsForMatchersProviderImpl {
+	newPromisePostingsForMatchersProvider := func(ttl time.Duration, pfm func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error), timeMock *timeNowMock) PostingsForMatchersProviderImpl {
 		ifpMock := indexForPostingsMock{}
-		p := NewPostingsForMatchersProvider(defaultPostingsForMatchersCacheTTL).WithIndex(ifpMock)
+		p := NewPostingsForMatchersProvider(ttl).WithIndex(ifpMock)
 		if p.postingsForMatchers == nil {
 			t.Fatalf("NewPostingsForMatchersProvider() didn't assign postingsForMatchers func")
 		}
@@ -32,7 +32,7 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 				expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 				expectedPostingsErr := fmt.Errorf("failed successfully")
 
-				p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
+				p := newPromisePostingsForMatchersProvider(defaultPostingsForMatchersCacheTTL, func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
 					require.IsType(t, indexForPostingsMock{}, ifp, "Incorrect IndexForPostings was provided to PostingsForMatchers, expected the mock, was given %v (%T)", ifp, ifp)
 					require.Equal(t, expectedMatchers, ms, "Wrong label matchers provided, expected %v, got %v", expectedMatchers, ms)
 					return index.ErrPostings(expectedPostingsErr), nil
@@ -51,7 +51,7 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 		expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 		expectedErr := fmt.Errorf("failed successfully")
 
-		p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
+		p := newPromisePostingsForMatchersProvider(defaultPostingsForMatchersCacheTTL, func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
 			return nil, expectedErr
 		}, &timeNowMock{})
 		t.Cleanup(func() { p.Close() })
@@ -61,73 +61,81 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 	})
 
 	t.Run("happy case multiple concurrent calls: two same one different", func(t *testing.T) {
-		calls := [][]*labels.Matcher{
-			{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")},                                                         // 1
-			{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")},                                                         // 1 same
-			{labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar")},                                                        // 2: different match type
-			{labels.MustNewMatcher(labels.MatchEqual, "diff", "bar")},                                                        // 3: different name
-			{labels.MustNewMatcher(labels.MatchEqual, "foo", "diff")},                                                        // 4: different value
-			{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"), labels.MustNewMatcher(labels.MatchEqual, "boo", "bam")}, // 5
-			{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"), labels.MustNewMatcher(labels.MatchEqual, "boo", "bam")}, // 5 same
-		}
-
-		// we'll identify results by each call's error, and the error will be the string value of the first matcher
-		matchersString := func(ms []*labels.Matcher) string {
-			s := strings.Builder{}
-			for i, m := range ms {
-				if i > 0 {
-					s.WriteByte(',')
+		for _, cacheEnabled := range []bool{true, false} {
+			t.Run(fmt.Sprintf("cacheEnabled=%t", cacheEnabled), func(t *testing.T) {
+				calls := [][]*labels.Matcher{
+					{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")},                                                         // 1
+					{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")},                                                         // 1 same
+					{labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar")},                                                        // 2: different match type
+					{labels.MustNewMatcher(labels.MatchEqual, "diff", "bar")},                                                        // 3: different name
+					{labels.MustNewMatcher(labels.MatchEqual, "foo", "diff")},                                                        // 4: different value
+					{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"), labels.MustNewMatcher(labels.MatchEqual, "boo", "bam")}, // 5
+					{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"), labels.MustNewMatcher(labels.MatchEqual, "boo", "bam")}, // 5 same
 				}
-				s.WriteString(m.String())
-			}
-			return s.String()
-		}
-		expectedResults := make([]string, len(calls))
-		for i, c := range calls {
-			expectedResults[i] = c[0].String()
-		}
 
-		expectedPostingsForMatchersCalls := 5
-		// we'll block all the calls until we receive the exact amount. if we receive more, WaitGroup will panic
-		called := make(chan struct{}, expectedPostingsForMatchersCalls)
-		release := make(chan struct{})
-		p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
-			select {
-			case called <- struct{}{}:
-			default:
-			}
-			<-release
-			return nil, fmt.Errorf(matchersString(ms))
-		}, &timeNowMock{})
-		t.Cleanup(func() { p.Close() })
+				// we'll identify results by each call's error, and the error will be the string value of the first matcher
+				matchersString := func(ms []*labels.Matcher) string {
+					s := strings.Builder{}
+					for i, m := range ms {
+						if i > 0 {
+							s.WriteByte(',')
+						}
+						s.WriteString(m.String())
+					}
+					return s.String()
+				}
+				expectedResults := make([]string, len(calls))
+				for i, c := range calls {
+					expectedResults[i] = c[0].String()
+				}
 
-		results := make([]string, len(calls))
-		resultsWg := sync.WaitGroup{}
-		resultsWg.Add(len(calls))
+				expectedPostingsForMatchersCalls := 5
+				// we'll block all the calls until we receive the exact amount. if we receive more, WaitGroup will panic
+				called := make(chan struct{}, expectedPostingsForMatchersCalls)
+				release := make(chan struct{})
+				var ttl time.Duration
+				if cacheEnabled {
+					ttl = defaultPostingsForMatchersCacheTTL
+				}
+				p := newPromisePostingsForMatchersProvider(ttl, func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
+					select {
+					case called <- struct{}{}:
+					default:
+					}
+					<-release
+					return nil, fmt.Errorf(matchersString(ms))
+				}, &timeNowMock{})
+				t.Cleanup(func() { p.Close() })
 
-		// perform all calls
-		for i := 0; i < len(calls); i++ {
-			go func(i int) {
-				_, err := p.PostingsForMatchers(true, calls[i]...)
-				results[i] = err.Error()
-				resultsWg.Done()
-			}(i)
-		}
+				results := make([]string, len(calls))
+				resultsWg := sync.WaitGroup{}
+				resultsWg.Add(len(calls))
 
-		// wait until all calls arrive to the mocked function
-		for i := 0; i < expectedPostingsForMatchersCalls; i++ {
-			<-called
-		}
+				// perform all calls
+				for i := 0; i < len(calls); i++ {
+					go func(i int) {
+						_, err := p.PostingsForMatchers(true, calls[i]...)
+						results[i] = err.Error()
+						resultsWg.Done()
+					}(i)
+				}
 
-		// let them all return
-		close(release)
+				// wait until all calls arrive to the mocked function
+				for i := 0; i < expectedPostingsForMatchersCalls; i++ {
+					<-called
+				}
 
-		// wait for the results
-		resultsWg.Wait()
+				// let them all return
+				close(release)
 
-		// check that we got correct results
-		for i, c := range calls {
-			require.Equal(t, matchersString(c), results[i], "Call %d should have returned error %q, but got %q instead", i, matchersString(c), results[i])
+				// wait for the results
+				resultsWg.Wait()
+
+				// check that we got correct results
+				for i, c := range calls {
+					require.Equal(t, matchersString(c), results[i], "Call %d should have returned error %q, but got %q instead", i, matchersString(c), results[i])
+				}
+			})
 		}
 	})
 
@@ -135,7 +143,7 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 		expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 
 		var call int
-		p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
+		p := newPromisePostingsForMatchersProvider(defaultPostingsForMatchersCacheTTL, func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
 			call++
 			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
 		}, &timeNowMock{})
@@ -152,6 +160,27 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 		require.EqualError(t, got.Err(), "result from call 2")
 	})
 
+	t.Run("with cache disabled, result is not cached", func(t *testing.T) {
+		expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
+
+		var call int
+		p := newPromisePostingsForMatchersProvider(0, func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
+			call++
+			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
+		}, &timeNowMock{})
+		t.Cleanup(func() { p.Close() })
+
+		// first call, fills the cache
+		got, err := p.PostingsForMatchers(true, expectedMatchers...)
+		require.NoError(t, err)
+		require.EqualError(t, got.Err(), "result from call 1")
+
+		// second call within the ttl (we didn't advance the time), should call again because concurrent==false
+		got, err = p.PostingsForMatchers(true, expectedMatchers...)
+		require.NoError(t, err)
+		require.EqualError(t, got.Err(), "result from call 2")
+	})
+
 	t.Run("cached value is returned, then it expires", func(t *testing.T) {
 		timeNow := &timeNowMock{}
 		expectedMatchers := []*labels.Matcher{
@@ -159,7 +188,7 @@ func TestPromisePostingsForMatchersProvider_PostingsForMatchers(t *testing.T) {
 		}
 
 		var call int
-		p := newPromisePostingsForMatchersProvider(func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
+		p := newPromisePostingsForMatchersProvider(defaultPostingsForMatchersCacheTTL, func(ifp IndexForPostings, ms ...*labels.Matcher) (index.Postings, error) {
 			call++
 			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
 		}, timeNow)
