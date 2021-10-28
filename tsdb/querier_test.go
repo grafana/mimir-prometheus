@@ -2165,6 +2165,7 @@ func TestBlockBaseSeriesSet(t *testing.T) {
 			p:          index.NewListPostings(tc.postings),
 			index:      mi,
 			tombstones: tombstones.NewMemTombstones(),
+			trim:       true,
 		}
 
 		i := 0
