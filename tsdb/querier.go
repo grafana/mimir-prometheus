@@ -538,9 +538,21 @@ func (p *populateWithDelGenericSeriesIterator) next() bool {
 	// This happens when snapshotting the head block or just fetching chunks from TSDB.
 	//
 	// TODO think how to avoid the typecasting to verify when it is head block.
-	_, isSafeChunk := p.currChkMeta.Chunk.(*safeChunk)
+	safeChunk, isSafeChunk := p.currChkMeta.Chunk.(*safeChunk)
 	if len(p.bufIter.Intervals) == 0 && !(isSafeChunk && p.currChkMeta.MaxTime == math.MaxInt64) {
 		// If there are no overlap with deletion intervals AND it's NOT an "open" head chunk, we can take chunk as it is.
+		p.currDelIter = nil
+		return true
+	}
+
+	if len(p.bufIter.Intervals) == 0 && isSafeChunk && p.currChkMeta.MaxTime == math.MaxInt64 {
+		// TODO this logic is also used by compaction. To be on the safer side is better to enable it only when used by Select()
+		p.currChkMeta.Chunk, p.err = safeChunk.ToSafeChunk()
+		if p.err != nil {
+			p.err = errors.Wrapf(p.err, "cannot build safe chunk %d", p.currChkMeta.Ref)
+			return false
+		}
+
 		p.currDelIter = nil
 		return true
 	}
