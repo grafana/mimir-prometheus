@@ -148,6 +148,11 @@ type SelectHints struct {
 
 	ShardIndex uint64 // Current shard index (starts from 0 and up to ShardCount-1).
 	ShardCount uint64 // Total number of shards (0 means sharding is disabled).
+
+	// TrimDisabled allows to disable trimming matching series chunks based on query Start and End time.
+	// When disabled the returned samples may be outside the queried time range but Select() performances
+	// may be improved.
+	TrimDisabled bool
 }
 
 // TODO(bwplotka): Move to promql/engine_test.go?
