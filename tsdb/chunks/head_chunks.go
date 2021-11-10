@@ -63,7 +63,7 @@ const (
 	// MinWriteBufferSize is the minimum write buffer size allowed.
 	MinWriteBufferSize = 64 * 1024 // 64KB.
 	// MaxWriteBufferSize is the maximum write buffer size allowed.
-	MaxWriteBufferSize = 8 * 1024 * 1024 // 8 MiB.
+	MaxWriteBufferSize = 1024 * 1024 * 1024 // 1 GiB.
 	// DefaultWriteBufferSize is the default write buffer size.
 	DefaultWriteBufferSize = 4 * 1024 * 1024 // 4 MiB.
 )
@@ -143,7 +143,7 @@ type mmappedChunkFile struct {
 func NewChunkDiskMapper(dir string, pool chunkenc.Pool, writeBufferSize int) (*ChunkDiskMapper, error) {
 	// Validate write buffer size.
 	if writeBufferSize < MinWriteBufferSize || writeBufferSize > MaxWriteBufferSize {
-		return nil, errors.Errorf("ChunkDiskMapper write buffer size should be between %d and %d (actual: %d)", MinWriteBufferSize, MaxHeadChunkFileSize, writeBufferSize)
+		return nil, errors.Errorf("ChunkDiskMapper write buffer size should be between %d and %d (actual: %d)", MinWriteBufferSize, MaxWriteBufferSize, writeBufferSize)
 	}
 	if writeBufferSize%1024 != 0 {
 		return nil, errors.Errorf("ChunkDiskMapper write buffer size should be a multiple of 1024 (actual: %d)", writeBufferSize)
