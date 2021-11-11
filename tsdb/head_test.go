@@ -1903,6 +1903,7 @@ func TestOutOfOrderSamplesMetric(t *testing.T) {
 	require.NoError(t, app.Commit())
 }
 
+// nolint:unused
 func testHeadSeriesChunkRace(t *testing.T) {
 	h, _ := newTestHead(t, 1000, false)
 	defer func() {
