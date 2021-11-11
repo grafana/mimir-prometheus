@@ -1202,6 +1202,8 @@ func TestTombstoneCleanFail(t *testing.T) {
 // and retention limit policies, when triggered at the same time,
 // won't race against each other.
 func TestTombstoneCleanRetentionLimitsRace(t *testing.T) {
+	t.Skip("disabled because too slow")
+
 	opts := DefaultOptions()
 	var wg sync.WaitGroup
 

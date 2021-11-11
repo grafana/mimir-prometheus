@@ -1797,6 +1797,8 @@ func TestIsolationAppendIDZeroIsNoop(t *testing.T) {
 }
 
 func TestHeadSeriesChunkRace(t *testing.T) {
+	t.Skip("disabled because too slow")
+
 	for i := 0; i < 1000; i++ {
 		testHeadSeriesChunkRace(t)
 	}
@@ -2380,6 +2382,8 @@ func TestMemSafeIteratorSeekIntoBuffer(t *testing.T) {
 
 // Tests https://github.com/prometheus/prometheus/issues/8221.
 func TestChunkNotFoundHeadGCRace(t *testing.T) {
+	t.Skip("disabled because too slow")
+
 	db := newTestDB(t)
 	db.DisableCompactions()
 

@@ -528,6 +528,8 @@ func TestHandleMultipleQuitRequests(t *testing.T) {
 
 // Test for availability of API endpoints in Prometheus Agent mode.
 func TestAgentAPIEndPoints(t *testing.T) {
+	t.Skip("disabled because we don't compile React and this test fails without it")
+
 	t.Parallel()
 
 	opts := &Options{
