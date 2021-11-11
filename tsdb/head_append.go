@@ -605,18 +605,15 @@ func (s *memSeries) mmapCurrentHeadChunk(chunkDiskMapper *chunks.ChunkDiskMapper
 		return
 	}
 
-	chunkRef, err := chunkDiskMapper.WriteChunk(s.ref, s.headChunk.minTime, s.headChunk.maxTime, s.headChunk.chunk)
-	if err != nil {
-		if err != chunks.ErrChunkDiskMapperClosed {
-			panic(err)
-		}
-	}
-	s.mmappedChunks = append(s.mmappedChunks, &mmappedChunk{
-		ref:        chunkRef,
+	mappedChunk := &mmappedChunk{
 		numSamples: uint16(s.headChunk.chunk.NumSamples()),
 		minTime:    s.headChunk.minTime,
 		maxTime:    s.headChunk.maxTime,
-	})
+	}
+
+	chunkDiskMapper.WriteChunk(s.ref, s.headChunk.minTime, s.headChunk.maxTime, s.headChunk.chunk, &mappedChunk.ref)
+
+	s.mmappedChunks = append(s.mmappedChunks, mappedChunk)
 }
 
 // Rollback removes the samples and exemplars from headAppender and writes any series to WAL.
