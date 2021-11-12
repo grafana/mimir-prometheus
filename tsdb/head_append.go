@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 
 	"github.com/go-kit/log/level"
 	"github.com/pkg/errors"
@@ -149,6 +150,13 @@ func (h *Head) AppendableMinValidTime() (int64, bool) {
 	}
 
 	return h.appendableMinValidTime(), true
+}
+
+func min(a, b int64) int64 {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func max(a, b int64) int64 {
@@ -507,7 +515,10 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 	// the remaining chunks in the current chunk range.
 	// At latest it must happen at the timestamp set when the chunk was cut.
 	if numSamples == samplesPerChunk/4 {
-		s.nextAt = computeChunkEndTime(c.minTime, c.maxTime, s.nextAt)
+		maxNextAt := s.nextAt
+
+		s.nextAt = computeChunkEndTime(c.minTime, c.maxTime, maxNextAt)
+		s.nextAt = addJitterToChunkEndTime(c.minTime, s.nextAt, maxNextAt, s.chunkEndTimeVariance)
 	}
 	if t >= s.nextAt {
 		c = s.cutNewHeadChunk(t, chunkDiskMapper)
@@ -540,6 +551,23 @@ func computeChunkEndTime(start, cur, max int64) int64 {
 		return max
 	}
 	return start + (max-start)/n
+}
+
+// addJitterToChunkEndTime return chunk's nextAt applying a jitter based on the provided expected variance.
+func addJitterToChunkEndTime(chunkMinTime, nextAt, maxNextAt int64, variance float64) int64 {
+	if variance <= 0 {
+		return nextAt
+	}
+
+	// Do not apply the jitter if the chunk is expected to be the last one of the chunk range.
+	if nextAt >= maxNextAt {
+		return nextAt
+	}
+
+	chunkDuration := nextAt - chunkMinTime
+	chunkDurationVariance := int64(float64(chunkDuration) * variance)
+
+	return min(maxNextAt, nextAt+rand.Int63n(chunkDurationVariance)-(chunkDurationVariance/2))
 }
 
 func (s *memSeries) cutNewHeadChunk(mint int64, chunkDiskMapper *chunks.ChunkDiskMapper) *memChunk {
