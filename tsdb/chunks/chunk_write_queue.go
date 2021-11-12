@@ -30,7 +30,7 @@ type chunkWriteQueue struct {
 	writeChunk func(uint64, int64, int64, chunkenc.Chunk) (ChunkDiskMapperRef, error)
 }
 
-func newChunkWriteQueue(size int, writeChunk func(uint64, int64, int64, chunkenc.Chunk) (ChunkDiskMapperRef, error)) chunkWriteQueue {
+func newChunkWriteQueue(size int, writeChunk func(uint64, int64, int64, chunkenc.Chunk) (ChunkDiskMapperRef, error)) *chunkWriteQueue {
 	q := chunkWriteQueue{
 		size:       size,
 		jobs:       make([]chunkWriteJob, size),
@@ -41,7 +41,7 @@ func newChunkWriteQueue(size int, writeChunk func(uint64, int64, int64, chunkenc
 
 	q.worker()
 
-	return q
+	return &q
 }
 
 func (c *chunkWriteQueue) add(job chunkWriteJob) {

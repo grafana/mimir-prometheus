@@ -142,8 +142,8 @@ type ChunkDiskMapper struct {
 	// from which chunks are served till they are flushed and are ready for m-mapping.
 	chunkBuffer *chunkBuffer
 
-	// Whether the maxt field is set for all mmapped chunk files tracked within the mmappedChunkFiles map.
-	// This is done after iterating through all the chunks in those files using the IterateAllChunks method.
+	// If 'true', it indicated that the maxt of all the on-disk files were set
+	// after iterating through all the chunks in those files.
 	fileMaxtSet bool
 
 	writeQueue chunkWriteQueue
