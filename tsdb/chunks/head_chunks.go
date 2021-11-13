@@ -186,7 +186,9 @@ func NewChunkDiskMapper(dir string, pool chunkenc.Pool, writeBufferSize, writeQu
 		chunkBuffer:     newChunkBuffer(),
 	}
 
-	m.writeQueue = newChunkWriteQueue(writeQueueSize, m.writeChunk)
+	if writeQueueSize > 0 {
+		m.writeQueue = newChunkWriteQueueStarted(writeQueueSize, m.writeChunk)
+	}
 
 	if m.pool == nil {
 		m.pool = chunkenc.NewPool()
@@ -310,6 +312,15 @@ func repairLastChunkFile(files map[int]string) (_ map[int]string, returnErr erro
 // WriteChunk writes the chunk to the disk.
 // The returned chunk ref is the reference from where the chunk encoding starts for the chunk.
 func (cdm *ChunkDiskMapper) WriteChunk(seriesRef uint64, mint, maxt int64, chk chunkenc.Chunk, ref *ChunkDiskMapperRef) {
+	if cdm.writeQueue == nil {
+		var err error
+		*ref, err = cdm.writeChunk(seriesRef, mint, maxt, chk)
+		if err != nil && err != ErrChunkDiskMapperClosed {
+			panic(err)
+		}
+		return
+	}
+
 	cdm.writeQueue.add(chunkWriteJob{
 		seriesRef: seriesRef,
 		mint:      mint,
@@ -509,7 +520,7 @@ func (cdm *ChunkDiskMapper) Chunk(ref *ChunkDiskMapperRef) (chunkenc.Chunk, erro
 
 	enqueued, sgmIndex, chkStart := ref.Unpack()
 	if enqueued {
-		chunk := cdm.writeQueue.get(*ref)
+		chunk := cdm.writeQueue.get(ref)
 		if chunk != nil {
 			return chunk, nil
 		}
@@ -837,7 +848,9 @@ func (cdm *ChunkDiskMapper) curFileSize() int64 {
 // Close closes all the open files in ChunkDiskMapper.
 // It is not longer safe to access chunks from this struct after calling Close.
 func (cdm *ChunkDiskMapper) Close() error {
-	cdm.writeQueue.Close()
+	if cdm.writeQueue != nil {
+		cdm.writeQueue.stop()
+	}
 
 	// 'WriteChunk' locks writePathMtx first and then readPathMtx for cutting head chunk file.
 	// The lock order should not be reversed here else it can cause deadlocks.
