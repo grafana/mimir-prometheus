@@ -30,18 +30,71 @@ type chunkWriteQueue struct {
 	writeChunk func(uint64, int64, int64, chunkenc.Chunk) (ChunkDiskMapperRef, error)
 }
 
-func newChunkWriteQueue(size int, writeChunk func(uint64, int64, int64, chunkenc.Chunk) (ChunkDiskMapperRef, error)) *chunkWriteQueue {
-	q := chunkWriteQueue{
+type writeChunkF func(uint64, int64, int64, chunkenc.Chunk) (ChunkDiskMapperRef, error)
+
+func newChunkWriteQueueStarted(size int, writeChunk writeChunkF) *chunkWriteQueue {
+	q := newChunkWriteQueue(size, writeChunk)
+	q.start()
+	return q
+}
+
+func newChunkWriteQueue(size int, writeChunk writeChunkF) *chunkWriteQueue {
+	return &chunkWriteQueue{
 		size:       size,
 		jobs:       make([]chunkWriteJob, size),
+		headPos:    -1,
+		tailPos:    -1,
 		sizeLimit:  make(chan struct{}, size),
 		workerCtrl: make(chan struct{}),
 		writeChunk: writeChunk,
 	}
+}
 
-	q.worker()
+func (c *chunkWriteQueue) start() {
+	c.workerWg.Add(1)
 
-	return &q
+	go func() {
+		defer c.workerWg.Done()
+
+		for range c.workerCtrl {
+			for !c.queueIsEmpty() {
+				c.processJob()
+			}
+		}
+	}()
+}
+
+func (c *chunkWriteQueue) queueIsEmpty() bool {
+	c.jobMtx.RLock()
+	defer c.jobMtx.RUnlock()
+
+	return c._queueIsEmpty()
+}
+
+func (c *chunkWriteQueue) _queueIsEmpty() bool {
+	return c.headPos < 0 || c.tailPos < 0
+}
+
+func (c *chunkWriteQueue) processJob() {
+	c.jobMtx.Lock()
+	defer c.jobMtx.Unlock()
+
+	if c._queueIsEmpty() {
+		return
+	}
+
+	job := c.jobs[c.tailPos]
+	ref, err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk)
+	if err != nil && err != ErrChunkDiskMapperClosed {
+		panic(err)
+	}
+	atomic.StoreUint64((*uint64)(job.ref), uint64(ref))
+	c.tailPos = (c.tailPos + 1) % c.size
+	if c.tailPos == c.headPos {
+		c.tailPos = -1
+		c.headPos = -1
+	}
+	<-c.sizeLimit
 }
 
 func (c *chunkWriteQueue) add(job chunkWriteJob) {
@@ -51,6 +104,9 @@ func (c *chunkWriteQueue) add(job chunkWriteJob) {
 	c.jobMtx.Lock()
 	c.headPos = (c.headPos + 1) % c.size
 	c.jobs[c.headPos] = job
+	if c.tailPos < 0 {
+		c.tailPos = c.headPos
+	}
 	atomic.StoreUint64((*uint64)(job.ref), uint64(ChunkDiskMapperRef(c.headPos).Enqueued()))
 	c.jobMtx.Unlock()
 
@@ -61,16 +117,14 @@ func (c *chunkWriteQueue) add(job chunkWriteJob) {
 	}
 }
 
-func (c *chunkWriteQueue) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
-	enqueued, _, _ := ref.Unpack()
+func (c *chunkWriteQueue) get(ref *ChunkDiskMapperRef) chunkenc.Chunk {
+	c.jobMtx.RLock()
+	defer c.jobMtx.RUnlock()
+
+	enqueued, _, queuePos := ref.Unpack()
 	if !enqueued {
 		return nil
 	}
-
-	queuePos := int(ref)
-
-	c.jobMtx.RLock()
-	defer c.jobMtx.RUnlock()
 
 	if c.headPos < c.tailPos && c.headPos < queuePos && c.tailPos > queuePos {
 		// positions are wrapped around the size limit
@@ -85,35 +139,7 @@ func (c *chunkWriteQueue) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
 	return c.jobs[queuePos].chk
 }
 
-func (c *chunkWriteQueue) worker() {
-	c.workerWg.Add(1)
-
-	go func() {
-		defer c.workerWg.Done()
-
-		for range c.workerCtrl {
-			queueIsEmpty := false
-			for !queueIsEmpty {
-				c.jobMtx.Lock()
-				defer c.jobMtx.Unlock()
-
-				queueIsEmpty = c.headPos == c.tailPos
-				if !queueIsEmpty {
-					job := c.jobs[c.tailPos]
-					ref, err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk)
-					if err != ErrChunkDiskMapperClosed {
-						panic(err)
-					}
-					atomic.StoreUint64((*uint64)(job.ref), uint64(ref))
-					c.tailPos = (c.tailPos + 1) % c.size
-					<-c.sizeLimit
-				}
-			}
-		}
-	}()
-}
-
-func (c *chunkWriteQueue) Close() {
+func (c *chunkWriteQueue) stop() {
 	close(c.workerCtrl)
 	c.workerWg.Wait()
 }
