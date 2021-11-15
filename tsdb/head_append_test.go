@@ -3,7 +3,6 @@ package tsdb
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -23,13 +22,13 @@ func TestAddJitterToChunkEndTime_Jitter(t *testing.T) {
 func TestAddJitterToChunkEndTime_ShouldNotApplyJitterToTheLastChunkOfTheRange(t *testing.T) {
 	// Since the jitter could also be 0, we try it multiple times.
 	for i := 0; i < 10; i++ {
-		assert.Equal(t, int64(200), addJitterToChunkEndTime(150, 200, 200, 0.2))
+		require.Equal(t, int64(200), addJitterToChunkEndTime(150, 200, 200, 0.2))
 	}
 }
 
 func TestAddJitterToChunkEndTime_ShouldNotApplyJitterIfDisabled(t *testing.T) {
 	// Since the jitter could also be 0, we try it multiple times.
 	for i := 0; i < 10; i++ {
-		assert.Equal(t, int64(130), addJitterToChunkEndTime(100, 130, 200, 0))
+		require.Equal(t, int64(130), addJitterToChunkEndTime(100, 130, 200, 0))
 	}
 }
