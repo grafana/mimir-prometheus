@@ -12,9 +12,12 @@ func TestAddJitterToChunkEndTime_ShouldHonorMaxVarianceAndMaxNextAt(t *testing.T
 	maxNextAt := int64(100)
 	variance := 0.2
 
+	// Compute the expected max variance.
+	expectedMaxVariance := int64(float64(nextAt-chunkMinTime) * variance)
+
 	for seriesHash := uint64(0); seriesHash < 1000; seriesHash++ {
 		actual := addJitterToChunkEndTime(seriesHash, chunkMinTime, nextAt, maxNextAt, variance)
-		require.GreaterOrEqual(t, actual, int64(95-8))
+		require.GreaterOrEqual(t, actual, nextAt-(expectedMaxVariance/2))
 		require.LessOrEqual(t, actual, maxNextAt)
 	}
 }
@@ -34,8 +37,8 @@ func TestAddJitterToChunkEndTime_Distribution(t *testing.T) {
 
 	for seriesHash := uint64(0); seriesHash < numSeries; seriesHash++ {
 		actual := addJitterToChunkEndTime(seriesHash, chunkMinTime, nextAt, maxNextAt, variance)
-		require.GreaterOrEqual(t, actual, 50-(expectedMaxVariance/2))
-		require.LessOrEqual(t, actual, 50+(expectedMaxVariance/2))
+		require.GreaterOrEqual(t, actual, nextAt-(expectedMaxVariance/2))
+		require.LessOrEqual(t, actual, nextAt+(expectedMaxVariance/2))
 		require.LessOrEqual(t, actual, maxNextAt)
 
 		variance := nextAt - actual
