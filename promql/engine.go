@@ -58,6 +58,7 @@ const (
 
 type engineMetrics struct {
 	currentQueries       prometheus.Gauge
+	samplesLoaded        prometheus.Histogram
 	maxConcurrentQueries prometheus.Gauge
 	queryLogEnabled      prometheus.Gauge
 	queryLogFailures     prometheus.Counter
@@ -268,6 +269,13 @@ func NewEngine(opts EngineOpts) *Engine {
 			Name:      "queries",
 			Help:      "The current number of queries being executed or waiting.",
 		}),
+		samplesLoaded: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "query_samples",
+			Help:      "The number of samples loaded for executed queries.",
+			Buckets:   []float64{10_000, 100_000, 1_000_000, 10_000_000},
+		}),
 		queryLogEnabled: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Subsystem: subsystem,
@@ -308,6 +316,7 @@ func NewEngine(opts EngineOpts) *Engine {
 	if opts.Reg != nil {
 		opts.Reg.MustRegister(
 			metrics.currentQueries,
+			metrics.samplesLoaded,
 			metrics.maxConcurrentQueries,
 			metrics.queryLogEnabled,
 			metrics.queryLogFailures,
@@ -643,6 +652,7 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 		noStepSubqueryIntervalFn: ng.noStepSubqueryIntervalFn,
 	}
 	val, warnings, err := evaluator.Eval(s.Expr)
+	ng.metrics.samplesLoaded.Observe(float64(evaluator.currentSamples))
 	if err != nil {
 		return nil, warnings, err
 	}
