@@ -2,13 +2,12 @@ package chunks
 
 import (
 	"sync"
-	"sync/atomic"
 
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
 
 type chunkWriteJob struct {
-	seriesRef uint64
+	seriesRef HeadSeriesRef
 	mint      int64
 	maxt      int64
 	chk       chunkenc.Chunk
@@ -27,10 +26,10 @@ type chunkWriteQueue struct {
 	workerCtrl chan struct{}
 	workerWg   sync.WaitGroup
 
-	writeChunk func(uint64, int64, int64, chunkenc.Chunk) (ChunkDiskMapperRef, error)
+	writeChunk writeChunkF
 }
 
-type writeChunkF func(uint64, int64, int64, chunkenc.Chunk) (ChunkDiskMapperRef, error)
+type writeChunkF func(HeadSeriesRef, int64, int64, chunkenc.Chunk, *ChunkDiskMapperRef) error
 
 func newChunkWriteQueueStarted(size int, writeChunk writeChunkF) *chunkWriteQueue {
 	q := newChunkWriteQueue(size, writeChunk)
@@ -84,11 +83,11 @@ func (c *chunkWriteQueue) processJob() {
 	}
 
 	job := c.jobs[c.tailPos]
-	ref, err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk)
+	err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk, job.ref)
 	if err != nil && err != ErrChunkDiskMapperClosed {
 		panic(err)
 	}
-	atomic.StoreUint64((*uint64)(job.ref), uint64(ref))
+
 	c.tailPos = (c.tailPos + 1) % c.size
 	if c.tailPos == c.headPos {
 		c.tailPos = -1
@@ -107,7 +106,7 @@ func (c *chunkWriteQueue) add(job chunkWriteJob) {
 	if c.tailPos < 0 {
 		c.tailPos = c.headPos
 	}
-	atomic.StoreUint64((*uint64)(job.ref), uint64(ChunkDiskMapperRef(c.headPos).Enqueued()))
+	job.ref.SetEnqueued(true)
 	c.jobMtx.Unlock()
 
 	select {
@@ -126,12 +125,12 @@ func (c *chunkWriteQueue) get(ref *ChunkDiskMapperRef) chunkenc.Chunk {
 		return nil
 	}
 
-	if c.headPos < c.tailPos && c.headPos < queuePos && c.tailPos > queuePos {
+	if c.headPos < c.tailPos && uint64(c.headPos) < queuePos && uint64(c.tailPos) > queuePos {
 		// positions are wrapped around the size limit
 		return nil
 	}
 
-	if c.headPos > c.tailPos && (c.headPos > queuePos || c.tailPos < queuePos) {
+	if c.headPos > c.tailPos && (uint64(c.headPos) > queuePos || uint64(c.tailPos) < queuePos) {
 		// positions are in increasing order
 		return nil
 	}
