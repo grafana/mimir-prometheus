@@ -402,6 +402,7 @@ func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		seriesRef: seriesRef,
 		mint:      mint,
 		maxt:      maxt,
+		chk:       chk,
 		ref:       ref,
 	})
 }
