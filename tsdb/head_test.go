@@ -64,7 +64,7 @@ func newTestHead(t testing.TB, chunkRange int64, compressWAL bool) (*Head, *wal.
 	h, err := NewHead(nil, nil, wlog, opts, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, h.chunkDiskMapper.IterateAllChunks(func(_ chunks.HeadSeriesRef, _ chunks.ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
+	require.NoError(t, h.chunkDiskMapper.IterateAllChunks(func(_ chunks.HeadSeriesRef, _ *chunks.ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
 
 	t.Cleanup(func() {
 		require.NoError(t, os.RemoveAll(dir))
@@ -224,7 +224,7 @@ func BenchmarkLoadWAL(b *testing.B) {
 
 					// Write mmapped chunks.
 					if c.mmappedChunkT != 0 {
-						chunkDiskMapper, err := chunks.NewChunkDiskMapper(mmappedChunksDir(dir), chunkenc.NewPool(), chunks.DefaultWriteBufferSize)
+						chunkDiskMapper, err := chunks.NewChunkDiskMapper(mmappedChunksDir(dir), chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
 						require.NoError(b, err)
 						for k := 0; k < c.batches*c.seriesPerBatch; k++ {
 							// Create one mmapped chunk per series, with one sample at the given time.
@@ -541,7 +541,7 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 		require.NoError(t, os.RemoveAll(dir))
 	}()
 	// This is usually taken from the Head, but passing manually here.
-	chunkDiskMapper, err := chunks.NewChunkDiskMapper(dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize)
+	chunkDiskMapper, err := chunks.NewChunkDiskMapper(dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, chunkDiskMapper.Close())
@@ -1086,7 +1086,7 @@ func TestMemSeries_append(t *testing.T) {
 		require.NoError(t, os.RemoveAll(dir))
 	}()
 	// This is usually taken from the Head, but passing manually here.
-	chunkDiskMapper, err := chunks.NewChunkDiskMapper(dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize)
+	chunkDiskMapper, err := chunks.NewChunkDiskMapper(dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, chunkDiskMapper.Close())
@@ -1131,7 +1131,7 @@ func TestMemSeries_append(t *testing.T) {
 
 	// All chunks but the first and last should now be moderately full.
 	for i, c := range s.mmappedChunks[1:] {
-		chk, err := chunkDiskMapper.Chunk(c.ref)
+		chk, err := chunkDiskMapper.Chunk(&c.ref)
 		require.NoError(t, err)
 		require.Greater(t, chk.NumSamples(), 100, "unexpected small chunk %d of length %d", i, chk.NumSamples())
 	}
@@ -2337,7 +2337,7 @@ func TestMemSafeIteratorSeekIntoBuffer(t *testing.T) {
 		require.NoError(t, os.RemoveAll(dir))
 	}()
 	// This is usually taken from the Head, but passing manually here.
-	chunkDiskMapper, err := chunks.NewChunkDiskMapper(dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize)
+	chunkDiskMapper, err := chunks.NewChunkDiskMapper(dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, chunkDiskMapper.Close())
