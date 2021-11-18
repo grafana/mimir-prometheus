@@ -1,9 +1,7 @@
 package chunks
 
-/*
 import (
 	"testing"
-	"time"
 
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/stretchr/testify/require"
@@ -31,19 +29,20 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 	var gotSeriesRef uint64
 	var gotMint, gotMaxt int64
 	var gotChunk chunkenc.Chunk
-	testChunkRef := ChunkDiskMapperRef(4)
+	var gotRef *ChunkDiskMapperRef
 
-	chunkWriter := func(seriesRef uint64, mint int64, maxt int64, chunk chunkenc.Chunk) (ChunkDiskMapperRef, error) {
+	chunkWriter := func(seriesRef uint64, mint int64, maxt int64, chunk chunkenc.Chunk, ref *ChunkDiskMapperRef) error {
 		gotSeriesRef = seriesRef
 		gotMint = mint
 		gotMaxt = maxt
 		gotChunk = chunk
-		return testChunkRef, nil
+		gotRef = ref
+		return nil
 	}
 	q := newChunkWriteQueueStarted(1000, chunkWriter)
 
-	testChunk := chunkenc.NewXORChunk()
-	var ref ChunkDiskMapperRef
+	chunk := chunkenc.NewXORChunk()
+	ref := newChunkDiskMapperRef(true, 3, 2)
 	var seriesRef uint64 = 1
 	var mint, maxt int64 = 2, 3
 
@@ -51,21 +50,17 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 		seriesRef: seriesRef,
 		mint:      mint,
 		maxt:      maxt,
-		chk:       testChunk,
-		ref:       &ref,
+		chk:       chunk,
+		ref:       ref,
 	}
-	time.Sleep(time.Second)
 	q.add(job)
 
-	time.Sleep(time.Second)
 	// waits for queue to be consumed
 	q.stop()
 
-	time.Sleep(time.Second)
 	require.Equal(t, seriesRef, gotSeriesRef)
 	require.Equal(t, mint, gotMint)
 	require.Equal(t, maxt, gotMaxt)
-	require.Equal(t, testChunk, gotChunk)
-	require.Equal(t, *job.ref, testChunkRef)
+	require.Equal(t, chunk, gotChunk)
+	require.Equal(t, ref.Load(), gotRef.Load())
 }
-*/
