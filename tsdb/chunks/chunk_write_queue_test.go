@@ -40,7 +40,7 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 		gotRef = ref
 		return nil
 	}
-	q := newChunkWriteQueueStarted(1000, chunkWriter)
+	q := newChunkWriteQueue(1000, chunkWriter)
 
 	chunk := chunkenc.NewXORChunk()
 	ref := newChunkDiskMapperRef(true, 3, 2)
@@ -56,9 +56,27 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 	}
 	q.add(job)
 
-	// waits for queue to be consumed
+	// reference should be marked as enqueued
+	gotEnqueued := ref.GetEnqueued()
+	require.Equal(t, true, gotEnqueued)
+
+	// queue should have one job
+	require.Equal(t, q.queueIsEmpty(), false)
+
+	// start processing of queue
+	q.start()
+
+	// wait for queue to be consumed
 	q.stop()
 
+	// queue should be empty
+	require.Equal(t, q.queueIsEmpty(), true)
+
+	// reference should be marked as not enqueued
+	gotEnqueued = ref.GetEnqueued()
+	require.Equal(t, false, gotEnqueued)
+
+	// compare whether the write function has received all job attributes correctly
 	require.Equal(t, seriesRef, gotSeriesRef)
 	require.Equal(t, mint, gotMint)
 	require.Equal(t, maxt, gotMaxt)
