@@ -44,7 +44,7 @@ func newChunkWriteQueue(size int, writeChunk writeChunkF) *chunkWriteQueue {
 		headPos:    -1,
 		tailPos:    -1,
 		sizeLimit:  make(chan struct{}, size),
-		workerCtrl: make(chan struct{}),
+		workerCtrl: make(chan struct{}, size),
 		writeChunk: writeChunk,
 	}
 }
@@ -112,7 +112,7 @@ func (c *chunkWriteQueue) add(job chunkWriteJob) {
 	c.jobMtx.Unlock()
 
 	select {
-	// non-blocking write to wake up worker because there is a new job
+	// non-blocking write to wake up worker because there is at least one job ready to consume
 	case c.workerCtrl <- struct{}{}:
 	default:
 	}
