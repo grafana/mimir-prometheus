@@ -88,6 +88,7 @@ func (c *chunkWriteQueue) processJob() {
 		panic(err)
 	}
 
+	job.ref.SetEnqueued(false)
 	if c.tailPos == c.headPos {
 		// Consumed the whole queue, resetting to empty state.
 		c.tailPos = -1
@@ -95,6 +96,7 @@ func (c *chunkWriteQueue) processJob() {
 	} else {
 		c.tailPos = (c.tailPos + 1) % c.size
 	}
+
 	<-c.sizeLimit
 }
 
