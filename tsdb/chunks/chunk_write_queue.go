@@ -75,22 +75,25 @@ func (c *chunkWriteQueue) _queueIsEmpty() bool {
 }
 
 func (c *chunkWriteQueue) processJob() {
-	c.jobMtx.Lock()
-	defer c.jobMtx.Unlock()
-
-	if c._queueIsEmpty() {
+	job, ok := c.getJob()
+	if !ok {
 		return
 	}
 
-	job := c.jobs[c.tailPos]
 	err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk, job.ref)
 	if err != nil && err != ErrChunkDiskMapperClosed {
 		panic(err)
 	}
 
-	job.ref.SetEnqueued(false)
+	c.advanceTail()
+}
+
+func (c *chunkWriteQueue) advanceTail() {
+	c.jobMtx.Lock()
+	defer c.jobMtx.Unlock()
+
 	if c.tailPos == c.headPos {
-		// Consumed the whole queue, resetting to empty state.
+		// Queue is empty.
 		c.tailPos = -1
 		c.headPos = -1
 	} else {
@@ -100,18 +103,30 @@ func (c *chunkWriteQueue) processJob() {
 	<-c.sizeLimit
 }
 
-func (c *chunkWriteQueue) add(job chunkWriteJob) {
+func (c *chunkWriteQueue) getJob() (chunkWriteJob, bool) {
+	c.jobMtx.Lock()
+	defer c.jobMtx.Unlock()
+
+	if c._queueIsEmpty() {
+		return chunkWriteJob{}, false
+	}
+
+	return c.jobs[c.tailPos], true
+}
+
+func (c *chunkWriteQueue) addJob(job chunkWriteJob) {
 	// if queue is full then block here
 	c.sizeLimit <- struct{}{}
 
 	c.jobMtx.Lock()
+	defer c.jobMtx.Unlock()
+
 	c.headPos = (c.headPos + 1) % c.size
 	c.jobs[c.headPos] = job
 	if c.tailPos < 0 {
 		c.tailPos = c.headPos
 	}
-	job.ref.SetEnqueued(true)
-	c.jobMtx.Unlock()
+	job.ref.Pack(true, 0, uint64(c.headPos))
 
 	select {
 	// non-blocking write to wake up worker because there is at least one job ready to consume
@@ -134,7 +149,7 @@ func (c *chunkWriteQueue) get(ref *ChunkDiskMapperRef) chunkenc.Chunk {
 		return nil
 	}
 
-	if c.headPos > c.tailPos && (uint64(c.headPos) > queuePos || uint64(c.tailPos) < queuePos) {
+	if c.headPos > c.tailPos && (uint64(c.headPos) < queuePos || uint64(c.tailPos) > queuePos) {
 		// positions are in increasing order
 		return nil
 	}
