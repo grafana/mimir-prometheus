@@ -19,7 +19,7 @@ func TestChunkWriteQueueReadingFromQueue(t *testing.T) {
 		chk: testChunk,
 		ref: &ref,
 	}
-	q.add(job)
+	q.addJob(job)
 
 	gotChunk := q.get(&ref)
 
@@ -54,7 +54,7 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 		chk:       chunk,
 		ref:       ref,
 	}
-	q.add(job)
+	q.addJob(job)
 
 	// reference should be marked as enqueued
 	gotEnqueued := ref.GetEnqueued()

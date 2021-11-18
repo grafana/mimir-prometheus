@@ -398,7 +398,7 @@ func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		return
 	}
 
-	cdm.writeQueue.add(chunkWriteJob{
+	cdm.writeQueue.addJob(chunkWriteJob{
 		seriesRef: seriesRef,
 		mint:      mint,
 		maxt:      maxt,
@@ -432,7 +432,7 @@ func (cdm *ChunkDiskMapper) writeChunk(seriesRef HeadSeriesRef, mint, maxt int64
 	cdm.crc32.Reset()
 	bytesWritten := 0
 
-	ref.Pack(false, uint64(cdm.curFileSequence), uint64(cdm.curFileSize()))
+	sgmIndex, chkStart := uint64(cdm.curFileSequence), uint64(cdm.curFileSize())
 
 	binary.BigEndian.PutUint64(cdm.byteBuf[bytesWritten:], uint64(seriesRef))
 	bytesWritten += SeriesRefSize
@@ -459,6 +459,7 @@ func (cdm *ChunkDiskMapper) writeChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		cdm.curFileMaxt = maxt
 	}
 
+	ref.Pack(false, sgmIndex, chkStart)
 	cdm.chunkBuffer.put(ref, chk)
 
 	if len(chk.Bytes())+MaxHeadChunkMetaSize >= cdm.writeBufferSize {
@@ -603,11 +604,14 @@ func (cdm *ChunkDiskMapper) Chunk(ref *ChunkDiskMapperRef) (chunkenc.Chunk, erro
 			return chunk, nil
 		}
 
-		// If chunk is still enqueued but it wasn't found in the queue then the reference is invalid
-		if enqueued, _, _ = ref.Unpack(); enqueued {
+		// The chunk might have been written in the meantime.
+		enqueued, sgmIndexUint64, chkStartUint64 = ref.Unpack()
+		if enqueued {
+			// If chunk is still enqueued but it wasn't found in the queue then the reference is corrupted
 			return nil, errors.Errorf("chunk should be enqueued but is not in queue")
 		}
 	}
+
 	sgmIndex, chkStart := int(sgmIndexUint64), int(chkStartUint64)
 
 	// We skip the series ref and the mint/maxt beforehand.
