@@ -3,11 +3,12 @@ package chunks
 import (
 	"testing"
 
-	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/stretchr/testify/require"
+
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
 
-var noopChunkWriter = func(_ uint64, _ int64, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error { return nil }
+var noopChunkWriter = func(_ uint64, _, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error { return nil }
 
 func TestChunkWriteQueueReadingFromQueue(t *testing.T) {
 	q := newChunkWriteQueue(1000, noopChunkWriter)
@@ -31,7 +32,7 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 	var gotChunk chunkenc.Chunk
 	var gotRef *ChunkDiskMapperRef
 
-	chunkWriter := func(seriesRef uint64, mint int64, maxt int64, chunk chunkenc.Chunk, ref *ChunkDiskMapperRef) error {
+	chunkWriter := func(seriesRef uint64, mint, maxt int64, chunk chunkenc.Chunk, ref *ChunkDiskMapperRef) error {
 		gotSeriesRef = seriesRef
 		gotMint = mint
 		gotMaxt = maxt
