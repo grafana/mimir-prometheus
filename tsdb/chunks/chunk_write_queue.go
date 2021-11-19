@@ -126,7 +126,7 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) {
 	if c.tailPos < 0 {
 		c.tailPos = c.headPos
 	}
-	job.ref.Pack(true, 0, uint64(c.headPos))
+	job.ref.SetPositionInQueue(uint64(c.headPos))
 
 	select {
 	// non-blocking write to wake up worker because there is at least one job ready to consume
@@ -139,8 +139,8 @@ func (c *chunkWriteQueue) get(ref *ChunkDiskMapperRef) chunkenc.Chunk {
 	c.jobMtx.RLock()
 	defer c.jobMtx.RUnlock()
 
-	enqueued, _, queuePos := ref.Unpack()
-	if !enqueued {
+	ok, queuePos := ref.GetPositionInQueue()
+	if !ok {
 		return nil
 	}
 

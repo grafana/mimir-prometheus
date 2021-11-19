@@ -70,7 +70,9 @@ func TestChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 
 				// Calculating expected bytes written on disk for first file.
 				firstFileName = hrw.curFile.Name()
-				require.Equal(t, newChunkDiskMapperRef(false, 1, nextChunkOffset), chkRef)
+				ref := &ChunkDiskMapperRef{}
+				ref.SetPositionInFile(1, nextChunkOffset)
+				require.Equal(t, ref, chkRef)
 
 				bytesWritten := 0
 				chkCRC32.Reset()
@@ -313,6 +315,39 @@ func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 	hrw, err = NewChunkDiskMapper(dir, chunkenc.NewPool(), DefaultWriteBufferSize, 0)
 	require.NoError(t, err)
 	verifyFiles([]int{3, 4, 5, 6, 7})
+}
+
+func TestChunkDiskMapperRef_TestMutatingValues(t *testing.T) {
+	ref := ChunkDiskMapperRef{}
+
+	qPos := uint64(1234)
+	ref.SetPositionInQueue(qPos)
+
+	ok, gotQPos := ref.GetPositionInQueue()
+	require.True(t, ok)
+	require.Equal(t, qPos, gotQPos)
+
+	ok, _, _ = ref.GetPositionInFile()
+	require.False(t, ok)
+
+	sgmIndex, chkStart := uint64(34), uint64(9300)
+	ref.SetPositionInFile(sgmIndex, chkStart)
+
+	ok, gotSgmIndex, gotChkStart := ref.GetPositionInFile()
+	require.True(t, ok)
+	require.Equal(t, sgmIndex, gotSgmIndex)
+	require.Equal(t, chkStart, gotChkStart)
+
+	ok, _ = ref.GetPositionInQueue()
+	require.False(t, ok)
+
+	refCopy := ChunkDiskMapperRef{}
+	refCopy.Set(ref.Load())
+
+	ok, gotSgmIndex, gotChkStart = refCopy.GetPositionInFile()
+	require.True(t, ok)
+	require.Equal(t, sgmIndex, gotSgmIndex)
+	require.Equal(t, chkStart, gotChkStart)
 }
 
 // TestHeadReadWriter_TruncateAfterIterateChunksError tests for
