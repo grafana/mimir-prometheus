@@ -256,7 +256,7 @@ func NewChunkDiskMapper(dir string, pool chunkenc.Pool, writeBufferSize, writeQu
 	}
 
 	if writeQueueSize > 0 {
-		m.writeQueue = newChunkWriteQueueStarted(writeQueueSize, m.writeChunk)
+		m.writeQueue = newChunkWriteQueue(writeQueueSize, m.writeChunk)
 	}
 
 	if m.pool == nil {
@@ -709,8 +709,8 @@ func (cdm *ChunkDiskMapper) Chunk(ref *ChunkDiskMapperRef) (chunkenc.Chunk, erro
 
 // IterateAllChunks iterates all mmappedChunkFiles (in order of head chunk file name/number) and all the chunks within it
 // and runs the provided function with information about each chunk. It returns on the first error encountered.
-// NOTE: This method needs to be called at least once after creating ChunkDiskMapper
-// to set the maxt of all the file.
+// NOTE: This method needs to be called at least once after creating ChunkDiskMapper to set the maxt of all the file.
+// NOTE: This method only iterates over chunks that have already been written to the disk, not those in the write queue.
 func (cdm *ChunkDiskMapper) IterateAllChunks(f func(seriesRef HeadSeriesRef, chunkRef *ChunkDiskMapperRef, mint, maxt int64, numSamples uint16) error) (err error) {
 	cdm.writePathMtx.Lock()
 	defer cdm.writePathMtx.Unlock()
