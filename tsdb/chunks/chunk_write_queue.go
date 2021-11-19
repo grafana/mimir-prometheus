@@ -31,14 +31,8 @@ type chunkWriteQueue struct {
 
 type writeChunkF func(HeadSeriesRef, int64, int64, chunkenc.Chunk, *ChunkDiskMapperRef) error
 
-func newChunkWriteQueueStarted(size int, writeChunk writeChunkF) *chunkWriteQueue {
-	q := newChunkWriteQueue(size, writeChunk)
-	q.start()
-	return q
-}
-
 func newChunkWriteQueue(size int, writeChunk writeChunkF) *chunkWriteQueue {
-	return &chunkWriteQueue{
+	q := &chunkWriteQueue{
 		size:       size,
 		jobs:       make([]chunkWriteJob, size),
 		headPos:    -1,
@@ -47,6 +41,8 @@ func newChunkWriteQueue(size int, writeChunk writeChunkF) *chunkWriteQueue {
 		workerCtrl: make(chan struct{}, size),
 		writeChunk: writeChunk,
 	}
+	q.start()
+	return q
 }
 
 func (c *chunkWriteQueue) start() {
@@ -160,4 +156,7 @@ func (c *chunkWriteQueue) get(ref *ChunkDiskMapperRef) chunkenc.Chunk {
 func (c *chunkWriteQueue) stop() {
 	close(c.workerCtrl)
 	c.workerWg.Wait()
+
+	// restore workerCtrl to make it possible to add jobs to the queue while it is stopped.
+	c.workerCtrl = make(chan struct{}, c.size)
 }

@@ -2,6 +2,7 @@ package chunks
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -12,6 +13,7 @@ var noopChunkWriter = func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ *Chu
 
 func TestChunkWriteQueue_GettingChunkFromQueue(t *testing.T) {
 	q := newChunkWriteQueue(1000, noopChunkWriter)
+	q.stop()
 
 	testChunk := chunkenc.NewXORChunk()
 	var ref ChunkDiskMapperRef
@@ -41,6 +43,7 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 		return nil
 	}
 	q := newChunkWriteQueue(1000, chunkWriter)
+	q.stop()
 
 	chunk := chunkenc.NewXORChunk()
 	ref := &ChunkDiskMapperRef{}
@@ -65,11 +68,9 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	// queue should have one job
 	require.Equal(t, q.queueIsEmpty(), false)
 
-	// start processing of queue
+	// process the queue
 	q.start()
-
-	// wait for queue to be consumed
-	q.stop()
+	waitUntilConsumed(t, q)
 
 	// queue should be empty
 	require.Equal(t, q.queueIsEmpty(), true)
@@ -80,4 +81,18 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	require.Equal(t, maxt, gotMaxt)
 	require.Equal(t, chunk, gotChunk)
 	require.Equal(t, ref.Load(), gotRef.Load())
+}
+
+func waitUntilConsumed(t *testing.T, q *chunkWriteQueue) {
+	timeout := time.Second
+	checkInterval := time.Millisecond * 10
+	startTime := time.Now()
+	for range time.After(checkInterval) {
+		if q.queueIsEmpty() {
+			return
+		}
+		if time.Since(startTime) > timeout {
+			t.Fatalf("Timed out waiting for queue to be consumed")
+		}
+	}
 }
