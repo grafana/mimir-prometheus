@@ -10,7 +10,7 @@ import (
 
 var noopChunkWriter = func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error { return nil }
 
-func TestChunkWriteQueueReadingFromQueue(t *testing.T) {
+func TestChunkWriteQueue_GettingChunkFromQueue(t *testing.T) {
 	q := newChunkWriteQueue(1000, noopChunkWriter)
 
 	testChunk := chunkenc.NewXORChunk()
@@ -26,7 +26,7 @@ func TestChunkWriteQueueReadingFromQueue(t *testing.T) {
 	require.Equal(t, testChunk, gotChunk)
 }
 
-func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
+func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	var gotSeriesRef HeadSeriesRef
 	var gotMint, gotMaxt int64
 	var gotChunk chunkenc.Chunk
@@ -43,7 +43,8 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 	q := newChunkWriteQueue(1000, chunkWriter)
 
 	chunk := chunkenc.NewXORChunk()
-	ref := newChunkDiskMapperRef(true, 3, 2)
+	ref := &ChunkDiskMapperRef{}
+	ref.SetPositionInQueue(2)
 	var seriesRef HeadSeriesRef = 1
 	var mint, maxt int64 = 2, 3
 
@@ -57,8 +58,9 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 	q.addJob(job)
 
 	// reference should be marked as enqueued
-	gotEnqueued := ref.GetEnqueued()
-	require.Equal(t, true, gotEnqueued)
+	ok, pos := ref.GetPositionInQueue()
+	require.Equal(t, true, ok)
+	require.Equal(t, uint64(0), pos)
 
 	// queue should have one job
 	require.Equal(t, q.queueIsEmpty(), false)

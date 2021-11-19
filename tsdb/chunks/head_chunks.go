@@ -70,24 +70,34 @@ const (
 )
 
 // ChunkDiskMapperRef represents the location of a head chunk.
-// The first bit indicates whether this chunk is still enqueued in the chunk disk mapper write queue.
-// The next 31 bit hold the segment index of the head chunk file.
-// The lower 4 bytes hold the byte offset in the head chunk file where the chunk starts.
-// This type should never be copied, as it relies on atomics.
+// Head chunks might be in the chunk write queue or in the head chunk file, the first bit of the ChunkDiskMapperRef
+// indicates which of the two a chunk is currently in, the remaining bits are used to store the location of the chunk
+// either in the chunk write queue or in the chunk.
+// This type should never be copied, it should only be passed by reference.
+//
+// Bit range | Description
+// -----------------------
+// 0-1       | The first bit indicates whether this chunk is in the chunk write queue or in the chunk.
+//
+// If in the chunk write queue:
+//   1-63    | The index of the chunk inside the chunk write queue.
+//
+// If in the head chunk file:
+//   1-31    | The segment index of the head chunk file.
+//   32-63   | The byte offset in the head chunk file where the chunk starts.
 type ChunkDiskMapperRef atomic.Uint64
 
 const (
-	// Define masks for the 3 values stored in type ChunkDiskMapperRef
+	// Define masks for the values stored in type ChunkDiskMapperRef.
 	chunkDiskMapperRefEnqueued = uint64(0x8000000000000000)
+
+	// When in the chunk write queue.
+	chunkDiskMapperRefQPos = uint64(0x7FFFFFFFFFFFFFFF)
+
+	// When in the head chunk file.
 	chunkDiskMapperRefSgmIndex = uint64(0x7FFFFFFF00000000)
 	chunkDiskMapperRefChkStart = uint64(0x00000000FFFFFFFF)
 )
-
-func newChunkDiskMapperRef(enqueued bool, sgmIndex, chkStart uint64) *ChunkDiskMapperRef {
-	ref := &ChunkDiskMapperRef{}
-	ref.Pack(enqueued, sgmIndex, chkStart)
-	return ref
-}
 
 func (ref *ChunkDiskMapperRef) Load() uint64 {
 	return (*atomic.Uint64)(ref).Load()
@@ -97,21 +107,32 @@ func (ref *ChunkDiskMapperRef) Set(val uint64) {
 	(*atomic.Uint64)(ref).Store(val)
 }
 
-func (ref *ChunkDiskMapperRef) Pack(enqueued bool, sgmIndex, chkStart uint64) {
-	encodedVal := ref.encodeEnqueued(enqueued) | ref.encodeSgmIndex(sgmIndex) | ref.encodeChkStart(chkStart)
-	ref.Set(encodedVal)
+func (ref *ChunkDiskMapperRef) SetPositionInFile(sgmIndex, chkStart uint64) {
+	ref.Set(ref.encodeEnqueued(false) | ref.encodeSgmIndex(sgmIndex) | ref.encodeChkStart(chkStart))
 }
 
-func (ref *ChunkDiskMapperRef) Unpack() (enqueued bool, sgmIndex, chkStart uint64) {
-	encodedVal := (*atomic.Uint64)(ref).Load()
-	return ref.decodeEnqueued(encodedVal), ref.decodeSgmIndex(encodedVal), ref.decodeChkStart(encodedVal)
+func (ref *ChunkDiskMapperRef) GetPositionInFile() (bool, uint64, uint64) {
+	encodedVal := ref.Load()
+	if ref.decodeEnqueued(encodedVal) {
+		// Chunk is in the chunk write queue.
+		return false, 0, 0
+	}
+
+	return true, ref.decodeSgmIndex(encodedVal), ref.decodeChkStart(encodedVal)
 }
 
-func (ref *ChunkDiskMapperRef) SetEnqueued(val bool) {
-	encodedVal := ref.encodeEnqueued(val)
-	ref.Update(func(old uint64) uint64 {
-		return old & ^chunkDiskMapperRefEnqueued | encodedVal
-	})
+func (ref *ChunkDiskMapperRef) SetPositionInQueue(qPos uint64) {
+	ref.Set(ref.encodeEnqueued(true) | ref.encodeQPos(qPos))
+}
+
+func (ref *ChunkDiskMapperRef) GetPositionInQueue() (bool, uint64) {
+	encodedVal := ref.Load()
+	if !ref.decodeEnqueued(encodedVal) {
+		// Chunk is in the head chunk file.
+		return false, 0
+	}
+
+	return true, ref.decodeQPos(encodedVal)
 }
 
 func (ref *ChunkDiskMapperRef) encodeEnqueued(val bool) uint64 {
@@ -121,62 +142,32 @@ func (ref *ChunkDiskMapperRef) encodeEnqueued(val bool) uint64 {
 	return 0
 }
 
-func (ref *ChunkDiskMapperRef) GetEnqueued() bool {
-	return ref.decodeEnqueued(ref.Load())
-}
-
 func (ref *ChunkDiskMapperRef) decodeEnqueued(val uint64) bool {
 	return (val&chunkDiskMapperRefEnqueued)>>63 == 1
-}
-
-func (ref *ChunkDiskMapperRef) SetSgmIndex(val uint64) {
-	encodedVal := ref.encodeSgmIndex(val)
-	ref.Update(func(old uint64) uint64 {
-		return old & ^chunkDiskMapperRefSgmIndex | encodedVal
-	})
 }
 
 func (ref *ChunkDiskMapperRef) encodeSgmIndex(val uint64) uint64 {
 	return (val << 32) & chunkDiskMapperRefSgmIndex
 }
 
-func (ref *ChunkDiskMapperRef) GetSgmIndex() uint64 {
-	return ref.decodeSgmIndex(ref.Load())
-}
-
 func (ref *ChunkDiskMapperRef) decodeSgmIndex(val uint64) uint64 {
 	return (val & chunkDiskMapperRefSgmIndex) >> 32
-}
-
-func (ref *ChunkDiskMapperRef) SetChkStart(val uint64) {
-	encodedVal := ref.encodeChkStart(val)
-	ref.Update(func(old uint64) uint64 {
-		return old & ^chunkDiskMapperRefChkStart | encodedVal
-	})
 }
 
 func (ref *ChunkDiskMapperRef) encodeChkStart(val uint64) uint64 {
 	return val & chunkDiskMapperRefChkStart
 }
 
-func (ref *ChunkDiskMapperRef) GetChkStart() uint64 {
-	return ref.decodeChkStart(ref.Load())
-}
-
 func (ref *ChunkDiskMapperRef) decodeChkStart(val uint64) uint64 {
 	return val & chunkDiskMapperRefChkStart
 }
 
-func (ref *ChunkDiskMapperRef) Update(update func(uint64) uint64) {
-	refAtomic := (*atomic.Uint64)(ref)
-	var new, old uint64
-	for {
-		old = refAtomic.Load()
-		new = update(old)
-		if refAtomic.CAS(old, new) {
-			return
-		}
-	}
+func (ref *ChunkDiskMapperRef) encodeQPos(val uint64) uint64 {
+	return val & chunkDiskMapperRefQPos
+}
+
+func (ref *ChunkDiskMapperRef) decodeQPos(val uint64) uint64 {
+	return val & chunkDiskMapperRefQPos
 }
 
 // CorruptionErr is an error that's returned when corruption is encountered.
@@ -459,7 +450,7 @@ func (cdm *ChunkDiskMapper) writeChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		cdm.curFileMaxt = maxt
 	}
 
-	ref.Pack(false, sgmIndex, chkStart)
+	ref.SetPositionInFile(sgmIndex, chkStart)
 	cdm.chunkBuffer.put(ref, chk)
 
 	if len(chk.Bytes())+MaxHeadChunkMetaSize >= cdm.writeBufferSize {
@@ -597,18 +588,20 @@ func (cdm *ChunkDiskMapper) Chunk(ref *ChunkDiskMapperRef) (chunkenc.Chunk, erro
 		return nil, ErrChunkDiskMapperClosed
 	}
 
-	enqueued, sgmIndexUint64, chkStartUint64 := ref.Unpack()
-	if enqueued {
+	ok, sgmIndexUint64, chkStartUint64 := ref.GetPositionInFile()
+	if !ok {
+		// Chunk is not in the head chunk file so it must be in the chunk write queue, try to get it from there.
 		chunk := cdm.writeQueue.get(ref)
 		if chunk != nil {
 			return chunk, nil
 		}
 
-		// The chunk might have been written in the meantime.
-		enqueued, sgmIndexUint64, chkStartUint64 = ref.Unpack()
-		if enqueued {
-			// If chunk is still enqueued but it wasn't found in the queue then the reference is corrupted
-			return nil, errors.Errorf("chunk should be enqueued but is not in queue")
+		// The chunk might have been written from the chunk write queue to the head chunk file in the meantime.
+		ok, sgmIndexUint64, chkStartUint64 = ref.GetPositionInFile()
+		if !ok {
+			// If chunk is not in the head chunk file but it also wasn't found when we tried
+			// to get it from the chunk write queue then the reference must be corrupted.
+			return nil, errors.Errorf("chunk could not be retrieved from head chunk file nor chunk write queue")
 		}
 	}
 
@@ -763,7 +756,8 @@ func (cdm *ChunkDiskMapper) IterateAllChunks(f func(seriesRef HeadSeriesRef, chu
 				}
 			}
 			chkCRC32.Reset()
-			chunkRef := newChunkDiskMapperRef(false, uint64(segID), uint64(idx))
+			chunkRef := &ChunkDiskMapperRef{}
+			chunkRef.SetPositionInFile(uint64(segID), uint64(idx))
 
 			startIdx := idx
 			seriesRef := HeadSeriesRef(binary.BigEndian.Uint64(mmapFile.byteSlice.Range(idx, idx+SeriesRefSize)))
