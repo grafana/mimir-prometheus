@@ -3,6 +3,8 @@ package chunks
 import (
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
 
@@ -27,11 +29,13 @@ type chunkWriteQueue struct {
 	workerWg   sync.WaitGroup
 
 	writeChunk writeChunkF
+
+	operationsMetric *prometheus.CounterVec
 }
 
 type writeChunkF func(HeadSeriesRef, int64, int64, chunkenc.Chunk, *ChunkDiskMapperRef) error
 
-func newChunkWriteQueue(size int, writeChunk writeChunkF) *chunkWriteQueue {
+func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChunkF) *chunkWriteQueue {
 	q := &chunkWriteQueue{
 		size:       size,
 		jobs:       make([]chunkWriteJob, size),
@@ -40,7 +44,22 @@ func newChunkWriteQueue(size int, writeChunk writeChunkF) *chunkWriteQueue {
 		sizeLimit:  make(chan struct{}, size),
 		workerCtrl: make(chan struct{}, size),
 		writeChunk: writeChunk,
+
+		operationsMetric: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: "prometheus",
+				Subsystem: "chunk_write_queue",
+				Name:      "operations",
+				Help:      "Number of operations on the chunk_write_queue.",
+			},
+			[]string{"operation"},
+		),
 	}
+
+	if reg != nil {
+		reg.MustRegister(q.operationsMetric)
+	}
+
 	q.start()
 	return q
 }
@@ -93,6 +112,8 @@ func (c *chunkWriteQueue) processJob() {
 	}
 
 	c.advanceTail()
+
+	c.operationsMetric.WithLabelValues("complete").Inc()
 }
 
 func (c *chunkWriteQueue) advanceTail() {
@@ -124,6 +145,8 @@ func (c *chunkWriteQueue) getJob() (chunkWriteJob, bool) {
 func (c *chunkWriteQueue) addJob(job chunkWriteJob) {
 	// if queue is full then block here
 	c.sizeLimit <- struct{}{}
+
+	c.operationsMetric.WithLabelValues("add").Inc()
 
 	c.jobMtx.Lock()
 	defer c.jobMtx.Unlock()
@@ -160,6 +183,8 @@ func (c *chunkWriteQueue) get(ref *ChunkDiskMapperRef) chunkenc.Chunk {
 		// positions are in increasing order
 		return nil
 	}
+
+	c.operationsMetric.WithLabelValues("get").Inc()
 
 	return c.jobs[queuePos].chk
 }

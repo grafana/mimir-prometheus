@@ -13,7 +13,7 @@ import (
 var noopChunkWriter = func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error { return nil }
 
 func TestChunkWriteQueue_GettingChunkFromQueue(t *testing.T) {
-	q := newChunkWriteQueue(1000, noopChunkWriter)
+	q := newChunkWriteQueue(nil, 1000, noopChunkWriter)
 	q.stop()
 
 	testChunk := chunkenc.NewXORChunk()
@@ -43,7 +43,8 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 		gotRef = ref
 		return nil
 	}
-	q := newChunkWriteQueue(1000, chunkWriter)
+
+	q := newChunkWriteQueue(nil, 1000, chunkWriter)
 	q.stop()
 
 	chunk := chunkenc.NewXORChunk()
@@ -87,7 +88,7 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	sizeLimit := 100
 
-	q := newChunkWriteQueue(sizeLimit, noopChunkWriter)
+	q := newChunkWriteQueue(nil, sizeLimit, noopChunkWriter)
 	q.stop()
 
 	// Fill the queue to the middle of the size limit.
