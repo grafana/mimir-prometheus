@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
 
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
@@ -66,14 +67,14 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	require.Equal(t, uint64(0), pos)
 
 	// queue should have one job
-	require.Equal(t, q.queueIsEmpty(), false)
+	require.Equal(t, q.isEmpty(), false)
 
 	// process the queue
 	q.start()
 	waitUntilConsumed(t, q)
 
 	// queue should be empty
-	require.Equal(t, q.queueIsEmpty(), true)
+	require.Equal(t, q.isEmpty(), true)
 
 	// compare whether the write function has received all job attributes correctly
 	require.Equal(t, seriesRef, gotSeriesRef)
@@ -83,12 +84,71 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	require.Equal(t, ref.Load(), gotRef.Load())
 }
 
+func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
+	sizeLimit := 100
+
+	q := newChunkWriteQueue(sizeLimit, noopChunkWriter)
+	q.stop()
+
+	// Fill the queue to the middle of the size limit.
+	for job := 0; job < sizeLimit/2; job++ {
+		q.addJob(chunkWriteJob{ref: &ChunkDiskMapperRef{}})
+	}
+
+	// Consume all except one job.
+	for job := 0; job < sizeLimit/2-1; job++ {
+		q.processJob()
+	}
+
+	// The queue should not be empty, because there is one job left in it.
+	require.Equal(t, q.isEmpty(), false)
+
+	// Add jobs until the queue is full.
+	for job := 0; job < sizeLimit-1; job++ {
+		q.addJob(chunkWriteJob{ref: &ChunkDiskMapperRef{}})
+	}
+
+	// The queue should not be full.
+	require.Equal(t, q.isFull(), true)
+
+	// Adding another job should block as long as no job from the queue gets consumed.
+	addedJob := atomic.NewBool(false)
+	go func() {
+		q.addJob(chunkWriteJob{ref: &ChunkDiskMapperRef{}})
+		addedJob.Store(true)
+	}()
+
+	// Wait for 10ms while the adding of a new job is blocked.
+	time.Sleep(time.Millisecond * 10)
+	require.Equal(t, addedJob.Load(), false)
+
+	// Process one job to unblock the adding of the job.
+	q.processJob()
+
+	// Wait for 10ms to allow the adding of the job to finish.
+	time.Sleep(time.Millisecond * 10)
+	require.Equal(t, addedJob.Load(), true)
+
+	// The queue should be full again.
+	require.Equal(t, q.isFull(), true)
+
+	// Consume <sizeLimit> jobs from the queue.
+	for job := 0; job < sizeLimit; job++ {
+		require.Equal(t, q.isEmpty(), false)
+		q.processJob()
+		require.Equal(t, q.isFull(), false)
+	}
+
+	// Now the queue should be empty.
+	require.Equal(t, q.isEmpty(), true)
+}
+
 func waitUntilConsumed(t *testing.T, q *chunkWriteQueue) {
 	timeout := time.Second
 	checkInterval := time.Millisecond * 10
 	startTime := time.Now()
 	for range time.After(checkInterval) {
-		if q.queueIsEmpty() {
+		if q.isEmpty() {
 			return
 		}
 		if time.Since(startTime) > timeout {
