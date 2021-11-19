@@ -52,22 +52,33 @@ func (c *chunkWriteQueue) start() {
 		defer c.workerWg.Done()
 
 		for range c.workerCtrl {
-			for !c.queueIsEmpty() {
+			for !c.isEmpty() {
 				c.processJob()
 			}
 		}
 	}()
 }
 
-func (c *chunkWriteQueue) queueIsEmpty() bool {
+func (c *chunkWriteQueue) isEmpty() bool {
 	c.jobMtx.RLock()
 	defer c.jobMtx.RUnlock()
 
-	return c._queueIsEmpty()
+	return c._isEmpty()
 }
 
-func (c *chunkWriteQueue) _queueIsEmpty() bool {
+func (c *chunkWriteQueue) _isEmpty() bool {
 	return c.headPos < 0 || c.tailPos < 0
+}
+
+func (c *chunkWriteQueue) isFull() bool {
+	c.jobMtx.RLock()
+	defer c.jobMtx.RUnlock()
+
+	return c._isFull()
+}
+
+func (c *chunkWriteQueue) _isFull() bool {
+	return (c.headPos == c.tailPos-1) || (c.headPos == 0 && c.tailPos == c.size-1)
 }
 
 func (c *chunkWriteQueue) processJob() {
@@ -103,7 +114,7 @@ func (c *chunkWriteQueue) getJob() (chunkWriteJob, bool) {
 	c.jobMtx.Lock()
 	defer c.jobMtx.Unlock()
 
-	if c._queueIsEmpty() {
+	if c._isEmpty() {
 		return chunkWriteJob{}, false
 	}
 
