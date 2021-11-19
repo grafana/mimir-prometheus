@@ -39,7 +39,7 @@ func TestChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 
 	type expectedDataType struct {
 		seriesRef  HeadSeriesRef
-		chunkRef   ChunkDiskMapperRef
+		chunkRef   *ChunkDiskMapperRef
 		mint, maxt int64
 		numSamples uint16
 		chunk      chunkenc.Chunk
@@ -121,7 +121,7 @@ func TestChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 
 	// Testing reading of chunks.
 	for _, exp := range expectedData {
-		actChunk, err := hrw.Chunk(&exp.chunkRef)
+		actChunk, err := hrw.Chunk(exp.chunkRef)
 		require.NoError(t, err)
 		require.Equal(t, exp.chunk.Bytes(), actChunk.Bytes())
 	}
@@ -143,7 +143,7 @@ func TestChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 		require.Equal(t, expData.maxt, maxt)
 		require.Equal(t, expData.numSamples, numSamples)
 
-		actChunk, err := hrw.Chunk(&expData.chunkRef)
+		actChunk, err := hrw.Chunk(expData.chunkRef)
 		require.NoError(t, err)
 		require.Equal(t, expData.chunk.Bytes(), actChunk.Bytes())
 
@@ -440,6 +440,7 @@ func randomChunk(t *testing.T) chunkenc.Chunk {
 
 func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef *ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
 	seriesRef = HeadSeriesRef(rand.Int63())
+	chunkRef = &ChunkDiskMapperRef{}
 	mint = int64((idx)*1000 + 1)
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomChunk(t)

@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
 
-var noopChunkWriter = func(_ uint64, _, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error { return nil }
+var noopChunkWriter = func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error { return nil }
 
 func TestChunkWriteQueueReadingFromQueue(t *testing.T) {
 	q := newChunkWriteQueue(1000, noopChunkWriter)
@@ -27,12 +27,12 @@ func TestChunkWriteQueueReadingFromQueue(t *testing.T) {
 }
 
 func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
-	var gotSeriesRef uint64
+	var gotSeriesRef HeadSeriesRef
 	var gotMint, gotMaxt int64
 	var gotChunk chunkenc.Chunk
 	var gotRef *ChunkDiskMapperRef
 
-	chunkWriter := func(seriesRef uint64, mint, maxt int64, chunk chunkenc.Chunk, ref *ChunkDiskMapperRef) error {
+	chunkWriter := func(seriesRef HeadSeriesRef, mint, maxt int64, chunk chunkenc.Chunk, ref *ChunkDiskMapperRef) error {
 		gotSeriesRef = seriesRef
 		gotMint = mint
 		gotMaxt = maxt
@@ -44,7 +44,7 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 
 	chunk := chunkenc.NewXORChunk()
 	ref := newChunkDiskMapperRef(true, 3, 2)
-	var seriesRef uint64 = 1
+	var seriesRef HeadSeriesRef = 1
 	var mint, maxt int64 = 2, 3
 
 	job := chunkWriteJob{
@@ -71,10 +71,6 @@ func TestChunkWriteQueueWritingThroughQueue(t *testing.T) {
 
 	// queue should be empty
 	require.Equal(t, q.queueIsEmpty(), true)
-
-	// reference should be marked as not enqueued
-	gotEnqueued = ref.GetEnqueued()
-	require.Equal(t, false, gotEnqueued)
 
 	// compare whether the write function has received all job attributes correctly
 	require.Equal(t, seriesRef, gotSeriesRef)
