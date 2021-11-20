@@ -78,7 +78,7 @@ const (
 //
 // Bit range | Description
 // -----------------------
-// 0-1       | The first bit indicates whether this chunk is in the chunk write queue or in the chunk.
+// 0-1       | The first bit indicates whether this chunk is in the chunk write queue or in the head chunk file.
 //
 // If in the chunk write queue:
 //   1-63    | The index of the chunk inside the chunk write queue.
@@ -90,12 +90,15 @@ type ChunkDiskMapperRef atomic.Uint64
 
 const (
 	// Define masks for the values stored in type ChunkDiskMapperRef.
-	chunkDiskMapperRefEnqueued = uint64(0x8000000000000000)
 
-	// When in the chunk write queue.
-	chunkDiskMapperRefQPos = uint64(0x7FFFFFFFFFFFFFFF)
+	// chunkDiskMapperRefIsInQueue is the mask for the bit which defines whether
+	// a chunk is in the chunk write queue or in the head chunk file.
+	chunkDiskMapperRefIsInQueue = uint64(0x8000000000000000)
 
-	// When in the head chunk file.
+	// When in the chunk write queue this is the bitmask for the position in the queue.
+	chunkDiskMapperRefQueuePos = uint64(0x7FFFFFFFFFFFFFFF)
+
+	// When in the head chunk file these are the bitmasks for the segment index and chunk offset.
 	chunkDiskMapperRefSgmIndex = uint64(0x7FFFFFFF00000000)
 	chunkDiskMapperRefChkStart = uint64(0x00000000FFFFFFFF)
 )
@@ -109,12 +112,12 @@ func (ref *ChunkDiskMapperRef) Set(val uint64) {
 }
 
 func (ref *ChunkDiskMapperRef) SetPositionInFile(sgmIndex, chkStart uint64) {
-	ref.Set(ref.encodeEnqueued(false) | ref.encodeSgmIndex(sgmIndex) | ref.encodeChkStart(chkStart))
+	ref.Set(ref.encodeIsInQueue(false) | ref.encodeSgmIndex(sgmIndex) | ref.encodeChkStart(chkStart))
 }
 
 func (ref *ChunkDiskMapperRef) GetPositionInFile() (bool, uint64, uint64) {
 	encodedVal := ref.Load()
-	if ref.decodeEnqueued(encodedVal) {
+	if ref.decodeIsInQueue(encodedVal) {
 		// Chunk is in the chunk write queue.
 		return false, 0, 0
 	}
@@ -123,28 +126,28 @@ func (ref *ChunkDiskMapperRef) GetPositionInFile() (bool, uint64, uint64) {
 }
 
 func (ref *ChunkDiskMapperRef) SetPositionInQueue(qPos uint64) {
-	ref.Set(ref.encodeEnqueued(true) | ref.encodeQPos(qPos))
+	ref.Set(ref.encodeIsInQueue(true) | ref.encodeQueuePos(qPos))
 }
 
 func (ref *ChunkDiskMapperRef) GetPositionInQueue() (bool, uint64) {
 	encodedVal := ref.Load()
-	if !ref.decodeEnqueued(encodedVal) {
+	if !ref.decodeIsInQueue(encodedVal) {
 		// Chunk is in the head chunk file.
 		return false, 0
 	}
 
-	return true, ref.decodeQPos(encodedVal)
+	return true, ref.decodeQueuePos(encodedVal)
 }
 
-func (ref *ChunkDiskMapperRef) encodeEnqueued(val bool) uint64 {
+func (ref *ChunkDiskMapperRef) encodeIsInQueue(val bool) uint64 {
 	if val {
 		return uint64(1) << 63
 	}
 	return 0
 }
 
-func (ref *ChunkDiskMapperRef) decodeEnqueued(val uint64) bool {
-	return (val&chunkDiskMapperRefEnqueued)>>63 == 1
+func (ref *ChunkDiskMapperRef) decodeIsInQueue(val uint64) bool {
+	return (val&chunkDiskMapperRefIsInQueue)>>63 == 1
 }
 
 func (ref *ChunkDiskMapperRef) encodeSgmIndex(val uint64) uint64 {
@@ -163,12 +166,12 @@ func (ref *ChunkDiskMapperRef) decodeChkStart(val uint64) uint64 {
 	return val & chunkDiskMapperRefChkStart
 }
 
-func (ref *ChunkDiskMapperRef) encodeQPos(val uint64) uint64 {
-	return val & chunkDiskMapperRefQPos
+func (ref *ChunkDiskMapperRef) encodeQueuePos(val uint64) uint64 {
+	return val & chunkDiskMapperRefQueuePos
 }
 
-func (ref *ChunkDiskMapperRef) decodeQPos(val uint64) uint64 {
-	return val & chunkDiskMapperRefQPos
+func (ref *ChunkDiskMapperRef) decodeQueuePos(val uint64) uint64 {
+	return val & chunkDiskMapperRefQueuePos
 }
 
 // CorruptionErr is an error that's returned when corruption is encountered.
@@ -978,7 +981,7 @@ func newChunkBuffer() *chunkBuffer {
 }
 
 // put takes a reference and a chunk and puts it in the buffer.
-// The given reference must not be enqueued, ref.GetEnqueued() must be false.
+// The given reference must not be in the chunk write queue, ref.IsInQ() must be false.
 func (cb *chunkBuffer) put(ref *ChunkDiskMapperRef, chk chunkenc.Chunk) {
 	refVal := ref.Load()
 	shardIdx := refVal % inBufferShards
