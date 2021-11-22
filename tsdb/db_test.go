@@ -204,10 +204,8 @@ func TestDataAvailableOnlyAfterCommit(t *testing.T) {
 // TestNoPanicAfterWALCorruption ensures that querying the db after a WAL corruption doesn't cause a panic.
 // https://github.com/prometheus/prometheus/issues/7548
 func TestNoPanicAfterWALCorruption(t *testing.T) {
-	db := openTestDB(t, &Options{
-		WALSegmentSize:           32 * 1024,
-		HeadChunksWriteQueueSize: 0, // Disable write queue to make writes synchronous.
-	}, nil)
+	samplesPerChunk := 120
+	db := openTestDB(t, &Options{WALSegmentSize: 32 * 1024}, nil)
 
 	// Append until the first mmaped head chunk.
 	// This is to ensure that all samples can be read from the mmaped chunks when the WAL is corrupted.
@@ -215,17 +213,13 @@ func TestNoPanicAfterWALCorruption(t *testing.T) {
 	var maxt int64
 	ctx := context.Background()
 	{
-		for {
+		// A new chunk gets created every 120 samples, we want to append until the first chunk is created.
+		for i := 0; i < samplesPerChunk+1; i++ {
 			app := db.Appender(ctx)
 			_, err := app.Append(0, labels.FromStrings("foo", "bar"), maxt, 0)
 			expSamples = append(expSamples, sample{t: maxt, v: 0})
 			require.NoError(t, err)
 			require.NoError(t, app.Commit())
-			mmapedChunks, err := ioutil.ReadDir(mmappedChunksDir(db.Dir()))
-			require.NoError(t, err)
-			if len(mmapedChunks) > 0 {
-				break
-			}
 			maxt++
 		}
 		require.NoError(t, db.Close())
