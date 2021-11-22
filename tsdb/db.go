@@ -600,7 +600,7 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	if opts.HeadChunksEndTimeVariance <= 0 {
 		opts.HeadChunksEndTimeVariance = 0
 	}
-	if opts.HeadChunksWriteQueueSize <= 0 {
+	if opts.HeadChunksWriteQueueSize < 0 {
 		opts.HeadChunksWriteQueueSize = chunks.DefaultWriteQueueSize
 	}
 	if opts.MaxBlockChunkSegmentSize <= 0 {

@@ -204,7 +204,10 @@ func TestDataAvailableOnlyAfterCommit(t *testing.T) {
 // TestNoPanicAfterWALCorruption ensures that querying the db after a WAL corruption doesn't cause a panic.
 // https://github.com/prometheus/prometheus/issues/7548
 func TestNoPanicAfterWALCorruption(t *testing.T) {
-	db := openTestDB(t, &Options{WALSegmentSize: 32 * 1024}, nil)
+	db := openTestDB(t, &Options{
+		WALSegmentSize:           32 * 1024,
+		HeadChunksWriteQueueSize: 0, // Disable write queue to make writes synchronous.
+	}, nil)
 
 	// Append until the first mmaped head chunk.
 	// This is to ensure that all samples can be read from the mmaped chunks when the WAL is corrupted.
