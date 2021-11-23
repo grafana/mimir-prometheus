@@ -176,16 +176,6 @@ func (c *chunkWriteQueue) get(ref *ChunkDiskMapperRef) chunkenc.Chunk {
 		return nil
 	}
 
-	if c.headPos < c.tailPos && uint64(c.headPos) < queuePos && uint64(c.tailPos) > queuePos {
-		// positions are wrapped around the size limit
-		return nil
-	}
-
-	if c.headPos > c.tailPos && (uint64(c.headPos) < queuePos || uint64(c.tailPos) > queuePos) {
-		// positions are in increasing order
-		return nil
-	}
-
 	c.operationsMetric.WithLabelValues("get").Inc()
 
 	return c.jobs[queuePos].chk
