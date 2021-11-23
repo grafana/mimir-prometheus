@@ -95,7 +95,7 @@ func (c *chunkWriteQueue) IsFull() bool {
 }
 
 func (c *chunkWriteQueue) isFull() bool {
-	return (c.headPos == c.tailPos-1) || (c.headPos == 0 && c.tailPos == c.size-1)
+	return (c.headPos+1)%c.size == c.tailPos
 }
 
 func (c *chunkWriteQueue) processJob() {
@@ -132,8 +132,8 @@ func (c *chunkWriteQueue) advanceTail() {
 }
 
 func (c *chunkWriteQueue) getJob() (chunkWriteJob, bool) {
-	c.jobMtx.Lock()
-	defer c.jobMtx.Unlock()
+	c.jobMtx.RLock()
+	defer c.jobMtx.RUnlock()
 
 	if c.isEmpty() {
 		return chunkWriteJob{}, false
