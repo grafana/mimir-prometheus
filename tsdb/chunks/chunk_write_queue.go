@@ -9,11 +9,12 @@ import (
 )
 
 type chunkWriteJob struct {
-	seriesRef HeadSeriesRef
-	mint      int64
-	maxt      int64
-	chk       chunkenc.Chunk
-	ref       *ChunkDiskMapperRef
+	seriesRef  HeadSeriesRef
+	mint       int64
+	maxt       int64
+	chk        chunkenc.Chunk
+	ref        *ChunkDiskMapperRef
+	errHandler func(error)
 }
 
 type chunkWriteQueue struct {
@@ -104,12 +105,13 @@ func (c *chunkWriteQueue) processJob() {
 		return
 	}
 
-	err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk, job.ref)
-	if err != nil && err != ErrChunkDiskMapperClosed {
-		panic(err)
-	}
+	defer c.advanceTail()
 
-	c.advanceTail()
+	err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk, job.ref)
+	if err != nil {
+		job.errHandler(err)
+		return
+	}
 
 	c.operationsMetric.WithLabelValues("complete").Inc()
 }
