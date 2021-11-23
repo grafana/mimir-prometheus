@@ -169,7 +169,7 @@ func (c *chunkWriteQueue) get(ref *ChunkDiskMapperRef) chunkenc.Chunk {
 	c.jobMtx.RLock()
 	defer c.jobMtx.RUnlock()
 
-	ok, queuePos := ref.GetPositionInQueue()
+	queuePos, ok := ref.GetPositionInQueue()
 	if !ok {
 		return nil
 	}

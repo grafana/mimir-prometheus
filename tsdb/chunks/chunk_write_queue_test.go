@@ -63,7 +63,7 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	q.addJob(job)
 
 	// reference should be marked as enqueued
-	ok, pos := ref.GetPositionInQueue()
+	pos, ok := ref.GetPositionInQueue()
 	require.Equal(t, true, ok)
 	require.Equal(t, uint64(0), pos)
 
