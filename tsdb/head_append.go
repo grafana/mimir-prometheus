@@ -17,9 +17,12 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
+	"time"
 
 	"github.com/go-kit/log/level"
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
 
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/labels"
@@ -246,6 +249,8 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		return 0, storage.ErrOutOfBounds
 	}
 
+	randomSleep()
+
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
 	if s == nil {
 		// Ensure no empty labels have gotten through.
@@ -273,6 +278,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	}
 
 	s.Lock()
+	randomSleep()
 	if err := s.appendable(t, v); err != nil {
 		s.Unlock()
 		if err == storage.ErrOutOfOrderSample {
@@ -450,6 +456,8 @@ func (a *headAppender) Commit() (err error) {
 	defer a.head.putExemplarBuffer(a.exemplars)
 	defer a.head.iso.closeAppend(a.appendID)
 
+	randomSleep()
+
 	total := len(a.samples)
 	var series *memSeries
 	for i, s := range a.samples {
@@ -476,6 +484,23 @@ func (a *headAppender) Commit() (err error) {
 	return nil
 }
 
+func randomSleep() {
+	time.Sleep(time.Duration(rand.Int63n(int64(10 * time.Millisecond))))
+	//time.Sleep(time.Duration(rand.Int63n(int64(time.Millisecond))))
+}
+
+var firstOne = atomic.Bool{}
+
+func sleepFirstOne() {
+	if !firstOne.Load() {
+		return
+	}
+
+	if firstOne.CAS(false, true) {
+		time.Sleep(time.Second)
+	}
+}
+
 // append adds the sample (t, v) to the series. The caller also has to provide
 // the appendID for isolation. (The appendID can be zero, which results in no
 // isolation for this append.)
@@ -485,6 +510,8 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 	// so anything bigger that this has diminishing returns and increases
 	// the time range within which we have to decompress all samples.
 	const samplesPerChunk = 120
+
+	randomSleep()
 
 	c := s.head()
 
@@ -509,6 +536,7 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 		// hence we fix the minTime of the chunk here.
 		c.minTime = t
 		s.nextAt = rangeForTimestamp(c.minTime, s.chunkRange)
+		fmt.Println("s.nextAt updated to:", s.nextAt, time.UnixMilli(s.nextAt).UTC().String())
 	}
 
 	// If we reach 25% of a chunk's desired sample count, predict an end time
@@ -520,6 +548,7 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 
 		s.nextAt = computeChunkEndTime(c.minTime, c.maxTime, maxNextAt)
 		s.nextAt = addJitterToChunkEndTime(s.hash, c.minTime, s.nextAt, maxNextAt, s.chunkEndTimeVariance)
+		fmt.Println("s.nextAt updated to:", s.nextAt, time.UnixMilli(s.nextAt).UTC().String())
 	}
 	if t >= s.nextAt {
 		c = s.cutNewHeadChunk(t, chunkDiskMapper)
@@ -590,6 +619,7 @@ func (s *memSeries) cutNewHeadChunk(mint int64, chunkDiskMapper *chunks.ChunkDis
 	// Set upper bound on when the next chunk must be started. An earlier timestamp
 	// may be chosen dynamically at a later point.
 	s.nextAt = rangeForTimestamp(mint, s.chunkRange)
+	fmt.Println("s.nextAt updated to:", s.nextAt, time.UnixMilli(s.nextAt).UTC().String())
 
 	app, err := s.headChunk.chunk.Appender()
 	if err != nil {

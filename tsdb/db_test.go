@@ -39,6 +39,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
 	"go.uber.org/goleak"
 
 	"github.com/prometheus/prometheus/model/labels"
@@ -80,6 +81,199 @@ func openTestDB(t testing.TB, opts *Options, rngs []int64) (db *DB) {
 		require.NoError(t, os.RemoveAll(tmpdir))
 	})
 	return db
+}
+
+func TestTheory(t *testing.T) {
+	t.Parallel()
+
+	opts := DefaultOptions()
+	opts.IsolationDisabled = true
+	db := openTestDB(t, opts, []int64{int64(2 * time.Hour / time.Millisecond)})
+	ctx := context.Background()
+
+	lbls := labels.Labels{labels.Label{Name: "a", Value: "b"}}
+
+	//const numTimestamps = 120
+	//var timestamps []time.Time
+	//
+	//for i := 0; i < numTimestamps; i++ {
+	//	timestamps = append(timestamps, mustParse(t, "2021-11-22T09:48:00.943Z").Add(time.Duration(i)*time.Second))
+	//}
+	//
+	//rand.Shuffle(len(timestamps), func(i, j int) {
+	//	timestamps[i], timestamps[j] = timestamps[j], timestamps[i]
+	//})
+
+	timestamps := []time.Time{
+		mustParse(t, "2021-11-22T09:48:00.943Z"),
+		//mustParse(t, "2021-11-22T09:48:20.949Z"),
+		mustParse(t, "2021-11-22T09:48:40.953Z"),
+		mustParse(t, "2021-11-22T09:48:40.953Z"),
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(len(timestamps))
+
+	for _, ts := range timestamps {
+		go func(ts time.Time) {
+			defer wg.Done()
+
+			app := db.Appender(ctx)
+			_, err := app.Append(0, lbls, ts.UnixMilli(), 0)
+			if err != nil && err != storage.ErrOutOfOrderSample {
+				t.Fatal(err.Error())
+			}
+
+			commitErr := app.Commit()
+			if commitErr != nil && commitErr != storage.ErrOutOfOrderSample {
+				t.Fatal(commitErr.Error())
+			}
+		}(ts)
+	}
+
+	wg.Wait()
+
+	q, err := db.ChunkQuerier(ctx, math.MinInt64, math.MaxInt64)
+	require.NoError(t, err)
+
+	set := q.Select(false, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
+	countSeries := 0
+	countChunks := 0
+	for set.Next() {
+		countSeries++
+		for it := set.At().Iterator(); it.Next(); {
+			countChunks++
+		}
+	}
+	require.Equal(t, 1, countSeries)
+	require.Equal(t, 1, countChunks)
+
+	require.NoError(t, db.Close())
+}
+
+func TestTheory2(t *testing.T) {
+	opts := DefaultOptions()
+	opts.IsolationDisabled = true
+
+	db := openTestDB(t, opts, []int64{int64(2 * time.Hour / time.Millisecond)})
+	ctx := context.Background()
+
+	lbls := labels.Labels{labels.Label{Name: "a", Value: "b"}}
+
+	timestamp := mustParse(t, "2021-11-22T09:48:00.943Z")
+	concurrency := 2
+
+	wg := sync.WaitGroup{}
+	wg.Add(concurrency)
+
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			defer wg.Done()
+
+			app := db.Appender(ctx)
+			_, err := app.Append(0, lbls, timestamp.UnixMilli(), 0)
+			if err != nil && err != storage.ErrOutOfOrderSample {
+				t.Fatal(err.Error())
+			}
+
+			commitErr := app.Commit()
+			if commitErr != nil && commitErr != storage.ErrOutOfOrderSample {
+				t.Fatal(commitErr.Error())
+			}
+		}()
+	}
+
+	wg.Wait()
+
+	fmt.Println("Head min time:", db.Head().MinTime(), time.UnixMilli(db.Head().MinTime()), "max time:", db.Head().MaxTime(), time.UnixMilli(db.Head().MaxTime()))
+	//require.NoError(t, db.CompactHead(NewRangeHead(db.Head(), db.Head().MinTime(), db.Head().MaxTime())))
+
+	q, err := db.ChunkQuerier(ctx, math.MinInt64, math.MaxInt64)
+	require.NoError(t, err)
+
+	set := q.Select(false, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
+	countSeries := 0
+	countChunks := 0
+	for set.Next() {
+		countSeries++
+		for it := set.At().Iterator(); it.Next(); {
+			countChunks++
+		}
+	}
+	require.Equal(t, 1, countSeries)
+	require.Equal(t, 1, countChunks)
+
+	require.NoError(t, db.Close())
+}
+
+func TestTheory3(t *testing.T) {
+	const numSeries = 1000
+
+	opts := DefaultOptions()
+	opts.IsolationDisabled = true
+
+	db := openTestDB(t, opts, []int64{int64(2 * time.Hour / time.Millisecond)})
+	ctx := context.Background()
+
+	// Build labels for all series.
+	allSeries := make([]labels.Labels, 0, numSeries)
+	for i := 0; i < numSeries; i++ {
+		allSeries = append(allSeries, labels.Labels{labels.Label{Name: "series_id", Value: strconv.Itoa(i)}})
+	}
+
+	// Continuously query the DB.
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	closed := atomic.Bool{}
+	go func() {
+		defer wg.Done()
+		for !closed.Load() {
+			q, err := db.ChunkQuerier(ctx, mustParse(t, "2021-11-22T08:00:00.000Z").UnixMilli(), mustParse(t, "2021-11-22T10:00:00.000Z").Add(-1).UnixMilli())
+			require.NoError(t, err)
+
+			set := q.Select(false, nil, labels.MustNewMatcher(labels.MatchRegexp, "series_id", ".+"))
+			countSeries := 0
+			countChunks := 0
+			for set.Next() {
+				countSeries++
+				for it := set.At().Iterator(); it.Next(); {
+					countChunks++
+				}
+			}
+			require.LessOrEqual(t, countSeries, numSeries)
+			require.LessOrEqual(t, countChunks, numSeries)
+		}
+	}()
+
+	// Append sample within the block range period.
+	timestamp := mustParse(t, "2021-11-22T09:48:00.943Z")
+	app := db.Appender(ctx)
+	for _, series := range allSeries {
+		_, err := app.Append(0, series, timestamp.UnixMilli(), 0)
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+
+	// Append another sample at the very beginning of the next block range period.
+	timestamp = mustParse(t, "2021-11-22T10:00:00.000Z")
+	app = db.Appender(ctx)
+	for _, series := range allSeries {
+		_, err := app.Append(0, series, timestamp.UnixMilli(), 0)
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+
+	// Stop querying.
+	closed.Store(true)
+	wg.Wait()
+
+	require.NoError(t, db.Close())
+}
+
+func mustParse(t *testing.T, input string) time.Time {
+	ts, err := time.Parse(time.RFC3339Nano, input)
+	require.NoError(t, err)
+	return ts
 }
 
 // query runs a matcher query against the querier and fully expands its data.
