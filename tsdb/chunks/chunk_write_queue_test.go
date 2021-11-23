@@ -4,13 +4,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
 
-var noopChunkWriter = func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error { return nil }
+var (
+	noopChunkWriter = func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error { return nil }
+	noopErrHandler  = func(_ error) {}
+)
 
 func TestChunkWriteQueue_GettingChunkFromQueue(t *testing.T) {
 	q := newChunkWriteQueue(nil, 1000, noopChunkWriter)
@@ -72,6 +76,7 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 
 	// process the queue
 	q.start()
+	defer q.stop()
 	waitUntilConsumed(t, q)
 
 	// queue should be empty
@@ -144,14 +149,45 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	require.Equal(t, q.IsEmpty(), true)
 }
 
+func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
+	testError := errors.New("test error")
+	chunkWriter := func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ *ChunkDiskMapperRef) error {
+		return testError
+	}
+
+	var gotError error
+	errHandler := func(err error) {
+		gotError = err
+	}
+
+	job := chunkWriteJob{
+		ref:        &ChunkDiskMapperRef{},
+		errHandler: errHandler,
+	}
+
+	q := newChunkWriteQueue(nil, 1, chunkWriter)
+	defer q.stop()
+	q.addJob(job)
+
+	waitUntilConsumed(t, q)
+
+	require.Equal(t, testError, gotError)
+}
+
 func waitUntilConsumed(t *testing.T, q *chunkWriteQueue) {
 	timeout := time.Second
 	checkInterval := time.Millisecond * 10
 	startTime := time.Now()
+
+	if q.IsEmpty() {
+		return
+	}
+
 	for range time.After(checkInterval) {
 		if q.IsEmpty() {
 			return
 		}
+
 		if time.Since(startTime) > timeout {
 			t.Fatalf("Timed out waiting for queue to be consumed")
 		}

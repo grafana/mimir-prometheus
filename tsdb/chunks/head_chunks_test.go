@@ -176,7 +176,7 @@ func TestChunkDiskMapper_Truncate(t *testing.T) {
 		var ref ChunkDiskMapperRef
 
 		// Write a chunks to set maxt for the segment.
-		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), &ref)
+		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), &ref, noopErrHandler)
 
 		timeRange += fileTimeStep
 
@@ -260,7 +260,7 @@ func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 		step := 100
 		mint, maxt := timeRange+1, timeRange+step-1
 		var ref ChunkDiskMapperRef
-		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), &ref)
+		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), &ref, noopErrHandler)
 		timeRange += step
 	}
 	emptyFile := func() {
@@ -360,7 +360,7 @@ func TestHeadReadWriter_TruncateAfterFailedIterateChunks(t *testing.T) {
 
 	var ref ChunkDiskMapperRef
 	// Write a chunks to iterate on it later.
-	hrw.WriteChunk(1, 0, 1000, randomChunk(t), &ref)
+	hrw.WriteChunk(1, 0, 1000, randomChunk(t), &ref, noopErrHandler)
 
 	dir := hrw.dir.Name()
 	require.NoError(t, hrw.Close())
@@ -390,7 +390,7 @@ func TestHeadReadWriter_ReadRepairOnEmptyLastFile(t *testing.T) {
 		step := 100
 		mint, maxt := timeRange+1, timeRange+step-1
 		var ref ChunkDiskMapperRef
-		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), &ref)
+		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), &ref, noopErrHandler)
 		timeRange += step
 	}
 	nonEmptyFile := func() {
@@ -479,6 +479,6 @@ func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSer
 	mint = int64((idx)*1000 + 1)
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomChunk(t)
-	hrw.WriteChunk(seriesRef, mint, maxt, chunk, chunkRef)
+	hrw.WriteChunk(seriesRef, mint, maxt, chunk, chunkRef, noopErrHandler)
 	return
 }
