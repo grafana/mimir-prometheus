@@ -68,14 +68,14 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	require.Equal(t, uint64(0), pos)
 
 	// queue should have one job
-	require.Equal(t, q.isEmpty(), false)
+	require.Equal(t, q.IsEmpty(), false)
 
 	// process the queue
 	q.start()
 	waitUntilConsumed(t, q)
 
 	// queue should be empty
-	require.Equal(t, q.isEmpty(), true)
+	require.Equal(t, q.IsEmpty(), true)
 
 	// compare whether the write function has received all job attributes correctly
 	require.Equal(t, seriesRef, gotSeriesRef)
@@ -102,7 +102,7 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	}
 
 	// The queue should not be empty, because there is one job left in it.
-	require.Equal(t, q.isEmpty(), false)
+	require.Equal(t, q.IsEmpty(), false)
 
 	// Add jobs until the queue is full.
 	for job := 0; job < sizeLimit-1; job++ {
@@ -110,7 +110,7 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	}
 
 	// The queue should not be full.
-	require.Equal(t, q.isFull(), true)
+	require.Equal(t, q.IsFull(), true)
 
 	// Adding another job should block as long as no job from the queue gets consumed.
 	addedJob := atomic.NewBool(false)
@@ -131,17 +131,17 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	require.Equal(t, addedJob.Load(), true)
 
 	// The queue should be full again.
-	require.Equal(t, q.isFull(), true)
+	require.Equal(t, q.IsFull(), true)
 
 	// Consume <sizeLimit> jobs from the queue.
 	for job := 0; job < sizeLimit; job++ {
-		require.Equal(t, q.isEmpty(), false)
+		require.Equal(t, q.IsEmpty(), false)
 		q.processJob()
-		require.Equal(t, q.isFull(), false)
+		require.Equal(t, q.IsFull(), false)
 	}
 
 	// Now the queue should be empty.
-	require.Equal(t, q.isEmpty(), true)
+	require.Equal(t, q.IsEmpty(), true)
 }
 
 func waitUntilConsumed(t *testing.T, q *chunkWriteQueue) {
@@ -149,7 +149,7 @@ func waitUntilConsumed(t *testing.T, q *chunkWriteQueue) {
 	checkInterval := time.Millisecond * 10
 	startTime := time.Now()
 	for range time.After(checkInterval) {
-		if q.isEmpty() {
+		if q.IsEmpty() {
 			return
 		}
 		if time.Since(startTime) > timeout {
