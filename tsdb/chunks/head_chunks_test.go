@@ -323,28 +323,28 @@ func TestChunkDiskMapperRef_TestMutatingValues(t *testing.T) {
 	qPos := uint64(1234)
 	ref.SetPositionInQueue(qPos)
 
-	ok, gotQPos := ref.GetPositionInQueue()
+	gotQPos, ok := ref.GetPositionInQueue()
 	require.True(t, ok)
 	require.Equal(t, qPos, gotQPos)
 
-	ok, _, _ = ref.GetPositionInFile()
+	_, _, ok = ref.GetPositionInFile()
 	require.False(t, ok)
 
 	sgmIndex, chkStart := uint64(34), uint64(9300)
 	ref.SetPositionInFile(sgmIndex, chkStart)
 
-	ok, gotSgmIndex, gotChkStart := ref.GetPositionInFile()
+	gotSgmIndex, gotChkStart, ok := ref.GetPositionInFile()
 	require.True(t, ok)
 	require.Equal(t, sgmIndex, gotSgmIndex)
 	require.Equal(t, chkStart, gotChkStart)
 
-	ok, _ = ref.GetPositionInQueue()
+	_, ok = ref.GetPositionInQueue()
 	require.False(t, ok)
 
 	refCopy := ChunkDiskMapperRef{}
 	refCopy.Set(ref.Load())
 
-	ok, gotSgmIndex, gotChkStart = refCopy.GetPositionInFile()
+	gotSgmIndex, gotChkStart, ok = refCopy.GetPositionInFile()
 	require.True(t, ok)
 	require.Equal(t, sgmIndex, gotSgmIndex)
 	require.Equal(t, chkStart, gotChkStart)

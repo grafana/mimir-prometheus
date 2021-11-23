@@ -115,28 +115,28 @@ func (ref *ChunkDiskMapperRef) SetPositionInFile(sgmIndex, chkStart uint64) {
 	ref.Set(ref.encodeIsInQueue(false) | ref.encodeSgmIndex(sgmIndex) | ref.encodeChkStart(chkStart))
 }
 
-func (ref *ChunkDiskMapperRef) GetPositionInFile() (bool, uint64, uint64) {
+func (ref *ChunkDiskMapperRef) GetPositionInFile() (uint64, uint64, bool) {
 	encodedVal := ref.Load()
 	if ref.decodeIsInQueue(encodedVal) {
 		// Chunk is in the chunk write queue.
-		return false, 0, 0
+		return 0, 0, false
 	}
 
-	return true, ref.decodeSgmIndex(encodedVal), ref.decodeChkStart(encodedVal)
+	return ref.decodeSgmIndex(encodedVal), ref.decodeChkStart(encodedVal), true
 }
 
 func (ref *ChunkDiskMapperRef) SetPositionInQueue(qPos uint64) {
 	ref.Set(ref.encodeIsInQueue(true) | ref.encodeQueuePos(qPos))
 }
 
-func (ref *ChunkDiskMapperRef) GetPositionInQueue() (bool, uint64) {
+func (ref *ChunkDiskMapperRef) GetPositionInQueue() (uint64, bool) {
 	encodedVal := ref.Load()
 	if !ref.decodeIsInQueue(encodedVal) {
 		// Chunk is in the head chunk file.
-		return false, 0
+		return 0, false
 	}
 
-	return true, ref.decodeQueuePos(encodedVal)
+	return ref.decodeQueuePos(encodedVal), true
 }
 
 func (ref *ChunkDiskMapperRef) encodeIsInQueue(val bool) uint64 {
@@ -592,7 +592,7 @@ func (cdm *ChunkDiskMapper) Chunk(ref *ChunkDiskMapperRef) (chunkenc.Chunk, erro
 		return nil, ErrChunkDiskMapperClosed
 	}
 
-	ok, sgmIndexUint64, chkStartUint64 := ref.GetPositionInFile()
+	sgmIndexUint64, chkStartUint64, ok := ref.GetPositionInFile()
 	if !ok {
 		// Chunk is not in the head chunk file so it must be in the chunk write queue, try to get it from there.
 		chunk := cdm.writeQueue.get(ref)
@@ -601,7 +601,7 @@ func (cdm *ChunkDiskMapper) Chunk(ref *ChunkDiskMapperRef) (chunkenc.Chunk, erro
 		}
 
 		// The chunk might have been written from the chunk write queue to the head chunk file in the meantime.
-		ok, sgmIndexUint64, chkStartUint64 = ref.GetPositionInFile()
+		sgmIndexUint64, chkStartUint64, ok = ref.GetPositionInFile()
 		if !ok {
 			// If chunk is not in the head chunk file but it also wasn't found when we tried
 			// to get it from the chunk write queue then the reference must be corrupted.
