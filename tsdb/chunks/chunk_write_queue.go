@@ -47,10 +47,8 @@ func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChu
 
 		operationsMetric: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
-				Namespace: "prometheus",
-				Subsystem: "chunk_write_queue",
-				Name:      "operations",
-				Help:      "Number of operations on the chunk_write_queue.",
+				Name: "prometheus_tsdb_chunk_write_queue_operations_total",
+				Help: "Number of operations on the chunk_write_queue.",
 			},
 			[]string{"operation"},
 		),
@@ -71,32 +69,32 @@ func (c *chunkWriteQueue) start() {
 		defer c.workerWg.Done()
 
 		for range c.workerCtrl {
-			for !c.isEmpty() {
+			for !c.IsEmpty() {
 				c.processJob()
 			}
 		}
 	}()
 }
 
-func (c *chunkWriteQueue) isEmpty() bool {
+func (c *chunkWriteQueue) IsEmpty() bool {
 	c.jobMtx.RLock()
 	defer c.jobMtx.RUnlock()
 
-	return c._isEmpty()
+	return c.isEmpty()
 }
 
-func (c *chunkWriteQueue) _isEmpty() bool {
+func (c *chunkWriteQueue) isEmpty() bool {
 	return c.headPos < 0 || c.tailPos < 0
 }
 
-func (c *chunkWriteQueue) isFull() bool {
+func (c *chunkWriteQueue) IsFull() bool {
 	c.jobMtx.RLock()
 	defer c.jobMtx.RUnlock()
 
-	return c._isFull()
+	return c.isFull()
 }
 
-func (c *chunkWriteQueue) _isFull() bool {
+func (c *chunkWriteQueue) isFull() bool {
 	return (c.headPos == c.tailPos-1) || (c.headPos == 0 && c.tailPos == c.size-1)
 }
 
@@ -120,6 +118,8 @@ func (c *chunkWriteQueue) advanceTail() {
 	c.jobMtx.Lock()
 	defer c.jobMtx.Unlock()
 
+	c.jobs[c.tailPos] = chunkWriteJob{}
+
 	if c.tailPos == c.headPos {
 		// Queue is empty.
 		c.tailPos = -1
@@ -135,7 +135,7 @@ func (c *chunkWriteQueue) getJob() (chunkWriteJob, bool) {
 	c.jobMtx.Lock()
 	defer c.jobMtx.Unlock()
 
-	if c._isEmpty() {
+	if c.isEmpty() {
 		return chunkWriteJob{}, false
 	}
 
