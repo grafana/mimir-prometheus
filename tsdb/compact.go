@@ -774,10 +774,10 @@ func debugOutOfOrderChunks(chks []chunks.Meta, logger log.Logger) {
 			"msg", "found out-of-order chunk when compacting",
 			"prev_ref", prevChk.Ref,
 			"curr_ref", currChk.Ref,
-			"prev_min_time", time.UnixMilli(prevChk.MinTime).UTC().String(),
-			"prev_max_time", time.UnixMilli(prevChk.MaxTime).UTC().String(),
-			"curr_min_time", time.UnixMilli(currChk.MinTime).UTC().String(),
-			"curr_max_time", time.UnixMilli(currChk.MaxTime).UTC().String(),
+			"prev_min_time", timeFromMillis(prevChk.MinTime).UTC().String(),
+			"prev_max_time", timeFromMillis(prevChk.MaxTime).UTC().String(),
+			"curr_min_time", timeFromMillis(currChk.MinTime).UTC().String(),
+			"curr_max_time", timeFromMillis(currChk.MaxTime).UTC().String(),
 			"prev_samples", prevChk.Chunk.NumSamples(),
 			"curr_samples", currChk.Chunk.NumSamples(),
 			"prev_is_safe_chunk", prevIsSafeChk,
@@ -789,6 +789,10 @@ func debugOutOfOrderChunks(chks []chunks.Meta, logger log.Logger) {
 			"num_chunks_for_series", len(chks),
 		)
 	}
+}
+
+func timeFromMillis(ms int64) time.Time {
+	return time.Unix(0, ms*int64(time.Millisecond))
 }
 
 // populateBlock fills the index and chunk writers of output blocks with new data gathered as the union
