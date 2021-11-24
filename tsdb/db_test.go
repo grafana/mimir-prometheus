@@ -64,18 +64,14 @@ func TestMain(m *testing.M) {
 }
 
 func openTestDB(t testing.TB, opts *Options, rngs []int64) (db *DB) {
-	return openTestDBWithLogger(t, opts, rngs, nil)
-}
-
-func openTestDBWithLogger(t testing.TB, opts *Options, rngs []int64, logger log.Logger) (db *DB) {
 	tmpdir, err := ioutil.TempDir("", "test")
 	require.NoError(t, err)
 
 	if len(rngs) == 0 {
-		db, err = Open(tmpdir, logger, nil, opts, nil)
+		db, err = Open(tmpdir, nil, nil, opts, nil)
 	} else {
 		opts, rngs = validateOpts(opts, rngs)
-		db, err = open(tmpdir, logger, nil, opts, rngs, nil)
+		db, err = open(tmpdir, nil, nil, opts, rngs, nil)
 	}
 	require.NoError(t, err)
 
@@ -146,33 +142,6 @@ func queryChunks(t testing.TB, q storage.ChunkQuerier, matchers ...*labels.Match
 	require.NoError(t, ss.Err())
 	require.Equal(t, 0, len(ss.Warnings()))
 	return result
-}
-
-func TestDebugOutOfOrderChunksDurationCompaction(t *testing.T) {
-	const numSamples = 200
-
-	db := openTestDBWithLogger(t, nil, nil, log.NewLogfmtLogger(os.Stderr))
-	defer func() {
-		require.NoError(t, db.Close())
-	}()
-
-	lbls := labels.Labels{labels.Label{Name: "foo", Value: "bar"}}
-
-	ts := mustParse(t, "2021-11-22T08:00:00.000Z")
-	for i := 0; i < numSamples; i++ {
-		app := db.Appender(context.Background())
-		_, err := app.Append(0, lbls, ts.Add(time.Duration(i)*time.Second).UnixMilli(), 0)
-		require.NoError(t, err)
-		require.NoError(t, app.Commit())
-	}
-
-	require.NoError(t, db.CompactHead(NewRangeHead(db.Head(), db.Head().MinTime(), db.Head().MaxTime())))
-}
-
-func mustParse(t *testing.T, input string) time.Time {
-	ts, err := time.Parse(time.RFC3339Nano, input)
-	require.NoError(t, err)
-	return ts
 }
 
 // Ensure that blocks are held in memory in their time order
