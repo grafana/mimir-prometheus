@@ -17,7 +17,6 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/binary"
-	"fmt"
 	"hash"
 	"io"
 	"io/ioutil"
@@ -97,14 +96,17 @@ func (e *CorruptionErr) Error() string {
 	return errors.Wrapf(e.Err, "corruption in head chunk file %s", segmentFile(e.Dir, e.FileIndex)).Error()
 }
 
-type filePos struct {
-	mtx sync.RWMutex
+// chunkPos keeps track of the position in the head chunk files.
+type chunkPos struct {
+	mtx sync.Mutex
 
 	seq    uint64 // Index of chunk file.
 	offset uint64 // Offset within chunk file.
 }
 
-func (f *filePos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFile bool) {
+// chkRef takes a chunk and returns the chunk reference which will refer to it once it has been written.
+// chkRef also decides whether a new file should be cut, it returns the decision via the second return value.
+func (f *chunkPos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFile bool) {
 	chkLen := uint64(len(chk.Bytes()))
 	bytesToWrite := f.bytesToWriteForChunk(chkLen)
 
@@ -123,7 +125,8 @@ func (f *filePos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFile
 	return newChunkDiskMapperRef(f.seq, chkOffset), cutFile
 }
 
-func (f *filePos) truncate() (chkRef ChunkDiskMapperRef) {
+// truncate returns the chunk ref which will refer to the first written chunk after the head has been truncated.
+func (f *chunkPos) truncate() (chkRef ChunkDiskMapperRef) {
 	f.mtx.Lock()
 	defer f.mtx.Unlock()
 
@@ -132,7 +135,9 @@ func (f *filePos) truncate() (chkRef ChunkDiskMapperRef) {
 	return newChunkDiskMapperRef(f.seq, f.offset)
 }
 
-func (f *filePos) setSeq(seq uint64) {
+// setSeq sets the sequence number of the head chunk file.
+// Should only be used for initialization, after that the sequence number will be managed by filePos.
+func (f *chunkPos) setSeq(seq uint64) {
 	f.mtx.Lock()
 	defer f.mtx.Unlock()
 
@@ -142,12 +147,14 @@ func (f *filePos) setSeq(seq uint64) {
 // shouldCutNewFile returns whether a new file should be cut, based on time and size retention.
 // Size retention: because depending on the system architecture, there is a limit on how big of a file we can m-map.
 // Time retention: so that we can delete old chunks with some time guarantee in low load environments.
-func (f *filePos) shouldCutNewFile(chunkSize uint64) bool {
+func (f *chunkPos) shouldCutNewFile(chunkSize uint64) bool {
 	return f.offset == 0 || // First head chunk file.
 		f.offset+chunkSize+MaxHeadChunkMetaSize > MaxHeadChunkFileSize // Exceeds the max head chunk file size.
 }
 
-func (f *filePos) bytesToWriteForChunk(chkLen uint64) uint64 {
+// bytesToWriteForChunk returns the number of bytes that will need to be written for the given chunk size.
+// It includes all meta data before and after the chunk data.
+func (f *chunkPos) bytesToWriteForChunk(chkLen uint64) uint64 {
 	bytes := uint64(SeriesRefSize) + 2*uint64(MintMaxtSize) + uint64(ChunkEncodingSize)
 
 	// size of chunk length encoded as uvarint
@@ -160,6 +167,16 @@ func (f *filePos) bytesToWriteForChunk(chkLen uint64) uint64 {
 	bytes += CRCSize
 
 	return bytes
+}
+
+// sizeAsUVarInt returns the number of bytes necessary to store the given uint64 when encoded as a uvarint.
+func sizeAsUVarInt(x uint64) uint64 {
+	var i uint64
+	for x >= 0x80 {
+		x >>= 7
+		i++
+	}
+	return i + 1
 }
 
 // ChunkDiskMapper is for writing the Head block chunks to the disk
@@ -176,7 +193,7 @@ type ChunkDiskMapper struct {
 
 	// The values in evtlPos represent the file position which will eventually be
 	// reached once the content of the write queue has been fully processed.
-	evtlPos filePos
+	evtlPos chunkPos
 
 	byteBuf      [MaxHeadChunkMetaSize]byte // Buffer used to write the header of the chunk.
 	chkWriter    *bufio.Writer              // Writer for the current open file.
@@ -411,12 +428,6 @@ func (cdm *ChunkDiskMapper) writeChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		}
 	}
 
-	if chk == nil {
-		fmt.Println("chk")
-	}
-	if cdm.chkWriter == nil {
-		fmt.Println("cdm.chkWriter")
-	}
 	// if len(chk.Bytes())+MaxHeadChunkMetaSize >= writeBufferSize, it means that chunk >= the buffer size;
 	// so no need to flush here, as we have to flush at the end (to not keep partial chunks in buffer).
 	if len(chk.Bytes())+MaxHeadChunkMetaSize < cdm.writeBufferSize && cdm.chkWriter.Available() < MaxHeadChunkMetaSize+len(chk.Bytes()) {
@@ -466,22 +477,13 @@ func (cdm *ChunkDiskMapper) writeChunk(seriesRef HeadSeriesRef, mint, maxt int64
 	return nil
 }
 
-func sizeAsUVarInt(x uint64) uint64 {
-	var i uint64
-	for x >= 0x80 {
-		x >>= 7
-		i++
-	}
-	return i + 1
-}
-
 // CutNewFile creates a new m-mapped file.
-// It blocks until the operation is complete.
+// It blocks until the operation is complete, if a write queue is in use then this can take a while because
+// the jobs which are already in the write queue will need to be processed first.
 func (cdm *ChunkDiskMapper) CutNewFile() (returnErr error) {
 	cdm.writePathMtx.Lock()
 
 	chkRef := cdm.evtlPos.truncate()
-
 	if cdm.writeQueue == nil {
 		cdm.writePathMtx.Unlock()
 		return cdm.cutExpectRef(chkRef)
@@ -501,6 +503,7 @@ func (cdm *ChunkDiskMapper) CutNewFile() (returnErr error) {
 
 	cdm.writePathMtx.Unlock()
 
+	// Wait for the callback, it indicates that the job has been processed.
 	wg.Wait()
 
 	return
@@ -508,7 +511,7 @@ func (cdm *ChunkDiskMapper) CutNewFile() (returnErr error) {
 
 // cutExpectRef creates a new m-mapped file.
 // The write lock should be held before calling this.
-// It ensures that the newly cut file matches the given chunk reference, if not then it errors.
+// It ensures that the position in the new file matches the given chunk reference, if not then it errors.
 func (cdm *ChunkDiskMapper) cutExpectRef(chkRef ChunkDiskMapperRef) (err error) {
 	var seq, offset int
 
@@ -898,6 +901,9 @@ func (cdm *ChunkDiskMapper) Truncate(mint int64) error {
 	errs := tsdb_errors.NewMulti()
 	// Cut a new file only if the current file has some chunks.
 	if cdm.curFileSize() > HeadChunkFileHeaderSize {
+		// There is a known race condition here because between the check of curFileSize() and the call to CutNewFile()
+		// a new file could already be cut, this is acceptable because it will simply result in an empty file which
+		// won't do any harm.
 		errs.Add(cdm.CutNewFile())
 	}
 	errs.Add(cdm.deleteFiles(removedFiles))
