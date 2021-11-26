@@ -98,7 +98,7 @@ func (e *CorruptionErr) Error() string {
 }
 
 type filePos struct {
-	mtx sync.Mutex
+	mtx sync.RWMutex
 
 	seq    uint64 // Index of chunk file.
 	offset uint64 // Offset within chunk file.
@@ -137,6 +137,13 @@ func (f *filePos) setSeq(seq uint64) {
 	defer f.mtx.Unlock()
 
 	f.seq = seq
+}
+
+func (f *filePos) getSeq() uint64 {
+	f.mtx.RLock()
+	defer f.mtx.RUnlock()
+
+	return f.seq
 }
 
 // shouldCutNewFile returns whether a new file should be cut, based on time and size retention.
@@ -640,6 +647,13 @@ func (cdm *ChunkDiskMapper) Chunk(ref ChunkDiskMapperRef) (chunkenc.Chunk, error
 	chkStart += SeriesRefSize + (2 * MintMaxtSize)
 	chkCRC32 := newCRC32()
 
+	if cdm.writeQueue != nil {
+		chunk := cdm.writeQueue.get(ref)
+		if chunk != nil {
+			return chunk, nil
+		}
+	}
+
 	// If it is the current open file, then the chunks can be in the buffer too.
 	if sgmIndex == cdm.curFileSeq {
 		chunk := cdm.chunkBuffer.get(ref)
@@ -953,16 +967,16 @@ func (cdm *ChunkDiskMapper) curFileSize() uint64 {
 // Close closes all the open files in ChunkDiskMapper.
 // It is not longer safe to access chunks from this struct after calling Close.
 func (cdm *ChunkDiskMapper) Close() error {
+	if cdm.writeQueue != nil {
+		cdm.writeQueue.stop()
+	}
+
 	// 'WriteChunk' locks writePathMtx first and then readPathMtx for cutting head chunk file.
 	// The lock order should not be reversed here else it can cause deadlocks.
 	cdm.writePathMtx.Lock()
 	defer cdm.writePathMtx.Unlock()
 	cdm.readPathMtx.Lock()
 	defer cdm.readPathMtx.Unlock()
-
-	if cdm.writeQueue != nil {
-		cdm.writeQueue.stop()
-	}
 
 	if cdm.closed {
 		return nil
