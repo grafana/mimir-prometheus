@@ -161,6 +161,10 @@ func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
 }
 
 func waitUntilConsumed(t *testing.T, q *chunkWriteQueue) {
+	if q == nil {
+		return
+	}
+
 	timeout := time.Second
 	checkInterval := time.Millisecond * 10
 	startTime := time.Now()
