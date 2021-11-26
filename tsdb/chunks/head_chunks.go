@@ -139,13 +139,6 @@ func (f *filePos) setSeq(seq uint64) {
 	f.seq = seq
 }
 
-func (f *filePos) getSeq() uint64 {
-	f.mtx.RLock()
-	defer f.mtx.RUnlock()
-
-	return f.seq
-}
-
 // shouldCutNewFile returns whether a new file should be cut, based on time and size retention.
 // Size retention: because depending on the system architecture, there is a limit on how big of a file we can m-map.
 // Time retention: so that we can delete old chunks with some time guarantee in low load environments.
