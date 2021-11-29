@@ -152,14 +152,16 @@ func (f *chunkPos) setSeq(seq uint64) {
 // shouldCutNewFile returns whether a new file should be cut, based on time and size retention.
 // Size retention: because depending on the system architecture, there is a limit on how big of a file we can m-map.
 // Time retention: so that we can delete old chunks with some time guarantee in low load environments.
+// The read or write lock on chunkPos must be held when calling this.
 func (f *chunkPos) shouldCutNewFile(chunkSize uint64) bool {
 	return f.offset == 0 || // First head chunk file.
 		f.offset+chunkSize+MaxHeadChunkMetaSize > MaxHeadChunkFileSize // Exceeds the max head chunk file size.
 }
 
-// bytesToWriteForChunk returns the number of bytes that will need to be written for the given chunk size.
-// It includes all meta data before and after the chunk data.
+// bytesToWriteForChunk returns the number of bytes that will need to be written for the given chunk size,
+// including all meta data before and after the chunk data.
 func (f *chunkPos) bytesToWriteForChunk(chkLen uint64) uint64 {
+	// headers
 	bytes := uint64(SeriesRefSize) + 2*uint64(MintMaxtSize) + uint64(ChunkEncodingSize)
 
 	// size of chunk length encoded as uvarint
