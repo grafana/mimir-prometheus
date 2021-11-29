@@ -114,8 +114,7 @@ func (f *chunkPos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFil
 	defer f.mtx.Unlock()
 
 	if f.shouldCutNewFile(chkLen) {
-		f.seq++
-		f.offset = SegmentHeaderSize
+		f.cutFile()
 		cutFile = true
 	}
 
@@ -130,9 +129,15 @@ func (f *chunkPos) truncate() (chkRef ChunkDiskMapperRef) {
 	f.mtx.Lock()
 	defer f.mtx.Unlock()
 
+	f.cutFile()
+	return newChunkDiskMapperRef(f.seq, f.offset)
+}
+
+// cutFile updates the position to reflect the cutting of a file.
+// The write lock on chunkPos must be held when calling this.
+func (f *chunkPos) cutFile() {
 	f.seq++
 	f.offset = SegmentHeaderSize
-	return newChunkDiskMapperRef(f.seq, f.offset)
 }
 
 // setSeq sets the sequence number of the head chunk file.
