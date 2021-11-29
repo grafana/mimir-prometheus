@@ -98,8 +98,6 @@ func (e *CorruptionErr) Error() string {
 
 // chunkPos keeps track of the position in the head chunk files.
 type chunkPos struct {
-	mtx sync.Mutex
-
 	seq    uint64 // Index of chunk file.
 	offset uint64 // Offset within chunk file.
 }
@@ -109,9 +107,6 @@ type chunkPos struct {
 func (f *chunkPos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFile bool) {
 	chkLen := uint64(len(chk.Bytes()))
 	bytesToWrite := f.bytesToWriteForChunk(chkLen)
-
-	f.mtx.Lock()
-	defer f.mtx.Unlock()
 
 	if f.shouldCutNewFile(chkLen) {
 		f.cutFile()
@@ -126,9 +121,6 @@ func (f *chunkPos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFil
 
 // truncate returns the chunk ref which will refer to the first written chunk after the head has been truncated.
 func (f *chunkPos) truncate() (chkRef ChunkDiskMapperRef) {
-	f.mtx.Lock()
-	defer f.mtx.Unlock()
-
 	f.cutFile()
 	return newChunkDiskMapperRef(f.seq, f.offset)
 }
@@ -143,9 +135,6 @@ func (f *chunkPos) cutFile() {
 // setSeq sets the sequence number of the head chunk file.
 // Should only be used for initialization, after that the sequence number will be managed by filePos.
 func (f *chunkPos) setSeq(seq uint64) {
-	f.mtx.Lock()
-	defer f.mtx.Unlock()
-
 	f.seq = seq
 }
 
@@ -200,7 +189,8 @@ type ChunkDiskMapper struct {
 
 	// The values in evtlPos represent the file position which will eventually be
 	// reached once the content of the write queue has been fully processed.
-	evtlPos chunkPos
+	evtlPos    chunkPos
+	evtlPosMtx sync.Mutex
 
 	byteBuf      [MaxHeadChunkMetaSize]byte // Buffer used to write the header of the chunk.
 	chkWriter    *bufio.Writer              // Writer for the current open file.
@@ -390,29 +380,30 @@ func repairLastChunkFile(files map[int]string) (_ map[int]string, returnErr erro
 
 // WriteChunk writes the chunk to the disk.
 // The returned chunk ref is the reference from where the chunk encoding starts for the chunk.
-func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64, chk chunkenc.Chunk, errHandler func(err error)) (chkRef ChunkDiskMapperRef) {
-	ref, cutFile := cdm.evtlPos.chkRef(chk)
-
-	if cdm.writeQueue == nil {
-		err := cdm.writeChunk(seriesRef, mint, maxt, chk, ref, cutFile)
-		if err != nil {
-			errHandler(err)
-		}
-		return ref
-	}
-
+func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64, chk chunkenc.Chunk, callback func(err error)) (chkRef ChunkDiskMapperRef) {
 	job := chunkWriteJob{
-		cutFile:   cutFile,
 		seriesRef: seriesRef,
 		mint:      mint,
 		maxt:      maxt,
 		chk:       chk,
-		ref:       ref,
-		callback:  errHandler,
+		callback:  callback,
 	}
+
+	cdm.evtlPosMtx.Lock()
+	defer cdm.evtlPosMtx.Unlock()
+
+	job.ref, job.cutFile = cdm.evtlPos.chkRef(chk)
+	if cdm.writeQueue == nil {
+		err := cdm.writeChunk(seriesRef, mint, maxt, chk, job.ref, job.cutFile)
+		if callback != nil {
+			callback(err)
+		}
+		return job.ref
+	}
+
 	cdm.writeQueue.addJob(job)
 
-	return ref
+	return job.ref
 }
 
 func (cdm *ChunkDiskMapper) writeChunk(seriesRef HeadSeriesRef, mint, maxt int64, chk chunkenc.Chunk, ref ChunkDiskMapperRef, cutFile bool) (err error) {
@@ -488,11 +479,13 @@ func (cdm *ChunkDiskMapper) writeChunk(seriesRef HeadSeriesRef, mint, maxt int64
 // It blocks until the operation is complete, if a write queue is in use then this can take a while because
 // the jobs which are already in the write queue will need to be processed first.
 func (cdm *ChunkDiskMapper) CutNewFile() (returnErr error) {
+	cdm.evtlPosMtx.Lock()
 	cdm.writePathMtx.Lock()
 
 	chkRef := cdm.evtlPos.truncate()
 	if cdm.writeQueue == nil {
-		cdm.writePathMtx.Unlock()
+		defer cdm.evtlPosMtx.Unlock()
+		defer cdm.writePathMtx.Unlock()
 		return cdm.cutExpectRef(chkRef)
 	}
 
@@ -509,6 +502,7 @@ func (cdm *ChunkDiskMapper) CutNewFile() (returnErr error) {
 	})
 
 	cdm.writePathMtx.Unlock()
+	cdm.evtlPosMtx.Unlock()
 
 	// Wait for the callback, it indicates that the job has been processed.
 	wg.Wait()
@@ -973,6 +967,10 @@ func (cdm *ChunkDiskMapper) curFileSize() uint64 {
 // Close closes all the open files in ChunkDiskMapper.
 // It is not longer safe to access chunks from this struct after calling Close.
 func (cdm *ChunkDiskMapper) Close() error {
+	// Locking the eventual position lock blocks WriteChunk()
+	cdm.evtlPosMtx.Lock()
+	defer cdm.evtlPosMtx.Unlock()
+
 	if cdm.writeQueue != nil {
 		cdm.writeQueue.stop()
 	}
