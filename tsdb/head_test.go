@@ -35,6 +35,7 @@ import (
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/exemplar"
@@ -269,6 +270,110 @@ func BenchmarkLoadWAL(b *testing.B) {
 				})
 		}
 	}
+}
+
+// TestHead_HighConcurrencyReadAndWrite generates 1000 series with a step of 15s and fills a whole block with samples,
+// this means in total it generates 4000 chunks because with a step of 15s there are 4 chunks per block per series.
+// While appending the samples to the head it concurrently queries them from 10 go routines and verifies that the
+// returned results are correct.
+func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
+	head, _ := newTestHead(t, DefaultBlockDuration, false)
+	defer func() {
+		require.NoError(t, head.Close())
+	}()
+
+	seriesCnt := 1000
+	queryConcurrency := 10
+	startPos := uint64(DefaultBlockDuration) // start at the second block relative to the unix epoch.
+	qryRange := uint64(5 * time.Minute / time.Millisecond)
+	step := uint64(15 * time.Second / time.Millisecond)
+	endPos := startPos + uint64(DefaultBlockDuration)
+
+	labelSets := make([]labels.Labels, seriesCnt)
+	for i := 0; i < seriesCnt; i++ {
+		labelSets[i] = labels.FromStrings("seriesId", strconv.Itoa(i))
+	}
+
+	head.initTime(0)
+	currPos := atomic.NewUint64(startPos)
+
+	g, ctx := errgroup.WithContext(context.Background())
+	whileNotCanceled := func(f func() (bool, error)) error {
+		for {
+			select {
+			case <-ctx.Done():
+				return nil
+			default:
+				cont, err := f()
+				if err != nil {
+					return err
+				}
+				if !cont {
+					return nil
+				}
+			}
+		}
+	}
+
+	g.Go(func() error {
+		return whileNotCanceled(func() (bool, error) {
+			app := head.appender()
+			pos := int64(currPos.Load())
+			for i := 0; i < len(labelSets); i++ {
+				_, err := app.Append(0, labelSets[i], pos, float64(pos))
+				if err != nil {
+					return false, fmt.Errorf("Error when appending to head: %w", err)
+				}
+			}
+			require.NoError(t, app.Commit())
+			if currPos.Add(step) > endPos {
+				return false, nil
+			}
+			return true, nil
+		})
+	})
+
+	queryHead := func(mint, maxt uint64, label labels.Label) map[string][]tsdbutil.Sample {
+		q, err := NewBlockQuerier(head, int64(mint), int64(maxt))
+		require.NoError(t, err)
+		return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value))
+	}
+
+	for threadId := 0; threadId < queryConcurrency; threadId++ {
+		// Create copy of threadId to be used by worker routine.
+		threadId := threadId
+		g.Go(func() error {
+			querySeriesRef := seriesCnt / queryConcurrency * threadId
+
+			return whileNotCanceled(func() (bool, error) {
+				pos := currPos.Load() - step
+				if pos < startPos+qryRange {
+					// Waiting until at least qryRange data has been ingested
+					return true, nil
+				} else if pos+step > endPos {
+					return false, nil
+				}
+
+				labels := labelSets[querySeriesRef]
+				querySeriesRef = (querySeriesRef + 1) % seriesCnt
+				samples := queryHead(pos-qryRange, pos, labels[0])
+				require.Equal(t, 1, len(samples))
+
+				series := labels.String()
+				require.Equal(t, qryRange/step+1, uint64(len(samples[series])))
+
+				for sampleIdx, sample := range samples[series] {
+					expectValue := pos - qryRange + (uint64(sampleIdx) * step)
+					require.Equal(t, int64(expectValue), sample.T())
+					require.Equal(t, float64(expectValue), sample.V())
+				}
+
+				return true, nil
+			})
+		})
+	}
+
+	require.NoError(t, g.Wait())
 }
 
 func TestHead_ReadWAL(t *testing.T) {
