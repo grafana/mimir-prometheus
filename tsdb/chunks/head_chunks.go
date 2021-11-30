@@ -104,6 +104,8 @@ type chunkPos struct {
 	offset  uint64 // Offset within chunk file.
 	cutFile bool   // When true then the next chunk will be written to a new file.
 
+	// dummyBuf is necessary because "binary.PutUvarint" requires that a buffer is passed into it,
+	// it's content is never read or used for anything.
 	dummyBuf [MaxChunkLengthFieldSize]byte
 }
 
@@ -501,7 +503,7 @@ func (cdm *ChunkDiskMapper) cutExpectRef(chkRef ChunkDiskMapperRef) (err error) 
 }
 
 // cut creates a new m-mapped file. The write lock should be held before calling this.
-// It returns the file sequence and the offset in that file to start writing chunks
+// It returns the file sequence and the offset in that file to start writing chunks.
 func (cdm *ChunkDiskMapper) cut() (seq, offset int, err error) {
 	// Sync current tail to disk and close.
 	if err = cdm.finalizeCurFile(); err != nil {
