@@ -108,14 +108,14 @@ func (c *chunkWriteQueue) processJob() {
 		return
 	}
 
-	defer c.advanceTail()
-
 	err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk, job.ref, job.cutFile)
 	if job.callback != nil {
 		job.callback(err)
 	}
 
 	c.operationsMetric.WithLabelValues("complete").Inc()
+
+	c.advanceTail()
 }
 
 func (c *chunkWriteQueue) advanceTail() {

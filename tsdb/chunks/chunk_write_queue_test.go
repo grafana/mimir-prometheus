@@ -161,6 +161,8 @@ func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
 }
 
 func waitUntilConsumed(t *testing.T, q *chunkWriteQueue) {
+	t.Helper()
+
 	if q == nil {
 		return
 	}

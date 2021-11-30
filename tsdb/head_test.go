@@ -1469,10 +1469,12 @@ func TestHeadReadWriterRepair(t *testing.T) {
 		}
 		require.NoError(t, h.Close())
 
-		// Verify that there are 7 segment files.
+		// Verify that there are 6 segment files.
+		// It should only be 6 because the last call to .CutNewFile() won't
+		// take effect without another chunk being written.
 		files, err := ioutil.ReadDir(mmappedChunksDir(dir))
 		require.NoError(t, err)
-		require.Equal(t, 7, len(files))
+		require.Equal(t, 6, len(files))
 
 		// Corrupt the 4th file by writing a random byte to series ref.
 		f, err := os.OpenFile(filepath.Join(mmappedChunksDir(dir), files[3].Name()), os.O_WRONLY, 0o666)
