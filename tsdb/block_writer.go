@@ -78,7 +78,6 @@ func (bw *blockWriter) loop() (res blockWriterResult) {
 		ref++
 	}
 
-	fmt.Println("closing...")
 	// If everything went fine with writing so far, close writers.
 	if err := bw.chunkw.Close(); err != nil {
 		return blockWriterResult{err: errors.Wrap(err, "closing chunk writer")}

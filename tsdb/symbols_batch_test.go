@@ -12,7 +12,9 @@ func TestSymbolsBatchAndIteration(t *testing.T) {
 	dir := t.TempDir()
 
 	b := newSymbolsBatcher(100, dir)
-	defer b.close()
+	defer func() {
+		_, _ = b.close()
+	}()
 
 	allWords := map[string]struct{}{}
 
