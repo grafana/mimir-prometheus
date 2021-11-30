@@ -989,6 +989,7 @@ func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlo
 	batchers := make([]*symbolsBatcher, len(outBlocks))
 	for ix := range outBlocks {
 		batchers[ix] = newSymbolsBatcher(inMemorySymbolsLimit, outBlocks[ix].tmpDir)
+		defer batchers[ix].close() // We must close the batcher to make sure to stop the goroutine.
 
 		// Always include empty symbol. Blocks created from Head always have it in the symbols table,
 		// and if we only include symbols from series, we would skip it.
@@ -1023,16 +1024,23 @@ func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlo
 	}
 
 	for ix := range outBlocks {
-		if err := c.ctx.Err(); err != nil {
-			return err
-		}
-
 		// Flush the batcher to write remaining symbols.
 		if err := batchers[ix].flushSymbols(true); err != nil {
 			return errors.Wrap(err, "flushing batcher")
 		}
+	}
 
-		it, err := newSymbolsIterator(batchers[ix].symbolFiles())
+	for ix := range outBlocks {
+		if err := c.ctx.Err(); err != nil {
+			return err
+		}
+
+		symbolFiles, err := batchers[ix].close()
+		if err != nil {
+			return errors.Wrap(err, "closing buffer")
+		}
+
+		it, err := newSymbolsIterator(symbolFiles)
 		if err != nil {
 			return errors.Wrap(err, "opening symbols iterator")
 		}
@@ -1064,7 +1072,7 @@ func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlo
 
 		// Delete symbol files from symbolsBatcher. We don't need to perform the cleanup if populateSymbols
 		// or compaction fails, because in that case compactor already removes entire (temp) output block directory.
-		for _, fn := range batchers[ix].symbolFiles() {
+		for _, fn := range symbolFiles {
 			if err := os.Remove(fn); err != nil {
 				return errors.Wrap(err, "deleting symbols file")
 			}

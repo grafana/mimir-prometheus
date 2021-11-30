@@ -12,6 +12,7 @@ func TestSymbolsBatchAndIteration(t *testing.T) {
 	dir := t.TempDir()
 
 	b := newSymbolsBatcher(100, dir)
+	defer b.close()
 
 	allWords := map[string]struct{}{}
 
@@ -29,8 +30,10 @@ func TestSymbolsBatchAndIteration(t *testing.T) {
 	}
 
 	require.NoError(t, b.flushSymbols(true))
+	symbols, err := b.close()
+	require.NoError(t, err)
 
-	it, err := newSymbolsIterator(b.symbolFiles())
+	it, err := newSymbolsIterator(symbols)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, it.Close())
