@@ -73,7 +73,6 @@ func (sw *symbolsBatcher) flusher() (result flusherResult) {
 		err := writeSymbolsToFile(symbolsFile, sortedSymbols)
 		if err != nil {
 			return flusherResult{err: err}
-
 		}
 
 		symbolsFiles = append(symbolsFiles, symbolsFile)
