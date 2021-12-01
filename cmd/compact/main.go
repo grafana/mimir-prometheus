@@ -16,16 +16,20 @@ import (
 
 func main() {
 	var (
-		outputDir     string
-		shardCount    int
-		cpuProf       string
-		segmentSizeMB int64
+		outputDir        string
+		shardCount       int
+		cpuProf          string
+		segmentSizeMB    int64
+		maxClosingBlocks int
+		symbolFlushers   int
 	)
 
 	flag.StringVar(&outputDir, "output-dir", ".", "Output directory for new block(s)")
 	flag.StringVar(&cpuProf, "cpuprofile", "", "Where to store CPU profile (it not empty)")
 	flag.IntVar(&shardCount, "shard-count", 1, "Number of shards for splitting")
 	flag.Int64Var(&segmentSizeMB, "segment-file-size", 512, "Size of segment file")
+	flag.IntVar(&maxClosingBlocks, "max-closing-blocks", 2, "Number of blocks that can close at once during split compaction")
+	flag.IntVar(&symbolFlushers, "symbol-flushers", 4, "Number of symbol flushers used during split compaction")
 
 	flag.Parse()
 
@@ -79,6 +83,11 @@ func main() {
 	if err != nil {
 		log.Fatalln("creating compator", err)
 	}
+
+	opts := tsdb.DefaultConcurrencyOptions()
+	opts.MaxClosingBlocks = maxClosingBlocks
+	opts.SymbolsFlushersCount = symbolFlushers
+	c.SetConcurrencyOptions(opts)
 
 	_, err = c.CompactWithSplitting(outputDir, blockDirs, blocks, uint64(shardCount))
 	if err != nil {

@@ -85,6 +85,8 @@ type LeveledCompactor struct {
 	ctx                      context.Context
 	maxBlockChunkSegmentSize int64
 	mergeFunc                storage.VerticalChunkSeriesMergeFunc
+
+	concurrencyOpts ConcurrencyOptions
 }
 
 type compactorMetrics struct {
@@ -173,7 +175,25 @@ func NewLeveledCompactorWithChunkSize(ctx context.Context, r prometheus.Register
 		ctx:                      ctx,
 		maxBlockChunkSegmentSize: maxBlockChunkSegmentSize,
 		mergeFunc:                mergeFunc,
+		concurrencyOpts:          DefaultConcurrencyOptions(),
 	}, nil
+}
+
+// ConcurrencyOptions used by LeveledCompactor.
+type ConcurrencyOptions struct {
+	MaxClosingBlocks     int // Max number of blocks that can be closed concurrently during split compaction.
+	SymbolsFlushersCount int // Number of symbols flushers used when doing split compaction.
+}
+
+func DefaultConcurrencyOptions() ConcurrencyOptions {
+	return ConcurrencyOptions{
+		MaxClosingBlocks:     1,
+		SymbolsFlushersCount: 1,
+	}
+}
+
+func (c *LeveledCompactor) SetConcurrencyOptions(opts ConcurrencyOptions) {
+	c.concurrencyOpts = opts
 }
 
 type dirMeta struct {
@@ -908,12 +928,12 @@ func (c *LeveledCompactor) populateBlock(blocks []BlockReader, minT, maxT int64,
 		}
 	}
 
-	// Don't do more than 2 closings of chunk and index writers at once.
-	sema := semaphore.NewWeighted(2)
+	// Semaphore for number of blocks that can be closed at once.
+	sema := semaphore.NewWeighted(int64(c.concurrencyOpts.MaxClosingBlocks))
 
-	blockWriters := make([]*blockWriter, len(outBlocks))
+	blockWriters := make([]*asyncBlockWriter, len(outBlocks))
 	for ix := range outBlocks {
-		blockWriters[ix] = newBlockWriter(c.chunkPool, outBlocks[ix].chunkw, outBlocks[ix].indexw, sema)
+		blockWriters[ix] = newAsyncBlockWriter(c.chunkPool, outBlocks[ix].chunkw, outBlocks[ix].indexw, sema)
 		defer blockWriters[ix].closeAsync() // Make sure to close writer to stop goroutine.
 	}
 
@@ -992,7 +1012,7 @@ func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlo
 		return errors.New("no output block")
 	}
 
-	flushers := newSymbolFlushers(4)
+	flushers := newSymbolFlushers(c.concurrencyOpts.SymbolsFlushersCount)
 	defer flushers.close() // Make sure to stop flushers before exiting to avoid leaking goroutines.
 
 	batchers := make([]*symbolsBatcher, len(outBlocks))

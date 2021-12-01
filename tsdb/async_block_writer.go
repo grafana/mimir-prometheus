@@ -14,7 +14,8 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunks"
 )
 
-type blockWriter struct {
+// asyncBlockWriter runs a background goroutine that writes series and chunks to the block asynchronously.
+type asyncBlockWriter struct {
 	chunkPool chunkenc.Pool // Where to return chunks after writing.
 
 	chunkw ChunkWriter
@@ -23,13 +24,13 @@ type blockWriter struct {
 	closeSemaphore *semaphore.Weighted
 
 	seriesChan chan seriesToWrite
-	finishedCh chan blockWriterResult
+	finishedCh chan asyncBlockWriterResult
 
 	closed bool
-	result blockWriterResult
+	result asyncBlockWriterResult
 }
 
-type blockWriterResult struct {
+type asyncBlockWriterResult struct {
 	stats BlockStats
 	err   error
 }
@@ -39,13 +40,13 @@ type seriesToWrite struct {
 	chks []chunks.Meta
 }
 
-func newBlockWriter(chunkPool chunkenc.Pool, chunkw ChunkWriter, indexw IndexWriter, closeSema *semaphore.Weighted) *blockWriter {
-	bw := &blockWriter{
+func newAsyncBlockWriter(chunkPool chunkenc.Pool, chunkw ChunkWriter, indexw IndexWriter, closeSema *semaphore.Weighted) *asyncBlockWriter {
+	bw := &asyncBlockWriter{
 		chunkPool:      chunkPool,
 		chunkw:         chunkw,
 		indexw:         indexw,
-		seriesChan:     make(chan seriesToWrite, 128),
-		finishedCh:     make(chan blockWriterResult, 1),
+		seriesChan:     make(chan seriesToWrite, 64),
+		finishedCh:     make(chan asyncBlockWriterResult, 1),
 		closeSemaphore: closeSema,
 	}
 
@@ -53,7 +54,9 @@ func newBlockWriter(chunkPool chunkenc.Pool, chunkw ChunkWriter, indexw IndexWri
 	return bw
 }
 
-func (bw *blockWriter) loop() (res blockWriterResult) {
+// loop doing the writes. Return value is only used by defer statement, and is sent to the channel,
+// before closing it.
+func (bw *asyncBlockWriter) loop() (res asyncBlockWriterResult) {
 	defer func() {
 		bw.finishedCh <- res
 		close(bw.finishedCh)
@@ -63,10 +66,10 @@ func (bw *blockWriter) loop() (res blockWriterResult) {
 	ref := storage.SeriesRef(0)
 	for sw := range bw.seriesChan {
 		if err := bw.chunkw.WriteChunks(sw.chks...); err != nil {
-			return blockWriterResult{err: errors.Wrap(err, "write chunks")}
+			return asyncBlockWriterResult{err: errors.Wrap(err, "write chunks")}
 		}
 		if err := bw.indexw.AddSeries(ref, sw.lbls, sw.chks...); err != nil {
-			return blockWriterResult{err: errors.Wrap(err, "add series")}
+			return asyncBlockWriterResult{err: errors.Wrap(err, "add series")}
 		}
 
 		stats.NumChunks += uint64(len(sw.chks))
@@ -77,7 +80,7 @@ func (bw *blockWriter) loop() (res blockWriterResult) {
 
 		for _, chk := range sw.chks {
 			if err := bw.chunkPool.Put(chk.Chunk); err != nil {
-				return blockWriterResult{err: errors.Wrap(err, "put chunk")}
+				return asyncBlockWriterResult{err: errors.Wrap(err, "put chunk")}
 			}
 		}
 		ref++
@@ -85,22 +88,22 @@ func (bw *blockWriter) loop() (res blockWriterResult) {
 
 	err := bw.closeSemaphore.Acquire(context.Background(), 1)
 	if err != nil {
-		return blockWriterResult{err: errors.Wrap(err, "failed to acquire semaphore before closing writers")}
+		return asyncBlockWriterResult{err: errors.Wrap(err, "failed to acquire semaphore before closing writers")}
 	}
 	defer bw.closeSemaphore.Release(1)
 
 	// If everything went fine with writing so far, close writers.
 	if err := bw.chunkw.Close(); err != nil {
-		return blockWriterResult{err: errors.Wrap(err, "closing chunk writer")}
+		return asyncBlockWriterResult{err: errors.Wrap(err, "closing chunk writer")}
 	}
 	if err := bw.indexw.Close(); err != nil {
-		return blockWriterResult{err: errors.Wrap(err, "closing index writer")}
+		return asyncBlockWriterResult{err: errors.Wrap(err, "closing index writer")}
 	}
 
-	return blockWriterResult{stats: stats}
+	return asyncBlockWriterResult{stats: stats}
 }
 
-func (bw *blockWriter) addSeries(lbls labels.Labels, chks []chunks.Meta) error {
+func (bw *asyncBlockWriter) addSeries(lbls labels.Labels, chks []chunks.Meta) error {
 	select {
 	case bw.seriesChan <- seriesToWrite{lbls: lbls, chks: chks}:
 		return nil
@@ -108,11 +111,11 @@ func (bw *blockWriter) addSeries(lbls labels.Labels, chks []chunks.Meta) error {
 		if ok {
 			bw.result = result
 		}
-		return fmt.Errorf("blockWriter doesn't run anymore")
+		return fmt.Errorf("asyncBlockWriter doesn't run anymore")
 	}
 }
 
-func (bw *blockWriter) closeAsync() {
+func (bw *asyncBlockWriter) closeAsync() {
 	if !bw.closed {
 		bw.closed = true
 
@@ -120,7 +123,7 @@ func (bw *blockWriter) closeAsync() {
 	}
 }
 
-func (bw *blockWriter) waitFinished() (BlockStats, error) {
+func (bw *asyncBlockWriter) waitFinished() (BlockStats, error) {
 	// Wait for flusher to finish.
 	result, ok := <-bw.finishedCh
 	if ok {

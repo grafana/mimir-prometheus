@@ -15,6 +15,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/errors"
 )
 
+// symbolFlushers writes symbols to provided files in background goroutines.
 type symbolFlushers struct {
 	jobs chan flusherJob
 	wg   sync.WaitGroup
@@ -23,11 +24,14 @@ type symbolFlushers struct {
 
 	errMu sync.Mutex
 	err   error
+
+	pool *sync.Pool
 }
 
 func newSymbolFlushers(concurrency int) *symbolFlushers {
 	f := &symbolFlushers{
 		jobs: make(chan flusherJob),
+		pool: &sync.Pool{},
 	}
 
 	for i := 0; i < concurrency; i++ {
@@ -39,6 +43,10 @@ func newSymbolFlushers(concurrency int) *symbolFlushers {
 }
 
 func (f *symbolFlushers) flushSymbols(outputFile string, symbols map[string]struct{}) error {
+	if len(symbols) == 0 {
+		return fmt.Errorf("no symbols")
+	}
+
 	f.errMu.Lock()
 	err := f.err
 	f.errMu.Unlock()
@@ -59,17 +67,24 @@ func (f *symbolFlushers) loop() {
 	defer f.wg.Done()
 
 	for j := range f.jobs {
-		if len(j.symbols) == 0 {
-			continue
+		var sortedSymbols []string
+
+		pooled := f.pool.Get()
+		if pooled == nil {
+			sortedSymbols = make([]string, 0, len(j.symbols))
+		} else {
+			sortedSymbols = pooled.([]string)
+			sortedSymbols = sortedSymbols[:0]
 		}
 
-		sortedSymbols := make([]string, 0, len(j.symbols))
 		for s := range j.symbols {
 			sortedSymbols = append(sortedSymbols, s)
 		}
 		sort.Strings(sortedSymbols)
 
 		err := writeSymbolsToFile(j.outputFile, sortedSymbols)
+		f.pool.Put(sortedSymbols[:0])
+
 		if err != nil {
 			f.errMu.Lock()
 			if f.err == nil {
@@ -112,21 +127,19 @@ type symbolsBatcher struct {
 	dir   string
 	limit int
 
-	symbolFiles []string
+	symbolsFiles []string // paths of symbol files, which were sent to flushers for flushing
 
 	buffer   map[string]struct{} // using map to deduplicate
 	flushers *symbolFlushers
 }
 
 func newSymbolsBatcher(limit int, dir string, flushers *symbolFlushers) *symbolsBatcher {
-	b := &symbolsBatcher{
+	return &symbolsBatcher{
 		limit:    limit,
 		dir:      dir,
 		buffer:   make(map[string]struct{}, limit),
 		flushers: flushers,
 	}
-
-	return b
 }
 
 func (sw *symbolsBatcher) addSymbol(sym string) error {
@@ -139,16 +152,22 @@ func (sw *symbolsBatcher) flushSymbols(force bool) error {
 		return nil
 	}
 
-	symbolsFile := filepath.Join(sw.dir, fmt.Sprintf("symbols_%d", len(sw.symbolFiles)))
-	sw.symbolFiles = append(sw.symbolFiles, symbolsFile)
+	if len(sw.buffer) == 0 {
+		return nil
+	}
+
+	symbolsFile := filepath.Join(sw.dir, fmt.Sprintf("symbols_%d", len(sw.symbolsFiles)))
+	sw.symbolsFiles = append(sw.symbolsFiles, symbolsFile)
 
 	buf := sw.buffer
 	sw.buffer = make(map[string]struct{}, sw.limit)
 	return sw.flushers.flushSymbols(symbolsFile, buf)
 }
 
+// getSymbolFiles returns list of symbol files used to flush symbols to. These files are only valid if flushers
+// finish successfully.
 func (sw *symbolsBatcher) getSymbolFiles() []string {
-	return sw.symbolFiles
+	return sw.symbolsFiles
 }
 
 func writeSymbolsToFile(filename string, symbols []string) error {
