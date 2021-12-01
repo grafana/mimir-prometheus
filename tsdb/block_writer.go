@@ -1,10 +1,12 @@
 package tsdb
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
+	"golang.org/x/sync/semaphore"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -17,6 +19,8 @@ type blockWriter struct {
 
 	chunkw ChunkWriter
 	indexw IndexWriter
+
+	closeSemaphore *semaphore.Weighted
 
 	seriesChan chan seriesToWrite
 	finishedCh chan blockWriterResult
@@ -35,13 +39,14 @@ type seriesToWrite struct {
 	chks []chunks.Meta
 }
 
-func newBlockWriter(chunkPool chunkenc.Pool, chunkw ChunkWriter, indexw IndexWriter) *blockWriter {
+func newBlockWriter(chunkPool chunkenc.Pool, chunkw ChunkWriter, indexw IndexWriter, closeSema *semaphore.Weighted) *blockWriter {
 	bw := &blockWriter{
-		chunkPool:  chunkPool,
-		chunkw:     chunkw,
-		indexw:     indexw,
-		seriesChan: make(chan seriesToWrite, 128),
-		finishedCh: make(chan blockWriterResult, 1),
+		chunkPool:      chunkPool,
+		chunkw:         chunkw,
+		indexw:         indexw,
+		seriesChan:     make(chan seriesToWrite, 128),
+		finishedCh:     make(chan blockWriterResult, 1),
+		closeSemaphore: closeSema,
 	}
 
 	go bw.loop()
@@ -77,6 +82,12 @@ func (bw *blockWriter) loop() (res blockWriterResult) {
 		}
 		ref++
 	}
+
+	err := bw.closeSemaphore.Acquire(context.Background(), 1)
+	if err != nil {
+		return blockWriterResult{err: errors.Wrap(err, "failed to acquire semaphore before closing writers")}
+	}
+	defer bw.closeSemaphore.Release(1)
 
 	// If everything went fine with writing so far, close writers.
 	if err := bw.chunkw.Close(); err != nil {
