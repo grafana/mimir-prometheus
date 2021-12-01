@@ -339,11 +339,11 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 		return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value))
 	}
 
-	for threadId := 0; threadId < queryConcurrency; threadId++ {
-		// Create copy of threadId to be used by worker routine.
-		threadId := threadId
+	for threadID := 0; threadID < queryConcurrency; threadID++ {
+		// Create copy of threadID to be used by worker routine.
+		threadID := threadID
 		g.Go(func() error {
-			querySeriesRef := seriesCnt / queryConcurrency * threadId
+			querySeriesRef := seriesCnt / queryConcurrency * threadID
 
 			return whileNotCanceled(func() (bool, error) {
 				pos := currPos.Load() - step
