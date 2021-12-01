@@ -15,7 +15,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/errors"
 )
 
-type flushers struct {
+type symbolFlushers struct {
 	jobs chan flusherJob
 	wg   sync.WaitGroup
 
@@ -25,8 +25,8 @@ type flushers struct {
 	err   error
 }
 
-func newFlushers(concurrency int) *flushers {
-	f := &flushers{
+func newSymbolFlushers(concurrency int) *symbolFlushers {
+	f := &symbolFlushers{
 		jobs: make(chan flusherJob),
 	}
 
@@ -38,7 +38,7 @@ func newFlushers(concurrency int) *flushers {
 	return f
 }
 
-func (f *flushers) flushSymbols(outputFile string, symbols map[string]struct{}) error {
+func (f *symbolFlushers) flushSymbols(outputFile string, symbols map[string]struct{}) error {
 	f.errMu.Lock()
 	err := f.err
 	f.errMu.Unlock()
@@ -55,7 +55,7 @@ func (f *flushers) flushSymbols(outputFile string, symbols map[string]struct{}) 
 	return nil
 }
 
-func (f *flushers) loop() {
+func (f *symbolFlushers) loop() {
 	defer f.wg.Done()
 
 	for j := range f.jobs {
@@ -87,7 +87,7 @@ func (f *flushers) loop() {
 }
 
 // Stops and waits until all flusher goroutines are finished.
-func (f *flushers) close() error {
+func (f *symbolFlushers) close() error {
 	if f.closed {
 		return f.err
 	}
@@ -115,10 +115,10 @@ type symbolsBatcher struct {
 	symbolFiles []string
 
 	buffer   map[string]struct{} // using map to deduplicate
-	flushers *flushers
+	flushers *symbolFlushers
 }
 
-func newSymbolsBatcher(limit int, dir string, flushers *flushers) *symbolsBatcher {
+func newSymbolsBatcher(limit int, dir string, flushers *symbolFlushers) *symbolsBatcher {
 	b := &symbolsBatcher{
 		limit:    limit,
 		dir:      dir,

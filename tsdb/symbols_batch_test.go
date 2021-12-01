@@ -11,7 +11,7 @@ import (
 func TestSymbolsBatchAndIteration(t *testing.T) {
 	dir := t.TempDir()
 
-	flushers := newFlushers(1)
+	flushers := newSymbolFlushers(1)
 	defer func() { _ = flushers.close() }()
 
 	b := newSymbolsBatcher(100, dir, flushers)

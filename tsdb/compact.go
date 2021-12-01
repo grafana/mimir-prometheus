@@ -988,7 +988,7 @@ func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlo
 		return errors.New("no output block")
 	}
 
-	flushers := newFlushers(4)
+	flushers := newSymbolFlushers(4)
 	defer flushers.close() // Make sure to stop flushers before exiting to avoid leaking goroutines.
 
 	batchers := make([]*symbolsBatcher, len(outBlocks))
