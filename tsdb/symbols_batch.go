@@ -83,7 +83,10 @@ func (f *symbolFlushers) loop() {
 		sort.Strings(sortedSymbols)
 
 		err := writeSymbolsToFile(j.outputFile, sortedSymbols)
-		f.pool.Put(sortedSymbols[:0])
+		sortedSymbols = sortedSymbols[:0]
+
+		//nolint:staticcheck // Ignore SA6002 safe to ignore and actually fixing it has some performance penalty.
+		f.pool.Put(sortedSymbols)
 
 		if err != nil {
 			f.errMu.Lock()
