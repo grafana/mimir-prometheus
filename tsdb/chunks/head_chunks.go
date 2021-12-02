@@ -133,8 +133,8 @@ func (f *chunkPos) toNewFile() {
 	f.offset = SegmentHeaderSize
 }
 
-// doCutFile triggers that the next chunk will be written in to a new file.
-func (f *chunkPos) doCutFile() {
+// cutFileOnNextChunk triggers that the next chunk will be written in to a new file.
+func (f *chunkPos) cutFileOnNextChunk() {
 	f.cutFile = true
 }
 
@@ -482,7 +482,7 @@ func (cdm *ChunkDiskMapper) CutNewFile() error {
 	cdm.evtlPosMtx.Lock()
 	defer cdm.evtlPosMtx.Unlock()
 
-	cdm.evtlPos.doCutFile()
+	cdm.evtlPos.cutFileOnNextChunk()
 
 	return nil
 }
@@ -491,11 +491,9 @@ func (cdm *ChunkDiskMapper) CutNewFile() error {
 // The write lock should be held before calling this.
 // It ensures that the position in the new file matches the given chunk reference, if not then it errors.
 func (cdm *ChunkDiskMapper) cutExpectRef(chkRef ChunkDiskMapperRef) (err error) {
-	var seq, offset int
-
-	seq, offset, err = cdm.cut()
+	seq, offset, err := cdm.cut()
 	if err != nil {
-		return
+		return err
 	}
 
 	if expSeq, expOffset := chkRef.Unpack(); seq != expSeq || offset != expOffset {
