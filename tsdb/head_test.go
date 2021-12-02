@@ -317,7 +317,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 
 	g.Go(func() error {
 		return whileNotCanceled(func() (bool, error) {
-			app := head.appender()
+			app := head.Appender(ctx)
 			pos := int64(currPos.Load())
 			for i := 0; i < len(labelSets); i++ {
 				_, err := app.Append(0, labelSets[i], pos, float64(pos))
@@ -341,9 +341,9 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 
 	for threadID := 0; threadID < queryConcurrency; threadID++ {
 		// Create copy of threadID to be used by worker routine.
-		threadID := threadID
+		workerThreadID := threadID
 		g.Go(func() error {
-			querySeriesRef := seriesCnt / queryConcurrency * threadID
+			querySeriesRef := (seriesCnt / queryConcurrency) * workerThreadID
 
 			return whileNotCanceled(func() (bool, error) {
 				pos := currPos.Load() - step
