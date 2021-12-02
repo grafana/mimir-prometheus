@@ -28,6 +28,7 @@ type chunkWriteQueue struct {
 	size      int
 	sizeLimit chan struct{}
 
+	isStarted  bool
 	workerCtrl chan struct{}
 	workerWg   sync.WaitGroup
 
@@ -71,6 +72,10 @@ func (c *chunkWriteQueue) start() {
 
 	go func() {
 		defer c.workerWg.Done()
+
+		c.jobMtx.Lock()
+		c.isStarted = true
+		c.jobMtx.Unlock()
 
 		for range c.workerCtrl {
 			for !c.IsEmpty() {
@@ -163,10 +168,12 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) {
 		c.tailPos = c.headPos
 	}
 
-	select {
-	// non-blocking write to wake up worker because there is at least one job ready to consume
-	case c.workerCtrl <- struct{}{}:
-	default:
+	if c.isStarted {
+		select {
+		// non-blocking write to wake up worker because there is at least one job ready to consume
+		case c.workerCtrl <- struct{}{}:
+		default:
+		}
 	}
 }
 
@@ -185,6 +192,10 @@ func (c *chunkWriteQueue) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
 }
 
 func (c *chunkWriteQueue) stop() {
+	c.jobMtx.Lock()
+	c.isStarted = false
+	c.jobMtx.Unlock()
+
 	close(c.workerCtrl)
 	c.workerWg.Wait()
 
