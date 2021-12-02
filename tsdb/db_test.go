@@ -2453,7 +2453,7 @@ func TestDBReadOnly_FlushWAL(t *testing.T) {
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
-		defer func() { require.NoError(t, db.Close()) }()
+		require.NoError(t, db.Close())
 	}
 
 	// Flush WAL.
