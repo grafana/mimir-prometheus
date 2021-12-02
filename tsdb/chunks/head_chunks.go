@@ -110,7 +110,7 @@ type chunkPos struct {
 }
 
 // chkRef takes a chunk and returns the chunk reference which will refer to it once it has been written.
-// chkRef also decides whether a new file should be cut, it returns the decision via the second return value.
+// chkRef also decides whether a new file should be cut before writing this chunk, and it returns the decision via the second return value.
 // The order of calling chkRef must be the order in which chunks are written to the disk.
 func (f *chunkPos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFile bool) {
 	chkLen := uint64(len(chk.Bytes()))
