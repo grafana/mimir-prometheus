@@ -54,14 +54,16 @@ func TestChunkWriteQueue_GettingChunkFromQueue(t *testing.T) {
 }
 
 func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
-	var chunkWriterWg sync.WaitGroup
-	chunkWriterWg.Add(1)
+	var (
+		gotSeriesRef     HeadSeriesRef
+		gotMint, gotMaxt int64
+		gotChunk         chunkenc.Chunk
+		gotRef           ChunkDiskMapperRef
+		gotCutFile       bool
+		chunkWriterWg    sync.WaitGroup
+	)
 
-	var gotSeriesRef HeadSeriesRef
-	var gotMint, gotMaxt int64
-	var gotChunk chunkenc.Chunk
-	var gotRef ChunkDiskMapperRef
-	var gotCutFile bool
+	chunkWriterWg.Add(1)
 
 	// blockingChunkWriter blocks until chunkWriterWg is done.
 	blockingChunkWriter := func(seriesRef HeadSeriesRef, mint, maxt int64, chunk chunkenc.Chunk, ref ChunkDiskMapperRef, cutFile bool) error {
