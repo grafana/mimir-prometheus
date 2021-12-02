@@ -283,7 +283,8 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	}()
 
 	seriesCnt := 1000
-	queryConcurrency := 10
+	readConcurrency := 2
+	writeConcurrency := 10
 	startPos := uint64(DefaultBlockDuration) // start at the second block relative to the unix epoch.
 	qryRange := uint64(5 * time.Minute / time.Millisecond)
 	step := uint64(15 * time.Second / time.Millisecond)
@@ -295,7 +296,6 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	}
 
 	head.initTime(0)
-	currPos := atomic.NewUint64(startPos)
 
 	g, ctx := errgroup.WithContext(context.Background())
 	whileNotCanceled := func(f func() (bool, error)) error {
@@ -315,63 +315,149 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 		}
 	}
 
-	g.Go(func() error {
-		return whileNotCanceled(func() (bool, error) {
-			app := head.Appender(ctx)
-			pos := int64(currPos.Load())
-			for i := 0; i < len(labelSets); i++ {
-				_, err := app.Append(0, labelSets[i], pos, float64(pos))
-				if err != nil {
-					return false, fmt.Errorf("Error when appending to head: %w", err)
-				}
-			}
-			require.NoError(t, app.Commit())
-			if currPos.Add(step) > endPos {
-				return false, nil
-			}
-			return true, nil
-		})
-	})
-
-	queryHead := func(mint, maxt uint64, label labels.Label) map[string][]tsdbutil.Sample {
-		q, err := NewBlockQuerier(head, int64(mint), int64(maxt))
-		require.NoError(t, err)
-		return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value))
+	// Create one chan for each write worker, the chans will be used to coordinate the writing position.
+	writerPosCh := make([]chan uint64, writeConcurrency)
+	for writerPosChIdx := range writerPosCh {
+		writerPosCh[writerPosChIdx] = make(chan uint64)
 	}
 
-	for threadID := 0; threadID < queryConcurrency; threadID++ {
+	// workerReadyWg is used to synchronize the start of the test,
+	// we only start the test once all workers signal that they're ready.
+	var workerReadyWg sync.WaitGroup
+	workerReadyWg.Add(writeConcurrency + readConcurrency)
+
+	// Start the write workers.
+	for threadID := 0; threadID < writeConcurrency; threadID++ {
 		// Create copy of threadID to be used by worker routine.
 		workerThreadID := threadID
+
 		g.Go(func() error {
-			querySeriesRef := (seriesCnt / queryConcurrency) * workerThreadID
+			// The label sets which this worker will write.
+			workerLabelSets := labelSets[(seriesCnt/writeConcurrency)*workerThreadID : (seriesCnt/writeConcurrency)*(workerThreadID+1)]
+
+			// Signal that this worker is ready.
+			workerReadyWg.Done()
 
 			return whileNotCanceled(func() (bool, error) {
-				pos := currPos.Load() - step
-				if pos < startPos+qryRange {
-					// Waiting until at least qryRange data has been ingested
-					return true, nil
-				} else if pos+step > endPos {
+				pos, ok := <-writerPosCh[workerThreadID]
+				if !ok {
+					return false, nil
+				}
+
+				app := head.Appender(ctx)
+				for i := 0; i < len(workerLabelSets); i++ {
+					_, err := app.Append(0, workerLabelSets[i], int64(pos), float64(pos))
+					if err != nil {
+						return false, fmt.Errorf("Error when appending to head: %w", err)
+					}
+				}
+
+				return true, app.Commit()
+			})
+		})
+	}
+
+	// queryHead is a helper to query the head for a given time range and labelset.
+	queryHead := func(mint, maxt uint64, label labels.Label) (map[string][]tsdbutil.Sample, error) {
+		q, err := NewBlockQuerier(head, int64(mint), int64(maxt))
+		if err != nil {
+			return nil, err
+		}
+		return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value)), nil
+	}
+
+	// readerPosCh will be used to coordinate the reader position.
+	readerPosCh := make(chan uint64)
+
+	// Start the read workers.
+	for threadID := 0; threadID < readConcurrency; threadID++ {
+		// Create copy of threadID to be used by worker routine.
+		workerThreadID := threadID
+
+		g.Go(func() error {
+			querySeriesRef := (seriesCnt / readConcurrency) * workerThreadID
+
+			// Signal that this worker is ready.
+			workerReadyWg.Done()
+
+			return whileNotCanceled(func() (bool, error) {
+				pos, ok := <-readerPosCh
+				if !ok {
 					return false, nil
 				}
 
 				labels := labelSets[querySeriesRef]
 				querySeriesRef = (querySeriesRef + 1) % seriesCnt
-				samples := queryHead(pos-qryRange, pos, labels[0])
-				require.Equal(t, 1, len(samples))
+				samples, err := queryHead(pos-qryRange, pos, labels[0])
+				if err != nil {
+					return false, err
+				}
+
+				if len(samples) != 1 {
+					return false, fmt.Errorf("expected 1 sample, got %d", len(samples))
+				}
 
 				series := labels.String()
-				require.Equal(t, qryRange/step+1, uint64(len(samples[series])))
+				expectSampleCnt := qryRange/step + 1
+				if expectSampleCnt != uint64(len(samples[series])) {
+					return false, fmt.Errorf("expected %d samples, got %d", expectSampleCnt, len(samples[series]))
+				}
 
 				for sampleIdx, sample := range samples[series] {
-					expectValue := pos - qryRange + (uint64(sampleIdx) * step)
-					require.Equal(t, int64(expectValue), sample.T())
-					require.Equal(t, float64(expectValue), sample.V())
+					expectedValue := pos - qryRange + (uint64(sampleIdx) * step)
+					if sample.T() != int64(expectedValue) {
+						return false, fmt.Errorf("expected sample %d to have ts %d, got %d", sampleIdx, expectedValue, sample.T())
+					}
+					if sample.V() != float64(expectedValue) {
+						return false, fmt.Errorf("expected sample %d to have value %d, got %f", sampleIdx, expectedValue, sample.V())
+					}
 				}
 
 				return true, nil
 			})
 		})
 	}
+
+	g.Go(func() error {
+		currPos := startPos
+
+		defer func() {
+			// End of the test, close all channels to stop the workers.
+			for _, ch := range writerPosCh {
+				close(ch)
+			}
+			close(readerPosCh)
+		}()
+
+		// Wait until all workers are ready to start the test.
+		workerReadyWg.Wait()
+		return whileNotCanceled(func() (bool, error) {
+			// Send the current position to each of the writers.
+			for _, ch := range writerPosCh {
+				select {
+				case ch <- currPos:
+				case <-ctx.Done():
+					return false, nil
+				}
+			}
+
+			// Once data for at least <qryRange> has been ingested, send the current position to the readers.
+			if currPos > startPos+qryRange {
+				select {
+				case readerPosCh <- currPos - step:
+				case <-ctx.Done():
+					return false, nil
+				}
+			}
+
+			currPos += step
+			if currPos > endPos {
+				return false, nil
+			}
+
+			return true, nil
+		})
+	})
 
 	require.NoError(t, g.Wait())
 }
