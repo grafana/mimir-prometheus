@@ -137,7 +137,7 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 		require.NoError(t, q.addJob(chunkWriteJob{}))
 	}
 
-	// The queue should not be full.
+	// The queue should be full.
 	require.Equal(t, true, q.IsFull())
 
 	// Adding another job should block as long as no job from the queue gets consumed.
