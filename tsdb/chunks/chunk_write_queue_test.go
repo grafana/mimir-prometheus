@@ -92,7 +92,7 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 
 	// Unblock the chunk writer.
 	chunkWriterWg.Done()
-	waitUntilConsumed(t, q)
+	require.Eventually(t, q.IsEmpty, time.Second, 10*time.Millisecond)
 
 	// queue should be empty
 	require.Equal(t, true, q.IsEmpty())
@@ -166,7 +166,7 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 		writeChunk <- struct{}{}
 	}
 
-	waitUntilConsumed(t, q)
+	require.Eventually(t, q.IsEmpty, time.Second, 10*time.Millisecond)
 
 	// The queue should not be full anymore.
 	require.Equal(t, false, q.IsFull())
@@ -195,35 +195,7 @@ func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
 
 	require.NoError(t, q.addJob(job))
 
-	waitUntilConsumed(t, q)
+	require.Eventually(t, q.IsEmpty, time.Second, 10*time.Millisecond)
 
 	require.Equal(t, testError, gotError)
-}
-
-func waitUntilConsumed(t *testing.T, q *chunkWriteQueue) {
-	t.Helper()
-
-	if q == nil {
-		return
-	}
-
-	timeout := time.Second
-	checkInterval := time.Millisecond * 10
-	startTime := time.Now()
-
-	if q.IsEmpty() {
-		return
-	}
-
-	for {
-		time.Sleep(checkInterval)
-
-		if q.IsEmpty() {
-			return
-		}
-
-		if time.Since(startTime) > timeout {
-			t.Fatalf("Timed out waiting for queue to be consumed")
-		}
-	}
 }
