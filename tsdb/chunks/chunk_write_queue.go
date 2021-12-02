@@ -1,9 +1,9 @@
 package chunks
 
 import (
+	"errors"
 	"sync"
 
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
@@ -71,13 +71,8 @@ func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChu
 
 func (c *chunkWriteQueue) start() {
 	c.workerWg.Add(1)
-
 	go func() {
 		defer c.workerWg.Done()
-
-		c.isStartedMtx.Lock()
-		c.isStarted = true
-		c.isStartedMtx.Unlock()
 
 		for range c.workerCtrl {
 			for !c.IsEmpty() {
@@ -85,6 +80,10 @@ func (c *chunkWriteQueue) start() {
 			}
 		}
 	}()
+
+	c.isStartedMtx.Lock()
+	c.isStarted = true
+	c.isStartedMtx.Unlock()
 }
 
 func (c *chunkWriteQueue) IsEmpty() bool {
