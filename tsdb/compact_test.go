@@ -1529,7 +1529,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 	const blocksToOpen = 2
 	opened, toClose, err := openBlocksForCompaction(blockDirs[:blocksToOpen], nil, log.NewNopLogger(), nil, 10)
 	for _, b := range toClose {
-		defer b.Close()
+		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
 
 	require.NoError(t, err)
@@ -1539,7 +1539,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 	// Open all blocks, but provide previously opened blocks.
 	opened2, toClose2, err := openBlocksForCompaction(blockDirs, opened, log.NewNopLogger(), nil, 10)
 	for _, b := range toClose2 {
-		defer b.Close()
+		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
 
 	require.NoError(t, err)
@@ -1562,12 +1562,12 @@ func TestOpenBlocksForCompactionErrorsNoMeta(t *testing.T) {
 		}
 	}
 
-	// open first block
-	b1, err := OpenBlock(log.NewNopLogger(), blockDirs[0], nil)
+	// open block[0]
+	b0, err := OpenBlock(log.NewNopLogger(), blockDirs[0], nil)
 	require.NoError(t, err)
-	defer b1.Close()
+	defer func() { require.NoError(t, b0.Close()) }()
 
-	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, log.NewNopLogger(), nil, 10)
+	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b0}, log.NewNopLogger(), nil, 10)
 
 	require.Error(t, err)
 	// We didn't get to opening more blocks, because we found invalid dir, so there is nothing to close.
@@ -1589,10 +1589,10 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 		}
 	}
 
-	// open first block
+	// open block[1]
 	b1, err := OpenBlock(log.NewNopLogger(), blockDirs[1], nil)
 	require.NoError(t, err)
-	defer b1.Close()
+	defer func() { require.NoError(t, b1.Close()) }()
 
 	// We use concurrency = 1 to simplify the test.
 	// Block[0] will be opened correctly.
@@ -1602,7 +1602,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	// Block[4] will not be opened at all.
 	opened, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, log.NewNopLogger(), nil, 1)
 	for _, b := range toClose {
-		defer b.Close()
+		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
 
 	require.Error(t, err)
