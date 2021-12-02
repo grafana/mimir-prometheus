@@ -613,17 +613,17 @@ func (cdm *ChunkDiskMapper) Chunk(ref ChunkDiskMapperRef) (chunkenc.Chunk, error
 		return nil, ErrChunkDiskMapperClosed
 	}
 
-	sgmIndex, chkStart := ref.Unpack()
-	// We skip the series ref and the mint/maxt beforehand.
-	chkStart += SeriesRefSize + (2 * MintMaxtSize)
-	chkCRC32 := newCRC32()
-
 	if cdm.writeQueue != nil {
 		chunk := cdm.writeQueue.get(ref)
 		if chunk != nil {
 			return chunk, nil
 		}
 	}
+
+	sgmIndex, chkStart := ref.Unpack()
+	// We skip the series ref and the mint/maxt beforehand.
+	chkStart += SeriesRefSize + (2 * MintMaxtSize)
+	chkCRC32 := newCRC32()
 
 	// If it is the current open file, then the chunks can be in the buffer too.
 	if sgmIndex == cdm.curFileSeq {
