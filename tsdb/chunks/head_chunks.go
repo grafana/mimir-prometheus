@@ -505,9 +505,9 @@ func (cdm *ChunkDiskMapper) cutExpectRef(chkRef ChunkDiskMapperRef) (err error) 
 
 // cut creates a new m-mapped file. The write lock should be held before calling this.
 // It returns the file sequence and the offset in that file to start writing chunks.
-func (cdm *ChunkDiskMapper) cut() (seq, offset int, err error) {
+func (cdm *ChunkDiskMapper) cut() (seq, offset int, returnErr error) {
 	// Sync current tail to disk and close.
-	if err = cdm.finalizeCurFile(); err != nil {
+	if err := cdm.finalizeCurFile(); err != nil {
 		return 0, 0, err
 	}
 
@@ -519,8 +519,8 @@ func (cdm *ChunkDiskMapper) cut() (seq, offset int, err error) {
 	defer func() {
 		// The file should not be closed if there is no error,
 		// its kept open in the ChunkDiskMapper.
-		if err != nil {
-			err = tsdb_errors.NewMulti(err, newFile.Close()).Err()
+		if returnErr != nil {
+			returnErr = tsdb_errors.NewMulti(returnErr, newFile.Close()).Err()
 		}
 	}()
 
