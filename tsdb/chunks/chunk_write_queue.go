@@ -220,7 +220,4 @@ func (c *chunkWriteQueue) stop() {
 
 	close(c.workerCtrl)
 	c.workerWg.Wait()
-
-	// restore workerCtrl to make it possible to add jobs to the queue while it is stopped.
-	c.workerCtrl = make(chan struct{}, c.size)
 }
