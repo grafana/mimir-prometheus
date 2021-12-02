@@ -3,6 +3,7 @@ package chunks
 import (
 	"sync"
 
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
@@ -28,9 +29,10 @@ type chunkWriteQueue struct {
 	size      int
 	sizeLimit chan struct{}
 
-	isStarted  bool
-	workerCtrl chan struct{}
-	workerWg   sync.WaitGroup
+	isStartedMtx sync.RWMutex
+	isStarted    bool
+	workerCtrl   chan struct{}
+	workerWg     sync.WaitGroup
 
 	writeChunk writeChunkF
 
@@ -73,9 +75,9 @@ func (c *chunkWriteQueue) start() {
 	go func() {
 		defer c.workerWg.Done()
 
-		c.jobMtx.Lock()
+		c.isStartedMtx.Lock()
 		c.isStarted = true
-		c.jobMtx.Unlock()
+		c.isStartedMtx.Unlock()
 
 		for range c.workerCtrl {
 			for !c.IsEmpty() {
@@ -152,7 +154,14 @@ func (c *chunkWriteQueue) getJob() (chunkWriteJob, bool) {
 	return c.jobs[c.tailPos], true
 }
 
-func (c *chunkWriteQueue) addJob(job chunkWriteJob) {
+func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
+	c.isStartedMtx.RLock()
+	defer c.isStartedMtx.RUnlock()
+
+	if !c.isStarted {
+		return errors.New("queue is not started")
+	}
+
 	// if queue is full then block here
 	c.sizeLimit <- struct{}{}
 
@@ -168,13 +177,13 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) {
 		c.tailPos = c.headPos
 	}
 
-	if c.isStarted {
-		select {
-		// non-blocking write to wake up worker because there is at least one job ready to consume
-		case c.workerCtrl <- struct{}{}:
-		default:
-		}
+	select {
+	// non-blocking write to wake up worker because there is at least one job ready to consume
+	case c.workerCtrl <- struct{}{}:
+	default:
 	}
+
+	return nil
 }
 
 func (c *chunkWriteQueue) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
@@ -192,9 +201,10 @@ func (c *chunkWriteQueue) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
 }
 
 func (c *chunkWriteQueue) stop() {
-	c.jobMtx.Lock()
+	c.isStartedMtx.Lock()
+	defer c.isStartedMtx.Unlock()
+
 	c.isStarted = false
-	c.jobMtx.Unlock()
 
 	close(c.workerCtrl)
 	c.workerWg.Wait()

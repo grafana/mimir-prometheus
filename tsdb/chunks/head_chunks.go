@@ -397,7 +397,7 @@ func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		return ref
 	}
 
-	cdm.writeQueue.addJob(chunkWriteJob{
+	err := cdm.writeQueue.addJob(chunkWriteJob{
 		cutFile:   cutFile,
 		seriesRef: seriesRef,
 		mint:      mint,
@@ -406,6 +406,9 @@ func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		ref:       ref,
 		callback:  callback,
 	})
+	if err != nil {
+		callback(err)
+	}
 
 	return ref
 }
