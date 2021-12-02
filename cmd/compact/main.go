@@ -79,7 +79,7 @@ func main() {
 	opts := tsdb.DefaultLeveledCompactorConcurrencyOptions()
 	opts.MaxClosingBlocks = maxClosingBlocks
 	opts.SymbolsFlushersCount = symbolFlushers
-	opts.OpenBlockConcurrency = openConcurrency
+	opts.MaxOpeningBlocks = openConcurrency
 	c.SetConcurrencyOptions(opts)
 
 	_, err = c.CompactWithSplitting(outputDir, blockDirs, nil, uint64(shardCount))

@@ -183,16 +183,16 @@ func NewLeveledCompactorWithChunkSize(ctx context.Context, r prometheus.Register
 
 // LeveledCompactorConcurrencyOptions is a collection of concurrency options used by LeveledCompactor.
 type LeveledCompactorConcurrencyOptions struct {
-	MaxClosingBlocks     int // Max number of blocks that can be closed concurrently during split compaction.
+	MaxOpeningBlocks     int // Number of goroutines opening blocks before compaction.
+	MaxClosingBlocks     int // Max number of blocks that can be closed concurrently during split compaction. Note that closing of newly compacted block uses a lot of memory for writing index.
 	SymbolsFlushersCount int // Number of symbols flushers used when doing split compaction.
-	OpenBlockConcurrency int // Number of goroutines opening blocks before compaction.
 }
 
 func DefaultLeveledCompactorConcurrencyOptions() LeveledCompactorConcurrencyOptions {
 	return LeveledCompactorConcurrencyOptions{
 		MaxClosingBlocks:     1,
 		SymbolsFlushersCount: 1,
-		OpenBlockConcurrency: 1,
+		MaxOpeningBlocks:     1,
 	}
 }
 
@@ -450,7 +450,7 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 
 	start := time.Now()
 
-	bs, blocksToClose, err := openBlocksForCompaction(dirs, open, c.logger, c.chunkPool, c.concurrencyOpts.OpenBlockConcurrency)
+	bs, blocksToClose, err := openBlocksForCompaction(dirs, open, c.logger, c.chunkPool, c.concurrencyOpts.MaxOpeningBlocks)
 	for _, b := range blocksToClose {
 		defer b.Close()
 	}
@@ -1100,9 +1100,9 @@ func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlo
 }
 
 // Returns opened blocks, and blocks that should be closed (also returned in case of error).
-func openBlocksForCompaction(dirs []string, open []*Block, logger log.Logger, pool chunkenc.Pool, concurrency int) ([]*Block, []*Block, error) {
-	blocks := make([]*Block, 0, len(dirs))
-	blocksToClose := make([]*Block, 0, len(dirs))
+func openBlocksForCompaction(dirs []string, open []*Block, logger log.Logger, pool chunkenc.Pool, concurrency int) (blocks []*Block, blocksToClose []*Block, _ error) {
+	blocks = make([]*Block, 0, len(dirs))
+	blocksToClose = make([]*Block, 0, len(dirs))
 
 	toOpenCh := make(chan string, len(dirs))
 	for _, d := range dirs {
@@ -1135,12 +1135,15 @@ func openBlocksForCompaction(dirs []string, open []*Block, logger log.Logger, po
 		err error
 	}
 
-	openResultCh := make(chan openResult, len(dirs))
+	openResultCh := make(chan openResult, len(toOpenCh))
 	// Signals to all opening goroutines that there was an error opening some block, and they can stop early.
 	// If openingError is true, at least one error is sent to openResultCh.
 	openingError := atomic.NewBool(false)
 
 	wg := sync.WaitGroup{}
+	if len(dirs) < concurrency {
+		concurrency = len(dirs)
+	}
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
