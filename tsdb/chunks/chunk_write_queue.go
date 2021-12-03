@@ -33,19 +33,15 @@ type chunkWriteJob struct {
 }
 
 type chunkWriteQueue struct {
-	jobMtx      sync.RWMutex
-	jobs        []chunkWriteJob
-	chunkRefMap map[ChunkDiskMapperRef]int
-	headPos     int
-	tailPos     int
+	jobCh chan chunkWriteJob
 
-	size      int
-	sizeLimit chan struct{}
+	chunkRefMapMtx sync.RWMutex
+	chunkRefMap    map[ChunkDiskMapperRef]chunkenc.Chunk
 
 	isStartedMtx sync.RWMutex
 	isStarted    bool
-	workerCtrl   chan struct{}
-	workerWg     sync.WaitGroup
+
+	workerWg sync.WaitGroup
 
 	writeChunk writeChunkF
 
@@ -56,13 +52,8 @@ type writeChunkF func(HeadSeriesRef, int64, int64, chunkenc.Chunk, ChunkDiskMapp
 
 func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChunkF) *chunkWriteQueue {
 	q := &chunkWriteQueue{
-		size:        size,
-		jobs:        make([]chunkWriteJob, size),
-		chunkRefMap: make(map[ChunkDiskMapperRef]int, size),
-		headPos:     -1,
-		tailPos:     -1,
-		sizeLimit:   make(chan struct{}, size),
-		workerCtrl:  make(chan struct{}, size),
+		jobCh:       make(chan chunkWriteJob, size),
+		chunkRefMap: make(map[ChunkDiskMapperRef]chunkenc.Chunk, size),
 		writeChunk:  writeChunk,
 
 		operationsMetric: prometheus.NewCounterVec(
@@ -87,10 +78,8 @@ func (c *chunkWriteQueue) start() {
 	go func() {
 		defer c.workerWg.Done()
 
-		for range c.workerCtrl {
-			for !c.IsEmpty() {
-				c.processJob()
-			}
+		for job := range c.jobCh {
+			c.processJob(job)
 		}
 	}()
 
@@ -99,71 +88,17 @@ func (c *chunkWriteQueue) start() {
 	c.isStartedMtx.Unlock()
 }
 
-func (c *chunkWriteQueue) IsEmpty() bool {
-	c.jobMtx.RLock()
-	defer c.jobMtx.RUnlock()
-
-	return c.isEmpty()
-}
-
-func (c *chunkWriteQueue) isEmpty() bool {
-	return c.headPos < 0 || c.tailPos < 0
-}
-
-func (c *chunkWriteQueue) IsFull() bool {
-	c.jobMtx.RLock()
-	defer c.jobMtx.RUnlock()
-
-	return c.isFull()
-}
-
-func (c *chunkWriteQueue) isFull() bool {
-	return (c.headPos+1)%c.size == c.tailPos
-}
-
-func (c *chunkWriteQueue) processJob() {
-	job, ok := c.getJob()
-	if !ok {
-		return
-	}
-
+func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
 	err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk, job.ref, job.cutFile)
 	if job.callback != nil {
 		job.callback(err)
 	}
 
+	c.chunkRefMapMtx.Lock()
+	defer c.chunkRefMapMtx.Unlock()
+	delete(c.chunkRefMap, job.ref)
+
 	c.operationsMetric.WithLabelValues("complete").Inc()
-
-	c.advanceTail()
-}
-
-func (c *chunkWriteQueue) advanceTail() {
-	c.jobMtx.Lock()
-	defer c.jobMtx.Unlock()
-
-	delete(c.chunkRefMap, c.jobs[c.tailPos].ref)
-	c.jobs[c.tailPos] = chunkWriteJob{}
-
-	if c.tailPos == c.headPos {
-		// Queue is empty.
-		c.tailPos = -1
-		c.headPos = -1
-	} else {
-		c.tailPos = (c.tailPos + 1) % c.size
-	}
-
-	<-c.sizeLimit
-}
-
-func (c *chunkWriteQueue) getJob() (chunkWriteJob, bool) {
-	c.jobMtx.RLock()
-	defer c.jobMtx.RUnlock()
-
-	if c.isEmpty() {
-		return chunkWriteJob{}, false
-	}
-
-	return c.jobs[c.tailPos], true
 }
 
 func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
@@ -174,42 +109,28 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
 		return errors.New("queue is not started")
 	}
 
-	// if queue is full then block here
-	c.sizeLimit <- struct{}{}
+	c.jobCh <- job
 
 	c.operationsMetric.WithLabelValues("add").Inc()
 
-	c.jobMtx.Lock()
-	defer c.jobMtx.Unlock()
+	c.chunkRefMapMtx.Lock()
+	defer c.chunkRefMapMtx.Unlock()
 
-	c.headPos = (c.headPos + 1) % c.size
-	c.jobs[c.headPos] = job
-	c.chunkRefMap[job.ref] = c.headPos
-	if c.tailPos < 0 {
-		c.tailPos = c.headPos
-	}
-
-	select {
-	// non-blocking write to wake up worker because there is at least one job ready to consume
-	case c.workerCtrl <- struct{}{}:
-	default:
-	}
+	c.chunkRefMap[job.ref] = job.chk
 
 	return nil
 }
 
 func (c *chunkWriteQueue) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
-	c.jobMtx.RLock()
-	defer c.jobMtx.RUnlock()
+	c.chunkRefMapMtx.RLock()
+	defer c.chunkRefMapMtx.RUnlock()
 
-	pos, ok := c.chunkRefMap[ref]
-	if !ok || pos < 0 || pos >= len(c.jobs) {
-		return nil
+	chk, ok := c.chunkRefMap[ref]
+	if ok {
+		c.operationsMetric.WithLabelValues("get").Inc()
 	}
 
-	c.operationsMetric.WithLabelValues("get").Inc()
-
-	return c.jobs[pos].chk
+	return chk
 }
 
 func (c *chunkWriteQueue) stop() {
@@ -218,6 +139,7 @@ func (c *chunkWriteQueue) stop() {
 
 	c.isStarted = false
 
-	close(c.workerCtrl)
+	close(c.jobCh)
+
 	c.workerWg.Wait()
 }

@@ -14,11 +14,11 @@
 package chunks
 
 import (
+	"errors"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
@@ -87,15 +87,11 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	cutFile := true
 	require.NoError(t, q.addJob(chunkWriteJob{seriesRef: seriesRef, mint: mint, maxt: maxt, chk: chunk, ref: ref, cutFile: cutFile}))
 
-	// queue should have one job because the chunk writer is still blocked.
-	require.Equal(t, false, q.IsEmpty())
-
 	// Unblock the chunk writer.
 	chunkWriterWg.Done()
-	require.Eventually(t, q.IsEmpty, time.Second, 10*time.Millisecond)
 
-	// queue should be empty
-	require.Equal(t, true, q.IsEmpty())
+	// Wait until queue is empty.
+	require.Eventually(t, func() bool { return queueIsEmpty(q) }, time.Second, time.Millisecond*10)
 
 	// compare whether the write function has received all job attributes correctly
 	require.Equal(t, seriesRef, gotSeriesRef)
@@ -108,42 +104,55 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 
 func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	sizeLimit := 100
-	writeChunk := make(chan struct{}, sizeLimit)
+	writeChunkCh := make(chan struct{}, sizeLimit)
 
 	// blockingChunkWriter blocks until the writeChunk channel returns a value.
 	blockingChunkWriter := func(seriesRef HeadSeriesRef, mint, maxt int64, chunk chunkenc.Chunk, ref ChunkDiskMapperRef, cutFile bool) error {
-		<-writeChunk
+		<-writeChunkCh
 		return nil
 	}
 
 	q := newChunkWriteQueue(nil, sizeLimit, blockingChunkWriter)
 	defer q.stop()
+	// Unblock writers when shutting down.
+	defer close(writeChunkCh)
+
+	var chunkRef ChunkDiskMapperRef
+	addChunk := func() {
+		require.NoError(t, q.addJob(chunkWriteJob{
+			ref: chunkRef,
+		}))
+		chunkRef++
+	}
+
+	writeChunk := func() {
+		writeChunkCh <- struct{}{}
+	}
 
 	// Fill the queue to the middle of the size limit.
 	for job := 0; job < sizeLimit/2; job++ {
-		require.NoError(t, q.addJob(chunkWriteJob{}))
+		addChunk()
 	}
 
-	// Consume all except one job.
-	for job := 0; job < sizeLimit/2-1; job++ {
-		writeChunk <- struct{}{}
+	// Consume the jobs.
+	for job := 0; job < sizeLimit/2; job++ {
+		writeChunk()
 	}
-
-	// The queue should not be empty, because there is one job left in it.
-	require.Equal(t, false, q.IsEmpty())
 
 	// Add jobs until the queue is full.
-	for job := 0; job < sizeLimit-1; job++ {
-		require.NoError(t, q.addJob(chunkWriteJob{}))
+	// Note that one more queue than <sizeLimit> can be added because one will being processed by the worker already,
+	// which will then block on the chunk write function.
+	for job := 0; job < sizeLimit+1; job++ {
+		addChunk()
 	}
 
 	// The queue should be full.
-	require.Equal(t, true, q.IsFull())
+	require.Equal(t, sizeLimit, queueSize(q))
 
 	// Adding another job should block as long as no job from the queue gets consumed.
 	addedJob := atomic.NewBool(false)
 	go func() {
-		require.NoError(t, q.addJob(chunkWriteJob{}))
+		addChunk()
 		addedJob.Store(true)
 	}()
 
@@ -151,28 +160,22 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	time.Sleep(time.Millisecond * 10)
 	require.Equal(t, false, addedJob.Load())
 
-	writeChunk <- struct{}{}
+	writeChunk()
 
 	// Wait for 10ms to give the worker time to fully process a job.
 	time.Sleep(time.Millisecond * 10)
 	require.Equal(t, true, addedJob.Load())
 
 	// The queue should be full again.
-	require.Equal(t, true, q.IsFull())
+	require.Equal(t, sizeLimit, queueSize(q))
 
 	// Consume <sizeLimit> jobs from the queue.
 	for job := 0; job < sizeLimit; job++ {
-		require.Equal(t, false, q.IsEmpty())
-		writeChunk <- struct{}{}
+		require.Equal(t, false, queueIsEmpty(q))
+		writeChunk()
 	}
 
-	require.Eventually(t, q.IsEmpty, time.Second, 10*time.Millisecond)
-
-	// The queue should not be full anymore.
-	require.Equal(t, false, q.IsFull())
-
-	// Now the queue should be empty.
-	require.Equal(t, true, q.IsEmpty())
+	require.Eventually(t, func() bool { return queueIsEmpty(q) }, time.Second, time.Millisecond*10)
 }
 
 func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
@@ -195,7 +198,15 @@ func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
 
 	require.NoError(t, q.addJob(job))
 
-	require.Eventually(t, q.IsEmpty, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool { return queueIsEmpty(q) }, time.Second, time.Millisecond*10)
 
 	require.Equal(t, testError, gotError)
+}
+
+func queueIsEmpty(q *chunkWriteQueue) bool {
+	return queueSize(q) == 0
+}
+
+func queueSize(q *chunkWriteQueue) int {
+	return len(q.jobCh)
 }

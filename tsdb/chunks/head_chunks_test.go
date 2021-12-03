@@ -185,7 +185,7 @@ func TestChunkDiskMapper_Truncate(t *testing.T) {
 		t.Helper()
 
 		if hrw.writeQueue != nil {
-			require.Eventually(t, hrw.writeQueue.IsEmpty, time.Second, 10*time.Millisecond)
+			require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
 		}
 
 		files, err := ioutil.ReadDir(hrw.dir.Name())
@@ -273,7 +273,7 @@ func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 
 		if hrw.writeQueue != nil {
 			// We need to ensure that the queue is drained to avoid conflicting with async operations.
-			require.Eventually(t, hrw.writeQueue.IsEmpty, time.Second, 10*time.Millisecond)
+			require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
 		}
 
 		_, _, err := hrw.cut()
@@ -301,7 +301,7 @@ func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 		t.Helper()
 
 		if hrw.writeQueue != nil {
-			require.Eventually(t, hrw.writeQueue.IsEmpty, time.Second, 10*time.Millisecond)
+			require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
 		}
 		files, err := ioutil.ReadDir(hrw.dir.Name())
 		require.NoError(t, err)
@@ -342,7 +342,7 @@ func TestHeadReadWriter_TruncateAfterFailedIterateChunks(t *testing.T) {
 	var err error
 	hrw.WriteChunk(1, 0, 1000, randomChunk(t), func(cbErr error) { err = cbErr })
 	if hrw.writeQueue != nil {
-		require.Eventually(t, hrw.writeQueue.IsEmpty, time.Second, 10*time.Millisecond)
+		require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
 	}
 	require.NoError(t, err)
 
@@ -374,7 +374,7 @@ func TestHeadReadWriter_ReadRepairOnEmptyLastFile(t *testing.T) {
 		var err error
 		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(cbErr error) { err = cbErr })
 		if hrw.writeQueue != nil {
-			require.Eventually(t, hrw.writeQueue.IsEmpty, time.Second, 10*time.Millisecond)
+			require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
 		}
 		require.NoError(t, err)
 		timeRange += step
@@ -476,7 +476,7 @@ func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSer
 	chunk = randomChunk(t)
 	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(cbErr error) { require.NoError(t, err) })
 	if hrw.writeQueue != nil {
-		require.Eventually(t, hrw.writeQueue.IsEmpty, time.Second, 10*time.Millisecond)
+		require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
 	}
 	return
 }
