@@ -20,8 +20,8 @@ import (
 	"math/rand"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -166,15 +166,20 @@ func TestChunkDiskMapper_Truncate(t *testing.T) {
 	timeRange := 0
 	fileTimeStep := 100
 	var thirdFileMinT, sixthFileMinT int64
-
+	var callbackWg sync.WaitGroup
 	addChunk := func() int {
 		t.Helper()
+
+		callbackWg.Add(1)
 
 		mint := timeRange + 1                // Just after the new file cut.
 		maxt := timeRange + fileTimeStep - 1 // Just before the next file.
 
 		// Write a chunks to set maxt for the segment.
-		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(err error) { require.NoError(t, err) })
+		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(err error) {
+			callbackWg.Done()
+			require.NoError(t, err)
+		})
 
 		timeRange += fileTimeStep
 
@@ -184,9 +189,8 @@ func TestChunkDiskMapper_Truncate(t *testing.T) {
 	verifyFiles := func(remainingFiles []int) {
 		t.Helper()
 
-		if hrw.writeQueue != nil {
-			require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
-		}
+		// Wait until all chunk write jobs have been processed.
+		callbackWg.Wait()
 
 		files, err := ioutil.ReadDir(hrw.dir.Name())
 		require.NoError(t, err)
@@ -259,22 +263,25 @@ func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 	}()
 	timeRange := 0
 
+	var callbackWg sync.WaitGroup
 	addChunk := func() {
 		t.Helper()
 
+		callbackWg.Add(1)
+
 		step := 100
 		mint, maxt := timeRange+1, timeRange+step-1
-		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(err error) { require.NoError(t, err) })
+		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(err error) {
+			callbackWg.Done()
+			require.NoError(t, err)
+		})
 		timeRange += step
 	}
 
 	emptyFile := func() {
 		t.Helper()
 
-		if hrw.writeQueue != nil {
-			// We need to ensure that the queue is drained to avoid conflicting with async operations.
-			require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
-		}
+		callbackWg.Wait()
 
 		_, _, err := hrw.cut()
 		require.NoError(t, err)
@@ -300,9 +307,7 @@ func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 	verifyFiles := func(remainingFiles []int) {
 		t.Helper()
 
-		if hrw.writeQueue != nil {
-			require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
-		}
+		callbackWg.Wait()
 		files, err := ioutil.ReadDir(hrw.dir.Name())
 		require.NoError(t, err)
 		require.Equal(t, len(remainingFiles), len(files), "files on disk")
@@ -340,10 +345,13 @@ func TestHeadReadWriter_TruncateAfterFailedIterateChunks(t *testing.T) {
 
 	// Write a chunks to iterate on it later.
 	var err error
-	hrw.WriteChunk(1, 0, 1000, randomChunk(t), func(cbErr error) { err = cbErr })
-	if hrw.writeQueue != nil {
-		require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
-	}
+	var callbackWg sync.WaitGroup
+	callbackWg.Add(1)
+	hrw.WriteChunk(1, 0, 1000, randomChunk(t), func(cbErr error) {
+		err = cbErr
+		callbackWg.Done()
+	})
+	callbackWg.Wait()
 	require.NoError(t, err)
 
 	dir := hrw.dir.Name()
@@ -372,10 +380,12 @@ func TestHeadReadWriter_ReadRepairOnEmptyLastFile(t *testing.T) {
 		step := 100
 		mint, maxt := timeRange+1, timeRange+step-1
 		var err error
-		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(cbErr error) { err = cbErr })
-		if hrw.writeQueue != nil {
-			require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
-		}
+		awaitCb := make(chan struct{})
+		hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(cbErr error) {
+			err = cbErr
+			close(awaitCb)
+		})
+		<-awaitCb
 		require.NoError(t, err)
 		timeRange += step
 	}
@@ -474,10 +484,13 @@ func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSer
 	mint = int64((idx)*1000 + 1)
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomChunk(t)
-	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(cbErr error) { require.NoError(t, err) })
-	if hrw.writeQueue != nil {
-		require.Eventually(t, func() bool { return queueIsEmpty(hrw.writeQueue) }, time.Second, 10*time.Millisecond)
-	}
+	var callbackWg sync.WaitGroup
+	callbackWg.Add(1)
+	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(cbErr error) {
+		require.NoError(t, err)
+		callbackWg.Done()
+	})
+	callbackWg.Wait()
 	return
 }
 

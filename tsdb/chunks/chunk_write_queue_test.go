@@ -26,19 +26,19 @@ import (
 )
 
 func TestChunkWriteQueue_GettingChunkFromQueue(t *testing.T) {
-	var chunkWriterWg sync.WaitGroup
-	chunkWriterWg.Add(1)
+	var blockWriterWg sync.WaitGroup
+	blockWriterWg.Add(1)
 
 	// blockingChunkWriter blocks until chunkWriterWg is done.
 	blockingChunkWriter := func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ ChunkDiskMapperRef, _ bool) error {
-		chunkWriterWg.Wait()
+		blockWriterWg.Wait()
 		return nil
 	}
 
 	q := newChunkWriteQueue(nil, 1000, blockingChunkWriter)
 
 	defer q.stop()
-	defer chunkWriterWg.Done()
+	defer blockWriterWg.Done()
 
 	testChunk := chunkenc.NewXORChunk()
 	var ref ChunkDiskMapperRef
@@ -60,10 +60,7 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 		gotChunk         chunkenc.Chunk
 		gotRef           ChunkDiskMapperRef
 		gotCutFile       bool
-		chunkWriterWg    sync.WaitGroup
 	)
-
-	chunkWriterWg.Add(1)
 
 	// blockingChunkWriter blocks until chunkWriterWg is done.
 	blockingChunkWriter := func(seriesRef HeadSeriesRef, mint, maxt int64, chunk chunkenc.Chunk, ref ChunkDiskMapperRef, cutFile bool) error {
@@ -73,7 +70,6 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 		gotChunk = chunk
 		gotRef = ref
 		gotCutFile = cutFile
-		chunkWriterWg.Wait()
 		return nil
 	}
 
@@ -85,13 +81,14 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 	chunk := chunkenc.NewXORChunk()
 	ref := newChunkDiskMapperRef(321, 123)
 	cutFile := true
-	require.NoError(t, q.addJob(chunkWriteJob{seriesRef: seriesRef, mint: mint, maxt: maxt, chk: chunk, ref: ref, cutFile: cutFile}))
+	var callbackWg sync.WaitGroup
+	callbackWg.Add(1)
+	require.NoError(t, q.addJob(chunkWriteJob{seriesRef: seriesRef, mint: mint, maxt: maxt, chk: chunk, ref: ref, cutFile: cutFile, callback: func(err error) {
+		callbackWg.Done()
+	}}))
 
-	// Unblock the chunk writer.
-	chunkWriterWg.Done()
-
-	// Wait until queue is empty.
-	require.Eventually(t, func() bool { return queueIsEmpty(q) }, time.Second, time.Millisecond*10)
+	// Wait until job has been consumed.
+	callbackWg.Wait()
 
 	// compare whether the write function has received all job attributes correctly
 	require.Equal(t, seriesRef, gotSeriesRef)
@@ -118,9 +115,14 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	defer close(writeChunkCh)
 
 	var chunkRef ChunkDiskMapperRef
+	var callbackWg sync.WaitGroup
 	addChunk := func() {
+		callbackWg.Add(1)
 		require.NoError(t, q.addJob(chunkWriteJob{
 			ref: chunkRef,
+			callback: func(err error) {
+				callbackWg.Done()
+			},
 		}))
 		chunkRef++
 	}
@@ -160,22 +162,26 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	time.Sleep(time.Millisecond * 10)
 	require.Equal(t, false, addedJob.Load())
 
+	// Consume one job from the queue.
 	writeChunk()
 
-	// Wait for 10ms to give the worker time to fully process a job.
-	time.Sleep(time.Millisecond * 10)
-	require.Equal(t, true, addedJob.Load())
+	// Wait until the job has been added to the queue.
+	require.Eventually(t, func() bool { return addedJob.Load() }, time.Second, time.Millisecond*10)
 
 	// The queue should be full again.
 	require.True(t, queueIsFull(q))
 
-	// Consume <sizeLimit> jobs from the queue.
+	// Consume <sizeLimit>+1 jobs from the queue.
+	// To drain the queue we need to consume <sizeLimit>+1 jobs because 1 job
+	// is already in the state of being processed.
 	for job := 0; job < sizeLimit+1; job++ {
 		require.Equal(t, false, queueIsEmpty(q))
 		writeChunk()
 	}
 
-	require.Eventually(t, func() bool { return queueIsEmpty(q) }, time.Second, time.Millisecond*10)
+	// Wait until all jobs have been processed.
+	callbackWg.Wait()
+	require.Equal(t, true, queueIsEmpty(q))
 }
 
 func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
@@ -184,20 +190,21 @@ func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
 		return testError
 	}
 
+	var callbackWg sync.WaitGroup
+	callbackWg.Add(1)
 	var gotError error
 	callback := func(err error) {
 		gotError = err
+		callbackWg.Done()
 	}
 
 	q := newChunkWriteQueue(nil, 1, chunkWriter)
 	defer q.stop()
 
-	job := chunkWriteJob{
-		callback: callback,
-	}
+	job := chunkWriteJob{callback: callback}
 	require.NoError(t, q.addJob(job))
 
-	require.Eventually(t, func() bool { return queueIsEmpty(q) }, time.Second, time.Millisecond*10)
+	callbackWg.Wait()
 
 	require.Equal(t, testError, gotError)
 }

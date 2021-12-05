@@ -379,18 +379,33 @@ func repairLastChunkFile(files map[int]string) (_ map[int]string, returnErr erro
 // WriteChunk writes the chunk to the disk.
 // The returned chunk ref is the reference from where the chunk encoding starts for the chunk.
 func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64, chk chunkenc.Chunk, callback func(err error)) (chkRef ChunkDiskMapperRef) {
+	if cdm.writeQueue != nil {
+		return cdm.writeChunkWithQueue(seriesRef, mint, maxt, chk, callback)
+	}
+	return cdm.writeChunkWithoutQueue(seriesRef, mint, maxt, chk, callback)
+}
+
+func (cdm *ChunkDiskMapper) writeChunkWithoutQueue(seriesRef HeadSeriesRef, mint, maxt int64, chk chunkenc.Chunk, callback func(err error)) (chkRef ChunkDiskMapperRef) {
+	var err error
+	defer func() {
+		if callback != nil {
+			callback(err)
+		}
+	}()
+
 	cdm.evtlPosMtx.Lock()
 	defer cdm.evtlPosMtx.Unlock()
 
 	ref, cutFile := cdm.evtlPos.getNextChunkRef(chk)
-	if cdm.writeQueue == nil {
-		err := cdm.writeChunk(seriesRef, mint, maxt, chk, ref, cutFile)
-		if callback != nil {
-			callback(err)
-		}
-		return ref
-	}
+	err = cdm.writeChunk(seriesRef, mint, maxt, chk, ref, cutFile)
+	return ref
+}
 
+func (cdm *ChunkDiskMapper) writeChunkWithQueue(seriesRef HeadSeriesRef, mint, maxt int64, chk chunkenc.Chunk, callback func(err error)) (chkRef ChunkDiskMapperRef) {
+	cdm.evtlPosMtx.Lock()
+	defer cdm.evtlPosMtx.Unlock()
+
+	ref, cutFile := cdm.evtlPos.getNextChunkRef(chk)
 	err := cdm.writeQueue.addJob(chunkWriteJob{
 		cutFile:   cutFile,
 		seriesRef: seriesRef,
@@ -400,7 +415,7 @@ func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		ref:       ref,
 		callback:  callback,
 	})
-	if err != nil {
+	if err != nil && callback != nil {
 		callback(err)
 	}
 
