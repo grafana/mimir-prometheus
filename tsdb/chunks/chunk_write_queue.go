@@ -96,6 +96,7 @@ func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
 
 	c.chunkRefMapMtx.Lock()
 	defer c.chunkRefMapMtx.Unlock()
+
 	delete(c.chunkRefMap, job.ref)
 
 	c.operationsMetric.WithLabelValues("complete").Inc()
@@ -109,14 +110,13 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
 		return errors.New("queue is not started")
 	}
 
+	c.chunkRefMapMtx.Lock()
+	c.chunkRefMap[job.ref] = job.chk
+	c.chunkRefMapMtx.Unlock()
+
 	c.jobCh <- job
 
 	c.operationsMetric.WithLabelValues("add").Inc()
-
-	c.chunkRefMapMtx.Lock()
-	defer c.chunkRefMapMtx.Unlock()
-
-	c.chunkRefMap[job.ref] = job.chk
 
 	return nil
 }
