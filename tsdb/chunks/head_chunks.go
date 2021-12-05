@@ -26,6 +26,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/dennwc/varint"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/atomic"
@@ -103,10 +104,6 @@ type chunkPos struct {
 	seq     uint64 // Index of chunk file.
 	offset  uint64 // Offset within chunk file.
 	cutFile bool   // When true then the next chunk will be written to a new file.
-
-	// dummyBuf is necessary because "binary.PutUvarint" requires that a buffer is passed into it,
-	// it's content is never read or used for anything.
-	dummyBuf [MaxChunkLengthFieldSize]byte
 }
 
 // getNextChunkRef takes a chunk and returns the chunk reference which will refer to it once it has been written.
@@ -165,7 +162,7 @@ func (f *chunkPos) bytesToWriteForChunk(chkLen uint64) uint64 {
 	bytes := uint64(SeriesRefSize) + 2*MintMaxtSize + ChunkEncodingSize
 
 	// size of chunk length encoded as uvarint
-	bytes += f.sizeAsUVarInt(chkLen)
+	bytes += uint64(varint.UvarintSize(chkLen))
 
 	// chunk length
 	bytes += chkLen
@@ -174,11 +171,6 @@ func (f *chunkPos) bytesToWriteForChunk(chkLen uint64) uint64 {
 	bytes += CRCSize
 
 	return bytes
-}
-
-// sizeAsUVarInt returns the number of bytes necessary to store the given uint64 when encoded as a uvarint.
-func (f *chunkPos) sizeAsUVarInt(x uint64) uint64 {
-	return uint64(binary.PutUvarint(f.dummyBuf[:], x))
 }
 
 // ChunkDiskMapper is for writing the Head block chunks to the disk
