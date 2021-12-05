@@ -187,8 +187,8 @@ type ChunkDiskMapper struct {
 
 	// The values in evtlPos represent the file position which will eventually be
 	// reached once the content of the write queue has been fully processed.
-	evtlPos    chunkPos
 	evtlPosMtx sync.Mutex
+	evtlPos    chunkPos
 
 	byteBuf      [MaxHeadChunkMetaSize]byte // Buffer used to write the header of the chunk.
 	chkWriter    *bufio.Writer              // Writer for the current open file.
