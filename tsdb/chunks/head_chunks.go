@@ -109,15 +109,16 @@ type chunkPos struct {
 	dummyBuf [MaxChunkLengthFieldSize]byte
 }
 
-// chkRef takes a chunk and returns the chunk reference which will refer to it once it has been written.
-// chkRef also decides whether a new file should be cut before writing this chunk, and it returns the decision via the second return value.
-// The order of calling chkRef must be the order in which chunks are written to the disk.
-func (f *chunkPos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFile bool) {
+// getNextChunkRef takes a chunk and returns the chunk reference which will refer to it once it has been written.
+// getNextChunkRef also decides whether a new file should be cut before writing this chunk, and it returns the decision via the second return value.
+// The order of calling getNextChunkRef must be the order in which chunks are written to the disk.
+func (f *chunkPos) getNextChunkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFile bool) {
 	chkLen := uint64(len(chk.Bytes()))
 	bytesToWrite := f.bytesToWriteForChunk(chkLen)
 
 	if f.shouldCutNewFile(chkLen) {
 		f.toNewFile()
+		f.cutFile = false
 		cutFile = true
 	}
 
@@ -127,13 +128,14 @@ func (f *chunkPos) chkRef(chk chunkenc.Chunk) (chkRef ChunkDiskMapperRef, cutFil
 	return newChunkDiskMapperRef(f.seq, chkOffset), cutFile
 }
 
-// advanceTonewFile updates the seq/offset position to point to the beginning of a new chunk file.
+// toNewFile updates the seq/offset position to point to the beginning of a new chunk file.
 func (f *chunkPos) toNewFile() {
 	f.seq++
 	f.offset = SegmentHeaderSize
 }
 
 // cutFileOnNextChunk triggers that the next chunk will be written in to a new file.
+// Not thread safe, a lock must be held when calling this.
 func (f *chunkPos) cutFileOnNextChunk() {
 	f.cutFile = true
 }
@@ -148,7 +150,6 @@ func (f *chunkPos) setSeq(seq uint64) {
 // The read or write lock on chunkPos must be held when calling this.
 func (f *chunkPos) shouldCutNewFile(chunkSize uint64) bool {
 	if f.cutFile {
-		f.cutFile = false
 		return true
 	}
 
@@ -388,7 +389,7 @@ func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64
 	cdm.evtlPosMtx.Lock()
 	defer cdm.evtlPosMtx.Unlock()
 
-	ref, cutFile := cdm.evtlPos.chkRef(chk)
+	ref, cutFile := cdm.evtlPos.getNextChunkRef(chk)
 	if cdm.writeQueue == nil {
 		err := cdm.writeChunk(seriesRef, mint, maxt, chk, ref, cutFile)
 		if callback != nil {
