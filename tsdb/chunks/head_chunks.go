@@ -393,6 +393,7 @@ func (cdm *ChunkDiskMapper) writeChunkWithoutQueue(seriesRef HeadSeriesRef, mint
 		}
 	}()
 
+	// cdm.evtlPosMtx must be held to serialize the calls to .getNextChunkRef() and .addJob().
 	cdm.evtlPosMtx.Lock()
 	defer cdm.evtlPosMtx.Unlock()
 
@@ -402,6 +403,7 @@ func (cdm *ChunkDiskMapper) writeChunkWithoutQueue(seriesRef HeadSeriesRef, mint
 }
 
 func (cdm *ChunkDiskMapper) writeChunkWithQueue(seriesRef HeadSeriesRef, mint, maxt int64, chk chunkenc.Chunk, callback func(err error)) (chkRef ChunkDiskMapperRef) {
+	// cdm.evtlPosMtx must be held to serialize the calls to .getNextChunkRef() and .addJob().
 	cdm.evtlPosMtx.Lock()
 	defer cdm.evtlPosMtx.Unlock()
 
