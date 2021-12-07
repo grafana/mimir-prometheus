@@ -285,10 +285,10 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	seriesCnt := 1000
 	readConcurrency := 2
 	writeConcurrency := 10
-	startPos := uint64(DefaultBlockDuration) // start at the second block relative to the unix epoch.
+	startTs := uint64(DefaultBlockDuration) // start at the second block relative to the unix epoch.
 	qryRange := uint64(5 * time.Minute.Milliseconds())
 	step := uint64(15 * time.Second / time.Millisecond)
-	endPos := startPos + uint64(DefaultBlockDuration)
+	endTs := startTs + uint64(DefaultBlockDuration)
 
 	labelSets := make([]labels.Labels, seriesCnt)
 	for i := 0; i < seriesCnt; i++ {
@@ -316,10 +316,10 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	}
 
 	// Create one channel for each write worker, the channels will be used by the coordinator
-	// go routine to coordinate the writing position.
-	writerPosCh := make([]chan uint64, writeConcurrency)
-	for writerPosChIdx := range writerPosCh {
-		writerPosCh[writerPosChIdx] = make(chan uint64)
+	// go routine to coordinate which timestamps each write worker has to write.
+	writerTsCh := make([]chan uint64, writeConcurrency)
+	for writerTsChIdx := range writerTsCh {
+		writerTsCh[writerTsChIdx] = make(chan uint64)
 	}
 
 	// workerReadyWg is used to synchronize the start of the test,
@@ -340,14 +340,15 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 			workerReadyWg.Done()
 
 			return whileNotCanceled(func() (bool, error) {
-				pos, ok := <-writerPosCh[workerID]
+				ts, ok := <-writerTsCh[workerID]
 				if !ok {
 					return false, nil
 				}
 
 				app := head.Appender(ctx)
 				for i := 0; i < len(workerLabelSets); i++ {
-					_, err := app.Append(0, workerLabelSets[i], int64(pos), float64(pos))
+					// We also use the timestamp as the sample value.
+					_, err := app.Append(0, workerLabelSets[i], int64(ts), float64(ts))
 					if err != nil {
 						return false, fmt.Errorf("Error when appending to head: %w", err)
 					}
@@ -367,8 +368,8 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 		return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value)), nil
 	}
 
-	// readerPosCh will be used by the coordinator go routine to coordinate the reader position.
-	readerPosCh := make(chan uint64)
+	// readerTsCh will be used by the coordinator go routine to coordinate which timestamps the reader should read.
+	readerTsCh := make(chan uint64)
 
 	// Start the read workers.
 	for workerID := 0; workerID < readConcurrency; workerID++ {
@@ -382,14 +383,14 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 			workerReadyWg.Done()
 
 			return whileNotCanceled(func() (bool, error) {
-				pos, ok := <-readerPosCh
+				ts, ok := <-readerTsCh
 				if !ok {
 					return false, nil
 				}
 
 				labels := labelSets[querySeriesRef]
 				querySeriesRef = (querySeriesRef + 1) % seriesCnt
-				samples, err := queryHead(pos-qryRange, pos, labels[0])
+				samples, err := queryHead(ts-qryRange, ts, labels[0])
 				if err != nil {
 					return false, err
 				}
@@ -405,7 +406,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 				}
 
 				for sampleIdx, sample := range samples[series] {
-					expectedValue := pos - qryRange + (uint64(sampleIdx) * step)
+					expectedValue := ts - qryRange + (uint64(sampleIdx) * step)
 					if sample.T() != int64(expectedValue) {
 						return false, fmt.Errorf("expected sample %d to have ts %d, got %d", sampleIdx, expectedValue, sample.T())
 					}
@@ -421,39 +422,39 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 
 	// Start the coordinator go routine.
 	g.Go(func() error {
-		currPos := startPos
+		currTs := startTs
 
 		defer func() {
 			// End of the test, close all channels to stop the workers.
-			for _, ch := range writerPosCh {
+			for _, ch := range writerTsCh {
 				close(ch)
 			}
-			close(readerPosCh)
+			close(readerTsCh)
 		}()
 
 		// Wait until all workers are ready to start the test.
 		workerReadyWg.Wait()
 		return whileNotCanceled(func() (bool, error) {
-			// Send the current position to each of the writers.
-			for _, ch := range writerPosCh {
+			// Send the current timestamp to each of the writers.
+			for _, ch := range writerTsCh {
 				select {
-				case ch <- currPos:
+				case ch <- currTs:
 				case <-ctx.Done():
 					return false, nil
 				}
 			}
 
-			// Once data for at least <qryRange> has been ingested, send the current position to the readers.
-			if currPos > startPos+qryRange {
+			// Once data for at least <qryRange> has been ingested, send the current timestamp to the readers.
+			if currTs > startTs+qryRange {
 				select {
-				case readerPosCh <- currPos - step:
+				case readerTsCh <- currTs - step:
 				case <-ctx.Done():
 					return false, nil
 				}
 			}
 
-			currPos += step
-			if currPos > endPos {
+			currTs += step
+			if currTs > endTs {
 				return false, nil
 			}
 
