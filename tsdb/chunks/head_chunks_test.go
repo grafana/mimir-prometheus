@@ -50,7 +50,7 @@ func TestChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 	var buf [MaxHeadChunkMetaSize]byte
 	totalChunks := 0
 	var firstFileName string
-	for hrw.curFileSeq < 3 || hrw.chkWriter.Buffered() == 0 {
+	for hrw.curFileSequence < 3 || hrw.chkWriter.Buffered() == 0 {
 		addChunks := func(numChunks int) {
 			for i := 0; i < numChunks; i++ {
 				seriesRef, chkRef, mint, maxt, chunk := createChunk(t, totalChunks, hrw)
@@ -64,7 +64,7 @@ func TestChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 					numSamples: uint16(chunk.NumSamples()),
 				})
 
-				if hrw.curFileSeq != 1 {
+				if hrw.curFileSequence != 1 {
 					// We are checking for bytes written only for the first file.
 					continue
 				}

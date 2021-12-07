@@ -180,10 +180,10 @@ type ChunkDiskMapper struct {
 	dir             *os.File
 	writeBufferSize int
 
-	curFile       *os.File      // File being written to.
-	curFileSeq    int           // Index of current open file being appended to.
-	curFileOffset atomic.Uint64 // Bytes written in current open file.
-	curFileMaxt   int64         // Used for the size retention.
+	curFile         *os.File      // File being written to.
+	curFileSequence int           // Index of current open file being appended to.
+	curFileOffset   atomic.Uint64 // Bytes written in current open file.
+	curFileMaxt     int64         // Used for the size retention.
 
 	// The values in evtlPos represent the file position which will eventually be
 	// reached once the content of the write queue has been fully processed.
@@ -516,7 +516,7 @@ func (cdm *ChunkDiskMapper) cut() (seq, offset int, returnErr error) {
 
 	if cdm.curFile != nil {
 		cdm.readPathMtx.Lock()
-		cdm.mmappedChunkFiles[cdm.curFileSeq].maxt = cdm.curFileMaxt
+		cdm.mmappedChunkFiles[cdm.curFileSequence].maxt = cdm.curFileMaxt
 		cdm.readPathMtx.Unlock()
 	}
 
@@ -526,7 +526,7 @@ func (cdm *ChunkDiskMapper) cut() (seq, offset int, returnErr error) {
 	}
 
 	cdm.readPathMtx.Lock()
-	cdm.curFileSeq = seq
+	cdm.curFileSequence = seq
 	cdm.curFile = newFile
 	if cdm.chkWriter != nil {
 		cdm.chkWriter.Reset(newFile)
@@ -534,8 +534,8 @@ func (cdm *ChunkDiskMapper) cut() (seq, offset int, returnErr error) {
 		cdm.chkWriter = bufio.NewWriterSize(newFile, cdm.writeBufferSize)
 	}
 
-	cdm.closers[cdm.curFileSeq] = mmapFile
-	cdm.mmappedChunkFiles[cdm.curFileSeq] = &mmappedChunkFile{byteSlice: realByteSlice(mmapFile.Bytes())}
+	cdm.closers[cdm.curFileSequence] = mmapFile
+	cdm.mmappedChunkFiles[cdm.curFileSequence] = &mmappedChunkFile{byteSlice: realByteSlice(mmapFile.Bytes())}
 	cdm.readPathMtx.Unlock()
 
 	cdm.curFileMaxt = 0
@@ -612,7 +612,7 @@ func (cdm *ChunkDiskMapper) Chunk(ref ChunkDiskMapperRef) (chunkenc.Chunk, error
 	chkCRC32 := newCRC32()
 
 	// If it is the current open file, then the chunks can be in the buffer too.
-	if sgmIndex == cdm.curFileSeq {
+	if sgmIndex == cdm.curFileSequence {
 		chunk := cdm.chunkBuffer.get(ref)
 		if chunk != nil {
 			return chunk, nil
@@ -621,7 +621,7 @@ func (cdm *ChunkDiskMapper) Chunk(ref ChunkDiskMapperRef) (chunkenc.Chunk, error
 
 	mmapFile, ok := cdm.mmappedChunkFiles[sgmIndex]
 	if !ok {
-		if sgmIndex > cdm.curFileSeq {
+		if sgmIndex > cdm.curFileSequence {
 			return nil, &CorruptionErr{
 				Dir:       cdm.dir.Name(),
 				FileIndex: -1,
@@ -730,7 +730,7 @@ func (cdm *ChunkDiskMapper) IterateAllChunks(f func(seriesRef HeadSeriesRef, chu
 	for _, segID := range segIDs {
 		mmapFile := cdm.mmappedChunkFiles[segID]
 		fileEnd := mmapFile.byteSlice.Len()
-		if segID == cdm.curFileSeq {
+		if segID == cdm.curFileSequence {
 			fileEnd = int(cdm.curFileSize())
 		}
 		idx := HeadChunkFileHeaderSize
@@ -850,7 +850,7 @@ func (cdm *ChunkDiskMapper) Truncate(mint int64) error {
 
 	var removedFiles []int
 	for _, seq := range chkFileIndices {
-		if seq == cdm.curFileSeq || cdm.mmappedChunkFiles[seq].maxt >= mint {
+		if seq == cdm.curFileSequence || cdm.mmappedChunkFiles[seq].maxt >= mint {
 			break
 		}
 		if cdm.mmappedChunkFiles[seq].maxt < mint {
