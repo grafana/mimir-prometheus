@@ -43,6 +43,7 @@ var (
 // Chunks that shall be written get added to the queue, which is consumed asynchronously.
 // Adding jobs to the job is non-blocking as long as the queue isn't full.
 type chunkWriteQueue struct {
+	size  int
 	jobCh chan chunkWriteJob
 
 	chunkRefMapMtx sync.RWMutex
@@ -63,6 +64,7 @@ type writeChunkF func(HeadSeriesRef, int64, int64, chunkenc.Chunk, ChunkDiskMapp
 
 func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChunkF) *chunkWriteQueue {
 	q := &chunkWriteQueue{
+		size:        size,
 		jobCh:       make(chan chunkWriteJob, size),
 		chunkRefMap: make(map[ChunkDiskMapperRef]chunkenc.Chunk, size),
 		writeChunk:  writeChunk,
@@ -115,6 +117,11 @@ func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
 
 	delete(c.chunkRefMap, job.ref)
 
+	if len(c.chunkRefMap) == 0 {
+		// Recreate map to free up memory.
+		c.chunkRefMap = make(map[ChunkDiskMapperRef]chunkenc.Chunk, c.size)
+	}
+
 	c.operationsMetric.WithLabelValues(queueOperationComplete).Inc()
 }
 
@@ -127,6 +134,7 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
 	}
 
 	c.chunkRefMapMtx.Lock()
+	// The map might grow beyond the allocated size here, that's why we regularly recreate it to free it.
 	c.chunkRefMap[job.ref] = job.chk
 	c.chunkRefMapMtx.Unlock()
 
