@@ -315,7 +315,8 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 		}
 	}
 
-	// Create one channel for each write worker, the channels will be used to coordinate the writing position.
+	// Create one channel for each write worker, the channels will be used by the coordinator
+	// go routine to coordinate the writing position.
 	writerPosCh := make([]chan uint64, writeConcurrency)
 	for writerPosChIdx := range writerPosCh {
 		writerPosCh[writerPosChIdx] = make(chan uint64)
@@ -366,7 +367,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 		return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value)), nil
 	}
 
-	// readerPosCh will be used to coordinate the reader position.
+	// readerPosCh will be used by the coordinator go routine to coordinate the reader position.
 	readerPosCh := make(chan uint64)
 
 	// Start the read workers.
@@ -418,6 +419,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 		})
 	}
 
+	// Start the coordinator go routine.
 	g.Go(func() error {
 		currPos := startPos
 
