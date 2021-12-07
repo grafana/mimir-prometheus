@@ -159,7 +159,7 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 
 	// Wait for 10ms while the adding of a new job is blocked.
 	time.Sleep(time.Millisecond * 10)
-	require.Equal(t, false, addedJob.Load())
+	require.False(t, addedJob.Load())
 
 	// Consume one job from the queue.
 	unblockChunkWriter()
