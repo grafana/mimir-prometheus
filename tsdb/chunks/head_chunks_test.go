@@ -439,9 +439,6 @@ func TestHeadReadWriter_ReadRepairOnEmptyLastFile(t *testing.T) {
 	}
 }
 
-// useWriteQueue defines whether the ChunkDiskMapper returned by createChunkDiskMapper uses the write queue.
-var useWriteQueue bool
-
 func createChunkDiskMapper(t *testing.T, dir string) *ChunkDiskMapper {
 	if dir == "" {
 		var err error
@@ -452,13 +449,7 @@ func createChunkDiskMapper(t *testing.T, dir string) *ChunkDiskMapper {
 		})
 	}
 
-	var writeQueueSize int
-	if useWriteQueue {
-		writeQueueSize = DefaultWriteQueueSize
-	}
-
-	hrw, err := NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), DefaultWriteBufferSize, writeQueueSize)
-
+	hrw, err := NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), DefaultWriteBufferSize, DefaultWriteQueueSize)
 	require.NoError(t, err)
 	require.False(t, hrw.fileMaxtSet)
 	require.NoError(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
@@ -492,17 +483,4 @@ func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSer
 	})
 	callbackWg.Wait()
 	return
-}
-
-func TestMain(m *testing.M) {
-	exitVal := m.Run()
-	if exitVal != 0 {
-		os.Exit(exitVal)
-	}
-
-	// Run all the tests one more time with the write queue enabled.
-	useWriteQueue = true
-	exitVal = m.Run()
-
-	os.Exit(exitVal)
 }
