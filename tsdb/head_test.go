@@ -315,7 +315,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 		}
 	}
 
-	// Create one chan for each write worker, the chans will be used to coordinate the writing position.
+	// Create one channel for each write worker, the channels will be used to coordinate the writing position.
 	writerPosCh := make([]chan uint64, writeConcurrency)
 	for writerPosChIdx := range writerPosCh {
 		writerPosCh[writerPosChIdx] = make(chan uint64)
