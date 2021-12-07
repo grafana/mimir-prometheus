@@ -376,12 +376,19 @@ func repairLastChunkFile(files map[int]string) (_ map[int]string, returnErr erro
 // WriteChunk writes the chunk to the disk.
 // The returned chunk ref is the reference from where the chunk encoding starts for the chunk.
 func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64, chk chunkenc.Chunk, callback func(err error)) (chkRef ChunkDiskMapperRef) {
+	var err error
+	defer func() {
+		if err != nil && callback != nil {
+			callback(err)
+		}
+	}()
+
 	// cdm.evtlPosMtx must be held to serialize the calls to .getNextChunkRef() and .addJob().
 	cdm.evtlPosMtx.Lock()
 	defer cdm.evtlPosMtx.Unlock()
 
 	ref, cutFile := cdm.evtlPos.getNextChunkRef(chk)
-	err := cdm.writeQueue.addJob(chunkWriteJob{
+	err = cdm.writeQueue.addJob(chunkWriteJob{
 		cutFile:   cutFile,
 		seriesRef: seriesRef,
 		mint:      mint,
@@ -390,9 +397,6 @@ func (cdm *ChunkDiskMapper) WriteChunk(seriesRef HeadSeriesRef, mint, maxt int64
 		ref:       ref,
 		callback:  callback,
 	})
-	if err != nil && callback != nil {
-		callback(err)
-	}
 
 	return ref
 }
