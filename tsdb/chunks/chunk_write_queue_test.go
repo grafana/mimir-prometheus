@@ -100,18 +100,18 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 
 func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	sizeLimit := 100
-	writeChunkCh := make(chan struct{}, sizeLimit)
+	unblockChunkWriterCh := make(chan struct{}, sizeLimit)
 
-	// blockingChunkWriter blocks until the writeChunk channel returns a value.
+	// blockingChunkWriter blocks until the unblockChunkWriterCh channel returns a value.
 	blockingChunkWriter := func(seriesRef HeadSeriesRef, mint, maxt int64, chunk chunkenc.Chunk, ref ChunkDiskMapperRef, cutFile bool) error {
-		<-writeChunkCh
+		<-unblockChunkWriterCh
 		return nil
 	}
 
 	q := newChunkWriteQueue(nil, sizeLimit, blockingChunkWriter)
 	defer q.stop()
 	// Unblock writers when shutting down.
-	defer close(writeChunkCh)
+	defer close(unblockChunkWriterCh)
 
 	var chunkRef ChunkDiskMapperRef
 	var callbackWg sync.WaitGroup
@@ -126,8 +126,8 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 		chunkRef++
 	}
 
-	writeChunk := func() {
-		writeChunkCh <- struct{}{}
+	unblockChunkWriter := func() {
+		unblockChunkWriterCh <- struct{}{}
 	}
 
 	// Fill the queue to the middle of the size limit.
@@ -137,12 +137,12 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 
 	// Consume the jobs.
 	for job := 0; job < sizeLimit/2; job++ {
-		writeChunk()
+		unblockChunkWriter()
 	}
 
 	// Add jobs until the queue is full.
-	// Note that one more queue than <sizeLimit> can be added because one will being processed by the worker already,
-	// which will then block on the chunk write function.
+	// Note that one more job than <sizeLimit> can be added because one will be processed by the worker already
+	// and it will block on the chunk write function.
 	for job := 0; job < sizeLimit+1; job++ {
 		addChunk()
 	}
@@ -162,7 +162,7 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	require.Equal(t, false, addedJob.Load())
 
 	// Consume one job from the queue.
-	writeChunk()
+	unblockChunkWriter()
 
 	// Wait until the job has been added to the queue.
 	require.Eventually(t, func() bool { return addedJob.Load() }, time.Second, time.Millisecond*10)
@@ -174,13 +174,13 @@ func TestChunkWriteQueue_WrappingAroundSizeLimit(t *testing.T) {
 	// To drain the queue we need to consume <sizeLimit>+1 jobs because 1 job
 	// is already in the state of being processed.
 	for job := 0; job < sizeLimit+1; job++ {
-		require.Equal(t, false, queueIsEmpty(q))
-		writeChunk()
+		require.False(t, queueIsEmpty(q))
+		unblockChunkWriter()
 	}
 
 	// Wait until all jobs have been processed.
 	callbackWg.Wait()
-	require.Equal(t, true, queueIsEmpty(q))
+	require.True(t, queueIsEmpty(q))
 }
 
 func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
