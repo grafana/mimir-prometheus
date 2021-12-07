@@ -51,6 +51,7 @@ type chunkWriteQueue struct {
 	operationsMetric *prometheus.CounterVec
 }
 
+// writeChunkF is a function which writes chunks, it is dynamic to allow mocking in tests.
 type writeChunkF func(HeadSeriesRef, int64, int64, chunkenc.Chunk, ChunkDiskMapperRef, bool) error
 
 func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChunkF) *chunkWriteQueue {
