@@ -384,8 +384,8 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 					return false, nil
 				}
 
-				labels := labelSets[querySeriesRef]
 				querySeriesRef = (querySeriesRef + 1) % seriesCnt
+				labels := labelSets[querySeriesRef]
 				samples, err := queryHead(ts-qryRange, ts, labels[0])
 				if err != nil {
 					return false, err
