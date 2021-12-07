@@ -141,6 +141,10 @@ func (c *chunkWriteQueue) stop() {
 	c.isRunningMtx.Lock()
 	defer c.isRunningMtx.Unlock()
 
+	if !c.isRunning {
+		return
+	}
+
 	c.isRunning = false
 
 	close(c.jobCh)
