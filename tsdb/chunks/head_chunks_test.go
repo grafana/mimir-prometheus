@@ -206,7 +206,7 @@ func TestChunkDiskMapper_Truncate(t *testing.T) {
 
 	// Create segments 1 to 7.
 	for i := 1; i <= 7; i++ {
-		require.NoError(t, hrw.CutNewFile())
+		hrw.CutNewFile()
 		mint := int64(addChunk())
 		if i == 3 {
 			thirdFileMinT = mint
@@ -390,7 +390,7 @@ func TestHeadReadWriter_ReadRepairOnEmptyLastFile(t *testing.T) {
 		timeRange += step
 	}
 	nonEmptyFile := func() {
-		require.NoError(t, hrw.CutNewFile())
+		hrw.CutNewFile()
 		addChunk()
 	}
 
