@@ -371,12 +371,12 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	readerPosCh := make(chan uint64)
 
 	// Start the read workers.
-	for threadID := 0; threadID < readConcurrency; threadID++ {
+	for workerID := 0; workerID < readConcurrency; workerID++ {
 		// Create copy of threadID to be used by worker routine.
-		workerThreadID := threadID
+		workerID := workerID
 
 		g.Go(func() error {
-			querySeriesRef := (seriesCnt / readConcurrency) * workerThreadID
+			querySeriesRef := (seriesCnt / readConcurrency) * workerID
 
 			// Signal that this worker is ready.
 			workerReadyWg.Done()
