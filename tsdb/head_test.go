@@ -299,20 +299,16 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 
 	g, ctx := errgroup.WithContext(context.Background())
 	whileNotCanceled := func(f func() (bool, error)) error {
-		for {
-			select {
-			case <-ctx.Done():
+		for ctx.Err() == nil {
+			cont, err := f()
+			if err != nil {
+				return err
+			}
+			if !cont {
 				return nil
-			default:
-				cont, err := f()
-				if err != nil {
-					return err
-				}
-				if !cont {
-					return nil
-				}
 			}
 		}
+		return nil
 	}
 
 	// Create one channel for each write worker, the channels will be used by the coordinator
