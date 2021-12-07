@@ -286,7 +286,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	readConcurrency := 2
 	writeConcurrency := 10
 	startPos := uint64(DefaultBlockDuration) // start at the second block relative to the unix epoch.
-	qryRange := uint64(5 * time.Minute / time.Millisecond)
+	qryRange := uint64(5 * time.Minute.Milliseconds())
 	step := uint64(15 * time.Second / time.Millisecond)
 	endPos := startPos + uint64(DefaultBlockDuration)
 
