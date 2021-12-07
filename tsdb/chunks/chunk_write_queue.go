@@ -119,7 +119,7 @@ func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
 	delete(c.chunkRefMap, job.ref)
 
 	if len(c.chunkRefMap) == 0 {
-		// The map had to be grown beyond its allocated size, so we recreate it to free memory.
+		// If the map had to be grown beyond its allocated size, then we recreate it to free memory.
 		if c.chunkRefMapOversized {
 			c.chunkRefMap = make(map[ChunkDiskMapperRef]chunkenc.Chunk, c.size)
 			c.chunkRefMapOversized = false
