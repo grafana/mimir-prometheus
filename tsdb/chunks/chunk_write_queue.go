@@ -41,8 +41,8 @@ type chunkWriteQueue struct {
 	chunkRefMapMtx sync.RWMutex
 	chunkRefMap    map[ChunkDiskMapperRef]chunkenc.Chunk
 
-	isStartedMtx sync.RWMutex
-	isStarted    bool
+	isRunningMtx sync.RWMutex
+	isRunning    bool
 
 	workerWg sync.WaitGroup
 
@@ -87,9 +87,9 @@ func (c *chunkWriteQueue) start() {
 		}
 	}()
 
-	c.isStartedMtx.Lock()
-	c.isStarted = true
-	c.isStartedMtx.Unlock()
+	c.isRunningMtx.Lock()
+	c.isRunning = true
+	c.isRunningMtx.Unlock()
 }
 
 func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
@@ -107,10 +107,10 @@ func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
 }
 
 func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
-	c.isStartedMtx.RLock()
-	defer c.isStartedMtx.RUnlock()
+	c.isRunningMtx.RLock()
+	defer c.isRunningMtx.RUnlock()
 
-	if !c.isStarted {
+	if !c.isRunning {
 		return errors.New("queue is not started")
 	}
 
@@ -138,10 +138,10 @@ func (c *chunkWriteQueue) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
 }
 
 func (c *chunkWriteQueue) stop() {
-	c.isStartedMtx.Lock()
-	defer c.isStartedMtx.Unlock()
+	c.isRunningMtx.Lock()
+	defer c.isRunningMtx.Unlock()
 
-	c.isStarted = false
+	c.isRunning = false
 
 	close(c.jobCh)
 
