@@ -32,6 +32,13 @@ type chunkWriteJob struct {
 	callback  func(error)
 }
 
+var (
+	queueOperationAdd      = "add"
+	queueOperationGet      = "get"
+	queueOperationComplete = "complete"
+	queueOperations        = []string{queueOperationAdd, queueOperationGet, queueOperationComplete}
+)
+
 // chunkWriteQueue is a queue for writing chunks to disk in a non-blocking fashion.
 // Chunks that shall be written get added to the queue, which is consumed asynchronously.
 // Adding jobs to the job is non-blocking as long as the queue isn't full.
@@ -71,6 +78,11 @@ func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChu
 
 	if reg != nil {
 		reg.MustRegister(q.operationsMetric)
+
+		// Initialize series for all the possible labels.
+		for _, op := range queueOperations {
+			q.operationsMetric.WithLabelValues(op).Add(0)
+		}
 	}
 
 	q.start()
@@ -103,7 +115,7 @@ func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
 
 	delete(c.chunkRefMap, job.ref)
 
-	c.operationsMetric.WithLabelValues("complete").Inc()
+	c.operationsMetric.WithLabelValues(queueOperationComplete).Inc()
 }
 
 func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
@@ -120,7 +132,7 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
 
 	c.jobCh <- job
 
-	c.operationsMetric.WithLabelValues("add").Inc()
+	c.operationsMetric.WithLabelValues(queueOperationAdd).Inc()
 
 	return nil
 }
@@ -131,7 +143,7 @@ func (c *chunkWriteQueue) get(ref ChunkDiskMapperRef) chunkenc.Chunk {
 
 	chk, ok := c.chunkRefMap[ref]
 	if ok {
-		c.operationsMetric.WithLabelValues("get").Inc()
+		c.operationsMetric.WithLabelValues(queueOperationGet).Inc()
 	}
 
 	return chk
