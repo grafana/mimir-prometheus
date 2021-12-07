@@ -48,7 +48,7 @@ type chunkWriteQueue struct {
 
 	chunkRefMapMtx       sync.RWMutex
 	chunkRefMap          map[ChunkDiskMapperRef]chunkenc.Chunk
-	chunkRefMapOversized bool // indicates whether more than <size> chunks were put int the chunkRefMap.
+	chunkRefMapOversized bool // indicates whether more than <size> chunks were put into the chunkRefMap.
 
 	isRunningMtx sync.RWMutex
 	isRunning    bool
