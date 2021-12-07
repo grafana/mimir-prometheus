@@ -328,19 +328,19 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	workerReadyWg.Add(writeConcurrency + readConcurrency)
 
 	// Start the write workers.
-	for threadID := 0; threadID < writeConcurrency; threadID++ {
-		// Create copy of threadID to be used by worker routine.
-		threadID := threadID
+	for workerID := 0; workerID < writeConcurrency; workerID++ {
+		// Create copy of workerID to be used by worker routine.
+		workerID := workerID
 
 		g.Go(func() error {
 			// The label sets which this worker will write.
-			workerLabelSets := labelSets[(seriesCnt/writeConcurrency)*threadID : (seriesCnt/writeConcurrency)*(threadID+1)]
+			workerLabelSets := labelSets[(seriesCnt/writeConcurrency)*workerID : (seriesCnt/writeConcurrency)*(workerID+1)]
 
 			// Signal that this worker is ready.
 			workerReadyWg.Done()
 
 			return whileNotCanceled(func() (bool, error) {
-				pos, ok := <-writerPosCh[threadID]
+				pos, ok := <-writerPosCh[workerID]
 				if !ok {
 					return false, nil
 				}
