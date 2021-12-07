@@ -29,7 +29,7 @@ func TestChunkWriteQueue_GettingChunkFromQueue(t *testing.T) {
 	var blockWriterWg sync.WaitGroup
 	blockWriterWg.Add(1)
 
-	// blockingChunkWriter blocks until chunkWriterWg is done.
+	// blockingChunkWriter blocks until blockWriterWg is done.
 	blockingChunkWriter := func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ ChunkDiskMapperRef, _ bool) error {
 		blockWriterWg.Wait()
 		return nil
