@@ -274,7 +274,7 @@ func BenchmarkLoadWAL(b *testing.B) {
 
 // TestHead_HighConcurrencyReadAndWrite generates 1000 series with a step of 15s and fills a whole block with samples,
 // this means in total it generates 4000 chunks because with a step of 15s there are 4 chunks per block per series.
-// While appending the samples to the head it concurrently queries them from 10 go routines and verifies that the
+// While appending the samples to the head it concurrently queries them from multiple go routines and verifies that the
 // returned results are correct.
 func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	head, _ := newTestHead(t, DefaultBlockDuration, false)
