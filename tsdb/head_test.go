@@ -385,8 +385,8 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 				}
 
 				querySeriesRef = (querySeriesRef + 1) % seriesCnt
-				labels := labelSets[querySeriesRef]
-				samples, err := queryHead(ts-qryRange, ts, labels[0])
+				lbls := labelSets[querySeriesRef]
+				samples, err := queryHead(ts-qryRange, ts, lbls[0])
 				if err != nil {
 					return false, err
 				}
@@ -395,7 +395,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 					return false, fmt.Errorf("expected 1 sample, got %d", len(samples))
 				}
 
-				series := labels.String()
+				series := lbls.String()
 				expectSampleCnt := qryRange/step + 1
 				if expectSampleCnt != uint64(len(samples[series])) {
 					return false, fmt.Errorf("expected %d samples, got %d", expectSampleCnt, len(samples[series]))
