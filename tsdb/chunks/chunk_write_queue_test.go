@@ -62,7 +62,6 @@ func TestChunkWriteQueue_WritingThroughQueue(t *testing.T) {
 		gotCutFile       bool
 	)
 
-	// blockingChunkWriter blocks until chunkWriterWg is done.
 	blockingChunkWriter := func(seriesRef HeadSeriesRef, mint, maxt int64, chunk chunkenc.Chunk, ref ChunkDiskMapperRef, cutFile bool) error {
 		gotSeriesRef = seriesRef
 		gotMint = mint
