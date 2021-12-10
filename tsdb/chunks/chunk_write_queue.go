@@ -42,8 +42,6 @@ var (
 // chunkWriteQueue is a queue for writing chunks to disk in a non-blocking fashion.
 // Chunks that shall be written get added to the queue, which is consumed asynchronously.
 // Adding jobs to the job is non-blocking as long as the queue isn't full.
-// If the size of the queue is <=0, then the chunks are written to the disk immediately
-// and no metrics are updated for both read and write.
 type chunkWriteQueue struct {
 	size  int
 	jobCh chan chunkWriteJob
@@ -137,15 +135,6 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) error {
 
 	if !c.isRunning {
 		return errors.New("queue is not started")
-	}
-
-	if c.size <= 0 {
-		err := c.writeChunk(job.seriesRef, job.mint, job.maxt, job.chk, job.ref, job.cutFile)
-		if job.callback != nil {
-			job.callback(err)
-		}
-		// Any error from the writeChunk will be already communicated back, so we return nil here.
-		return nil
 	}
 
 	c.chunkRefMapMtx.Lock()
