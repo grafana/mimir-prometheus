@@ -208,6 +208,52 @@ func TestChunkWriteQueue_HandlerErrorViaCallback(t *testing.T) {
 	require.Equal(t, testError, gotError)
 }
 
+func TestChunkWriteQueue_EmptyQueue(t *testing.T) {
+	chunkWriter := func(_ HeadSeriesRef, _, _ int64, _ chunkenc.Chunk, _ ChunkDiskMapperRef, _ bool) error {
+		return errors.New("random error")
+	}
+
+	var callbackWg, doneWg sync.WaitGroup
+	var total, done atomic.Int32
+	blockingChan := make(chan struct{})
+	callback := func(err error) {
+		require.Error(t, err)
+		total.Inc()
+
+		callbackWg.Done()
+		<-blockingChan
+
+		done.Inc()
+		doneWg.Done()
+	}
+
+	q := newChunkWriteQueue(nil, 0, chunkWriter)
+	defer q.stop()
+
+	// All jobs should reach the callback even if they are blocked, because
+	// the queue size is 0.
+	for i := 0; i < 1000; i++ {
+		callbackWg.Add(1)
+		doneWg.Add(1)
+		job := chunkWriteJob{callback: callback}
+		go func() {
+			// Though chunkWriter returns an error, error should be passed only to the callback.
+			require.NoError(t, q.addJob(job))
+		}()
+	}
+	callbackWg.Wait()
+
+	// All go through even if callbacks are stuck.
+	require.Equal(t, int32(0), done.Load())
+	require.Equal(t, int32(1000), total.Load())
+
+	close(blockingChan)
+	doneWg.Wait()
+
+	require.Equal(t, int32(1000), total.Load())
+	require.Equal(t, int32(1000), done.Load())
+}
+
 func queueIsEmpty(q *chunkWriteQueue) bool {
 	return queueSize(q) == 0
 }
