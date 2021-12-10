@@ -173,8 +173,9 @@ func TestOldChunkDiskMapper_Truncate(t *testing.T) {
 		maxt := timeRange + fileTimeStep - 1 // Just before the next file.
 
 		// Write a chunks to set maxt for the segment.
-		_, err := hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t))
-		require.NoError(t, err)
+		_ = hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(err error) {
+			require.NoError(t, err)
+		})
 
 		timeRange += fileTimeStep
 
@@ -257,8 +258,9 @@ func TestOldChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 	addChunk := func() {
 		step := 100
 		mint, maxt := timeRange+1, timeRange+step-1
-		_, err := hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t))
-		require.NoError(t, err)
+		_ = hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(err error) {
+			require.NoError(t, err)
+		})
 		timeRange += step
 	}
 	emptyFile := func() {
@@ -324,14 +326,15 @@ func TestOldChunkDiskMapper_TruncateAfterFailedIterateChunks(t *testing.T) {
 	}()
 
 	// Write a chunks to iterate on it later.
-	_, err := hrw.WriteChunk(1, 0, 1000, randomChunk(t))
-	require.NoError(t, err)
+	_ = hrw.WriteChunk(1, 0, 1000, randomChunk(t), func(err error) {
+		require.NoError(t, err)
+	})
 
 	dir := hrw.dir.Name()
 	require.NoError(t, hrw.Close())
 
 	// Restarting to recreate https://github.com/prometheus/prometheus/issues/7753.
-	hrw, err = NewOldChunkDiskMapper(dir, chunkenc.NewPool(), DefaultWriteBufferSize)
+	hrw, err := NewOldChunkDiskMapper(dir, chunkenc.NewPool(), DefaultWriteBufferSize)
 	require.NoError(t, err)
 
 	// Forcefully failing IterateAllChunks.
@@ -353,8 +356,9 @@ func TestOldChunkDiskMapper_ReadRepairOnEmptyLastFile(t *testing.T) {
 	addChunk := func() {
 		step := 100
 		mint, maxt := timeRange+1, timeRange+step-1
-		_, err := hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t))
-		require.NoError(t, err)
+		_ = hrw.WriteChunk(1, int64(mint), int64(maxt), randomChunk(t), func(err error) {
+			require.NoError(t, err)
+		})
 		timeRange += step
 	}
 	nonEmptyFile := func() {
@@ -427,12 +431,12 @@ func testOldChunkDiskMapper(t *testing.T) *OldChunkDiskMapper {
 }
 
 func createChunkForOld(t *testing.T, idx int, hrw *OldChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
-	var err error
 	seriesRef = HeadSeriesRef(rand.Int63())
 	mint = int64((idx)*1000 + 1)
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomChunk(t)
-	chunkRef, err = hrw.WriteChunk(seriesRef, mint, maxt, chunk)
-	require.NoError(t, err)
+	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(err error) {
+		require.NoError(t, err)
+	})
 	return
 }
