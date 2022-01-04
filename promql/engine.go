@@ -216,7 +216,7 @@ type QueryTracker interface {
 
 	// Insert inserts query into query tracker. This call must block if maximum number of queries is already running.
 	// If Insert doesn't return error then returned integer value should be used in subsequent Delete call.
-	// Insert returns error if context is finished before query can proceed.
+	// Insert should return error if context is finished before query can proceed, and integer value returned in this case should be ignored by caller.
 	Insert(ctx context.Context, query string) (int, error)
 
 	// Delete removes query from activity tracker. InsertIndex is value returned by Insert call.
