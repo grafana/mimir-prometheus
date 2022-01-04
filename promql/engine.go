@@ -208,7 +208,7 @@ func contextErr(err error, env string) error {
 }
 
 // QueryTracker provides access to two features:
-// 1) tracking of active query that are logged on restart if PromQL engine crashes while executing the query, and
+// 1) tracking of active queries that are logged on restart if PromQL engine crashes while executing the query, and
 // 2) enforcement of the maximum number of concurrent requests.
 type QueryTracker interface {
 	// GetMaxConcurrent returns maximum number of concurrent queries that are allowed by this tracker.
