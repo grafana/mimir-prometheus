@@ -933,8 +933,8 @@ func (db *DB) Compact() (returnErr error) {
 		// so in order to make sure that overlaps are evaluated
 		// consistently, we explicitly remove the last value
 		// from the block interval here.
-		// TODO(jesus.vazquez) Once we have the OOORangeHead we need to update
-		// TODO(jesus.vazquez) this method to accept a second parameter with an OOORangeHead to
+		// TODO(jesus.vazquez) Once we have the OOOHead we need to update
+		// TODO(jesus.vazquez) this method to accept a second parameter with an OOOHead to
 		// TODO(jesus.vazquez) compact the OOO Samples.
 		if err := db.compactHead(NewRangeHead(db.head, mint, maxt-1)); err != nil {
 			return errors.Wrap(err, "compact head")
