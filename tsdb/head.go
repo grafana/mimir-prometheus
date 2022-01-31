@@ -1346,7 +1346,7 @@ const (
 )
 
 // stripeSeries holds series by HeadSeriesRef ("ID") and also by hash of their labels.
-// ID-based lookups via (getByID()) are preferred over getByHash() for performance reasons.
+// ID-based lookups via getByID() are preferred over getByHash() for performance reasons.
 // It locks modulo ranges of IDs and hashes to reduce lock contention.
 // The locks are padded to not be on the same cache line. Filling the padded space
 // with the maps was profiled to be slower – likely due to the additional pointer
@@ -1541,10 +1541,15 @@ type memSeries struct {
 	//
 	// pN is the pointer to the mmappedChunk referered to by HeadChunkID=N
 	mmappedChunks []*mmappedChunk
-	mmMaxTime     int64     // Max time of any mmapped chunk, only used during WAL replay.
 	headChunk     *memChunk // Most recent chunk in memory that's still being built.
-	chunkRange    int64
 	firstChunkID  chunks.HeadChunkID // HeadChunkID for mmappedChunks[0]
+
+	oooMmappedChunks []*mmappedChunk // Immutable chunks on disk containing OOO samples.
+	oooHeadChunk    *memChunk // Most recent chunk for ooo samples in memory that's still being built.
+	firstOOOChunkID chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
+
+	mmMaxTime     int64     // Max time of any mmapped chunk, only used during WAL replay.
+	chunkRange    int64
 
 	// chunkEndTimeVariance is how much variance (between 0 and 1) should be applied to the chunk end time,
 	// to spread chunks writing across time. Doesn't apply to the last chunk of the chunk range. 0 to disable variance.
@@ -1562,6 +1567,7 @@ type memSeries struct {
 	// It is nil only if headChunk is nil. E.g. if there was an appender that created a new series, but rolled back the commit
 	// (the first sample would create a headChunk, hence appender, but rollback skipped it while the Append() call would create a series).
 	app chunkenc.Appender
+	// TODO(jesus.vazquez) See if we need an oooApp for the ooo samples
 
 	memChunkPool *sync.Pool
 
