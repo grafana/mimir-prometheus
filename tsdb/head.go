@@ -76,6 +76,7 @@ type chunkDiskMapper interface {
 type Head struct {
 	chunkRange               atomic.Int64
 	numSeries                atomic.Uint64
+	// TODO(ganesh) Track mint and maxt for out of order samples. It can be useful when a query comes in and the query time range overlaps with them.
 	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head.
 	minValidTime             atomic.Int64 // Mint allowed to be added to the head. It shouldn't be lower than the maxt of the last persisted block.
 	lastWALTruncationTime    atomic.Int64
@@ -100,6 +101,7 @@ type Head struct {
 	deletedMtx sync.Mutex
 	deleted    map[chunks.HeadSeriesRef]int // Deleted series, and what WAL segment they must be kept until.
 
+	// TODO(ganesh) extend MemPostings to return only OOOPostings, Set OOOStatus, ... Like an additional map of ooo postings.
 	postings *index.MemPostings // Postings lists for terms.
 	pfmc     *PostingsForMatchersCache
 
@@ -1546,6 +1548,7 @@ type memSeries struct {
 	firstChunkID  chunks.HeadChunkID // HeadChunkID for mmappedChunks[0]
 
 	oooMmappedChunks []*mmappedChunk // Immutable chunks on disk containing OOO samples.
+	// TODO(jesus.vazquez) New oooMemChunk type, not sure if we should implement the chunk interface, we can start with a slice of samples.
 	oooHeadChunk    *memChunk // Most recent chunk for ooo samples in memory that's still being built.
 	firstOOOChunkID chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
 

@@ -10,6 +10,8 @@ var _ BlockReader = &OOOHead{}
 // interface implementation.
 type OOOHead struct {
 	head       *Head
+	//TODO(ganesh) Maybe we want to keep mint and maxt because when you are querying you want to only query the timerange of the query
+	// For compaction we can use min int64 and max int64.
 }
 
 // NewOOOHead returns a *OOOHead.
@@ -39,8 +41,8 @@ func (oh *OOOHead) Meta() BlockMeta {
 	var id [16]byte
 	copy(id[:], "____ooo_head____")
 	return BlockMeta{
-		MinTime: oh.head.MinTime(),
-		MaxTime: oh.head.MaxTime(),
+		MinTime: oh.head.MinTime(), // TODO(ganesh) We might want to track in the head whats the mint and maxt for out of order samples
+		MaxTime: oh.head.MaxTime(), // TODO(ganesh) We might want to track in the head whats the mint and maxt for out of order samples
 		ULID:    id,
 		Stats: BlockStats{
 			NumSeries: oh.head.NumSeries(),
@@ -48,7 +50,9 @@ func (oh *OOOHead) Meta() BlockMeta {
 	}
 }
 
+// Size returns 0 because the space taken by the out of order samples is taken
+// into account by the RangeHead size.
 func (oh *OOOHead) Size() int64 {
 	// TODO(jesus.vazquez) Find what's the appropriate value here
-	return oh.head.Size()
+	return 0
 }

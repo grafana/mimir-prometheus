@@ -19,6 +19,8 @@ var _ IndexReader = &oooHeadIndexReader{}
 // accessed.
 type oooHeadIndexReader struct {
 	head *Head
+	// TODO(jesus) maybe have a reference to rangehead index reader so we can reuse IndexReader interface method implementations
+	mint, maxt int64
 }
 
 func (oh *oooHeadIndexReader) Symbols() index.StringIter {
@@ -34,13 +36,12 @@ func (oh *oooHeadIndexReader) SortedLabelValues(name string, matchers ...*labels
 }
 
 func (oh *oooHeadIndexReader) LabelValues(name string, matchers ...*labels.Matcher) ([]string, error) {
-	// TODO(jesus.vazquez) Clarify if we need this
-	// if oh.maxt < oh.head.MinTime() || oh.mint > oh.head.MaxTime() {
-	// 	return []string{}, nil
-	// }
+	if oh.maxt < oh.head.MinTime() || oh.mint > oh.head.MaxTime() {
+		return []string{}, nil
+	}
 
 	if len(matchers) == 0 {
-		return oh.head.postings.LabelValues(name), nil
+		return oh.head.postings.LabelValues(name), nil // TODO(dieter) Do we have to filter out postings from series that do not have. We think its probably right to return all of them.
 	}
 
 	return labelValuesWithMatchers(oh, name, matchers...)
@@ -51,21 +52,23 @@ func (oh *oooHeadIndexReader) Postings(name string, values ...string) (index.Pos
 	case 0:
 		return index.EmptyPostings(), nil
 	case 1:
-		return oh.head.postings.Get(name, values[0]), nil
+		return oh.head.postings.Get(name, values[0]), nil // TODO(ganesh) Also call GetOOOPostings
 	default:
+		// TODO(ganesh) We want to only return postings for out of order series.
 		res := make([]index.Postings, 0, len(values))
 		for _, value := range values {
-			res = append(res, oh.head.postings.Get(name, value))
+			res = append(res, oh.head.postings.Get(name, value)) // TODO(ganesh) Also call GetOOOPostings
 		}
 		return index.Merge(res...), nil
 	}
 }
 
 func (oh *oooHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return oh.head.pfmc.PostingsForMatchers(oh, concurrent, ms...)
+	return oh.head.pfmc.PostingsForMatchers(oh, concurrent, ms...) // TODO review this
 }
 
 func (oh *oooHeadIndexReader) SortedPostings(postings index.Postings) index.Postings {
+	// TODO evaluate if we also need filtering in this method
 	series := make([]*memSeries, 0, 128)
 
 	// Fetch all the series only once.
@@ -94,6 +97,7 @@ func (oh *oooHeadIndexReader) SortedPostings(postings index.Postings) index.Post
 }
 
 func (oh *oooHeadIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
+	// TODO evaluate if we also need filtering in this method
 	out := make([]storage.SeriesRef, 0, 128)
 
 	for p.Next() {
@@ -133,24 +137,22 @@ func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	*chks = (*chks)[:0]
 
 	for i, c := range s.oooMmappedChunks {
-		// TODO(jesus.vazquez) This comprobation is not needed, right?
-		// // Do not expose chunks that are outside of the specified range.
-		// if !c.OverlapsClosedInterval(h.mint, h.maxt) {
-		// 	continue
-		// }
+		// Do not expose chunks that are outside of the specified range.
+		if !c.OverlapsClosedInterval(oh.mint, oh.maxt) {
+			continue
+		}
 		*chks = append(*chks, chunks.Meta{
 			MinTime: c.minTime,
 			MaxTime: c.maxTime,
-			Ref:     chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.headChunkID(i))),
+			Ref:     chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i))),
 		})
 	}
-	// TODO(jesus.vazquez) Review this
-	// if s.headChunk != nil && s.headChunk.OverlapsClosedInterval(h.mint, h.maxt) {
-	if s.oooHeadChunk != nil {
+
+	 if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(oh.mint, oh.maxt) {
 		*chks = append(*chks, chunks.Meta{
 			MinTime: s.oooHeadChunk.minTime,
 			MaxTime: math.MaxInt64, // Set the head chunks as open (being appended to).
-			Ref:     chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.headChunkID(len(s.oooMmappedChunks)))), // TODO(jesus.vazquez) Is headChunkID going to work?
+			Ref:     chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks)))),
 		})
 	}
 
@@ -158,10 +160,10 @@ func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 }
 
 func (oh *oooHeadIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, error) {
-	// TODO(jesus.vazquez) Is this needed?
-	// if oh.maxt < oh.head.MinTime() || oh.mint > oh.head.MaxTime() {
-	// 	return []string{}, nil
-	// }
+	// TODO we think we don't need to filter in this case and probably we can reuse the rangehead index reader implementation
+	if oh.maxt < oh.head.MinTime() || oh.mint > oh.head.MaxTime() {
+		return []string{}, nil
+	}
 
 	if len(matchers) == 0 {
 		labelNames := oh.head.postings.LabelNames()
@@ -173,6 +175,7 @@ func (oh *oooHeadIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string,
 }
 
 func (oh *oooHeadIndexReader) LabelValueFor(id storage.SeriesRef, label string) (string, error) {
+	// TODO we think we don't need to filter in this case and probably we can reuse the rangehead index reader implementation
 	memSeries := oh.head.series.getByID(chunks.HeadSeriesRef(id))
 	if memSeries == nil {
 		return "", storage.ErrNotFound
@@ -187,6 +190,7 @@ func (oh *oooHeadIndexReader) LabelValueFor(id storage.SeriesRef, label string) 
 }
 
 func (oh *oooHeadIndexReader) LabelNamesFor(ids ...storage.SeriesRef) ([]string, error) {
+	// TODO we think we don't need to filter in this case and probably we can reuse the rangehead index reader implementation
 	namesMap := make(map[string]struct{})
 	for _, id := range ids {
 		memSeries := oh.head.series.getByID(chunks.HeadSeriesRef(id))
@@ -206,5 +210,6 @@ func (oh *oooHeadIndexReader) LabelNamesFor(ids ...storage.SeriesRef) ([]string,
 }
 
 func (oh *oooHeadIndexReader) Close() error {
+	// TODO we think we don't need to filter in this case and probably we can reuse the rangehead index reader implementation
 	return nil
 }

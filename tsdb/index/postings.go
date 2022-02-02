@@ -50,6 +50,8 @@ var ensureOrderBatchPool = sync.Pool{
 type MemPostings struct {
 	mtx     sync.RWMutex
 	m       map[string]map[string][]storage.SeriesRef
+	// TODO
+	oooMap map[storage.SeriesRef]struct{}
 	ordered bool
 }
 
@@ -214,6 +216,8 @@ func (p *MemPostings) Get(name, value string) Postings {
 	}
 	return newListPostings(lp...)
 }
+
+// TODO GetOOOPostings( returns newOOOListPostings )
 
 // All returns a postings list over all documents ever added.
 func (p *MemPostings) All() Postings {

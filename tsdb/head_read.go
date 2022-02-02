@@ -217,6 +217,11 @@ func (s *memSeries) headChunkID(pos int) chunks.HeadChunkID {
 	return chunks.HeadChunkID(pos) + s.firstChunkID
 }
 
+// oooHeadChunkID returns the HeadChunkID corresponding to .oooMmappedChunks[pos]
+func (s *memSeries) oooHeadChunkID(pos int) chunks.HeadChunkID {
+	return chunks.HeadChunkID(pos) + s.firstOOOChunkID
+}
+
 // LabelValueFor returns label value for the given label name in the series referred to by ID.
 func (h *headIndexReader) LabelValueFor(id storage.SeriesRef, label string) (string, error) {
 	memSeries := h.head.series.getByID(chunks.HeadSeriesRef(id))
