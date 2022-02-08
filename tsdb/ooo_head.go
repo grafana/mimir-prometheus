@@ -10,19 +10,23 @@ var _ BlockReader = &OOOHead{}
 // interface implementation.
 type OOOHead struct {
 	head       *Head
-	//TODO(ganesh) Maybe we want to keep mint and maxt because when you are querying you want to only query the timerange of the query
-	// For compaction we can use min int64 and max int64.
+	// mint and maxt are tracked because when a query is handled we only want
+	// the timerange of the query and having preexisting pointers to the first
+	// and last timestamp help with that. They are also useful to find the block
+	// range when compacting the head.
+	mint, maxt int64
 }
 
-// NewOOOHead returns a *OOOHead.
-func NewOOOHead(head *Head) *OOOHead {
+func NewOOOHead(head *Head, mint, maxt int64) *OOOHead {
 	return &OOOHead{
 		head: head,
+		mint: mint,
+		maxt: maxt,
 	}
 }
 
 func (oh *OOOHead) Index() (IndexReader, error) {
-	return &oooHeadIndexReader{ head: oh.head }, nil
+	return &oooHeadIndexReader{ head: oh.head , mint: oh.mint, maxt: oh.maxt}, nil
 }
 
 func (oh *OOOHead) Chunks() (ChunkReader, error) {

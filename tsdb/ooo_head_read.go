@@ -20,6 +20,10 @@ var _ IndexReader = &oooHeadIndexReader{}
 type oooHeadIndexReader struct {
 	head *Head
 	// TODO(jesus) maybe have a reference to rangehead index reader so we can reuse IndexReader interface method implementations
+
+	// mint and maxt are tracked because when a query is handled we only want
+	// the timerange of the query and having preexisting pointers to the first
+	// and last timestamp help with that. They are also useful to find the block
 	mint, maxt int64
 }
 
