@@ -15,11 +15,11 @@ import (
 
 var _ IndexReader = &oooHeadIndexReader{}
 
-// oooHeadIndexReader implemented IndexReader so ooo samples in the head can be
+// oooHeadIndexReader implements IndexReader so ooo samples in the head can be
 // accessed.
 type oooHeadIndexReader struct {
 	head *Head
-	// TODO(jesus) maybe have a reference to rangehead index reader so we can reuse IndexReader interface method implementations
+	headIndexReader *headIndexReader // A reference to the headIndexReader so we can reuse as many interface implementation as possible.
 
 	// mint and maxt are tracked because when a query is handled we only want
 	// the timerange of the query and having preexisting pointers to the first
@@ -28,15 +28,11 @@ type oooHeadIndexReader struct {
 }
 
 func (oh *oooHeadIndexReader) Symbols() index.StringIter {
-	return oh.head.postings.Symbols()
+	return oh.headIndexReader.Symbols()
 }
 
 func (oh *oooHeadIndexReader) SortedLabelValues(name string, matchers ...*labels.Matcher) ([]string, error) {
-	values, err := oh.LabelValues(name, matchers...)
-	if err == nil {
-		sort.Strings(values)
-	}
-	return values, err
+	return oh.headIndexReader.SortedLabelValues(name, matchers...)
 }
 
 func (oh *oooHeadIndexReader) LabelValues(name string, matchers ...*labels.Matcher) ([]string, error) {
@@ -164,56 +160,17 @@ func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 }
 
 func (oh *oooHeadIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, error) {
-	// TODO we think we don't need to filter in this case and probably we can reuse the rangehead index reader implementation
-	if oh.maxt < oh.head.MinTime() || oh.mint > oh.head.MaxTime() {
-		return []string{}, nil
-	}
-
-	if len(matchers) == 0 {
-		labelNames := oh.head.postings.LabelNames()
-		sort.Strings(labelNames)
-		return labelNames, nil
-	}
-
-	return labelNamesWithMatchers(oh, matchers...)
+	return oh.headIndexReader.LabelNames(matchers...)
 }
 
 func (oh *oooHeadIndexReader) LabelValueFor(id storage.SeriesRef, label string) (string, error) {
-	// TODO we think we don't need to filter in this case and probably we can reuse the rangehead index reader implementation
-	memSeries := oh.head.series.getByID(chunks.HeadSeriesRef(id))
-	if memSeries == nil {
-		return "", storage.ErrNotFound
-	}
-
-	value := memSeries.lset.Get(label)
-	if value == "" {
-		return "", storage.ErrNotFound
-	}
-
-	return value, nil
+	return oh.headIndexReader.LabelValueFor(id, label)
 }
 
 func (oh *oooHeadIndexReader) LabelNamesFor(ids ...storage.SeriesRef) ([]string, error) {
-	// TODO we think we don't need to filter in this case and probably we can reuse the rangehead index reader implementation
-	namesMap := make(map[string]struct{})
-	for _, id := range ids {
-		memSeries := oh.head.series.getByID(chunks.HeadSeriesRef(id))
-		if memSeries == nil {
-			return nil, storage.ErrNotFound
-		}
-		for _, lbl := range memSeries.lset {
-			namesMap[lbl.Name] = struct{}{}
-		}
-	}
-	names := make([]string, 0, len(namesMap))
-	for name := range namesMap {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names, nil
+	return oh.headIndexReader.LabelNamesFor(ids...)
 }
 
 func (oh *oooHeadIndexReader) Close() error {
-	// TODO we think we don't need to filter in this case and probably we can reuse the rangehead index reader implementation
 	return nil
 }
