@@ -2,10 +2,6 @@ package tsdb
 
 import (
 	"math"
-	"sort"
-
-	"github.com/go-kit/log/level"
-	"github.com/pkg/errors"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -36,86 +32,7 @@ func (oh *oooHeadIndexReader) SortedLabelValues(name string, matchers ...*labels
 }
 
 func (oh *oooHeadIndexReader) LabelValues(name string, matchers ...*labels.Matcher) ([]string, error) {
-	if oh.maxt < oh.head.MinTime() || oh.mint > oh.head.MaxTime() {
-		return []string{}, nil
-	}
-
-	if len(matchers) == 0 {
-		return oh.head.postings.LabelValues(name), nil // TODO(dieter) Do we have to filter out postings from series that do not have. We think its probably right to return all of them.
-	}
-
-	return labelValuesWithMatchers(oh, name, matchers...)
-}
-
-func (oh *oooHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
-	switch len(values) {
-	case 0:
-		return index.EmptyPostings(), nil
-	case 1:
-		return oh.head.postings.Get(name, values[0]), nil // TODO(ganesh) Also call GetOOOPostings
-	default:
-		// TODO(ganesh) We want to only return postings for out of order series.
-		res := make([]index.Postings, 0, len(values))
-		for _, value := range values {
-			res = append(res, oh.head.postings.Get(name, value)) // TODO(ganesh) Also call GetOOOPostings
-		}
-		return index.Merge(res...), nil
-	}
-}
-
-func (oh *oooHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return oh.head.pfmc.PostingsForMatchers(oh, concurrent, ms...) // TODO review this
-}
-
-func (oh *oooHeadIndexReader) SortedPostings(postings index.Postings) index.Postings {
-	// TODO evaluate if we also need filtering in this method
-	series := make([]*memSeries, 0, 128)
-
-	// Fetch all the series only once.
-	for postings.Next() {
-		s := oh.head.series.getByID(chunks.HeadSeriesRef(postings.At()))
-		if s == nil {
-			level.Debug(oh.head.logger).Log("msg", "Looked up series not found")
-		} else {
-			series = append(series, s)
-		}
-	}
-	if err := postings.Err(); err != nil {
-		return index.ErrPostings(errors.Wrap(err, "expand postings"))
-	}
-
-	sort.Slice(series, func(i, j int) bool {
-		return labels.Compare(series[i].lset, series[j].lset) < 0
-	})
-
-	// Convert back to list.
-	ep := make([]storage.SeriesRef, 0, len(series))
-	for _, p := range series {
-		ep = append(ep, storage.SeriesRef(p.ref))
-	}
-	return index.NewListPostings(ep)
-}
-
-func (oh *oooHeadIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
-	// TODO evaluate if we also need filtering in this method
-	out := make([]storage.SeriesRef, 0, 128)
-
-	for p.Next() {
-		s := oh.head.series.getByID(chunks.HeadSeriesRef(p.At()))
-		if s == nil {
-			level.Debug(oh.head.logger).Log("msg", "Looked up series not found")
-			continue
-		}
-
-		// Check if the series belong to the shard.
-		if s.hash%shardCount != shardIndex {
-			continue
-		}
-
-		out = append(out, storage.SeriesRef(s.ref))
-	}
-
-	return index.NewListPostings(out)
+	return oh.headIndexReader.LabelValues(name, matchers...)
 }
 
 func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels, chks *[]chunks.Meta) error {
@@ -148,7 +65,7 @@ func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 		})
 	}
 
-	 if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(oh.mint, oh.maxt) {
+	if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(oh.mint, oh.maxt) {
 		*chks = append(*chks, chunks.Meta{
 			MinTime: s.oooHeadChunk.minTime,
 			MaxTime: math.MaxInt64, // Set the head chunks as open (being appended to).
@@ -158,6 +75,35 @@ func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 
 	return nil
 }
+
+func (oh *oooHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
+	switch len(values) {
+	case 0:
+		return index.EmptyPostings(), nil
+	case 1:
+		return oh.head.postings.Get(name, values[0]), nil // TODO(ganesh) Also call GetOOOPostings
+	default:
+		// TODO(ganesh) We want to only return postings for out of order series.
+		res := make([]index.Postings, 0, len(values))
+		for _, value := range values {
+			res = append(res, oh.head.postings.Get(name, value)) // TODO(ganesh) Also call GetOOOPostings
+		}
+		return index.Merge(res...), nil
+	}
+}
+
+func (oh *oooHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return oh.headIndexReader.PostingsForMatchers(concurrent, ms...)
+}
+
+func (oh *oooHeadIndexReader) SortedPostings(postings index.Postings) index.Postings {
+	return oh.headIndexReader.SortedPostings(postings)
+}
+
+func (oh *oooHeadIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
+	return oh.headIndexReader.ShardedPostings(p, shardIndex, shardCount)
+}
+
 
 func (oh *oooHeadIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, error) {
 	return oh.headIndexReader.LabelNames(matchers...)
