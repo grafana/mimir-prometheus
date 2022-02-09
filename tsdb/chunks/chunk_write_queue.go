@@ -155,6 +155,7 @@ func (c *chunkWriteQueue) freeChunkRefMap() {
 	// trade-off between initializing it to a very small size potentially resulting in many allocations to re-grow it,
 	// and initializing it to a large size potentially resulting in unused allocated memory.
 	c.chunkRefMap = make(map[ChunkDiskMapperRef]chunkenc.Chunk, c.chunkRefMapPeakSize/2)
+
 	c.chunkRefMapPeakSize = 0
 	c.chunkRefMapLastFree = time.Now()
 	c.free.Inc()
