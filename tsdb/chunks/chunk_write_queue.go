@@ -24,7 +24,11 @@ import (
 )
 
 const (
-	chunkRefMapFreeThreshold   = 10
+	// Minimum recorded peak since since the last freeing
+	// of chunkWriteQueue.chunkrefMap to free it again.
+	chunkRefMapFreeThreshold = 10
+
+	// Minimum interval between freeing of chunkWriteQueue.chunkRefMap.
 	chunkRefMapMinFreeInterval = 10 * time.Minute
 )
 
