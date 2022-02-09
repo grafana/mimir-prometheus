@@ -50,8 +50,8 @@ type chunkWriteQueue struct {
 
 	chunkRefMapMtx      sync.RWMutex
 	chunkRefMap         map[ChunkDiskMapperRef]chunkenc.Chunk
-	chunkRefMapPeak     int
-	chunkRefMapLastFree time.Time
+	chunkRefMapPeakSize int       // largest size that chunkRefMap has grown to since the last time it got freed.
+	chunkRefMapLastFree time.Time // when the chunkRefMap has been freed the last time.
 
 	isRunningMtx sync.Mutex // Protects the isRunning property.
 	isRunning    bool       // Used to prevent that new jobs get added to the queue when the chan is already closed.
@@ -126,14 +126,30 @@ func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
 
 	c.completed.Inc()
 
-	if len(c.chunkRefMap) == 0 && c.chunkRefMapPeak > chunkRefMapFreeThreshold && time.Since(c.chunkRefMapLastFree) > chunkRefMapMinFreeInterval {
-		// Re-initialize the chunk ref map to half of the peak size that was in use since the last re-init event.
-		// By setting it to half of the peak we try to minimize the number of allocations required for a "normal" usage
-		// while ensuring that if its usage has decreased we shrink it over time.
-		c.chunkRefMap = make(map[ChunkDiskMapperRef]chunkenc.Chunk, c.chunkRefMapPeak/2)
-		c.chunkRefMapPeak = 0
-		c.chunkRefMapLastFree = time.Now()
+	c.freeChunkRefMap()
+}
+
+func (c *chunkWriteQueue) freeChunkRefMap() {
+	if len(c.chunkRefMap) > 0 {
+		// Can't free it while there is data in it.
+		return
 	}
+	if c.chunkRefMapPeakSize < chunkRefMapFreeThreshold {
+		// Not freeing it because it has not grown to the minimum threshold yet.
+		return
+	}
+	if time.Since(c.chunkRefMapLastFree) < chunkRefMapMinFreeInterval {
+		// Not freeing it because the minimum interval between free-events has not passed yet.
+		return
+	}
+
+	// Re-initialize the chunk ref map to half of the peak size that it has grown to since the last re-init event.
+	// By initializing it to half of the peak size since the last re-init event we try to hit the sweet spot in the
+	// trade-off between initializing it to a very small size potentially resulting in many allocations to re-grow it,
+	// and initializing it to a large size potentially resulting in unused allocated memory.
+	c.chunkRefMap = make(map[ChunkDiskMapperRef]chunkenc.Chunk, c.chunkRefMapPeakSize/2)
+	c.chunkRefMapPeakSize = 0
+	c.chunkRefMapLastFree = time.Now()
 }
 
 func (c *chunkWriteQueue) addJob(job chunkWriteJob) (err error) {
@@ -156,8 +172,8 @@ func (c *chunkWriteQueue) addJob(job chunkWriteJob) (err error) {
 	c.chunkRefMap[job.ref] = job.chk
 
 	// Keep track of the peak usage of c.chunkRefMap.
-	if len(c.chunkRefMap) > c.chunkRefMapPeak {
-		c.chunkRefMapPeak = len(c.chunkRefMap)
+	if len(c.chunkRefMap) > c.chunkRefMapPeakSize {
+		c.chunkRefMapPeakSize = len(c.chunkRefMap)
 	}
 	c.chunkRefMapMtx.Unlock()
 
