@@ -65,6 +65,7 @@ type chunkWriteQueue struct {
 	adds      prometheus.Counter
 	gets      prometheus.Counter
 	completed prometheus.Counter
+	free      prometheus.Counter
 }
 
 // writeChunkF is a function which writes chunks, it is dynamic to allow mocking in tests.
@@ -88,6 +89,7 @@ func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChu
 		adds:      counters.WithLabelValues("add"),
 		gets:      counters.WithLabelValues("get"),
 		completed: counters.WithLabelValues("complete"),
+		free:      counters.WithLabelValues("free"),
 	}
 
 	if reg != nil {
@@ -129,17 +131,22 @@ func (c *chunkWriteQueue) processJob(job chunkWriteJob) {
 	c.freeChunkRefMap()
 }
 
+// freeChunkRefMap checks whether the conditions to free the chunkRefMap are met,
+// if so it re-initializes it and frees the memory which it currently uses.
+// The chunkRefMapMtx must be held when calling this method.
 func (c *chunkWriteQueue) freeChunkRefMap() {
 	if len(c.chunkRefMap) > 0 {
 		// Can't free it while there is data in it.
 		return
 	}
+
 	if c.chunkRefMapPeakSize < chunkRefMapFreeThreshold {
 		// Not freeing it because it has not grown to the minimum threshold yet.
 		return
 	}
+
 	if time.Since(c.chunkRefMapLastFree) < chunkRefMapMinFreeInterval {
-		// Not freeing it because the minimum interval between free-events has not passed yet.
+		// Not freeing it because the minimum duration between free-events has not passed yet.
 		return
 	}
 
@@ -150,6 +157,7 @@ func (c *chunkWriteQueue) freeChunkRefMap() {
 	c.chunkRefMap = make(map[ChunkDiskMapperRef]chunkenc.Chunk, c.chunkRefMapPeakSize/2)
 	c.chunkRefMapPeakSize = 0
 	c.chunkRefMapLastFree = time.Now()
+	c.free.Inc()
 }
 
 func (c *chunkWriteQueue) addJob(job chunkWriteJob) (err error) {
