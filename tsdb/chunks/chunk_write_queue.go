@@ -50,8 +50,8 @@ type chunkWriteQueue struct {
 
 	chunkRefMapMtx      sync.RWMutex
 	chunkRefMap         map[ChunkDiskMapperRef]chunkenc.Chunk
-	chunkRefMapPeakSize int       // largest size that chunkRefMap has grown to since the last time it got freed.
-	chunkRefMapLastFree time.Time // when the chunkRefMap has been freed the last time.
+	chunkRefMapPeakSize int       // Largest size that chunkRefMap has grown to since the last time it got freed.
+	chunkRefMapLastFree time.Time // When the chunkRefMap has been freed the last time.
 
 	isRunningMtx sync.Mutex // Protects the isRunning property.
 	isRunning    bool       // Used to prevent that new jobs get added to the queue when the chan is already closed.
