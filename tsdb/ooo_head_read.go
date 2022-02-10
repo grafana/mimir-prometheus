@@ -13,26 +13,19 @@ var _ IndexReader = &oooHeadIndexReader{}
 
 // oooHeadIndexReader implements IndexReader so ooo samples in the head can be
 // accessed.
+// TODO document why we're making the assumption that we can rely on
+// headIndexreader for most of the IndexReader interface implementation.
 type oooHeadIndexReader struct {
-	head *Head
-	headIndexReader *headIndexReader // A reference to the headIndexReader so we can reuse as many interface implementation as possible.
-
-	// mint and maxt are tracked because when a query is handled we only want
-	// the timerange of the query and having preexisting pointers to the first
-	// and last timestamp help with that. They are also useful to find the block
-	mint, maxt int64
+	*headIndexReader // A reference to the headIndexReader so we can reuse as many interface implementation as possible.
 }
 
-func (oh *oooHeadIndexReader) Symbols() index.StringIter {
-	return oh.headIndexReader.Symbols()
-}
-
-func (oh *oooHeadIndexReader) SortedLabelValues(name string, matchers ...*labels.Matcher) ([]string, error) {
-	return oh.headIndexReader.SortedLabelValues(name, matchers...)
-}
-
-func (oh *oooHeadIndexReader) LabelValues(name string, matchers ...*labels.Matcher) ([]string, error) {
-	return oh.headIndexReader.LabelValues(name, matchers...)
+func NewOOOHeadIndexReader(head *Head, mint, maxt int64) *oooHeadIndexReader {
+	hr := &headIndexReader{
+		head: head,
+		mint: mint,
+		maxt: maxt,
+	}
+	return &oooHeadIndexReader{hr}
 }
 
 func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels, chks *[]chunks.Meta) error {
@@ -52,6 +45,13 @@ func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	defer s.Unlock()
 
 	*chks = (*chks)[:0]
+
+	// TODO We need to gather all the chunks that overlap in mint and maxt and
+	// combine overlapping chunks into a single chunk.
+	// For example:
+	// Given the following chunks 1:(100, 200) 2:(500, 600) 3:(150, 250) 4:(550, 650)
+	// The result would be: [ (combines 1,3), (combines(2, 4) ] -> [ (100, 250), (500, 650) ]
+	// The resulting combined chunks should be identified by an unique reference
 
 	for i, c := range s.oooMmappedChunks {
 		// Do not expose chunks that are outside of the specified range.
@@ -90,33 +90,4 @@ func (oh *oooHeadIndexReader) Postings(name string, values ...string) (index.Pos
 		}
 		return index.Merge(res...), nil
 	}
-}
-
-func (oh *oooHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return oh.headIndexReader.PostingsForMatchers(concurrent, ms...)
-}
-
-func (oh *oooHeadIndexReader) SortedPostings(postings index.Postings) index.Postings {
-	return oh.headIndexReader.SortedPostings(postings)
-}
-
-func (oh *oooHeadIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
-	return oh.headIndexReader.ShardedPostings(p, shardIndex, shardCount)
-}
-
-
-func (oh *oooHeadIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, error) {
-	return oh.headIndexReader.LabelNames(matchers...)
-}
-
-func (oh *oooHeadIndexReader) LabelValueFor(id storage.SeriesRef, label string) (string, error) {
-	return oh.headIndexReader.LabelValueFor(id, label)
-}
-
-func (oh *oooHeadIndexReader) LabelNamesFor(ids ...storage.SeriesRef) ([]string, error) {
-	return oh.headIndexReader.LabelNamesFor(ids...)
-}
-
-func (oh *oooHeadIndexReader) Close() error {
-	return nil
 }

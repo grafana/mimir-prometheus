@@ -77,6 +77,7 @@ type Head struct {
 	chunkRange               atomic.Int64
 	numSeries                atomic.Uint64
 	// TODO(ganesh) Track mint and maxt for out of order samples. It can be useful when a query comes in and the query time range overlaps with them.
+	minOOOTime, maxOOOTime atomic.Int64
 	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head.
 	minValidTime             atomic.Int64 // Mint allowed to be added to the head. It shouldn't be lower than the maxt of the last persisted block.
 	lastWALTruncationTime    atomic.Int64
