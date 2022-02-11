@@ -248,7 +248,24 @@ type headAppender struct {
 	closed                          bool
 }
 
+// ### main ###
+// check against minValidTime(lastblock.maxT, compaction window) -> reject
+
+// ### OOO branch ###
+
+// to insert in normal chunks
+// 1) sample must honor minValidTime, ie be ahead of lastBlock.maxTS and ahead of compaction window
+// 2) sample.Ts must be > last sample.Ts (edge case: to support federation, equal Ts and equal value is silently dropped)
+
+// to insert in OOO chunks:
+// 1) can completely ignore minValidTime
+// 2) sample.TS must be > lastSample.Ts - 30min
+
+// 3) we know that sample needs to go into ooo chunk because it's ooo, do we still need to gracefully dropp complete duplicates?#
+
 func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
+
+	// first check. TODO: for OOO, this restriction is irrelevant, but i think it still applies for normal data going into normal Head?
 	if t < a.minValidTime {
 		a.head.metrics.outOfBoundSamples.Inc()
 		return 0, storage.ErrOutOfBounds
@@ -281,7 +298,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	}
 
 	s.Lock()
-	if delta, err := s.appendable(t, v); err != nil {
+	if delta, err := s.appendable(t, v); err != nil { // 2nd check
 		s.Unlock()
 		if err == storage.ErrOutOfOrderSample {
 			a.head.metrics.outOfOrderSamples.Inc()
@@ -311,15 +328,26 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 // appendable checks whether the given sample is valid for appending to the series.
 func (s *memSeries) appendable(t int64, v float64) (int64, error) {
 	c := s.head()
+	// TODO adjust here
 	if c == nil {
 		return 0, nil
 	}
 	if t > c.maxTime {
 		return 0, nil
 	}
-	if t < c.maxTime {
+
+	// TODO: should we try effort here to try to detect duplicates? seems more efficient to just handle that in Commit()
+
+	// we want to offer a minimum amount of out-of-order support. Whatever we implement, must both:
+	// * be a good step forward to making customers happy. most of them want at least a few minutes OOO, but some up to 30 min or so.
+	// * something that will we be able to keep providing in the future, even if we redesign the functionality.
+	// For now, we believe a good balance between these two, is allowing to go back 30 minutes.
+	// NOTE: tsdb generally is timestamp unit agnostic.  Here we assume it's expressed in millisec. should this be a config setting?
+	if t < c.maxTime-30*1000 {
 		return c.maxTime - t, storage.ErrOutOfOrderSample
 	}
+
+	// TODO: code below is not enough anymore
 	// We are allowing exact duplicates as we can encounter them in valid cases
 	// like federation and erroring out at that time would be extremely noisy.
 	if math.Float64bits(s.sampleBuf[3].v) != math.Float64bits(v) {
@@ -463,13 +491,14 @@ func (a *headAppender) Commit() (err error) {
 	for i, s := range a.samples {
 		series = a.sampleSeries[i]
 		series.Lock()
-		delta, ok, chunkCreated := series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper)
+		delta, sampleInOrder, _, chunkCreated := series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper) // 3rd check happens here
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
 		series.pendingCommit = false
 		series.Unlock()
 
-		if !ok {
+		if !sampleInOrder {
 			total--
+			// TODO(dieter): this is not super useful anymore. should we have a separate histogram for ooo samples that were appended and those that couldn't be?
 			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
 			a.head.metrics.outOfOrderSamples.Inc()
 		}
@@ -485,22 +514,46 @@ func (a *headAppender) Commit() (err error) {
 	return nil
 }
 
+// tryAppendOOO appends an OOO sample if it is recent enough and returns whether it was possible.
+func (s *memSeries) tryAppendOOO(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (sampleAppended, chunkCreated bool) {
+
+	if true { // TODO condition 30 min clause
+		// the sample is OOO by too large of a delta. we cannot handle it.
+		return false, chunkCreated
+	}
+
+	c := s.oooHeadChunk
+	if c == nil {
+		c = s.cutNewOOOHeadChunk(t, chunkDiskMapper)
+		chunkCreated = true
+
+		// TODO: if chunk is getting too full, mmapp it and cut new head one?
+	}
+
+	// TODO actually append to the chunk :-)
+
+	return true, chunkCreated
+}
+
 // append adds the sample (t, v) to the series. The caller also has to provide
 // the appendID for isolation. (The appendID can be zero, which results in no
 // isolation for this append.)
 // It is unsafe to call this concurrently with s.iterator(...) without holding the series lock.
-func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (delta int64, sampleInOrder, chunkCreated bool) {
+func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (delta int64, sampleInOrder, sampleAppended, chunkCreated bool) {
 	// Based on Gorilla white papers this offers near-optimal compression ratio
 	// so anything bigger that this has diminishing returns and increases
 	// the time range within which we have to decompress all samples.
 	const samplesPerChunk = 120
 
 	c := s.head()
+	// if we don't honor minvalid time -> ooo insert
 
 	if c == nil {
 		if len(s.mmappedChunks) > 0 && s.mmappedChunks[len(s.mmappedChunks)-1].maxTime >= t {
-			// Out of order sample. Sample timestamp is already in the mmapped chunks, so ignore it.
-			return s.mmappedChunks[len(s.mmappedChunks)-1].maxTime - t, false, false
+			// Out of order sample. Sample timestamp is already in the mmapped chunks
+			// note that delta is always against highest timestamp, which by definition is in the regular (non-OOO) chunks
+			sampleAppended, chunkCreated = s.tryAppendOOO(t, v, appendID, chunkDiskMapper)
+			return s.mmappedChunks[len(s.mmappedChunks)-1].maxTime - t, true, sampleAppended, chunkCreated
 		}
 		// There is no chunk in this series yet, create the first chunk for the sample.
 		c = s.cutNewHeadChunk(t, chunkDiskMapper)
@@ -509,7 +562,9 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 
 	// Out of order sample.
 	if c.maxTime >= t {
-		return c.maxTime - t, false, chunkCreated
+		// note that delta is always against highest timestamp, which by definition is in the regular (non-OOO) chunks
+		sampleAppended, chunkCreated = s.tryAppendOOO(t, v, appendID, chunkDiskMapper)
+		return c.maxTime - t, true, sampleAppended, chunkCreated
 	}
 
 	numSamples := c.chunk.NumSamples()
@@ -606,6 +661,18 @@ func (s *memSeries) cutNewHeadChunk(mint int64, chunkDiskMapper chunkDiskMapper)
 	}
 	s.app = app
 	return s.headChunk
+}
+
+func (s *memSeries) cutNewOOOHeadChunk(mint int64, chunkDiskMapper chunkDiskMapper) *memChunk {
+	s.mmapCurrentOOOHeadChunk(chunkDiskMapper)
+
+	s.oooHeadChunk = &memChunk{
+		chunk:   chunkenc.NewOOOChunk(),
+		minTime: mint,
+		maxTime: math.MinInt64,
+	}
+
+	return s.oooHeadChunk
 }
 
 func (s *memSeries) mmapCurrentHeadChunk(chunkDiskMapper chunkDiskMapper) {

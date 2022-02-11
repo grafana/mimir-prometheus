@@ -1572,7 +1572,7 @@ type memSeries struct {
 	// It is nil only if headChunk is nil. E.g. if there was an appender that created a new series, but rolled back the commit
 	// (the first sample would create a headChunk, hence appender, but rollback skipped it while the Append() call would create a series).
 	app chunkenc.Appender
-	// TODO(jesus.vazquez) See if we need an oooApp for the ooo samples
+	// TODO(jesus.vazquez) See if we need an oooApp for the ooo samples. Dieter doesn't think so. can just work on the OOOChunk directly?
 
 	memChunkPool *sync.Pool
 
