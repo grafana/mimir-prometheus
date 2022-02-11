@@ -48,10 +48,12 @@ var ensureOrderBatchPool = sync.Pool{
 // EnsureOrder() must be called once before any reads are done. This allows for quick
 // unordered batch fills on startup.
 type MemPostings struct {
-	mtx     sync.RWMutex
-	m       map[string]map[string][]storage.SeriesRef
-	// TODO
-	oooMap map[storage.SeriesRef]struct{}
+	mtx sync.RWMutex
+	m   map[string]map[string][]storage.SeriesRef
+	// TODO We should have a mapping of which series have out of order metrics
+	// and we figured one way to do it is by keeping a map where the keys are
+	// the series ref, that way we can do efficient lookups.
+	// oooMap map[storage.SeriesRef]struct{}
 	ordered bool
 }
 

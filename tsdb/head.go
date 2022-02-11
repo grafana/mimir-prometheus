@@ -74,10 +74,10 @@ type chunkDiskMapper interface {
 
 // Head handles reads and writes of time series data within a time window.
 type Head struct {
-	chunkRange               atomic.Int64
-	numSeries                atomic.Uint64
+	chunkRange atomic.Int64
+	numSeries  atomic.Uint64
 	// TODO(ganesh) Track mint and maxt for out of order samples. It can be useful when a query comes in and the query time range overlaps with them.
-	minOOOTime, maxOOOTime atomic.Int64
+	// minOOOTime, maxOOOTime   atomic.Int64
 	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head.
 	minValidTime             atomic.Int64 // Mint allowed to be added to the head. It shouldn't be lower than the maxt of the last persisted block.
 	lastWALTruncationTime    atomic.Int64
@@ -1545,16 +1545,16 @@ type memSeries struct {
 	//
 	// pN is the pointer to the mmappedChunk referered to by HeadChunkID=N
 	mmappedChunks []*mmappedChunk
-	headChunk     *memChunk // Most recent chunk in memory that's still being built.
+	headChunk     *memChunk          // Most recent chunk in memory that's still being built.
 	firstChunkID  chunks.HeadChunkID // HeadChunkID for mmappedChunks[0]
 
 	oooMmappedChunks []*mmappedChunk // Immutable chunks on disk containing OOO samples.
 	// TODO(jesus.vazquez) New oooMemChunk type, not sure if we should implement the chunk interface, we can start with a slice of samples.
-	oooHeadChunk    *memChunk // Most recent chunk for ooo samples in memory that's still being built.
+	oooHeadChunk    *memChunk          // Most recent chunk for ooo samples in memory that's still being built.
 	firstOOOChunkID chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
 
-	mmMaxTime     int64     // Max time of any mmapped chunk, only used during WAL replay.
-	chunkRange    int64
+	mmMaxTime  int64 // Max time of any mmapped chunk, only used during WAL replay.
+	chunkRange int64
 
 	// chunkEndTimeVariance is how much variance (between 0 and 1) should be applied to the chunk end time,
 	// to spread chunks writing across time. Doesn't apply to the last chunk of the chunk range. 0 to disable variance.

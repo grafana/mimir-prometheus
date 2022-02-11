@@ -9,26 +9,26 @@ import (
 	"github.com/prometheus/prometheus/tsdb/index"
 )
 
-var _ IndexReader = &oooHeadIndexReader{}
+var _ IndexReader = &OOOHeadIndexReader{}
 
-// oooHeadIndexReader implements IndexReader so ooo samples in the head can be
+// OOOHeadIndexReader implements IndexReader so ooo samples in the head can be
 // accessed.
 // TODO document why we're making the assumption that we can rely on
 // headIndexreader for most of the IndexReader interface implementation.
-type oooHeadIndexReader struct {
+type OOOHeadIndexReader struct {
 	*headIndexReader // A reference to the headIndexReader so we can reuse as many interface implementation as possible.
 }
 
-func NewOOOHeadIndexReader(head *Head, mint, maxt int64) *oooHeadIndexReader {
+func NewOOOHeadIndexReader(head *Head, mint, maxt int64) *OOOHeadIndexReader {
 	hr := &headIndexReader{
 		head: head,
 		mint: mint,
 		maxt: maxt,
 	}
-	return &oooHeadIndexReader{hr}
+	return &OOOHeadIndexReader{hr}
 }
 
-func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels, chks *[]chunks.Meta) error {
+func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels, chks *[]chunks.Meta) error {
 	s := oh.head.series.getByID(chunks.HeadSeriesRef(ref))
 
 	if s == nil {
@@ -76,7 +76,7 @@ func (oh *oooHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	return nil
 }
 
-func (oh *oooHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
+func (oh *OOOHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
 	switch len(values) {
 	case 0:
 		return index.EmptyPostings(), nil

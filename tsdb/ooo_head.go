@@ -9,7 +9,7 @@ var _ BlockReader = &OOORangeHead{}
 // OOORangeHead allows querying Head out of order samples via BlockReader
 // interface implementation.
 type OOORangeHead struct {
-	head       *Head
+	head *Head
 	// mint and maxt are tracked because when a query is handled we only want
 	// the timerange of the query and having preexisting pointers to the first
 	// and last timestamp help with that.
@@ -25,7 +25,7 @@ func NewOOOHead(head *Head, mint, maxt int64) *OOORangeHead {
 }
 
 func (oh *OOORangeHead) Index() (IndexReader, error) {
-	return &oooHeadIndexReader{ head: oh.head , mint: oh.mint, maxt: oh.maxt}, nil
+	return NewOOOHeadIndexReader(oh.head, oh.mint, oh.maxt), nil
 }
 
 func (oh *OOORangeHead) Chunks() (ChunkReader, error) {
