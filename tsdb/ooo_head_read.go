@@ -13,8 +13,10 @@ var _ IndexReader = &OOOHeadIndexReader{}
 
 // OOOHeadIndexReader implements IndexReader so ooo samples in the head can be
 // accessed.
-// TODO document why we're making the assumption that we can rely on
-// headIndexreader for most of the IndexReader interface implementation.
+// It also has a reference to headIndexReader so we can leverage on its
+// IndexReader implementation for all the methods that remain the same. We
+// decided to do this to avoid code duplication.
+// The only methods that change are the ones about getting Series and Postings.
 type OOOHeadIndexReader struct {
 	*headIndexReader // A reference to the headIndexReader so we can reuse as many interface implementation as possible.
 }
