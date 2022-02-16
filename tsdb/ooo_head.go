@@ -16,7 +16,7 @@ type OOORangeHead struct {
 	mint, maxt int64
 }
 
-func NewOOOHead(head *Head, mint, maxt int64) *OOORangeHead {
+func NewOOORangeHead(head *Head, mint, maxt int64) *OOORangeHead {
 	return &OOORangeHead{
 		head: head,
 		mint: mint,
