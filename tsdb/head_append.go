@@ -326,6 +326,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 }
 
 // appendable checks whether the given sample is valid for appending to the series.
+// perhaps we should return here whether the append can only be an ooo insert or not
 func (s *memSeries) appendable(t int64, v float64) (int64, error) {
 	c := s.head()
 	// TODO adjust here
@@ -515,11 +516,11 @@ func (a *headAppender) Commit() (err error) {
 }
 
 // tryAppendOOO appends an OOO sample if it is recent enough and returns whether it was possible.
-func (s *memSeries) tryAppendOOO(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (sampleAppended, chunkCreated bool) {
+func (s *memSeries) tryAppendOOO(delta, t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (sampleAppended, chunkCreated bool) {
 
-	if true { // TODO condition 30 min clause
+	if delta > 30*60*1000 { // TODO config param?
 		// the sample is OOO by too large of a delta. we cannot handle it.
-		return false, chunkCreated
+		return sampleAppended, chunkCreated
 	}
 
 	c := s.oooHeadChunk
@@ -527,10 +528,12 @@ func (s *memSeries) tryAppendOOO(t int64, v float64, appendID uint64, chunkDiskM
 		c = s.cutNewOOOHeadChunk(t, chunkDiskMapper)
 		chunkCreated = true
 
-		// TODO: if chunk is getting too full, mmapp it and cut new head one?
 	}
 
-	// TODO actually append to the chunk :-)
+	t, v = c.chunk.Insert(t, v)
+	// TODO we got a point back that didn't fit in the chunk. save the chunk and create new one.
+	if t != 0 {
+	}
 
 	return true, chunkCreated
 }
@@ -552,8 +555,9 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 		if len(s.mmappedChunks) > 0 && s.mmappedChunks[len(s.mmappedChunks)-1].maxTime >= t {
 			// Out of order sample. Sample timestamp is already in the mmapped chunks
 			// note that delta is always against highest timestamp, which by definition is in the regular (non-OOO) chunks
-			sampleAppended, chunkCreated = s.tryAppendOOO(t, v, appendID, chunkDiskMapper)
-			return s.mmappedChunks[len(s.mmappedChunks)-1].maxTime - t, true, sampleAppended, chunkCreated
+			delta := s.mmappedChunks[len(s.mmappedChunks)-1].maxTime - t
+			sampleAppended, chunkCreated = s.tryAppendOOO(delta, t, v, appendID, chunkDiskMapper)
+			return delta, true, sampleAppended, chunkCreated
 		}
 		// There is no chunk in this series yet, create the first chunk for the sample.
 		c = s.cutNewHeadChunk(t, chunkDiskMapper)
@@ -563,8 +567,9 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 	// Out of order sample.
 	if c.maxTime >= t {
 		// note that delta is always against highest timestamp, which by definition is in the regular (non-OOO) chunks
-		sampleAppended, chunkCreated = s.tryAppendOOO(t, v, appendID, chunkDiskMapper)
-		return c.maxTime - t, true, sampleAppended, chunkCreated
+		delta := c.maxTime - t
+		sampleAppended, chunkCreated = s.tryAppendOOO(delta, t, v, appendID, chunkDiskMapper)
+		return delta, true, sampleAppended, chunkCreated
 	}
 
 	numSamples := c.chunk.NumSamples()

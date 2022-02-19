@@ -1548,10 +1548,9 @@ type memSeries struct {
 	headChunk     *memChunk          // Most recent chunk in memory that's still being built.
 	firstChunkID  chunks.HeadChunkID // HeadChunkID for mmappedChunks[0]
 
-	oooMmappedChunks []*mmappedChunk // Immutable chunks on disk containing OOO samples.
-	// TODO(jesus.vazquez) New oooMemChunk type, not sure if we should implement the chunk interface, we can start with a slice of samples.
-	oooHeadChunk    *memChunk          // Most recent chunk for ooo samples in memory that's still being built.
-	firstOOOChunkID chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
+	oooMmappedChunks []*mmappedChunk    // Immutable chunks on disk containing OOO samples.
+	oooHeadChunk     *oooHeadChunk      // Most recent chunk for ooo samples in memory that's still being built.
+	firstOOOChunkID  chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
 
 	mmMaxTime  int64 // Max time of any mmapped chunk, only used during WAL replay.
 	chunkRange int64
@@ -1657,6 +1656,11 @@ func (s *memSeries) head() *memChunk {
 type memChunk struct {
 	chunk            chunkenc.Chunk
 	minTime, maxTime int64
+}
+
+type oooHeadChunk struct {
+	chunk            chunkenc.OOOChunk
+	minTime, maxTime int64 // can probably be removed and pulled out of the chunk instead
 }
 
 // OverlapsClosedInterval returns true if the chunk overlaps [mint, maxt].
