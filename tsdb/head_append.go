@@ -515,24 +515,26 @@ func (a *headAppender) Commit() (err error) {
 	return nil
 }
 
-// tryAppendOOO appends an OOO sample if it is recent enough and returns whether it was possible.
-func (s *memSeries) tryAppendOOO(delta, t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (sampleAppended, chunkCreated bool) {
+// tryInsertOOO inserts an OOO sample if it is recent enough and returns whether it was possible and whether a chunk was created
+func (s *memSeries) tryInsertOOO(delta, t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (sampleInserted, chunkCreated bool) {
 
 	if delta > 30*60*1000 { // TODO config param?
 		// the sample is OOO by too large of a delta. we cannot handle it.
-		return sampleAppended, chunkCreated
+		return sampleInserted, chunkCreated
 	}
 
 	c := s.oooHeadChunk
 	if c == nil {
 		c = s.cutNewOOOHeadChunk(t, chunkDiskMapper)
 		chunkCreated = true
-
 	}
 
 	t, v = c.chunk.Insert(t, v)
-	// TODO we got a point back that didn't fit in the chunk. save the chunk and create new one.
 	if t != 0 {
+		// we got a sample back that didn't fit in the chunk. save the chunk and create new one.
+		c = s.cutNewOOOHeadChunk(t, chunkDiskMapper)
+		chunkCreated = true
+		c.chunk.Insert(t, v)
 	}
 
 	return true, chunkCreated
@@ -556,19 +558,19 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 			// Out of order sample. Sample timestamp is already in the mmapped chunks
 			// note that delta is always against highest timestamp, which by definition is in the regular (non-OOO) chunks
 			delta := s.mmappedChunks[len(s.mmappedChunks)-1].maxTime - t
-			sampleAppended, chunkCreated = s.tryAppendOOO(delta, t, v, appendID, chunkDiskMapper)
+			sampleAppended, chunkCreated = s.tryInsertOOO(delta, t, v, appendID, chunkDiskMapper)
 			return delta, true, sampleAppended, chunkCreated
 		}
-		// There is no chunk in this series yet, create the first chunk for the sample.
+		// There is no head chunk in this series yet, create the first chunk for the sample.
 		c = s.cutNewHeadChunk(t, chunkDiskMapper)
 		chunkCreated = true
 	}
 
-	// Out of order sample.
 	if c.maxTime >= t {
+		// Out of order sample.
 		// note that delta is always against highest timestamp, which by definition is in the regular (non-OOO) chunks
 		delta := c.maxTime - t
-		sampleAppended, chunkCreated = s.tryAppendOOO(delta, t, v, appendID, chunkDiskMapper)
+		sampleAppended, chunkCreated = s.tryInsertOOO(delta, t, v, appendID, chunkDiskMapper)
 		return delta, true, sampleAppended, chunkCreated
 	}
 
@@ -607,7 +609,7 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 		s.txs.add(appendID)
 	}
 
-	return 0, true, chunkCreated
+	return 0, true, true, chunkCreated
 }
 
 // computeChunkEndTime estimates the end timestamp based the beginning of a
@@ -668,16 +670,34 @@ func (s *memSeries) cutNewHeadChunk(mint int64, chunkDiskMapper chunkDiskMapper)
 	return s.headChunk
 }
 
-func (s *memSeries) cutNewOOOHeadChunk(mint int64, chunkDiskMapper chunkDiskMapper) *memChunk {
+func (s *memSeries) cutNewOOOHeadChunk(mint int64, chunkDiskMapper chunkDiskMapper) *oooHeadChunk {
 	s.mmapCurrentOOOHeadChunk(chunkDiskMapper)
 
-	s.oooHeadChunk = &memChunk{
+	s.oooHeadChunk = &oooHeadChunk{
 		chunk:   chunkenc.NewOOOChunk(),
 		minTime: mint,
 		maxTime: math.MinInt64,
 	}
 
 	return s.oooHeadChunk
+}
+
+func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) {
+	if s.oooHeadChunk == nil {
+		// There is no head chunk, so nothing to m-map here.
+		return
+	}
+
+	// TODO pass oooHeadChunk here to disk mapper. we have 2 options:
+	// * implement the full Chunk interface (appender, Bytes(), etc), and write to disk as "raw chunk". it'll use more space but these chunks are shortlived anyway I think
+	// * convert the chunk to a xorchunk, which has a higher encoding cost, but uses less space, and means we don't have to implement as many functions, probably
+	chunkRef := chunkDiskMapper.WriteChunk(s.ref, s.oooHeadChunk.minTime, s.oooHeadChunk.maxTime, s.headChunk.chunk, handleChunkWriteError)
+	s.mmappedChunks = append(s.mmappedChunks, &mmappedChunk{
+		ref:        chunkRef,
+		numSamples: uint16(s.headChunk.chunk.NumSamples()),
+		minTime:    s.headChunk.minTime,
+		maxTime:    s.headChunk.maxTime,
+	})
 }
 
 func (s *memSeries) mmapCurrentHeadChunk(chunkDiskMapper chunkDiskMapper) {

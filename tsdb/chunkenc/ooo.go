@@ -18,14 +18,15 @@ type OOOChunk struct {
 }
 
 func NewOOOChunk() *OOOChunk {
-	return &OOOChunk{samples: make([]sample, 0, maxSize)} // TODO: later optimization : start smaller and allocate maxSize later
+	// NOTE: later optimization : start smaller and allocate maxSize later
+	return &OOOChunk{samples: make([]sample, 0, maxSize)}
 }
 
-// Insert adds the point to the chunk.
-// If the chunk is at capacity, it returns the newest point that didn't fit (possibly the input)
+// Insert adds the sample to the chunk.
+// If the chunk is at capacity, it returns the newest sample that didn't fit (possibly the input)
 func (o *OOOChunk) Insert(t int64, v float64) (int64, float64) {
 
-	// find index of point we should replace
+	// find index of sample we should replace
 	i := sort.Search(len(o.samples), func(i int) bool { return o.samples[i].t >= t })
 
 	// none found. append it or return it if we're already full
@@ -38,7 +39,7 @@ func (o *OOOChunk) Insert(t int64, v float64) (int64, float64) {
 	}
 
 	if o.samples[i].t == t {
-		// this point is an update. drop it.
+		// this sample is an update. drop it. TODO: error reporting?
 		return 0, 0
 	}
 
@@ -46,11 +47,11 @@ func (o *OOOChunk) Insert(t int64, v float64) (int64, float64) {
 	var retV float64
 
 	if len(o.samples) == maxSize {
-		// this point will be dropped from the slice, but it needs to be returned
+		// this sample will be dropped from the slice, but it needs to be returned
 		p := o.samples[maxSize-1]
 		retT, retV = p.t, p.v
 	} else {
-		// expand length by 1 to make room. use a zero point, we will overwrite it anyway
+		// expand length by 1 to make room. use a zero sample, we will overwrite it anyway
 		o.samples = append(o.samples, sample{})
 	}
 
@@ -60,3 +61,17 @@ func (o *OOOChunk) Insert(t int64, v float64) (int64, float64) {
 	return retT, retV
 
 }
+
+// used in chunk diskmapper.WriteChunk to actually write the data to cut new files based on size limits, crc, etc
+//func (c *OOOChunk) Bytes() []byte {
+// used in chunk diskmapper.WriteChunk
+//func (c *OOOChunk) Encoding() Encoding {
+//func (c *OOOChunk) Appender() (Appender, error) { // do we need this ? don't think so. we call Insert directly
+//func (c *OOOChunk) Iterator(it Iterator) Iterator {
+//func (c *OOOChunk) NumSamples() int {
+//func (c *OOOChunk) Compact() {
+
+//func (it *oooIterator) Seek(t int64) bool {
+//func (it *oooIterator) At() (int64, float64) {
+//func (it *oooIterator) Err() error {
+//func (it *oooIterator) Next() bool {

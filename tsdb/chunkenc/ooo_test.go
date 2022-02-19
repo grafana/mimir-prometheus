@@ -21,9 +21,9 @@ func makePre(n int) []sample {
 }
 
 // TesttoooInsert tests the following cases:
-// number of pre-existing points anywhere from 0 to maxSize
-// insert before first pre-existing point, after the last, and anywhere in between
-// Note:  in all points used, t always equals v in numeric value. when we talk about 'value' we just refer to a value that will be used for both sample.t and sample.v
+// number of pre-existing samples anywhere from 0 to maxSize
+// insert before first pre-existing samples, after the last, and anywhere in between
+// Note:  in all samples used, t always equals v in numeric value. when we talk about 'value' we just refer to a value that will be used for both sample.t and sample.v
 func TestOOOInsert(t *testing.T) {
 
 	for numPre := 0; numPre <= maxSize; numPre++ {
@@ -65,7 +65,7 @@ func TestOOOInsert(t *testing.T) {
 }
 
 // TesttoooInsertDuplicate tests the correct behavior when inserting a sample that is a duplicate of any
-// pre-existing point, with between 1 and maxSize pre-existing points.
+// pre-existing samples, with between 1 and maxSize pre-existing samples.
 func TestOOOInsertDuplicate(t *testing.T) {
 	for numPre := 1; numPre <= maxSize; numPre++ {
 		for dupPos := 0; dupPos < numPre; dupPos++ {

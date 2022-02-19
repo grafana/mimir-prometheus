@@ -1659,7 +1659,7 @@ type memChunk struct {
 }
 
 type oooHeadChunk struct {
-	chunk            chunkenc.OOOChunk
+	chunk            *chunkenc.OOOChunk
 	minTime, maxTime int64 // can probably be removed and pulled out of the chunk instead
 }
 
