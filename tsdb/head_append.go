@@ -249,7 +249,13 @@ type headAppender struct {
 }
 
 // ### main ###
-// check against minValidTime(lastblock.maxT, compaction window) -> reject
+// headAppender.Append:
+//  - check against minValidTime(lastblock.maxT, compaction window) -> reject
+//  - load series
+//  - check appendable(ooo)
+//  - buffer samples
+// headAppender.Commit:
+//  - series.append() has ooo check, increment metrics
 
 // ### OOO branch ###
 
