@@ -41,6 +41,7 @@ func (o *OOOChunk) Insert(t int64, v float64) (int64, float64) {
 	if o.samples[i].t == t {
 		// this sample is an update. drop it.
 		// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
+		// something something about not being able to detect all updates because they might be in mmapped ooo chunks
 		return 0, 0
 	}
 
