@@ -1609,6 +1609,7 @@ func (s *memSeries) minTime() int64 {
 }
 
 func (s *memSeries) maxTime() int64 {
+	// The highest timestamps will always be in the regular (non-OOO) chunks, even if OOO is enabled.
 	c := s.head()
 	if c != nil {
 		return c.maxTime

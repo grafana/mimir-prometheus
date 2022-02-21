@@ -412,7 +412,7 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head) (unknownRefs uint64) {
 			if s.T <= ms.mmMaxTime {
 				continue
 			}
-			if _, _, _, chunkCreated := ms.append(s.T, s.V, 0, h.chunkDiskMapper); chunkCreated {
+			if chunkCreated := ms.append(s.T, s.V, 0, h.chunkDiskMapper); chunkCreated {
 				h.metrics.chunksCreated.Inc()
 				h.metrics.chunks.Inc()
 			}
