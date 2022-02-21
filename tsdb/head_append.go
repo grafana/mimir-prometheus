@@ -556,15 +556,16 @@ func (s *memSeries) tryInsertOOO(delta, t int64, v float64, appendID uint64, chu
 	if c == nil {
 		c = s.cutNewOOOHeadChunk(t, chunkDiskMapper)
 		chunkCreated = true
+	} else {
+		if c.chunk.NumSamples() == 32 { // TODO: make configurable?
+			//NOTE: we only mmap the chunk here when a new sample comes in.
+			// If no new samples come in then we rely on compaction to clean up stale in-memory OOO chunks.
+			c = s.cutNewOOOHeadChunk(t, chunkDiskMapper)
+			chunkCreated = true
+		}
 	}
 
-	t, v = c.chunk.Insert(t, v)
-	if t != 0 {
-		// we got a sample back that didn't fit in the chunk. save the chunk and create new one.
-		c = s.cutNewOOOHeadChunk(t, chunkDiskMapper)
-		chunkCreated = true
-		c.chunk.Insert(t, v)
-	}
+	c.chunk.Insert(t, v)
 
 	return true, chunkCreated
 }
@@ -728,7 +729,7 @@ func (s *memSeries) cutNewOOOHeadChunk(mint int64, chunkDiskMapper chunkDiskMapp
 	s.mmapCurrentOOOHeadChunk(chunkDiskMapper)
 
 	s.oooHeadChunk = &oooHeadChunk{
-		chunk:   chunkenc.NewOOOChunk(),
+		chunk:   chunkenc.NewOOOChunk(32),
 		minTime: mint,
 		maxTime: math.MinInt64,
 	}
