@@ -344,12 +344,7 @@ func (s *memSeries) appendable(t int64, v float64) (int64, error) {
 		return 0, nil
 	}
 
-	// we want to offer a minimum amount of out-of-order support. Whatever we implement, must both:
-	// * be a good step forward to making customers happy. most of them want at least a few minutes OOO, but some up to 30 min or so.
-	// * something that will we be able to keep providing in the future, even if we redesign the functionality.
-	// For now, we believe a good balance between these two, is allowing to go back 30 minutes.
-	// NOTE: tsdb generally is timestamp unit agnostic.  Here we assume it's expressed in millisec. should this be a config setting?
-	if t < c.maxTime-30*1000 {
+	if t < c.maxTime-s.oooAllowance {
 		return c.maxTime - t, storage.ErrOutOfOrderSample
 	}
 
@@ -497,13 +492,25 @@ func (a *headAppender) Commit() (err error) {
 	var series *memSeries
 	for i, s := range a.samples {
 
+		series = a.sampleSeries[i]
+		maxT := series.maxTime()
+
 		// if a sample doesn't meet the minValidTime criterium, then we should not append it to
 		// the normal head chunk.  But the OOO chunk doesn't have such a restriction
-		OOOonly := s.T < a.minValidTime
+		// OOOonly := s.T < a.minValidTime
 		//a.head.metrics.outOfBoundSamples.Inc()
 		//return 0, storage.ErrOutOfBounds
+		if s.T < maxT-series.oooAllowance {
+			// discard here
+		}
 
-		series = a.sampleSeries[i]
+		if s.T < maxT {
+			// append ooo
+		} else {
+			//
+			// append regular
+		}
+
 		var delta int64
 		var sampleInOrder, sampleAppended, chunkCreated bool
 		series.Lock()
@@ -547,7 +554,7 @@ func (a *headAppender) Commit() (err error) {
 // tryInsertOOO inserts an OOO sample if it is recent enough and returns whether it was possible and whether a chunk was created
 func (s *memSeries) tryInsertOOO(delta, t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (sampleInserted, chunkCreated bool) {
 
-	if delta > 30*60*1000 { // TODO config param?
+	if delta > s.oooAllowance {
 		// the sample is OOO by too large of a delta. we cannot handle it.
 		return sampleInserted, chunkCreated
 	}

@@ -314,6 +314,9 @@ func main() {
 	serverOnlyFlag(a, "storage.tsdb.wal-compression", "Compress the tsdb WAL.").
 		Hidden().Default("true").BoolVar(&cfg.tsdb.WALCompression)
 
+	serverOnlyFlag(a, "storage.tsdb.ooo-allowance", "Allow upto this much out-of-order.").
+		Hidden().Default("0s").SetValue(&cfg.tsdb.OOOAllowance)
+
 	agentOnlyFlag(a, "storage.agent.path", "Base path for metrics storage.").
 		Default("data-agent/").StringVar(&cfg.agentStoragePath)
 
@@ -1480,6 +1483,7 @@ type tsdbOptions struct {
 	StripeSize                     int
 	MinBlockDuration               model.Duration
 	MaxBlockDuration               model.Duration
+	OOOAllowance                   model.Duration
 	EnableExemplarStorage          bool
 	MaxExemplars                   int64
 	EnableMemorySnapshotOnShutdown bool
@@ -1500,6 +1504,7 @@ func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
 		EnableExemplarStorage:          opts.EnableExemplarStorage,
 		MaxExemplars:                   opts.MaxExemplars,
 		EnableMemorySnapshotOnShutdown: opts.EnableMemorySnapshotOnShutdown,
+		OOOAllowance:                   int64(time.Duration(opts.OOOAllowance) / time.Millisecond),
 	}
 }
 

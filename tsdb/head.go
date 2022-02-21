@@ -148,6 +148,7 @@ type HeadOptions struct {
 	ChunkWriteBufferSize int
 	ChunkEndTimeVariance float64
 	ChunkWriteQueueSize  int
+	OOOAllowance         int64
 
 	// StripeSize sets the number of entries in the hash map, it must be a power of 2.
 	// A larger StripeSize will allocate more memory up-front, but will increase performance when handling a large number of series.
@@ -1288,7 +1289,7 @@ func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool, e
 
 func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
 	s, created, err := h.series.getOrSet(hash, lset, func() *memSeries {
-		return newMemSeries(lset, id, hash, h.chunkRange.Load(), h.opts.ChunkEndTimeVariance, &h.memChunkPool, h.opts.IsolationDisabled)
+		return newMemSeries(lset, id, hash, h.chunkRange.Load(), h.opts.OOOAllowance, h.opts.ChunkEndTimeVariance, &h.memChunkPool, h.opts.IsolationDisabled)
 	})
 	if err != nil {
 		return nil, false, err
@@ -1552,8 +1553,9 @@ type memSeries struct {
 	oooHeadChunk     *oooHeadChunk      // Most recent chunk for ooo samples in memory that's still being built.
 	firstOOOChunkID  chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
 
-	mmMaxTime  int64 // Max time of any mmapped chunk, only used during WAL replay.
-	chunkRange int64
+	mmMaxTime    int64 // Max time of any mmapped chunk, only used during WAL replay.
+	chunkRange   int64
+	oooAllowance int64
 
 	// chunkEndTimeVariance is how much variance (between 0 and 1) should be applied to the chunk end time,
 	// to spread chunks writing across time. Doesn't apply to the last chunk of the chunk range. 0 to disable variance.
@@ -1579,7 +1581,7 @@ type memSeries struct {
 	txs *txRing
 }
 
-func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chunkRange int64, chunkEndTimeVariance float64, memChunkPool *sync.Pool, isolationDisabled bool) *memSeries {
+func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chunkRange, oooAllowance int64, chunkEndTimeVariance float64, memChunkPool *sync.Pool, isolationDisabled bool) *memSeries {
 	s := &memSeries{
 		lset:                 lset,
 		hash:                 hash,
@@ -1588,6 +1590,7 @@ func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chun
 		chunkEndTimeVariance: chunkEndTimeVariance,
 		nextAt:               math.MinInt64,
 		memChunkPool:         memChunkPool,
+		oooAllowance:         oooAllowance,
 	}
 	if !isolationDisabled {
 		s.txs = newTxRing(4)

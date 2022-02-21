@@ -171,6 +171,9 @@ type Options struct {
 	// SeriesHashCache specifies the series hash cache used when querying shards via Querier.Select().
 	// If nil, the cache won't be used.
 	SeriesHashCache *hashcache.SeriesHashCache
+
+	// how much out of order is allowed, if any.
+	OOOAllowance int64
 }
 
 type BlocksToDeleteFunc func(blocks []*Block) map[ulid.ULID]struct{}
@@ -732,6 +735,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	headOpts.EnableExemplarStorage = opts.EnableExemplarStorage
 	headOpts.MaxExemplars.Store(opts.MaxExemplars)
 	headOpts.EnableMemorySnapshotOnShutdown = opts.EnableMemorySnapshotOnShutdown
+	headOpts.OOOAllowance = opts.OOOAllowance
 	if opts.IsolationDisabled {
 		// We only override this flag if isolation is disabled at DB level. We use the default otherwise.
 		headOpts.IsolationDisabled = opts.IsolationDisabled
