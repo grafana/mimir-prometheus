@@ -50,19 +50,23 @@ func (o *OOOChunk) NumSamples() int {
 	return len(o.samples)
 }
 
-// used in chunk diskmapper.WriteChunk to actually write the data to cut new files based on size limits, crc, etc
-//func (c *OOOChunk) Bytes() []byte {
-// used in chunk diskmapper.WriteChunk
-//func (c *OOOChunk) Encoding() Encoding { -> we can fake 'xor encoding'
+func (o *OOOChunk) ToXor() (*XORChunk, error) {
+	x := NewXORChunk()
+	app, err := x.Appender()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range o.samples {
+		app.Append(s.t, s.v)
+	}
+	return x, nil
+}
 
-//func (c *OOOChunk) Appender() (Appender, error) { // do we need this ? don't think so. we call Insert directly // ganesh agrees
+// TODO: to support querying, implement Iterator
+
 //func (c *OOOChunk) Iterator(it Iterator) Iterator {
 //func (c *OOOChunk) NumSamples() int {
 //func (c *OOOChunk) Compact() {
-
-// write to disk oooChunk.ToXor()? or implement all methods on OOO?
-// when flushing to disk: convert to xorchunk
-// for in memory: use oooIterator on ooochunk
 
 //func (it *oooIterator) Seek(t int64) bool {
 //func (it *oooIterator) At() (int64, float64) {

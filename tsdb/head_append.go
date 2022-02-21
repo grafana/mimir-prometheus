@@ -743,10 +743,8 @@ func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) {
 		return
 	}
 
-	// TODO pass oooHeadChunk here to disk mapper. we have 2 options:
-	// * implement the full Chunk interface (appender, Bytes(), etc), and write to disk as "raw chunk". it'll use more space but these chunks are shortlived anyway I think
-	// * convert the chunk to a xorchunk, which has a higher encoding cost, but uses less space, and means we don't have to implement as many functions, probably
-	chunkRef := chunkDiskMapper.WriteChunk(s.ref, s.oooHeadChunk.minTime, s.oooHeadChunk.maxTime, s.headChunk.chunk, handleChunkWriteError)
+	xor, _ := s.oooHeadChunk.chunk.ToXor() // encode to XorChunk which is more compact and implements all of the needed functionality to be encoded
+	chunkRef := chunkDiskMapper.WriteChunk(s.ref, s.oooHeadChunk.minTime, s.oooHeadChunk.maxTime, xor, handleChunkWriteError)
 	s.mmappedChunks = append(s.mmappedChunks, &mmappedChunk{
 		ref:        chunkRef,
 		numSamples: uint16(s.headChunk.chunk.NumSamples()),
