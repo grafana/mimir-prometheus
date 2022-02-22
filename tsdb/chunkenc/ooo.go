@@ -11,6 +11,8 @@ type sample struct {
 
 // OOOChunk maintains samples in time-ascending order.
 // Inserts for timestamps already seen, are dropped.
+// Samples are stored uncompressed to allow easy sorting.
+// Perhaps we can be more efficient later.
 type OOOChunk struct {
 	samples []sample
 }

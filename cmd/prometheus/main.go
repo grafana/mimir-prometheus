@@ -314,7 +314,7 @@ func main() {
 	serverOnlyFlag(a, "storage.tsdb.wal-compression", "Compress the tsdb WAL.").
 		Hidden().Default("true").BoolVar(&cfg.tsdb.WALCompression)
 
-	serverOnlyFlag(a, "storage.tsdb.ooo-allowance", "Allow upto this much out-of-order.").
+	serverOnlyFlag(a, "storage.tsdb.ooo-allowance", "Allow upto this much out-of-order.  Supported units: h, m, s").
 		Hidden().Default("0s").SetValue(&cfg.tsdb.OOOAllowance)
 
 	agentOnlyFlag(a, "storage.agent.path", "Base path for metrics storage.").
