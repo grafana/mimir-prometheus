@@ -28,9 +28,7 @@ func makePre(n int) []sample {
 // with a chunk initial capacity of testMaxSize/8 and testMaxSize, which lets us test non-full and full chunks, and chunks that need to expand themselves.
 // Note: in all samples used, t always equals v in numeric value. when we talk about 'value' we just refer to a value that will be used for both sample.t and sample.v
 func TestOOOInsert(t *testing.T) {
-
 	for numPre := 0; numPre <= testMaxSize; numPre++ {
-
 		// for example, if we have numPre 2, then:
 		// chunk.samples indexes filled        0   1
 		// chunk.samples with these values     2   4     // valPre

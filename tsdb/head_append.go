@@ -249,7 +249,6 @@ type headAppender struct {
 }
 
 func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
-
 	// For OOO inserts, this restriction is irrelevant and will be checked later once we confirm the sample is an in-order append.
 	// If OOO inserts are disabled, we may as well as check this as early as we can and avoid more work.
 	if a.head.opts.OOOAllowance == 0 {
@@ -548,7 +547,6 @@ func (a *headAppender) Commit() (err error) {
 
 // insert is like append, except it inserts. used for Out Of Order samples.
 func (s *memSeries) insert(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (chunkCreated bool) {
-
 	c := s.oooHeadChunk
 	if c == nil || c.chunk.NumSamples() == 32 { // TODO: make configurable?
 		// Note: If no new samples come in then we rely on compaction to clean up stale in-memory OOO chunks.

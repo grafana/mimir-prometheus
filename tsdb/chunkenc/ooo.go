@@ -23,7 +23,6 @@ func NewOOOChunk(capacity int) *OOOChunk {
 
 // Insert adds the sample to the chunk.
 func (o *OOOChunk) Insert(t int64, v float64) {
-
 	// find index of sample we should replace
 	i := sort.Search(len(o.samples), func(i int) bool { return o.samples[i].t >= t })
 
@@ -66,11 +65,11 @@ func (o *OOOChunk) ToXor() (*XORChunk, error) {
 
 // TODO: to support querying, implement Iterator
 
-//func (c *OOOChunk) Iterator(it Iterator) Iterator {
-//func (c *OOOChunk) NumSamples() int {
-//func (c *OOOChunk) Compact() {
+// func (c *OOOChunk) Iterator(it Iterator) Iterator {
+// func (c *OOOChunk) NumSamples() int {
+// func (c *OOOChunk) Compact() {
 
-//func (it *oooIterator) Seek(t int64) bool {
-//func (it *oooIterator) At() (int64, float64) {
-//func (it *oooIterator) Err() error {
-//func (it *oooIterator) Next() bool {
+// func (it *oooIterator) Seek(t int64) bool {
+// func (it *oooIterator) At() (int64, float64) {
+// func (it *oooIterator) Err() error {
+// func (it *oooIterator) Next() bool {
