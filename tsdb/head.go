@@ -1668,6 +1668,11 @@ type oooHeadChunk struct {
 }
 
 // OverlapsClosedInterval returns true if the chunk overlaps [mint, maxt].
+func (mc *oooHeadChunk) OverlapsClosedInterval(mint, maxt int64) bool {
+	return overlapsClosedInterval(mc.minTime, mc.maxTime, mint, maxt)
+}
+
+// OverlapsClosedInterval returns true if the chunk overlaps [mint, maxt].
 func (mc *memChunk) OverlapsClosedInterval(mint, maxt int64) bool {
 	return overlapsClosedInterval(mc.minTime, mc.maxTime, mint, maxt)
 }
