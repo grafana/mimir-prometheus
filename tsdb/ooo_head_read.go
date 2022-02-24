@@ -77,10 +77,10 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 
 	}
 
-	// Next collect the memory mapped chunks in reverse order.
+	// Next collect the memory mapped chunks in reverse order, if any.
 	// In case there was no head chunk before, we want the last memory mapped
 	// chunk to be our last reference for the markers and the chunk meta.
-	for i := len(s.oooMmappedChunks); i >= 0; i-- {
+	for i := len(s.oooMmappedChunks) - 1; i >= 0; i-- {
 		c := s.oooMmappedChunks[i]
 
 		// Do not expose chunks that are outside of the specified range.
@@ -121,7 +121,7 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	*chks = append(*chks, tmpChks[0])
 	maxTime := tmpChks[0].MaxTime
 	for _, c := range tmpChks[1:] {
-		if c.MinTime > maxTime {
+		if c.MinTime >= maxTime {
 			*chks = append(*chks, c)
 			maxTime = c.MaxTime
 		} else if c.MaxTime > maxTime {
