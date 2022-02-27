@@ -63,7 +63,7 @@ func TestAlertingRuleState(t *testing.T) {
 	}
 
 	for i, test := range tests {
-		rule := NewAlertingRule(test.name, nil, 0, nil, nil, nil, "", true, nil)
+		rule := NewAlertingRule(test.name, nil, 0, labels.EmptyLabels(), labels.EmptyLabels(), labels.EmptyLabels(), "", true, nil)
 		rule.active = test.active
 		got := rule.State()
 		require.Equal(t, test.want, got, "test case %d unexpected AlertState, want:%d got:%d", i, test.want, got)
@@ -91,7 +91,7 @@ func TestAlertingRuleLabelsUpdate(t *testing.T) {
 		// If an alert is going back and forth between two label values it will never fire.
 		// Instead, you should write two alerts with constant labels.
 		labels.FromStrings("severity", "{{ if lt $value 80.0 }}critical{{ else }}warning{{ end }}"),
-		nil, nil, "", true, nil,
+		labels.EmptyLabels(), labels.EmptyLabels(), "", true, nil,
 	)
 
 	results := []promql.Vector{
@@ -190,8 +190,8 @@ func TestAlertingRuleExternalLabelsInTemplate(t *testing.T) {
 		expr,
 		time.Minute,
 		labels.FromStrings("templated_label", "There are {{ len $externalLabels }} external Labels, of which foo is {{ $externalLabels.foo }}."),
-		nil,
-		nil,
+		labels.EmptyLabels(),
+		labels.EmptyLabels(),
 		"",
 		true, log.NewNopLogger(),
 	)
@@ -200,7 +200,7 @@ func TestAlertingRuleExternalLabelsInTemplate(t *testing.T) {
 		expr,
 		time.Minute,
 		labels.FromStrings("templated_label", "There are {{ len $externalLabels }} external Labels, of which foo is {{ $externalLabels.foo }}."),
-		nil,
+		labels.EmptyLabels(),
 		labels.FromStrings("foo", "bar", "dings", "bums"),
 		"",
 		true, log.NewNopLogger(),
@@ -284,8 +284,8 @@ func TestAlertingRuleExternalURLInTemplate(t *testing.T) {
 		expr,
 		time.Minute,
 		labels.FromStrings("templated_label", "The external URL is {{ $externalURL }}."),
-		nil,
-		nil,
+		labels.EmptyLabels(),
+		labels.EmptyLabels(),
 		"",
 		true, log.NewNopLogger(),
 	)
@@ -294,8 +294,8 @@ func TestAlertingRuleExternalURLInTemplate(t *testing.T) {
 		expr,
 		time.Minute,
 		labels.FromStrings("templated_label", "The external URL is {{ $externalURL }}."),
-		nil,
-		nil,
+		labels.EmptyLabels(),
+		labels.EmptyLabels(),
 		"http://localhost:1234",
 		true, log.NewNopLogger(),
 	)
@@ -378,8 +378,8 @@ func TestAlertingRuleEmptyLabelFromTemplate(t *testing.T) {
 		expr,
 		time.Minute,
 		labels.FromStrings("empty_label", ""),
-		nil,
-		nil,
+		labels.EmptyLabels(),
+		labels.EmptyLabels(),
 		"",
 		true, log.NewNopLogger(),
 	)
@@ -439,8 +439,8 @@ func TestAlertingRuleDuplicate(t *testing.T) {
 		expr,
 		time.Minute,
 		labels.FromStrings("test", "test"),
-		nil,
-		nil,
+		labels.EmptyLabels(),
+		labels.EmptyLabels(),
 		"",
 		true, log.NewNopLogger(),
 	)
@@ -485,8 +485,8 @@ func TestAlertingRuleLimit(t *testing.T) {
 		expr,
 		time.Minute,
 		labels.FromStrings("test", "test"),
-		nil,
-		nil,
+		labels.EmptyLabels(),
+		labels.EmptyLabels(),
 		"",
 		true, log.NewNopLogger(),
 	)
@@ -557,13 +557,13 @@ func TestQueryForStateSeries(t *testing.T) {
 			nil,
 			time.Minute,
 			labels.FromStrings("severity", "critical"),
-			nil, nil, "", true, nil,
+			labels.EmptyLabels(), labels.EmptyLabels(), "", true, nil,
 		)
 
 		alert := &Alert{
 			State:       0,
-			Labels:      nil,
-			Annotations: nil,
+			Labels:      labels.EmptyLabels(),
+			Annotations: labels.EmptyLabels(),
 			Value:       0,
 			ActiveAt:    time.Time{},
 			FiredAt:     time.Time{},
