@@ -158,9 +158,9 @@ func (importer *ruleImporter) importRule(ctx context.Context, ruleExpr, ruleName
 
 				// Setting the rule labels after the output of the query,
 				// so they can override query output.
-				for _, l := range ruleLabels {
+				ruleLabels.Range(func(l labels.Label) {
 					lb.Set(l.Name, l.Value)
-				}
+				})
 
 				lb.Set(labels.MetricName, ruleName)
 
