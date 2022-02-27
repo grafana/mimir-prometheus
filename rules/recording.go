@@ -84,9 +84,9 @@ func (rule *RecordingRule) Eval(ctx context.Context, evalDelay time.Duration, ts
 
 		lb.Set(labels.MetricName, rule.name)
 
-		for _, l := range rule.labels {
+		rule.labels.Range(func(l labels.Label) {
 			lb.Set(l.Name, l.Value)
-		}
+		})
 
 		sample.Metric = lb.Labels()
 	}
