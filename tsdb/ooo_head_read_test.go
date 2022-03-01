@@ -64,13 +64,14 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			// Chunk 2: 0x1000002                        [-------------------]
 			// Chunk 3: 0x1000003                                                                                                        [-------------------]
 			// Expected Output  [0x1000000, 0x1000001] with OOOLastReferences pointing to 0x1000003
+			// Output Graphically              [-----------------------------]                                                 [-----------------------------]
 			expChunks: []chunks.Meta{
-				{Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 200, OOOLastRef: 0x1000003, OOOLastMinTime: 550, OOOLastMaxTime: 650},
-				{Ref: 0x1000001, Chunk: chunkenc.Chunk(nil), MinTime: 500, MaxTime: 600, OOOLastRef: 0x1000003, OOOLastMinTime: 550, OOOLastMaxTime: 650},
+				{Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 250, OOOLastRef: 0x1000003, OOOLastMinTime: 550, OOOLastMaxTime: 650},
+				{Ref: 0x1000001, Chunk: chunkenc.Chunk(nil), MinTime: 500, MaxTime: 650, OOOLastRef: 0x1000003, OOOLastMinTime: 550, OOOLastMaxTime: 650},
 			},
 		},
 		{
-			name:      "If multiple chunks and none overlap, all are returned",
+			name:      "If all chunks overlap, single big chunk is returned",
 			queryMinT: 0,
 			queryMaxT: 700,
 			inputChunkIntervals: []struct{ mint, maxt int64 }{
@@ -86,12 +87,36 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			// Chunk 1: 0x1000001                                  [-------------------]
 			// Chunk 2: 0x1000002                                                      [-------------------]
 			// Chunk 3: 0x1000003                                                                          [------------------]
-			// Expected Output  [0x1000000, 0x1000001, 0x1000002, 0x1000003] with OOOLastReferences pointing to 0x1000003
+			// Expected Output  [0x1000000] with OOOLastReferences pointing to 0x1000003
+			// Output Graphically              [------------------------------------------------------------------------------]
 			expChunks: []chunks.Meta{
-				{Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 200, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 500},
-				{Ref: 0x1000001, Chunk: chunkenc.Chunk(nil), MinTime: 200, MaxTime: 300, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 500},
-				{Ref: 0x1000002, Chunk: chunkenc.Chunk(nil), MinTime: 300, MaxTime: 400, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 500},
-				{Ref: 0x1000003, Chunk: chunkenc.Chunk(nil), MinTime: 400, MaxTime: 500, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 500},
+				{Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 500, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 500},
+			},
+		},
+		{
+			name:      "If no chunks overlap, all chunks are returned",
+			queryMinT: 0,
+			queryMaxT: 700,
+			inputChunkIntervals: []struct{ mint, maxt int64 }{
+				{100, 199},
+				{200, 299},
+				{300, 399},
+				{400, 499},
+			},
+			expSeriesError: false,
+			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
+			// Query Interval        [---------------------------------------------------------------------------------------------------------------------------------]
+			// Chunk 0: 0x1000000              [------------------]
+			// Chunk 1: 0x1000001                                  [------------------]
+			// Chunk 2: 0x1000002                                                      [------------------]
+			// Chunk 3: 0x1000003                                                                          [------------------]
+			// Expected Output  [0x1000000, 0x1000001, 0x1000002, 0x1000003] with OOOLastReferences pointing to 0x1000003
+			// Output Graphically              [------------------------------------------------------------------------------]
+			expChunks: []chunks.Meta{
+				{Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 199, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
+				{Ref: 0x1000001, Chunk: chunkenc.Chunk(nil), MinTime: 200, MaxTime: 299, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
+				{Ref: 0x1000002, Chunk: chunkenc.Chunk(nil), MinTime: 300, MaxTime: 399, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
+				{Ref: 0x1000003, Chunk: chunkenc.Chunk(nil), MinTime: 400, MaxTime: 499, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
 			},
 		},
 	}

@@ -127,7 +127,7 @@ type Meta struct {
 	// overlapping chunks. When a query is handled that involves OOO chunks
 	// we want to be consistent about the responses even if new chunks are
 	// added afterwards. To do so we need to populate these fields in the
-	// Series method of OOOHeadIndexReader so that pertinent checks to return
+	// Series method of OOOHeadIndexReader so that relevant checks to return
 	// consistent responses are done in the ChunkReader.Chunk implementation
 	// of the OOORangeHead
 	OOOLastRef                     ChunkRef

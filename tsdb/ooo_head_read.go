@@ -121,11 +121,12 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	*chks = append(*chks, tmpChks[0])
 	maxTime := tmpChks[0].MaxTime
 	for _, c := range tmpChks[1:] {
-		if c.MinTime >= maxTime {
+		if c.MinTime > maxTime {
 			*chks = append(*chks, c)
 			maxTime = c.MaxTime
 		} else if c.MaxTime > maxTime {
 			maxTime = c.MaxTime
+			(*chks)[len(*chks)-1].MaxTime = c.MaxTime
 		}
 	}
 
