@@ -119,6 +119,32 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				{Ref: 0x1000003, Chunk: chunkenc.Chunk(nil), MinTime: 400, MaxTime: 499, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
 			},
 		},
+		{
+			name:      "When a subsequent chunk encompasses another chunk the chunk id matches the chunk with the lower mintime",
+			queryMinT: 0,
+			queryMaxT: 900,
+			inputChunkIntervals: []struct{ mint, maxt int64 }{
+				{100, 300},
+				{770, 850},
+				{150, 250},
+				{650, 750},
+				{600, 800},
+			},
+			expSeriesError: false,
+			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700       750       800       850
+			// Query Interval        [---------------------------------------------------------------------------------------------------------------------------------------------------------------]
+			// Chunk 0: 0x1000000              [---------------------------------------]
+			// Chunk 1: 0x1000001                                                                                                                                                     [--------------]
+			// Chunk 2: 0x1000002                        [-------------------]
+			// Chunk 3: 0x1000003                                                                                                                            [-------------------]
+			// Chunk 4: 0x1000004                                                                                                                   [---------------------------------------]
+			// Expected Output  [0x1000000, 0x1000004] With OOOLastReferences pointing to 0v1000004
+			// Output Graphically              [---------------------------------------]                                                            [------------------------------------------------]
+			expChunks: []chunks.Meta{
+				{Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 300, OOOLastRef: 0x1000004, OOOLastMinTime: 600, OOOLastMaxTime: 800},
+				{Ref: 0x1000004, Chunk: chunkenc.Chunk(nil), MinTime: 600, MaxTime: 850, OOOLastRef: 0x1000004, OOOLastMinTime: 600, OOOLastMaxTime: 800},
+			},
+		},
 	}
 
 	for _, tc := range tests {
