@@ -149,6 +149,8 @@ type HeadOptions struct {
 	ChunkEndTimeVariance float64
 	ChunkWriteQueueSize  int
 	OOOAllowance         int64
+	OOOCapMin            int64
+	OOOCapMax            int64
 
 	// StripeSize sets the number of entries in the hash map, it must be a power of 2.
 	// A larger StripeSize will allocate more memory up-front, but will increase performance when handling a large number of series.
@@ -172,6 +174,9 @@ func DefaultHeadOptions() *HeadOptions {
 		StripeSize:           DefaultStripeSize,
 		SeriesCallback:       &noopSeriesLifecycleCallback{},
 		IsolationDisabled:    defaultIsolationDisabled,
+		OOOAllowance:         0,
+		OOOCapMin:            4,
+		OOOCapMax:            32,
 	}
 }
 
@@ -196,6 +201,19 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal *wal.WAL, opts *HeadOpti
 	if l == nil {
 		l = log.NewNopLogger()
 	}
+
+	if opts.OOOAllowance < 0 {
+		return nil, errors.Errorf("OOOAllowance invalid %d . must >= 0", opts.OOOAllowance)
+	}
+
+	if opts.OOOCapMin < 0 {
+		return nil, errors.Errorf("OOOCapMin invalid %d. must >= 0", opts.OOOCapMin)
+	}
+
+	if opts.OOOCapMax <= 0 || opts.OOOCapMax < opts.OOOCapMin {
+		return nil, errors.Errorf("OOOCapMax invalid %d. must > 0 and must >= OOOCapMin", opts.OOOCapMax)
+	}
+
 	if opts.ChunkRange < 1 {
 		return nil, errors.Errorf("invalid chunk range %d", opts.ChunkRange)
 	}
@@ -1289,7 +1307,7 @@ func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool, e
 
 func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
 	s, created, err := h.series.getOrSet(hash, lset, func() *memSeries {
-		return newMemSeries(lset, id, hash, h.chunkRange.Load(), h.opts.OOOAllowance, h.opts.ChunkEndTimeVariance, &h.memChunkPool, h.opts.IsolationDisabled)
+		return newMemSeries(lset, id, hash, h.chunkRange.Load(), h.opts.OOOAllowance, h.opts.OOOCapMin, h.opts.OOOCapMax, h.opts.ChunkEndTimeVariance, &h.memChunkPool, h.opts.IsolationDisabled)
 	})
 	if err != nil {
 		return nil, false, err
@@ -1556,6 +1574,8 @@ type memSeries struct {
 	mmMaxTime    int64 // Max time of any mmapped chunk, only used during WAL replay.
 	chunkRange   int64
 	oooAllowance int64
+	oooCapMin    uint8
+	oooCapMax    uint8
 
 	// chunkEndTimeVariance is how much variance (between 0 and 1) should be applied to the chunk end time,
 	// to spread chunks writing across time. Doesn't apply to the last chunk of the chunk range. 0 to disable variance.
@@ -1581,7 +1601,7 @@ type memSeries struct {
 	txs *txRing
 }
 
-func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chunkRange, oooAllowance int64, chunkEndTimeVariance float64, memChunkPool *sync.Pool, isolationDisabled bool) *memSeries {
+func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chunkRange, oooAllowance, oooCapMin, oooCapMax int64, chunkEndTimeVariance float64, memChunkPool *sync.Pool, isolationDisabled bool) *memSeries {
 	s := &memSeries{
 		lset:                 lset,
 		hash:                 hash,
@@ -1591,6 +1611,8 @@ func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chun
 		nextAt:               math.MinInt64,
 		memChunkPool:         memChunkPool,
 		oooAllowance:         oooAllowance,
+		oooCapMin:            uint8(oooCapMin),
+		oooCapMax:            uint8(oooCapMax),
 	}
 	if !isolationDisabled {
 		s.txs = newTxRing(4)

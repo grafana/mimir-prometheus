@@ -317,6 +317,12 @@ func main() {
 	serverOnlyFlag(a, "storage.tsdb.ooo-allowance", "Allow upto this much out-of-order.  Supported units: h, m, s").
 		Hidden().Default("0s").SetValue(&cfg.tsdb.OOOAllowance)
 
+	serverOnlyFlag(a, "storage.tsdb.ooo-cap-min", "Minimum capacity for OOO chunks (in samples. between 0 and 255.)").
+		Hidden().Default("4").IntVar(&cfg.tsdb.OOOCapMin)
+
+	serverOnlyFlag(a, "storage.tsdb.ooo-cap-max", "Maximum capacity for OOO chunks (in samples. between 1 and 255.)").
+		Hidden().Default("32").IntVar(&cfg.tsdb.OOOCapMax)
+
 	agentOnlyFlag(a, "storage.agent.path", "Base path for metrics storage.").
 		Default("data-agent/").StringVar(&cfg.agentStoragePath)
 
@@ -1484,6 +1490,8 @@ type tsdbOptions struct {
 	MinBlockDuration               model.Duration
 	MaxBlockDuration               model.Duration
 	OOOAllowance                   model.Duration
+	OOOCapMin                      int
+	OOOCapMax                      int
 	EnableExemplarStorage          bool
 	MaxExemplars                   int64
 	EnableMemorySnapshotOnShutdown bool
@@ -1505,6 +1513,8 @@ func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
 		MaxExemplars:                   opts.MaxExemplars,
 		EnableMemorySnapshotOnShutdown: opts.EnableMemorySnapshotOnShutdown,
 		OOOAllowance:                   int64(time.Duration(opts.OOOAllowance) / time.Millisecond),
+		OOOCapMin:                      int64(opts.OOOCapMin),
+		OOOCapMax:                      int64(opts.OOOCapMax),
 	}
 }
 

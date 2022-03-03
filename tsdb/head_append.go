@@ -548,7 +548,7 @@ func (a *headAppender) Commit() (err error) {
 // insert is like append, except it inserts. used for Out Of Order samples.
 func (s *memSeries) insert(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (chunkCreated bool) {
 	c := s.oooHeadChunk
-	if c == nil || c.chunk.NumSamples() == 32 { // TODO: make configurable?
+	if c == nil || c.chunk.NumSamples() == int(s.oooCapMax) {
 		// Note: If no new samples come in then we rely on compaction to clean up stale in-memory OOO chunks.
 		c = s.cutNewOOOHeadChunk(t, chunkDiskMapper)
 		chunkCreated = true
@@ -677,7 +677,7 @@ func (s *memSeries) cutNewOOOHeadChunk(mint int64, chunkDiskMapper chunkDiskMapp
 	s.mmapCurrentOOOHeadChunk(chunkDiskMapper)
 
 	s.oooHeadChunk = &oooHeadChunk{
-		chunk:   chunkenc.NewOOOChunk(32),
+		chunk:   chunkenc.NewOOOChunk(int(s.oooCapMin)),
 		minTime: mint,
 		maxTime: math.MinInt64,
 	}
