@@ -1,6 +1,8 @@
 package tsdb
 
 import (
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -147,37 +149,53 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			h, _ := newTestHead(t, 1000, false)
-			defer func() {
-				require.NoError(t, h.Close())
-			}()
-			require.NoError(t, h.Init(0))
+	s1Lset := labels.FromStrings("foo", "bar")
+	s1ID := uint64(1)
 
-			s1Lset := labels.FromStrings("foo", "bar")
-			s1ID := uint64(1)
-			s1, _, _ := h.getOrCreate(s1ID, s1Lset)
+	for _, headChunk := range []bool{false, true} {
+		for _, tc := range tests {
+			t.Run(fmt.Sprintf("name=%s, headChunk=%t", tc.name, headChunk), func(t *testing.T) {
+				h, _ := newTestHead(t, 1000, false)
+				defer func() {
+					require.NoError(t, h.Close())
+				}()
+				require.NoError(t, h.Init(0))
 
-			for _, ic := range tc.inputChunkIntervals {
-				s1.oooMmappedChunks = append(s1.oooMmappedChunks, &mmappedChunk{
-					minTime: ic.mint,
-					maxTime: ic.maxt,
-				})
-			}
+				s1, _, _ := h.getOrCreate(s1ID, s1Lset)
 
-			ir := NewOOOHeadIndexReader(h, tc.queryMinT, tc.queryMaxT)
+				if headChunk && len(tc.inputChunkIntervals) > 0 {
+					// Put the last interval in the head chunk
+					s1.oooHeadChunk = &memChunk{
+						minTime: tc.inputChunkIntervals[len(tc.inputChunkIntervals)-1].mint,
+						maxTime: tc.inputChunkIntervals[len(tc.inputChunkIntervals)-1].maxt,
+					}
+					tc.inputChunkIntervals = tc.inputChunkIntervals[:len(tc.inputChunkIntervals)-1]
+				}
 
-			var chks []chunks.Meta
-			var respLset labels.Labels
-			err := ir.Series(storage.SeriesRef(s1ID), &respLset, &chks)
-			if tc.expSeriesError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-			require.Equal(t, s1Lset, respLset)
-			require.Equal(t, tc.expChunks, chks)
-		})
+				for _, ic := range tc.inputChunkIntervals {
+					s1.oooMmappedChunks = append(s1.oooMmappedChunks, &mmappedChunk{
+						minTime: ic.mint,
+						maxTime: ic.maxt,
+					})
+				}
+
+				ir := NewOOOHeadIndexReader(h, tc.queryMinT, tc.queryMaxT)
+
+				var chks []chunks.Meta
+				var respLset labels.Labels
+				err := ir.Series(storage.SeriesRef(s1ID), &respLset, &chks)
+				if tc.expSeriesError {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
+				require.Equal(t, s1Lset, respLset)
+
+				if headChunk && len(tc.expChunks) > 0 {
+					tc.expChunks[len(tc.expChunks)-1].MaxTime = math.MaxInt64
+				}
+				require.Equal(t, tc.expChunks, chks)
+			})
+		}
 	}
 }
