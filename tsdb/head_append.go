@@ -476,64 +476,60 @@ func (a *headAppender) Commit() (err error) {
 		maxT := series.maxTime()
 		delta := maxT - s.T
 
-		// The sample is OOO and beyond the OOO tolerance (tolerance could be 0)
-		if delta > series.oooAllowance {
-			total--
-			ooo++
+		var ok, chunkCreated bool
+
+		if s.T < maxT && series.oooAllowance > 0 {
+			// Sample is OOO and OOO handling is enabled...
+
+			if delta <= series.oooAllowance {
+				// ... and the delta is within the OOO tolerance
+
+				ok, chunkCreated = series.insert(s.T, s.V, a.head.chunkDiskMapper)
+				if !ok {
+					// the sample was an attempted update.
+					// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
+					// not with samples in already flushed OOO chunks.
+					// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
+				}
+
+			} else {
+				// ...but the delta is beyond the OOO tolerance
+				ok = false
+			}
+		} else {
+			// Sample is not OOO or OOO handling is disabled
+			// if OOO is enabled, then Append() skipped this test. We must run it now.
+			if a.head.opts.OOOAllowance > 0 {
+
+				if s.T < a.minValidTime {
+					// Note: when this is breached and OOO inserts are enabled, we could technically
+					// insert this sample into an OOO chunk, even if the sample is not OOO. That would
+					// effectively support the "lagging series" (offset clock) use case, which we're not
+					// sure yet if we want to support that.  It may increase the volume of OOO chunk data
+					// significantly.
+					total--
+					oob++
+				}
+				break
+			}
+
+			delta, ok, chunkCreated = series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper)
+			// TODO: handle overwrite.
+			// this would be storage.ErrDuplicateSampleForTimestamp, it has no attached counter
+			// in case of identical timestamp and value, we should drop silently
+		}
+
+		if delta > 0 {
 			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
-			goto cleanup
 		}
-
-		// The sample is OOO and within tolerance
-		if series.oooAllowance > 0 && s.T < maxT {
-			ok, chunkCreated := series.insert(s.T, s.V, a.head.chunkDiskMapper)
-			if chunkCreated {
-				chunks++
-			}
-			if !ok {
-				// the sample was an attempted update.
-				// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
-				// not with samples in already flushed OOO chunks.
-				// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
-			}
-			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
-			goto cleanup
-		}
-
-		// From here on, the sample is in order or an attempted overwrite
-
-		// if OOO is enabled, then Append() skipped this test. We must run it now.
-		if a.head.opts.OOOAllowance > 0 {
-
-			if s.T < a.minValidTime {
-				// Note: when this is breached and OOO inserts are enabled, we could technically
-				// insert this sample into an OOO chunk, even if the sample is not OOO. That would
-				// effectively support the "lagging series" (offset clock) use case, which we're not
-				// sure yet if we want to support that.  It may increase the volume of OOO chunk data
-				// significantly.
-				total--
-				oob++
-			}
-			goto cleanup
-		}
-		switch {
-		case s.T < maxT:
+		if !ok {
 			total--
-			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
-		case s.T == maxT:
-			total--
-			// overwrite. not allowed. how to handle?
-			if math.Float64bits(series.sampleBuf[3].v) != math.Float64bits(s.V) {
-				// this would be storage.ErrDuplicateSampleForTimestamp, it has no attached counter
-			}
-			// in case of identical timestamp and value, we drop silently
-		case s.T > maxT:
-			if series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper) {
-				chunks++
-			}
+			a.head.metrics.outOfOrderSamples.Inc()
 		}
-
-	cleanup:
+		if chunkCreated {
+			a.head.metrics.chunks.Inc()
+			a.head.metrics.chunksCreated.Inc()
+		}
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
 		series.pendingCommit = false
@@ -541,9 +537,6 @@ func (a *headAppender) Commit() (err error) {
 	}
 
 	a.head.metrics.outOfBoundSamples.Add(float64(oob))
-	a.head.metrics.outOfOrderSamples.Add(float64(ooo))
-	a.head.metrics.chunks.Add(float64(chunks))
-	a.head.metrics.chunksCreated.Add(float64(chunks))
 	a.head.metrics.samplesAppended.Add(float64(total))
 	a.head.updateMinMaxTime(a.mint, a.maxt)
 
@@ -565,9 +558,9 @@ func (s *memSeries) insert(t int64, v float64, chunkDiskMapper chunkDiskMapper) 
 
 // append adds the sample (t, v) to the series. The caller also has to provide
 // the appendID for isolation. (The appendID can be zero, which results in no
-// isolation for this append.). Caller must assure the append is in order.
+// isolation for this append.)
 // It is unsafe to call this concurrently with s.iterator(...) without holding the series lock.
-func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (chunkCreated bool) {
+func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (delta int64, sampleInOrder, chunkCreated bool) {
 	// Based on Gorilla white papers this offers near-optimal compression ratio
 	// so anything bigger that this has diminishing returns and increases
 	// the time range within which we have to decompress all samples.
@@ -576,9 +569,18 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 	c := s.head()
 
 	if c == nil {
+		if len(s.mmappedChunks) > 0 && s.mmappedChunks[len(s.mmappedChunks)-1].maxTime >= t {
+			// Out of order sample. Sample timestamp is already in the mmapped chunks, so ignore it.
+			return s.mmappedChunks[len(s.mmappedChunks)-1].maxTime - t, false, false
+		}
 		// There is no head chunk in this series yet, create the first chunk for the sample.
 		c = s.cutNewHeadChunk(t, chunkDiskMapper)
 		chunkCreated = true
+	}
+
+	// Out of order sample.
+	if c.maxTime >= t {
+		return c.maxTime - t, false, chunkCreated
 	}
 
 	numSamples := c.chunk.NumSamples()
@@ -616,7 +618,7 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 		s.txs.add(appendID)
 	}
 
-	return chunkCreated
+	return 0, true, chunkCreated
 }
 
 // computeChunkEndTime estimates the end timestamp based the beginning of a

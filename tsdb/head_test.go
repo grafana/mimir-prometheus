@@ -747,7 +747,8 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 	s := newMemSeries(lbls, 1, lbls.Hash(), 2000, 0, 0, &memChunkPool, defaultIsolationDisabled)
 
 	for i := 0; i < 4000; i += 5 {
-		s.append(int64(i), float64(i), 0, chunkDiskMapper)
+		_, ok, _ := s.append(int64(i), float64(i), 0, chunkDiskMapper)
+		require.True(t, ok, "sample append failed")
 	}
 
 	// Check that truncate removes half of the chunks and afterwards
@@ -1287,16 +1288,20 @@ func TestMemSeries_append(t *testing.T) {
 	// Add first two samples at the very end of a chunk range and the next two
 	// on and after it.
 	// New chunk must correctly be cut at 1000.
-	chunkCreated := s.append(998, 1, 0, chunkDiskMapper)
+	_, ok, chunkCreated := s.append(998, 1, 0, chunkDiskMapper)
+	require.True(t, ok, "append failed")
 	require.True(t, chunkCreated, "first sample created chunk")
 
-	chunkCreated = s.append(999, 2, 0, chunkDiskMapper)
+	_, ok, chunkCreated = s.append(999, 2, 0, chunkDiskMapper)
+	require.True(t, ok, "append failed")
 	require.False(t, chunkCreated, "second sample should use same chunk")
 
-	chunkCreated = s.append(1000, 3, 0, chunkDiskMapper)
+	_, ok, chunkCreated = s.append(1000, 3, 0, chunkDiskMapper)
+	require.True(t, ok, "append failed")
 	require.True(t, chunkCreated, "expected new chunk on boundary")
 
-	chunkCreated = s.append(1001, 4, 0, chunkDiskMapper)
+	_, ok, chunkCreated = s.append(1001, 4, 0, chunkDiskMapper)
+	require.True(t, ok, "append failed")
 	require.False(t, chunkCreated, "second sample should use same chunk")
 
 	require.Equal(t, 1, len(s.mmappedChunks), "there should be only 1 mmapped chunk")
@@ -1308,7 +1313,8 @@ func TestMemSeries_append(t *testing.T) {
 	// Fill the range [1000,2000) with many samples. Intermediate chunks should be cut
 	// at approximately 120 samples per chunk.
 	for i := 1; i < 1000; i++ {
-		s.append(1001+int64(i), float64(i), 0, chunkDiskMapper)
+		_, ok, _ := s.append(1001+int64(i), float64(i), 0, chunkDiskMapper)
+		require.True(t, ok, "append failed")
 	}
 
 	require.Greater(t, len(s.mmappedChunks)+1, 7, "expected intermediate chunks")
@@ -1333,15 +1339,19 @@ func TestGCChunkAccess(t *testing.T) {
 	s, _, _ := h.getOrCreate(1, labels.FromStrings("a", "1"))
 
 	// Appending 2 samples for the first chunk.
-	chunkCreated := s.append(0, 0, 0, h.chunkDiskMapper)
+	_, ok, chunkCreated := s.append(0, 0, 0, h.chunkDiskMapper)
+	require.True(t, ok, "series append failed")
 	require.True(t, chunkCreated, "chunks was not created")
-	chunkCreated = s.append(999, 999, 0, h.chunkDiskMapper)
+	_, ok, chunkCreated = s.append(999, 999, 0, h.chunkDiskMapper)
+	require.True(t, ok, "series append failed")
 	require.False(t, chunkCreated, "chunks was created")
 
 	// A new chunks should be created here as it's beyond the chunk range.
-	chunkCreated = s.append(1000, 1000, 0, h.chunkDiskMapper)
+	_, ok, chunkCreated = s.append(1000, 1000, 0, h.chunkDiskMapper)
+	require.True(t, ok, "series append failed")
 	require.True(t, chunkCreated, "chunks was not created")
-	chunkCreated = s.append(1999, 1999, 0, h.chunkDiskMapper)
+	_, ok, chunkCreated = s.append(1999, 1999, 0, h.chunkDiskMapper)
+	require.True(t, ok, "series append failed")
 	require.False(t, chunkCreated, "chunks was created")
 
 	idx := h.indexRange(0, 1500)
@@ -1383,15 +1393,19 @@ func TestGCSeriesAccess(t *testing.T) {
 	s, _, _ := h.getOrCreate(1, labels.FromStrings("a", "1"))
 
 	// Appending 2 samples for the first chunk.
-	chunkCreated := s.append(0, 0, 0, h.chunkDiskMapper)
+	_, ok, chunkCreated := s.append(0, 0, 0, h.chunkDiskMapper)
+	require.True(t, ok, "series append failed")
 	require.True(t, chunkCreated, "chunks was not created")
-	chunkCreated = s.append(999, 999, 0, h.chunkDiskMapper)
+	_, ok, chunkCreated = s.append(999, 999, 0, h.chunkDiskMapper)
+	require.True(t, ok, "series append failed")
 	require.False(t, chunkCreated, "chunks was created")
 
 	// A new chunks should be created here as it's beyond the chunk range.
-	chunkCreated = s.append(1000, 1000, 0, h.chunkDiskMapper)
+	_, ok, chunkCreated = s.append(1000, 1000, 0, h.chunkDiskMapper)
+	require.True(t, ok, "series append failed")
 	require.True(t, chunkCreated, "chunks was not created")
-	chunkCreated = s.append(1999, 1999, 0, h.chunkDiskMapper)
+	_, ok, chunkCreated = s.append(1999, 1999, 0, h.chunkDiskMapper)
+	require.True(t, ok, "series append failed")
 	require.False(t, chunkCreated, "chunks was created")
 
 	idx := h.indexRange(0, 2000)
@@ -1635,9 +1649,11 @@ func TestHeadReadWriterRepair(t *testing.T) {
 		require.True(t, created, "series was not created")
 
 		for i := 0; i < 7; i++ {
-			chunkCreated := s.append(int64(i*chunkRange), float64(i*chunkRange), 0, h.chunkDiskMapper)
+			_, ok, chunkCreated := s.append(int64(i*chunkRange), float64(i*chunkRange), 0, h.chunkDiskMapper)
+			require.True(t, ok, "series append failed")
 			require.True(t, chunkCreated, "chunk was not created")
-			chunkCreated = s.append(int64(i*chunkRange)+chunkRange-1, float64(i*chunkRange), 0, h.chunkDiskMapper)
+			_, ok, chunkCreated = s.append(int64(i*chunkRange)+chunkRange-1, float64(i*chunkRange), 0, h.chunkDiskMapper)
+			require.True(t, ok, "series append failed")
 			require.False(t, chunkCreated, "chunk was created")
 			require.NoError(t, h.chunkDiskMapper.CutNewFile())
 		}
@@ -1984,7 +2000,8 @@ func TestIsolationAppendIDZeroIsNoop(t *testing.T) {
 
 	s, _, _ := h.getOrCreate(1, labels.FromStrings("a", "1"))
 
-	s.append(0, 0, 0, h.chunkDiskMapper)
+	_, ok, _ := s.append(0, 0, 0, h.chunkDiskMapper)
+	require.True(t, ok, "Series append failed.")
 	require.Equal(t, 0, s.txs.txIDCount, "Series should not have an appendID after append with appendID=0.")
 }
 
@@ -2522,7 +2539,8 @@ func TestMemSafeIteratorSeekIntoBuffer(t *testing.T) {
 	s := newMemSeries(lbls, 1, lbls.Hash(), 500, 0, 0, nil, defaultIsolationDisabled)
 
 	for i := 0; i < 7; i++ {
-		s.append(int64(i), float64(i), 0, chunkDiskMapper)
+		_, ok, _ := s.append(int64(i), float64(i), 0, chunkDiskMapper)
+		require.True(t, ok, "sample append failed")
 	}
 
 	it := s.iterator(s.headChunkID(len(s.mmappedChunks)), nil, chunkDiskMapper, nil)
