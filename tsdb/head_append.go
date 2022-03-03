@@ -513,8 +513,8 @@ func (a *headAppender) Commit() (err error) {
 				// significantly.
 				total--
 				oob++
+				goto cleanup
 			}
-			goto cleanup
 		}
 		switch {
 		case s.T < maxT:
