@@ -251,11 +251,9 @@ type headAppender struct {
 func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
 	// For OOO inserts, this restriction is irrelevant and will be checked later once we confirm the sample is an in-order append.
 	// If OOO inserts are disabled, we may as well as check this as early as we can and avoid more work.
-	if a.head.opts.OOOAllowance == 0 {
-		if t < a.minValidTime {
-			a.head.metrics.outOfBoundSamples.Inc()
-			return 0, storage.ErrOutOfBounds
-		}
+	if a.head.opts.OOOAllowance == 0 && t < a.minValidTime {
+		a.head.metrics.outOfBoundSamples.Inc()
+		return 0, storage.ErrOutOfBounds
 	}
 
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
@@ -488,7 +486,7 @@ func (a *headAppender) Commit() (err error) {
 
 		// The sample is OOO and within tolerance
 		if series.oooAllowance > 0 && s.T < maxT {
-			ok, chunkCreated := series.insert(s.T, s.V, a.appendID, a.head.chunkDiskMapper)
+			ok, chunkCreated := series.insert(s.T, s.V, a.head.chunkDiskMapper)
 			if chunkCreated {
 				chunks++
 			}
@@ -553,7 +551,7 @@ func (a *headAppender) Commit() (err error) {
 }
 
 // insert is like append, except it inserts. used for Out Of Order samples.
-func (s *memSeries) insert(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (inserted, chunkCreated bool) {
+func (s *memSeries) insert(t int64, v float64, chunkDiskMapper chunkDiskMapper) (inserted, chunkCreated bool) {
 	c := s.oooHeadChunk
 	if c == nil || c.chunk.NumSamples() == int(s.oooCapMax) {
 		// Note: If no new samples come in then we rely on compaction to clean up stale in-memory OOO chunks.
@@ -696,7 +694,7 @@ func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) {
 		// There is no head chunk, so nothing to m-map here.
 		return
 	}
-
+	// TODO(codesome): figure out how m-mapping will be handled in case of ooo chunks"
 	xor, _ := s.oooHeadChunk.chunk.ToXor() // encode to XorChunk which is more compact and implements all of the needed functionality to be encoded
 	chunkRef := chunkDiskMapper.WriteChunk(s.ref, s.oooHeadChunk.minTime, s.oooHeadChunk.maxTime, xor, handleChunkWriteError)
 	s.mmappedChunks = append(s.mmappedChunks, &mmappedChunk{
