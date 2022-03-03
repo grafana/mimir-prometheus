@@ -476,16 +476,15 @@ func (a *headAppender) Commit() (err error) {
 		maxT := series.maxTime()
 		delta := maxT - s.T
 
-		// The sample is OOO and beyond the OOO tolerance (tolerance could be 0)
-		if delta > series.oooAllowance {
+		switch {
+		case delta > series.oooAllowance:
+			// The sample is OOO and beyond the OOO tolerance (tolerance could be 0)
 			total--
 			ooo++
 			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
-			goto cleanup
-		}
 
-		// The sample is OOO and within tolerance
-		if series.oooAllowance > 0 && s.T < maxT {
+		case series.oooAllowance > 0 && s.T < maxT:
+			// The sample is OOO and within tolerance
 			ok, chunkCreated := series.insert(s.T, s.V, a.head.chunkDiskMapper)
 			if chunkCreated {
 				chunks++
@@ -497,43 +496,42 @@ func (a *headAppender) Commit() (err error) {
 				// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
 			}
 			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
-			goto cleanup
-		}
 
-		// From here on, the sample is in order or an attempted overwrite
+		default:
+			// From here on, the sample is in order or an attempted overwrite
 
-		// if OOO is enabled, then Append() skipped this test. We must run it now.
-		if a.head.opts.OOOAllowance > 0 {
+			// if OOO is enabled, then Append() skipped this test. We must run it now.
+			if a.head.opts.OOOAllowance > 0 {
 
-			if s.T < a.minValidTime {
-				// Note: when this is breached and OOO inserts are enabled, we could technically
-				// insert this sample into an OOO chunk, even if the sample is not OOO. That would
-				// effectively support the "lagging series" (offset clock) use case, which we're not
-				// sure yet if we want to support that.  It may increase the volume of OOO chunk data
-				// significantly.
+				if s.T < a.minValidTime {
+					// Note: when this is breached and OOO inserts are enabled, we could technically
+					// insert this sample into an OOO chunk, even if the sample is not OOO. That would
+					// effectively support the "lagging series" (offset clock) use case, which we're not
+					// sure yet if we want to support that.  It may increase the volume of OOO chunk data
+					// significantly.
+					total--
+					oob++
+					break
+				}
+			}
+
+			switch {
+			case s.T < maxT:
 				total--
-				oob++
-				goto cleanup
+				a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
+			case s.T == maxT:
+				total--
+				// overwrite. not allowed. how to handle?
+				if math.Float64bits(series.sampleBuf[3].v) != math.Float64bits(s.V) {
+					// this would be storage.ErrDuplicateSampleForTimestamp, it has no attached counter
+				}
+				// in case of identical timestamp and value, we drop silently
+			case s.T > maxT:
+				if series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper) {
+					chunks++
+				}
 			}
 		}
-		switch {
-		case s.T < maxT:
-			total--
-			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
-		case s.T == maxT:
-			total--
-			// overwrite. not allowed. how to handle?
-			if math.Float64bits(series.sampleBuf[3].v) != math.Float64bits(s.V) {
-				// this would be storage.ErrDuplicateSampleForTimestamp, it has no attached counter
-			}
-			// in case of identical timestamp and value, we drop silently
-		case s.T > maxT:
-			if series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper) {
-				chunks++
-			}
-		}
-
-	cleanup:
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
 		series.pendingCommit = false
