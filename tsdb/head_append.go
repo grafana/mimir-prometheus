@@ -488,8 +488,15 @@ func (a *headAppender) Commit() (err error) {
 
 		// The sample is OOO and within tolerance
 		if series.oooAllowance > 0 && s.T < maxT {
-			if series.insert(s.T, s.V, a.appendID, a.head.chunkDiskMapper) {
+			ok, chunkCreated := series.insert(s.T, s.V, a.appendID, a.head.chunkDiskMapper)
+			if chunkCreated {
 				chunks++
+			}
+			if !ok {
+				// the sample was an attempted update.
+				// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
+				// not with samples in already flushed OOO chunks.
+				// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
 			}
 			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
 			goto cleanup
@@ -546,7 +553,7 @@ func (a *headAppender) Commit() (err error) {
 }
 
 // insert is like append, except it inserts. used for Out Of Order samples.
-func (s *memSeries) insert(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (chunkCreated bool) {
+func (s *memSeries) insert(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (inserted, chunkCreated bool) {
 	c := s.oooHeadChunk
 	if c == nil || c.chunk.NumSamples() == int(s.oooCapMax) {
 		// Note: If no new samples come in then we rely on compaction to clean up stale in-memory OOO chunks.
@@ -554,9 +561,8 @@ func (s *memSeries) insert(t int64, v float64, appendID uint64, chunkDiskMapper 
 		chunkCreated = true
 	}
 
-	c.chunk.Insert(t, v)
-
-	return chunkCreated
+	ok := c.chunk.Insert(t, v)
+	return ok, chunkCreated
 }
 
 // append adds the sample (t, v) to the series. The caller also has to provide

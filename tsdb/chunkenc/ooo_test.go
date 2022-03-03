@@ -73,9 +73,10 @@ func TestOOOInsertDuplicate(t *testing.T) {
 				dupSample := chunk.samples[dupPos]
 				dupSample.v = 0.123 // unmistakeably different from any of the pre-existing values, so we can properly detect the correct value below
 
-				chunk.Insert(dupSample.t, dupSample.v)
+				ok := chunk.Insert(dupSample.t, dupSample.v)
 
 				expSamples := makePre(numPre) // we expect no change
+				require.False(t, ok)
 				require.Equal(t, expSamples, chunk.samples, "numPre %d, dupPos %d", numPre, dupPos)
 			}
 		}

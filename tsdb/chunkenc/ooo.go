@@ -21,22 +21,20 @@ func NewOOOChunk(capacity int) *OOOChunk {
 	return &OOOChunk{samples: make([]sample, 0, capacity)}
 }
 
-// Insert adds the sample to the chunk.
-func (o *OOOChunk) Insert(t int64, v float64) {
+// Insert inserts the sample such that order is maintained.
+// Returns false if insert was not possible due to the same timestamp already existing.
+func (o *OOOChunk) Insert(t int64, v float64) bool {
 	// find index of sample we should replace
 	i := sort.Search(len(o.samples), func(i int) bool { return o.samples[i].t >= t })
 
 	if i >= len(o.samples) {
 		// none found. append it at the end
 		o.samples = append(o.samples, sample{t, v})
-		return
+		return true
 	}
 
 	if o.samples[i].t == t {
-		// this sample is an update. drop it.
-		// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
-		// something something about not being able to detect all updates because they might be in mmapped ooo chunks
-		return
+		return false
 	}
 
 	// expand length by 1 to make room. use a zero sample, we will overwrite it anyway
@@ -44,7 +42,7 @@ func (o *OOOChunk) Insert(t int64, v float64) {
 	copy(o.samples[i+1:], o.samples[i:])
 	o.samples[i] = sample{t, v}
 
-	return
+	return true
 }
 
 func (o *OOOChunk) NumSamples() int {
