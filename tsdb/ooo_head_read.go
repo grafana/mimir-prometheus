@@ -6,6 +6,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/index"
 )
@@ -144,4 +145,27 @@ func (oh *OOOHeadIndexReader) Postings(name string, values ...string) (index.Pos
 		}
 		return index.Merge(res...), nil
 	}
+}
+
+type OOOHeadChunkReader struct {
+	head       *Head
+	mint, maxt int64
+	isoState   *isolationState
+}
+
+func NewOOOHeadChunkReader(head *Head, mint, maxt int64) *OOOHeadChunkReader {
+	return &OOOHeadChunkReader{
+		head: head,
+		mint: mint,
+		maxt: maxt,
+	}
+}
+
+func (cr OOOHeadChunkReader) Chunk(ref chunks.ChunkRef) (chunkenc.Chunk, error) {
+	panic("implement me")
+}
+
+func (cr OOOHeadChunkReader) Close() error {
+	cr.isoState.Close()
+	return nil
 }

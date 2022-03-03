@@ -29,9 +29,7 @@ func (oh *OOORangeHead) Index() (IndexReader, error) {
 }
 
 func (oh *OOORangeHead) Chunks() (ChunkReader, error) {
-	// TODO(jesus.vazquez) Need to create a oooHeadChunkReader that implements
-	// ChunkReader. Check the above Index() method as an inspiration.
-	panic("implement me")
+	return NewOOOHeadChunkReader(oh.head, oh.mint, oh.maxt), nil
 }
 
 func (oh *OOORangeHead) Tombstones() (tombstones.Reader, error) {
