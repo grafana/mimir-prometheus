@@ -2,6 +2,7 @@ package tsdb
 
 import (
 	"math"
+	"sort"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -45,38 +46,98 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 
 	s.Lock()
 	defer s.Unlock()
-
 	*chks = (*chks)[:0]
 
-	// TODO We need to gather all the chunks that overlap in mint and maxt and
-	// combine overlapping chunks into a single chunk.
-	// For example:
-	// Given the following chunks 1:(100, 200) 2:(500, 600) 3:(150, 250) 4:(550, 650)
-	// The result would be: [ (combines 1,3), (combines(2, 4) ] -> [ (100, 250), (500, 650) ]
-	// The resulting combined chunks should be identified by an unique reference
+	tmpChks := make([]chunks.Meta, 0, len(s.oooMmappedChunks))
 
-	for i, c := range s.oooMmappedChunks {
+	// We define these markers to track the last chunk reference while we
+	// fill the chunk meta.
+	// These markers are useful to give consistent responses to repeated queries
+	// even if new chunks that might be overlapping or not are added afterwards.
+	// Also, lastMinT and lastMaxT are initialized to the max int as a sentinel
+	// value to know they are unset.
+	var lastChunkRef chunks.ChunkRef
+	lastMinT, lastMaxT := int64(math.MaxInt64), int64(math.MaxInt64)
+
+	// We first collect the oooHeadChunk, if any. And if it exists we set value
+	// for the markers defined above.
+	if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(oh.mint, oh.maxt) {
+		lastMinT = s.oooHeadChunk.minTime
+		lastMaxT = s.oooHeadChunk.maxTime
+		lastChunkRef = chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks))))
+
+		tmpChks = append(tmpChks, chunks.Meta{
+			MinTime:        s.oooHeadChunk.minTime,
+			MaxTime:        math.MaxInt64, // Set the head chunks as open (being appended to).
+			Ref:            lastChunkRef,
+			OOOLastRef:     lastChunkRef,
+			OOOLastMinTime: lastMinT,
+			OOOLastMaxTime: lastMaxT,
+		})
+
+	}
+
+	// Next collect the memory mapped chunks in reverse order, if any.
+	// In case there was no head chunk before, we want the last memory mapped
+	// chunk to be our last reference for the markers and the chunk meta.
+	for i := len(s.oooMmappedChunks) - 1; i >= 0; i-- {
+		c := s.oooMmappedChunks[i]
+
 		// Do not expose chunks that are outside of the specified range.
 		if !c.OverlapsClosedInterval(oh.mint, oh.maxt) {
 			continue
 		}
-		*chks = append(*chks, chunks.Meta{
-			MinTime: c.minTime,
-			MaxTime: c.maxTime,
-			Ref:     chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i))),
+
+		if lastMinT == int64(math.MaxInt64) {
+			lastChunkRef = chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i)))
+			lastMinT = c.minTime
+			lastMaxT = c.maxTime
+		}
+
+		tmpChks = append(tmpChks, chunks.Meta{
+			MinTime:        c.minTime,
+			MaxTime:        c.maxTime,
+			Ref:            chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i))),
+			OOOLastRef:     lastChunkRef,
+			OOOLastMinTime: lastMinT,
+			OOOLastMaxTime: lastMaxT,
 		})
 	}
 
-	if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(oh.mint, oh.maxt) {
-		*chks = append(*chks, chunks.Meta{
-			MinTime: s.oooHeadChunk.minTime,
-			MaxTime: math.MaxInt64, // Set the head chunks as open (being appended to).
-			Ref:     chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks)))),
-		})
+	// There is nothing to do if we did not collect any chunk
+	if len(tmpChks) == 0 {
+		return nil
+	}
+
+	// Next we want to sort all the collected chunks by min time so we can find
+	// those that overlap.
+	sort.Sort(byMinTime(tmpChks))
+
+	// Next we want to iterate the sorted collected chunks and only return the
+	// chunks Meta the first chunk that overlaps with others.
+	// Example chunks of a series: 5:(100, 200) 6:(500, 600) 7:(150, 250) 8:(550, 650)
+	// In the example 5 overlaps with 7 and 6 overlaps with 8 so we only want to
+	// to return chunk Metas for chunk 5 and chunk 6
+	*chks = append(*chks, tmpChks[0])
+	maxTime := tmpChks[0].MaxTime
+	for _, c := range tmpChks[1:] {
+		if c.MinTime > maxTime {
+			*chks = append(*chks, c)
+			maxTime = c.MaxTime
+		} else if c.MaxTime > maxTime {
+			maxTime = c.MaxTime
+			(*chks)[len(*chks)-1].MaxTime = c.MaxTime
+		}
 	}
 
 	return nil
 }
+
+type byMinTime []chunks.Meta
+
+func (b byMinTime) Len() int           { return len(b) }
+func (b byMinTime) Less(i, j int) bool { return b[i].MinTime < b[j].MinTime }
+func (b byMinTime) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
 
 func (oh *OOOHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
 	switch len(values) {
