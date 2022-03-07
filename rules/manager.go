@@ -212,8 +212,9 @@ type Rule interface {
 	Name() string
 	// Labels of the rule.
 	Labels() labels.Labels
-	// eval evaluates the rule, including any associated recording or alerting actions.
-	Eval(context.Context, time.Time, QueryFunc, *url.URL, int) (promql.Vector, error)
+	// Eval evaluates the rule, including any associated recording or alerting actions.
+	// The duration passed is the evaluation delay.
+	Eval(context.Context, time.Duration, time.Time, QueryFunc, *url.URL, int) (promql.Vector, error)
 	// String returns a human-readable string representation of the rule.
 	String() string
 	// Query returns the rule query expression.
@@ -253,6 +254,7 @@ type Group struct {
 	mtx                  sync.Mutex
 	evaluationTime       time.Duration
 	lastEvaluation       time.Time
+	evaluationDelay      EvaluationDelayFunc
 
 	shouldRestore bool
 
@@ -267,15 +269,18 @@ type Group struct {
 }
 
 type GroupOptions struct {
-	Name, File    string
-	Interval      time.Duration
-	Limit         int
-	Rules         []Rule
-	SourceTenants []string
-	ShouldRestore bool
-	Opts          *ManagerOptions
-	done          chan struct{}
+	Name, File      string
+	Interval        time.Duration
+	Limit           int
+	Rules           []Rule
+	SourceTenants   []string
+	ShouldRestore   bool
+	Opts            *ManagerOptions
+	EvaluationDelay EvaluationDelayFunc
+	done            chan struct{}
 }
+
+type EvaluationDelayFunc func(groupName string) time.Duration
 
 // NewGroup makes a new Group with the given name, options, and rules.
 func NewGroup(o GroupOptions) *Group {
@@ -304,6 +309,7 @@ func NewGroup(o GroupOptions) *Group {
 		shouldRestore:        o.ShouldRestore,
 		opts:                 o.Opts,
 		sourceTenants:        o.SourceTenants,
+		evaluationDelay:      o.EvaluationDelay,
 		seriesInPreviousEval: make([]map[string]labels.Labels, len(o.Rules)),
 		done:                 make(chan struct{}),
 		managerDone:          o.done,
@@ -583,6 +589,10 @@ func (g *Group) CopyState(from *Group) {
 // Eval runs a single evaluation cycle in which all rules are evaluated sequentially.
 func (g *Group) Eval(ctx context.Context, ts time.Time) {
 	var samplesTotal float64
+	evaluationDelay := time.Duration(0)
+	if g.evaluationDelay != nil {
+		evaluationDelay = g.evaluationDelay(g.name)
+	}
 	for i, rule := range g.rules {
 		select {
 		case <-g.done:
@@ -604,7 +614,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 
 			g.metrics.EvalTotal.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 
-			vector, err := rule.Eval(ctx, ts, g.opts.QueryFunc, g.opts.ExternalURL, g.Limit())
+			vector, err := rule.Eval(ctx, evaluationDelay, ts, g.opts.QueryFunc, g.opts.ExternalURL, g.Limit())
 			if err != nil {
 				rule.SetHealth(HealthBad)
 				rule.SetLastError(err)
@@ -673,7 +683,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 			for metric, lset := range g.seriesInPreviousEval[i] {
 				if _, ok := seriesReturned[metric]; !ok {
 					// Series no longer exposed, mark it stale.
-					_, err = app.Append(0, lset, timestamp.FromTime(ts), math.Float64frombits(value.StaleNaN))
+					_, err = app.Append(0, lset, timestamp.FromTime(ts.Add(-evaluationDelay)), math.Float64frombits(value.StaleNaN))
 					switch errors.Cause(err) {
 					case nil:
 					case storage.ErrOutOfOrderSample, storage.ErrDuplicateSampleForTimestamp:
