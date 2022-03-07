@@ -254,7 +254,6 @@ type Group struct {
 	mtx                  sync.Mutex
 	evaluationTime       time.Duration
 	lastEvaluation       time.Time
-	evaluationDelay      EvaluationDelayFunc
 
 	shouldRestore bool
 
@@ -268,19 +267,18 @@ type Group struct {
 	metrics *Metrics
 }
 
-type GroupOptions struct {
-	Name, File      string
-	Interval        time.Duration
-	Limit           int
-	Rules           []Rule
-	SourceTenants   []string
-	ShouldRestore   bool
-	Opts            *ManagerOptions
-	EvaluationDelay EvaluationDelayFunc
-	done            chan struct{}
-}
-
 type EvaluationDelayFunc func(groupName string) time.Duration
+
+type GroupOptions struct {
+	Name, File    string
+	Interval      time.Duration
+	Limit         int
+	Rules         []Rule
+	SourceTenants []string
+	ShouldRestore bool
+	Opts          *ManagerOptions
+	done          chan struct{}
+}
 
 // NewGroup makes a new Group with the given name, options, and rules.
 func NewGroup(o GroupOptions) *Group {
@@ -309,7 +307,6 @@ func NewGroup(o GroupOptions) *Group {
 		shouldRestore:        o.ShouldRestore,
 		opts:                 o.Opts,
 		sourceTenants:        o.SourceTenants,
-		evaluationDelay:      o.EvaluationDelay,
 		seriesInPreviousEval: make([]map[string]labels.Labels, len(o.Rules)),
 		done:                 make(chan struct{}),
 		managerDone:          o.done,
@@ -590,8 +587,8 @@ func (g *Group) CopyState(from *Group) {
 func (g *Group) Eval(ctx context.Context, ts time.Time) {
 	var samplesTotal float64
 	evaluationDelay := time.Duration(0)
-	if g.evaluationDelay != nil {
-		evaluationDelay = g.evaluationDelay(g.name)
+	if g.opts.EvaluationDelay != nil {
+		evaluationDelay = g.opts.EvaluationDelay(g.name)
 	}
 	for i, rule := range g.rules {
 		select {
@@ -945,6 +942,7 @@ type ManagerOptions struct {
 	ForGracePeriod             time.Duration
 	ResendDelay                time.Duration
 	GroupLoader                GroupLoader
+	EvaluationDelay            EvaluationDelayFunc
 
 	Metrics *Metrics
 }
