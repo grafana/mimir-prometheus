@@ -150,7 +150,6 @@ func (oh *OOOHeadIndexReader) Postings(name string, values ...string) (index.Pos
 type OOOHeadChunkReader struct {
 	head       *Head
 	mint, maxt int64
-	isoState   *isolationState
 }
 
 func NewOOOHeadChunkReader(head *Head, mint, maxt int64) *OOOHeadChunkReader {
@@ -162,10 +161,44 @@ func NewOOOHeadChunkReader(head *Head, mint, maxt int64) *OOOHeadChunkReader {
 }
 
 func (cr OOOHeadChunkReader) Chunk(ref chunks.ChunkRef) (chunkenc.Chunk, error) {
-	panic("implement me")
+	sid, cid := chunks.HeadChunkRef(ref).Unpack()
+
+	s := cr.head.series.getByID(sid)
+	// This means that the series has been garbage collected.
+	if s == nil {
+		return nil, storage.ErrNotFound
+	}
+
+	s.Lock()
+	c, garbageCollect, err := s.ooochunk(cid, cr.head.chunkDiskMapper) // TODO(jesus.vazquez) here is where we do the magic of merging overlapping chunks
+	if err != nil {
+		s.Unlock()
+		return nil, err
+	}
+	defer func() {
+		if garbageCollect {
+			// Set this to nil so that Go GC can collect it after it has been used.
+			c.chunk = nil
+			s.memChunkPool.Put(c)
+		}
+	}()
+
+	// TODO(jesus.vazquez) I wonder if this check should be run here
+	// This means that the chunk is outside the specified range.
+	if !c.OverlapsClosedInterval(cr.mint, cr.maxt) {
+		s.Unlock()
+		return nil, storage.ErrNotFound
+	}
+	s.Unlock()
+
+	return &safeChunk{
+		Chunk:           c.chunk,
+		s:               s,
+		cid:             cid,
+		chunkDiskMapper: cr.head.chunkDiskMapper,
+	}, nil
 }
 
 func (cr OOOHeadChunkReader) Close() error {
-	cr.isoState.Close()
 	return nil
 }

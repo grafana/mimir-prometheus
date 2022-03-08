@@ -367,6 +367,45 @@ func (s *memSeries) chunk(id chunks.HeadChunkID, cdm chunkDiskMapper) (chunk *me
 	return mc, true, nil
 }
 
+// ooochunk returns the chunk for the HeadChunkID from memory or by m-mapping it from the disk.
+// If garbageCollect is true, it means that the returned *memChunk
+// (and not the chunkenc.Chunk inside it) can be garbage collected after its usage.
+func (s *memSeries) ooochunk(id chunks.HeadChunkID, cdm chunkDiskMapper) (chunk *memChunk, garbageCollect bool, err error) {
+	// ix represents the index of chunk in the s.mmappedChunks slice. The chunk id's are
+	// incremented by 1 when new chunk is created, hence (id - firstChunkID) gives the slice index.
+	// The max index for the s.mmappedChunks slice can be len(s.mmappedChunks)-1, hence if the ix
+	// is len(s.mmappedChunks), it represents the next chunk, which is the head chunk.
+	ix := int(id) - int(s.firstOOOChunkID)
+	if ix < 0 || ix > len(s.oooMmappedChunks) {
+		return nil, false, storage.ErrNotFound
+	}
+	if ix == len(s.oooMmappedChunks) {
+		// TODO(jesus.vazquez) The logic in this if was true for series in order
+		// but in ooo chunks, we might flush the head chunk even if its not full.
+		if s.oooHeadChunk == nil {
+			return nil, false, errors.New("invalid head chunk")
+		}
+		return s.oooHeadChunk, false, nil
+	}
+
+	// TODO(jesus.vazquez) Here we not only need to get the chunk matching the index id
+	// but actually a merged chunk between the matching chunk and all of those that overlap
+	// Let's wait for ganesh's confirmation
+	chk, err := cdm.Chunk(s.oooMmappedChunks[ix].ref)
+	if err != nil {
+		if _, ok := err.(*chunks.CorruptionErr); ok {
+			panic(err)
+		}
+		return nil, false, err
+	}
+	mc := s.memChunkPool.Get().(*memChunk) // TODO(jesus.vazquez) Do we need a memChunkPool for OOO Chunks?
+	mc.chunk = chk
+	mc.minTime = s.oooMmappedChunks[ix].minTime // TODO(jesus.vazquez) The minTime its not really from this chunk but the new merged chunk we create from this chunk
+	mc.maxTime = s.oooMmappedChunks[ix].maxTime // TODO(jesus.vazquez) The minTime its not really from this chunk but the new merged chunk we create from this chunk
+	return mc, true, nil
+}
+
+// TODO(jesus.vazquez) What is a safe chunk??
 type safeChunk struct {
 	chunkenc.Chunk
 	s               *memSeries
