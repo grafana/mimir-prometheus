@@ -27,6 +27,7 @@ func TestRelabel(t *testing.T) {
 		input   labels.Labels
 		relabel []*Config
 		output  labels.Labels
+		drop    bool
 	}{
 		{
 			input: labels.FromMap(map[string]string{
@@ -100,7 +101,7 @@ func TestRelabel(t *testing.T) {
 					Action:       Replace,
 				},
 			},
-			output: nil,
+			drop: true,
 		},
 		{
 			input: labels.FromMap(map[string]string{
@@ -114,7 +115,7 @@ func TestRelabel(t *testing.T) {
 					Action:       Drop,
 				},
 			},
-			output: nil,
+			drop: true,
 		},
 		{
 			input: labels.FromMap(map[string]string{
@@ -176,7 +177,7 @@ func TestRelabel(t *testing.T) {
 					Action:       Keep,
 				},
 			},
-			output: nil,
+			drop: true,
 		},
 		{
 			input: labels.FromMap(map[string]string{
@@ -469,8 +470,11 @@ func TestRelabel(t *testing.T) {
 			}
 		}
 
-		res := Process(test.input, test.relabel...)
-		require.Equal(t, test.output, res)
+		res, keep := Process(test.input, test.relabel...)
+		require.Equal(t, !test.drop, keep)
+		if keep {
+			require.Equal(t, test.output, res)
+		}
 	}
 }
 
