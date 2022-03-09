@@ -190,19 +190,19 @@ func (re Regexp) String() string {
 
 // Process returns a relabeled copy of the given label set. The relabel configurations
 // are applied in order of input.
-// If a label set is dropped, nil is returned.
+// If a label set is dropped, EmptyLabels and false is returned.
 // May return the input labelSet modified.
-func Process(labels labels.Labels, cfgs ...*Config) labels.Labels {
+func Process(lset labels.Labels, cfgs ...*Config) (ret labels.Labels, keep bool) {
 	for _, cfg := range cfgs {
-		labels = relabel(labels, cfg)
-		if labels == nil {
-			return nil
+		lset, keep = relabel(lset, cfg)
+		if !keep {
+			return labels.EmptyLabels(), false
 		}
 	}
-	return labels
+	return lset, true
 }
 
-func relabel(lset labels.Labels, cfg *Config) labels.Labels {
+func relabel(lset labels.Labels, cfg *Config) (ret labels.Labels, keep bool) {
 	values := make([]string, 0, len(cfg.SourceLabels))
 	for _, ln := range cfg.SourceLabels {
 		values = append(values, lset.Get(string(ln)))
@@ -214,11 +214,11 @@ func relabel(lset labels.Labels, cfg *Config) labels.Labels {
 	switch cfg.Action {
 	case Drop:
 		if cfg.Regex.MatchString(val) {
-			return nil
+			return labels.EmptyLabels(), false
 		}
 	case Keep:
 		if !cfg.Regex.MatchString(val) {
-			return nil
+			return labels.EmptyLabels(), false
 		}
 	case Replace:
 		indexes := cfg.Regex.FindStringSubmatchIndex(val)
@@ -245,29 +245,29 @@ func relabel(lset labels.Labels, cfg *Config) labels.Labels {
 		mod := sum64(md5.Sum([]byte(val))) % cfg.Modulus
 		lb.Set(cfg.TargetLabel, fmt.Sprintf("%d", mod))
 	case LabelMap:
-		for _, l := range lset {
+		lset.Range(func(l labels.Label) {
 			if cfg.Regex.MatchString(l.Name) {
 				res := cfg.Regex.ReplaceAllString(l.Name, cfg.Replacement)
 				lb.Set(res, l.Value)
 			}
-		}
+		})
 	case LabelDrop:
-		for _, l := range lset {
+		lset.Range(func(l labels.Label) {
 			if cfg.Regex.MatchString(l.Name) {
 				lb.Del(l.Name)
 			}
-		}
+		})
 	case LabelKeep:
-		for _, l := range lset {
+		lset.Range(func(l labels.Label) {
 			if !cfg.Regex.MatchString(l.Name) {
 				lb.Del(l.Name)
 			}
-		}
+		})
 	default:
 		panic(fmt.Errorf("relabel: unknown relabel action type %q", cfg.Action))
 	}
 
-	return lb.Labels()
+	return lb.Labels(), true
 }
 
 // sum64 sums the md5 hash to an uint64.
