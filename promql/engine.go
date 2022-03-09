@@ -1559,7 +1559,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, storage.Warnings) {
 
 	case *parser.NumberLiteral:
 		return ev.rangeEval(nil, func(v []parser.Value, _ [][]EvalSeriesHelper, enh *EvalNodeHelper) (Vector, storage.Warnings) {
-			return append(enh.Out, Sample{Point: Point{V: e.Val}}), nil
+			return append(enh.Out, Sample{Point: Point{V: e.Val}, Metric: labels.EmptyLabels()}), nil
 		})
 
 	case *parser.StringLiteral:
@@ -2135,7 +2135,7 @@ func resultMetric(lhs, rhs labels.Labels, op parser.ItemType, matching *parser.V
 		}
 	}
 
-	ret := enh.lb.Labels(nil)
+	ret := enh.lb.Labels(labels.EmptyLabels())
 	enh.resultMetric[str] = ret
 	return ret
 }
@@ -2175,7 +2175,7 @@ func (ev *evaluator) VectorscalarBinop(op parser.ItemType, lhs Vector, rhs Scala
 }
 
 func dropMetricName(l labels.Labels) labels.Labels {
-	return labels.NewBuilder(l).Del(labels.MetricName).Labels(nil)
+	return labels.NewBuilder(l).Del(labels.MetricName).Labels(labels.EmptyLabels())
 }
 
 // scalarBinop evaluates a binary operation between two Scalars.
@@ -2291,7 +2291,7 @@ func (ev *evaluator) aggregation(op parser.ItemType, grouping []string, without 
 		}
 	}
 
-	lb := labels.NewBuilder(nil)
+	lb := labels.NewBuilder(labels.EmptyLabels())
 	var buf []byte
 	for si, s := range vec {
 		metric := s.Metric
@@ -2299,7 +2299,7 @@ func (ev *evaluator) aggregation(op parser.ItemType, grouping []string, without 
 		if op == parser.COUNT_VALUES {
 			lb.Reset(metric)
 			lb.Set(valueLabel, strconv.FormatFloat(s.V, 'f', -1, 64))
-			metric = lb.Labels(nil)
+			metric = lb.Labels(labels.EmptyLabels())
 
 			// We've changed the metric so we have to recompute the grouping key.
 			recomputeGroupingKey = true
@@ -2323,7 +2323,7 @@ func (ev *evaluator) aggregation(op parser.ItemType, grouping []string, without 
 			} else {
 				lb.Keep(grouping...)
 			}
-			m := lb.Labels(nil)
+			m := lb.Labels(labels.EmptyLabels())
 			newAgg := &groupedAggregation{
 				labels:     m,
 				value:      s.V,
