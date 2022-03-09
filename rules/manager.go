@@ -245,6 +245,7 @@ type Group struct {
 	name                 string
 	file                 string
 	interval             time.Duration
+	evaluationDelay      *time.Duration
 	limit                int
 	rules                []Rule
 	sourceTenants        []string
@@ -267,17 +268,16 @@ type Group struct {
 	metrics *Metrics
 }
 
-type EvaluationDelayFunc func(groupName string) time.Duration
-
 type GroupOptions struct {
-	Name, File    string
-	Interval      time.Duration
-	Limit         int
-	Rules         []Rule
-	SourceTenants []string
-	ShouldRestore bool
-	Opts          *ManagerOptions
-	done          chan struct{}
+	Name, File      string
+	Interval        time.Duration
+	Limit           int
+	Rules           []Rule
+	SourceTenants   []string
+	ShouldRestore   bool
+	Opts            *ManagerOptions
+	EvaluationDelay *time.Duration
+	done            chan struct{}
 }
 
 // NewGroup makes a new Group with the given name, options, and rules.
@@ -302,6 +302,7 @@ func NewGroup(o GroupOptions) *Group {
 		name:                 o.Name,
 		file:                 o.File,
 		interval:             o.Interval,
+		evaluationDelay:      o.EvaluationDelay,
 		limit:                o.Limit,
 		rules:                o.Rules,
 		shouldRestore:        o.ShouldRestore,
@@ -586,10 +587,7 @@ func (g *Group) CopyState(from *Group) {
 // Eval runs a single evaluation cycle in which all rules are evaluated sequentially.
 func (g *Group) Eval(ctx context.Context, ts time.Time) {
 	var samplesTotal float64
-	evaluationDelay := time.Duration(0)
-	if g.opts.EvaluationDelay != nil {
-		evaluationDelay = g.opts.EvaluationDelay(g.name)
-	}
+	evaluationDelay := g.EvaluationDelay()
 	for i, rule := range g.rules {
 		select {
 		case <-g.done:
@@ -697,6 +695,16 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 		g.metrics.GroupSamples.WithLabelValues(GroupKey(g.File(), g.Name())).Set(samplesTotal)
 	}
 	g.cleanupStaleSeries(ctx, ts)
+}
+
+func (g *Group) EvaluationDelay() time.Duration {
+	evaluationDelay := time.Duration(0)
+	if g.evaluationDelay != nil {
+		evaluationDelay = *g.evaluationDelay
+	} else if g.opts.DefaultEvaluationDelay != nil {
+		evaluationDelay = g.opts.DefaultEvaluationDelay()
+	}
+	return evaluationDelay
 }
 
 func (g *Group) cleanupStaleSeries(ctx context.Context, ts time.Time) {
@@ -942,7 +950,7 @@ type ManagerOptions struct {
 	ForGracePeriod             time.Duration
 	ResendDelay                time.Duration
 	GroupLoader                GroupLoader
-	EvaluationDelay            EvaluationDelayFunc
+	DefaultEvaluationDelay     func() time.Duration
 
 	Metrics *Metrics
 }
@@ -1139,15 +1147,16 @@ func (m *Manager) LoadGroups(
 			}
 
 			groups[GroupKey(fn, rg.Name)] = NewGroup(GroupOptions{
-				Name:          rg.Name,
-				File:          fn,
-				Interval:      itv,
-				Limit:         rg.Limit,
-				Rules:         rules,
-				SourceTenants: rg.SourceTenants,
-				ShouldRestore: shouldRestore,
-				Opts:          m.opts,
-				done:          m.done,
+				Name:            rg.Name,
+				File:            fn,
+				Interval:        itv,
+				Limit:           rg.Limit,
+				Rules:           rules,
+				SourceTenants:   rg.SourceTenants,
+				ShouldRestore:   shouldRestore,
+				Opts:            m.opts,
+				EvaluationDelay: (*time.Duration)(rg.EvaluationDelay),
+				done:            m.done,
 			})
 		}
 	}
