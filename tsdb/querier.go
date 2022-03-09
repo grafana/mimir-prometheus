@@ -456,8 +456,7 @@ func (b *blockBaseSeriesSet) Next() bool {
 			intervals = intervals.Add(tombstones.Interval{Mint: b.maxt + 1, Maxt: math.MaxInt64})
 		}
 
-		b.currLabels = make(labels.Labels, len(b.bufLbls))
-		copy(b.currLabels, b.bufLbls)
+		b.currLabels = b.bufLbls.Copy()
 
 		b.currIterFn = func() *populateWithDelGenericSeriesIterator {
 			return newPopulateWithDelGenericSeriesIterator(b.chunks, chks, intervals)
@@ -682,7 +681,6 @@ func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p inde
 			mint:            mint,
 			maxt:            maxt,
 			disableTrimming: disableTrimming,
-			bufLbls:         make(labels.Labels, 0, 10),
 		},
 	}
 }
@@ -715,7 +713,6 @@ func newBlockChunkSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p
 			mint:            mint,
 			maxt:            maxt,
 			disableTrimming: disableTrimming,
-			bufLbls:         make(labels.Labels, 0, 10),
 		},
 	}
 }

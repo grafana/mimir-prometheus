@@ -47,7 +47,7 @@ func NewOOOHeadIndexReader(head *Head, mint, maxt int64) *OOOHeadIndexReader {
 	return &OOOHeadIndexReader{hr}
 }
 
-func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels, chks *[]chunks.Meta) error {
+func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, builder *labels.SimpleBuilder, lbls *labels.Labels, chks *[]chunks.Meta) error {
 	return oh.series(ref, lbls, chks, 0)
 }
 
@@ -61,7 +61,7 @@ func (oh *OOOHeadIndexReader) series(ref storage.SeriesRef, lbls *labels.Labels,
 		oh.head.metrics.seriesNotFound.Inc()
 		return storage.ErrNotFound
 	}
-	*lbls = append((*lbls)[:0], s.lset...)
+	lbls.CopyFrom(s.lset)
 
 	if chks == nil {
 		return nil
@@ -410,7 +410,7 @@ func (ir *OOOCompactionHeadIndexReader) ShardedPostings(p index.Postings, shardI
 	return ir.ch.oooIR.ShardedPostings(p, shardIndex, shardCount)
 }
 
-func (ir *OOOCompactionHeadIndexReader) Series(ref storage.SeriesRef, lset *labels.Labels, chks *[]chunks.Meta) error {
+func (ir *OOOCompactionHeadIndexReader) Series(ref storage.SeriesRef, builder *labels.SimpleBuilder, lset *labels.Labels, chks *[]chunks.Meta) error {
 	return ir.ch.oooIR.series(ref, lset, chks, ir.ch.lastMmapRef)
 }
 
