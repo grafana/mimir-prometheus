@@ -17,7 +17,6 @@ package record
 
 import (
 	"math"
-	"sort"
 
 	"github.com/pkg/errors"
 
@@ -102,14 +101,7 @@ func (d *Decoder) Series(rec []byte, series []RefSeries) ([]RefSeries, error) {
 	}
 	for len(dec.B) > 0 && dec.Err() == nil {
 		ref := storage.SeriesRef(dec.Be64())
-
-		lset := make(labels.Labels, dec.Uvarint())
-
-		for i := range lset {
-			lset[i].Name = dec.UvarintStr()
-			lset[i].Value = dec.UvarintStr()
-		}
-		sort.Sort(lset)
+		lset := d.DecodeLabels(&dec)
 
 		series = append(series, RefSeries{
 			Ref:    chunks.HeadSeriesRef(ref),
@@ -206,13 +198,7 @@ func (d *Decoder) ExemplarsFromBuffer(dec *encoding.Decbuf, exemplars []RefExemp
 		dref := dec.Varint64()
 		dtime := dec.Varint64()
 		val := dec.Be64()
-
-		lset := make(labels.Labels, dec.Uvarint())
-		for i := range lset {
-			lset[i].Name = dec.UvarintStr()
-			lset[i].Value = dec.UvarintStr()
-		}
-		sort.Sort(lset)
+		lset := d.DecodeLabels(dec)
 
 		exemplars = append(exemplars, RefExemplar{
 			Ref:    chunks.HeadSeriesRef(baseRef + uint64(dref)),
@@ -270,12 +256,7 @@ func (e *Encoder) Series(series []RefSeries, b []byte) []byte {
 
 	for _, s := range series {
 		buf.PutBE64(uint64(s.Ref))
-		buf.PutUvarint(len(s.Labels))
-
-		for _, l := range s.Labels {
-			buf.PutUvarintStr(l.Name)
-			buf.PutUvarintStr(l.Value)
-		}
+		EncodeLabels(&buf, s.Labels)
 	}
 	return buf.Get()
 }
@@ -344,12 +325,7 @@ func (e *Encoder) EncodeExemplarsIntoBuffer(exemplars []RefExemplar, buf *encodi
 		buf.PutVarint64(int64(ex.Ref) - int64(first.Ref))
 		buf.PutVarint64(ex.T - first.T)
 		buf.PutBE64(math.Float64bits(ex.V))
-
-		buf.PutUvarint(len(ex.Labels))
-		for _, l := range ex.Labels {
-			buf.PutUvarintStr(l.Name)
-			buf.PutUvarintStr(l.Value)
-		}
+		EncodeLabels(buf, ex.Labels)
 	}
 }
 
