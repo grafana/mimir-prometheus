@@ -1532,7 +1532,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, storage.Warnings) {
 
 	case *parser.NumberLiteral:
 		return ev.rangeEval(nil, func(v []parser.Value, _ [][]EvalSeriesHelper, enh *EvalNodeHelper) (Vector, storage.Warnings) {
-			return append(enh.Out, Sample{Point: Point{V: e.Val}}), nil
+			return append(enh.Out, Sample{Point: Point{V: e.Val}, Metric: labels.EmptyLabels()}), nil
 		})
 
 	case *parser.StringLiteral:
@@ -2264,7 +2264,7 @@ func (ev *evaluator) aggregation(op parser.ItemType, grouping []string, without 
 		}
 	}
 
-	lb := labels.NewBuilder(nil)
+	lb := labels.NewBuilder(labels.EmptyLabels())
 	var buf []byte
 	for si, s := range vec {
 		metric := s.Metric
