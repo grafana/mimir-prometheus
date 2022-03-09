@@ -424,7 +424,7 @@ func (w *Writer) AddSeries(ref storage.SeriesRef, lset labels.Labels, chunks ...
 		return errors.Errorf("out-of-order series added with label set %q", lset)
 	}
 
-	if ref < w.lastRef && len(w.lastSeries) != 0 {
+	if ref < w.lastRef && !w.lastSeries.IsEmpty() {
 		return errors.Errorf("series with reference greater than %d already added", ref)
 	}
 	// We add padding to 16 bytes to increase the addressable space we get through 4 byte
@@ -438,9 +438,9 @@ func (w *Writer) AddSeries(ref storage.SeriesRef, lset labels.Labels, chunks ...
 	}
 
 	w.buf2.Reset()
-	w.buf2.PutUvarint(len(lset))
+	w.buf2.PutUvarint(lset.Len())
 
-	for _, l := range lset {
+	if err := lset.RangeToError(func(l labels.Label) error {
 		var err error
 		cacheEntry, ok := w.symbolCache[l.Name]
 		nameIndex := cacheEntry.index
@@ -466,6 +466,9 @@ func (w *Writer) AddSeries(ref storage.SeriesRef, lset labels.Labels, chunks ...
 			}
 		}
 		w.buf2.PutUvarint32(valueIndex)
+		return nil
+	}); err != nil {
+		return err
 	}
 
 	w.buf2.PutUvarint(len(chunks))
@@ -497,7 +500,7 @@ func (w *Writer) AddSeries(ref storage.SeriesRef, lset labels.Labels, chunks ...
 		return errors.Wrap(err, "write series data")
 	}
 
-	w.lastSeries = append(w.lastSeries[:0], lset...)
+	w.lastSeries.CopyFrom(lset)
 	w.lastRef = ref
 
 	return nil
