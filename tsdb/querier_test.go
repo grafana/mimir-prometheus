@@ -141,14 +141,14 @@ func createIdxChkReaders(t *testing.T, tc []seriesSamples) (IndexReader, ChunkRe
 
 		postings.Add(storage.SeriesRef(i), ls)
 
-		for _, l := range ls {
+		ls.Range(func(l labels.Label) {
 			vs, present := lblIdx[l.Name]
 			if !present {
 				vs = map[string]struct{}{}
 				lblIdx[l.Name] = vs
 			}
 			vs[l.Value] = struct{}{}
-		}
+		})
 	}
 
 	require.NoError(t, postings.Iter(func(l labels.Label, p index.Postings) error {
@@ -275,24 +275,24 @@ func TestBlockQuerier(t *testing.T) {
 			maxt: math.MaxInt64,
 			ms:   []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "a", ".*")},
 			exp: newMockSeriesSet([]storage.Series{
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListSeries(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{1, 2}, sample{2, 3}, sample{3, 4}, sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{1, 1}, sample{2, 2}, sample{3, 3}, sample{5, 3}, sample{6, 6}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("b", "b"),
 					[]tsdbutil.Sample{sample{1, 3}, sample{2, 2}, sample{3, 6}, sample{5, 1}, sample{6, 7}, sample{7, 2}},
 				),
 			}),
 			expChks: newMockChunkSeriesSet([]storage.ChunkSeries{
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{1, 2}, sample{2, 3}, sample{3, 4}}, []tsdbutil.Sample{sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{1, 1}, sample{2, 2}, sample{3, 3}}, []tsdbutil.Sample{sample{5, 3}, sample{6, 6}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("b", "b"),
 					[]tsdbutil.Sample{sample{1, 3}, sample{2, 2}, sample{3, 6}}, []tsdbutil.Sample{sample{5, 1}, sample{6, 7}, sample{7, 2}},
 				),
 			}),
@@ -302,18 +302,18 @@ func TestBlockQuerier(t *testing.T) {
 			maxt: 6,
 			ms:   []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "a", "a")},
 			exp: newMockSeriesSet([]storage.Series{
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListSeries(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{2, 3}, sample{3, 4}, sample{5, 2}, sample{6, 3}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{2, 2}, sample{3, 3}, sample{5, 3}, sample{6, 6}},
 				),
 			}),
 			expChks: newMockChunkSeriesSet([]storage.ChunkSeries{
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{2, 3}, sample{3, 4}}, []tsdbutil.Sample{sample{5, 2}, sample{6, 3}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{2, 2}, sample{3, 3}}, []tsdbutil.Sample{sample{5, 3}, sample{6, 6}},
 				),
 			}),
@@ -326,19 +326,19 @@ func TestBlockQuerier(t *testing.T) {
 			hints: &storage.SelectHints{Start: 2, End: 6, DisableTrimming: true},
 			ms:    []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "a", "a")},
 			exp: newMockSeriesSet([]storage.Series{
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListSeries(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{1, 2}, sample{2, 3}, sample{3, 4}, sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{1, 1}, sample{2, 2}, sample{3, 3}, sample{5, 3}, sample{6, 6}},
 				),
 			}),
 			expChks: newMockChunkSeriesSet([]storage.ChunkSeries{
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{1, 2}, sample{2, 3}, sample{3, 4}},
 					[]tsdbutil.Sample{sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{1, 1}, sample{2, 2}, sample{3, 3}},
 					[]tsdbutil.Sample{sample{5, 3}, sample{6, 6}},
 				),
@@ -352,18 +352,18 @@ func TestBlockQuerier(t *testing.T) {
 			hints: &storage.SelectHints{Start: 5, End: 6, DisableTrimming: true},
 			ms:    []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "a", "a")},
 			exp: newMockSeriesSet([]storage.Series{
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListSeries(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{5, 3}, sample{6, 6}},
 				),
 			}),
 			expChks: newMockChunkSeriesSet([]storage.ChunkSeries{
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{5, 3}, sample{6, 6}},
 				),
 			}),
@@ -411,24 +411,24 @@ func TestBlockQuerier_AgainstHeadWithOpenChunks(t *testing.T) {
 			maxt: math.MaxInt64,
 			ms:   []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "a", ".*")},
 			exp: newMockSeriesSet([]storage.Series{
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListSeries(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{1, 2}, sample{2, 3}, sample{3, 4}, sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{1, 1}, sample{2, 2}, sample{3, 3}, sample{5, 3}, sample{6, 6}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("b", "b"),
 					[]tsdbutil.Sample{sample{1, 3}, sample{2, 2}, sample{3, 6}, sample{5, 1}, sample{6, 7}, sample{7, 2}},
 				),
 			}),
 			expChks: newMockChunkSeriesSet([]storage.ChunkSeries{
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{1, 2}, sample{2, 3}, sample{3, 4}, sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{1, 1}, sample{2, 2}, sample{3, 3}, sample{5, 3}, sample{6, 6}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("b", "b"),
 					[]tsdbutil.Sample{sample{1, 3}, sample{2, 2}, sample{3, 6}, sample{5, 1}, sample{6, 7}, sample{7, 2}},
 				),
 			}),
@@ -438,18 +438,18 @@ func TestBlockQuerier_AgainstHeadWithOpenChunks(t *testing.T) {
 			maxt: 6,
 			ms:   []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "a", "a")},
 			exp: newMockSeriesSet([]storage.Series{
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListSeries(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{2, 3}, sample{3, 4}, sample{5, 2}, sample{6, 3}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{2, 2}, sample{3, 3}, sample{5, 3}, sample{6, 6}},
 				),
 			}),
 			expChks: newMockChunkSeriesSet([]storage.ChunkSeries{
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{2, 3}, sample{3, 4}, sample{5, 2}, sample{6, 3}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{2, 2}, sample{3, 3}, sample{5, 3}, sample{6, 6}},
 				),
 			}),
@@ -552,24 +552,24 @@ func TestBlockQuerierDelete(t *testing.T) {
 			maxt: math.MaxInt64,
 			ms:   []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "a", ".*")},
 			exp: newMockSeriesSet([]storage.Series{
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListSeries(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{5, 3}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("b", "b"),
 					[]tsdbutil.Sample{sample{1, 3}, sample{2, 2}, sample{3, 6}, sample{5, 1}},
 				),
 			}),
 			expChks: newMockChunkSeriesSet([]storage.ChunkSeries{
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{5, 2}, sample{6, 3}, sample{7, 4}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{5, 3}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("b", "b"),
 					[]tsdbutil.Sample{sample{1, 3}, sample{2, 2}, sample{3, 6}}, []tsdbutil.Sample{sample{5, 1}},
 				),
 			}),
@@ -579,18 +579,18 @@ func TestBlockQuerierDelete(t *testing.T) {
 			maxt: 6,
 			ms:   []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "a", "a")},
 			exp: newMockSeriesSet([]storage.Series{
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListSeries(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{5, 2}, sample{6, 3}},
 				),
-				storage.NewListSeries(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListSeries(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{5, 3}},
 				),
 			}),
 			expChks: newMockChunkSeriesSet([]storage.ChunkSeries{
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a"),
 					[]tsdbutil.Sample{sample{5, 2}, sample{6, 3}},
 				),
-				storage.NewListChunkSeriesFromSamples(labels.Labels{{Name: "a", Value: "a"}, {Name: "b", Value: "b"}},
+				storage.NewListChunkSeriesFromSamples(labels.FromStrings("a", "a", "b", "b"),
 					[]tsdbutil.Sample{sample{5, 3}},
 				),
 			}),
@@ -1163,10 +1163,10 @@ func (m *mockIndex) AddSeries(ref storage.SeriesRef, l labels.Labels, chunks ...
 	if _, ok := m.series[ref]; ok {
 		return errors.Errorf("series with reference %d already added", ref)
 	}
-	for _, lbl := range l {
+	l.Range(func(lbl labels.Label) {
 		m.symbols[lbl.Name] = struct{}{}
 		m.symbols[lbl.Value] = struct{}{}
-	}
+	})
 
 	s := series{l: l}
 	// Actual chunk data is not stored in the index.
@@ -1233,9 +1233,9 @@ func (m mockIndex) LabelValueFor(id storage.SeriesRef, label string) (string, er
 func (m mockIndex) LabelNamesFor(ids ...storage.SeriesRef) ([]string, error) {
 	namesMap := make(map[string]bool)
 	for _, id := range ids {
-		for _, lbl := range m.series[id].l {
+		m.series[id].l.Range(func(lbl labels.Label) {
 			namesMap[lbl.Name] = true
-		}
+		})
 	}
 	names := make([]string, 0, len(namesMap))
 	for name := range namesMap {
@@ -1312,7 +1312,7 @@ func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.SimpleBuilder, 
 	if !ok {
 		return storage.ErrNotFound
 	}
-	*lset = append((*lset)[:0], s.l...)
+	lset.CopyFrom(s.l)
 	*chks = append((*chks)[:0], s.chunks...)
 
 	return nil
@@ -1334,9 +1334,9 @@ func (m mockIndex) LabelNames(matchers ...*labels.Matcher) ([]string, error) {
 				}
 			}
 			if matches {
-				for _, lbl := range series.l {
+				series.l.Range(func(lbl labels.Label) {
 					names[lbl.Name] = struct{}{}
-				}
+				})
 			}
 		}
 	}
@@ -1947,7 +1947,7 @@ func BenchmarkQueries(b *testing.B) {
 
 				// Add some common labels to make the matchers select these series.
 				{
-					var commonLbls labels.Labels
+					var commonLbls []labels.Label
 					for _, selector := range selectors {
 						switch selector.Type {
 						case labels.MatchEqual:
@@ -1958,8 +1958,11 @@ func BenchmarkQueries(b *testing.B) {
 					}
 					for i := range commonLbls {
 						s := series[i].(*storage.SeriesEntry)
-						allLabels := append(commonLbls, s.Labels()...)
-						newS := storage.NewListSeries(allLabels, nil)
+						allLabels := commonLbls
+						s.Labels().Range(func(l labels.Label) {
+							allLabels = append(allLabels, l)
+						})
+						newS := storage.NewListSeries(labels.New(allLabels...), nil)
 						newS.SampleIteratorFn = s.SampleIteratorFn
 
 						series[i] = newS
