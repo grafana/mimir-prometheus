@@ -110,7 +110,7 @@ func TestExternalLabelsQuerierAddExternalLabels(t *testing.T) {
 		el          labels.Labels
 		inMatchers  []*labels.Matcher
 		outMatchers []*labels.Matcher
-		added       labels.Labels
+		added       []string
 	}{
 		{
 			inMatchers: []*labels.Matcher{
@@ -119,13 +119,10 @@ func TestExternalLabelsQuerierAddExternalLabels(t *testing.T) {
 			outMatchers: []*labels.Matcher{
 				labels.MustNewMatcher(labels.MatchEqual, "job", "api-server"),
 			},
-			added: labels.Labels{},
+			added: []string{},
 		},
 		{
-			el: labels.Labels{
-				{Name: "dc", Value: "berlin-01"},
-				{Name: "region", Value: "europe"},
-			},
+			el: labels.FromStrings("dc", "berlin-01", "region", "europe"),
 			inMatchers: []*labels.Matcher{
 				labels.MustNewMatcher(labels.MatchEqual, "job", "api-server"),
 			},
@@ -134,16 +131,10 @@ func TestExternalLabelsQuerierAddExternalLabels(t *testing.T) {
 				labels.MustNewMatcher(labels.MatchEqual, "region", "europe"),
 				labels.MustNewMatcher(labels.MatchEqual, "dc", "berlin-01"),
 			},
-			added: labels.Labels{
-				{Name: "dc", Value: "berlin-01"},
-				{Name: "region", Value: "europe"},
-			},
+			added: []string{"dc", "region"},
 		},
 		{
-			el: labels.Labels{
-				{Name: "dc", Value: "berlin-01"},
-				{Name: "region", Value: "europe"},
-			},
+			el: labels.FromStrings("dc", "berlin-01", "region", "europe"),
 			inMatchers: []*labels.Matcher{
 				labels.MustNewMatcher(labels.MatchEqual, "job", "api-server"),
 				labels.MustNewMatcher(labels.MatchEqual, "dc", "munich-02"),
@@ -153,9 +144,7 @@ func TestExternalLabelsQuerierAddExternalLabels(t *testing.T) {
 				labels.MustNewMatcher(labels.MatchEqual, "region", "europe"),
 				labels.MustNewMatcher(labels.MatchEqual, "dc", "munich-02"),
 			},
-			added: labels.Labels{
-				{Name: "region", Value: "europe"},
-			},
+			added: []string{"region"},
 		},
 	}
 
@@ -174,12 +163,12 @@ func TestExternalLabelsQuerierAddExternalLabels(t *testing.T) {
 func TestSeriesSetFilter(t *testing.T) {
 	tests := []struct {
 		in       *prompb.QueryResult
-		toRemove labels.Labels
+		toRemove []string
 
 		expected *prompb.QueryResult
 	}{
 		{
-			toRemove: labels.Labels{{Name: "foo", Value: "bar"}},
+			toRemove: []string{"foo"},
 			in: &prompb.QueryResult{
 				Timeseries: []*prompb.TimeSeries{
 					{Labels: labelsToLabelsProto(labels.FromStrings("foo", "bar", "a", "b"), nil), Samples: []prompb.Sample{}},
@@ -293,10 +282,8 @@ func TestSampleAndChunkQueryableClient(t *testing.T) {
 			matchers: []*labels.Matcher{
 				labels.MustNewMatcher(labels.MatchNotEqual, "a", "something"),
 			},
-			readRecent: true,
-			externalLabels: labels.Labels{
-				{Name: "region", Value: "europe"},
-			},
+			readRecent:     true,
+			externalLabels: labels.FromStrings("region", "europe"),
 
 			expectedQuery: &prompb.Query{
 				StartTimestampMs: 1,
@@ -318,10 +305,8 @@ func TestSampleAndChunkQueryableClient(t *testing.T) {
 				labels.MustNewMatcher(labels.MatchNotEqual, "a", "something"),
 				labels.MustNewMatcher(labels.MatchEqual, "region", "europe"),
 			},
-			readRecent: true,
-			externalLabels: labels.Labels{
-				{Name: "region", Value: "europe"},
-			},
+			readRecent:     true,
+			externalLabels: labels.FromStrings("region", "europe"),
 
 			expectedQuery: &prompb.Query{
 				StartTimestampMs: 1,
@@ -343,10 +328,8 @@ func TestSampleAndChunkQueryableClient(t *testing.T) {
 				labels.MustNewMatcher(labels.MatchNotEqual, "a", "something"),
 				labels.MustNewMatcher(labels.MatchEqual, "region", "us"),
 			},
-			readRecent: true,
-			externalLabels: labels.Labels{
-				{Name: "region", Value: "europe"},
-			},
+			readRecent:     true,
+			externalLabels: labels.FromStrings("region", "europe"),
 
 			expectedQuery: &prompb.Query{
 				StartTimestampMs: 1,
