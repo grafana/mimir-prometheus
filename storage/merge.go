@@ -653,7 +653,7 @@ func (c *compactChunkIterator) Next() bool {
 			// 1:1 duplicates, skip it.
 		} else {
 			// We operate on same series, so labels does not matter here.
-			overlapping = append(overlapping, newChunkToSeriesDecoder(nil, next))
+			overlapping = append(overlapping, newChunkToSeriesDecoder(labels.EmptyLabels(), next))
 			if next.MaxTime > oMaxTime {
 				oMaxTime = next.MaxTime
 			}
@@ -670,7 +670,7 @@ func (c *compactChunkIterator) Next() bool {
 	}
 
 	// Add last as it's not yet included in overlap. We operate on same series, so labels does not matter here.
-	iter = NewSeriesToChunkEncoder(c.mergeFunc(append(overlapping, newChunkToSeriesDecoder(nil, c.curr))...)).Iterator()
+	iter = NewSeriesToChunkEncoder(c.mergeFunc(append(overlapping, newChunkToSeriesDecoder(labels.EmptyLabels(), c.curr))...)).Iterator()
 	if !iter.Next() {
 		if c.err = iter.Err(); c.err != nil {
 			return false
