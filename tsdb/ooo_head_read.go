@@ -161,7 +161,7 @@ func NewOOOHeadChunkReader(head *Head, mint, maxt int64) *OOOHeadChunkReader {
 }
 
 func (cr OOOHeadChunkReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
-	sid, cid := chunks.HeadChunkRef(meta.Ref).Unpack()
+	sid, _ := chunks.HeadChunkRef(meta.Ref).Unpack()
 
 	s := cr.head.series.getByID(sid)
 	// This means that the series has been garbage collected.
@@ -170,32 +170,18 @@ func (cr OOOHeadChunkReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
 	}
 
 	s.Lock()
-	c, garbageCollect, err := s.oooMergedChunk(meta, cr.head.chunkDiskMapper)
+	c, err := s.oooMergedChunk(meta, cr.head.chunkDiskMapper, cr.mint, cr.maxt)
+	s.Unlock()
 	if err != nil {
-		s.Unlock()
 		return nil, err
 	}
-	defer func() {
-		if garbageCollect {
-			// Set this to nil so that Go GC can collect it after it has been used.
-			c.chunk = nil
-			s.memChunkPool.Put(c)
-		}
-	}()
 
-	// This means that the chunk is outside the specified range.
-	if !c.OverlapsClosedInterval(cr.mint, cr.maxt) {
-		s.Unlock()
+	// This means that the query range did not overlap with the requested chunk.
+	if len(c.chunks) == 0 {
 		return nil, storage.ErrNotFound
 	}
-	s.Unlock()
 
-	return &safeChunk{
-		Chunk:           c.chunk,
-		s:               s,
-		cid:             cid,
-		chunkDiskMapper: cr.head.chunkDiskMapper,
-	}, nil
+	return c, nil
 }
 
 func (cr OOOHeadChunkReader) Close() error {
