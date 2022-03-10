@@ -296,8 +296,8 @@ func (h *headChunkReader) Close() error {
 }
 
 // Chunk returns the chunk for the reference number.
-func (h *headChunkReader) Chunk(ref chunks.ChunkRef) (chunkenc.Chunk, error) {
-	sid, cid := chunks.HeadChunkRef(ref).Unpack()
+func (h *headChunkReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
+	sid, cid := chunks.HeadChunkRef(meta.Ref).Unpack()
 
 	s := h.head.series.getByID(sid)
 	// This means that the series has been garbage collected.

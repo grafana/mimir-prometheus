@@ -160,8 +160,8 @@ func NewOOOHeadChunkReader(head *Head, mint, maxt int64) *OOOHeadChunkReader {
 	}
 }
 
-func (cr OOOHeadChunkReader) Chunk(ref chunks.ChunkRef) (chunkenc.Chunk, error) {
-	sid, cid := chunks.HeadChunkRef(ref).Unpack()
+func (cr OOOHeadChunkReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
+	sid, cid := chunks.HeadChunkRef(meta.Ref).Unpack()
 
 	s := cr.head.series.getByID(sid)
 	// This means that the series has been garbage collected.
@@ -170,7 +170,7 @@ func (cr OOOHeadChunkReader) Chunk(ref chunks.ChunkRef) (chunkenc.Chunk, error) 
 	}
 
 	s.Lock()
-	c, garbageCollect, err := s.ooochunk(cid, cr.head.chunkDiskMapper) // TODO(jesus.vazquez) here is where we do the magic of merging overlapping chunks
+	c, garbageCollect, err := s.oooMergedChunk(meta, cr.head.chunkDiskMapper)
 	if err != nil {
 		s.Unlock()
 		return nil, err
@@ -183,7 +183,6 @@ func (cr OOOHeadChunkReader) Chunk(ref chunks.ChunkRef) (chunkenc.Chunk, error) 
 		}
 	}()
 
-	// TODO(jesus.vazquez) I wonder if this check should be run here
 	// This means that the chunk is outside the specified range.
 	if !c.OverlapsClosedInterval(cr.mint, cr.maxt) {
 		s.Unlock()
