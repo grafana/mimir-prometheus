@@ -237,6 +237,11 @@ func TestOldChunkDiskMapper_Truncate(t *testing.T) {
 	// As the last file was empty, this creates no new files.
 	require.NoError(t, hrw.Truncate(sixthFileMinT+1))
 	verifyFiles([]int{6, 7, 8, 9, 10})
+
+	// Truncation by file number.
+	require.NoError(t, hrw.TruncateBeforeFile(8))
+	verifyFiles([]int{8, 9, 10})
+
 	addChunk()
 
 	// Truncating till current time should not delete the current active file.

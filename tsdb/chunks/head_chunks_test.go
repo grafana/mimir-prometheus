@@ -242,6 +242,10 @@ func TestChunkDiskMapper_Truncate(t *testing.T) {
 
 	verifyFiles([]int{6, 7, 8, 9, 10})
 
+	// Truncation by file number.
+	require.NoError(t, hrw.TruncateBeforeFile(8))
+	verifyFiles([]int{8, 9, 10})
+
 	// Truncating till current time should not delete the current active file.
 	require.NoError(t, hrw.Truncate(int64(timeRange+(2*fileTimeStep))))
 
