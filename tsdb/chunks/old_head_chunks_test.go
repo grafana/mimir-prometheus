@@ -166,9 +166,8 @@ func TestOldChunkDiskMapper_Truncate(t *testing.T) {
 
 	timeRange := 0
 	fileTimeStep := 100
-	var thirdFileMinT, sixthFileMinT int64
 
-	addChunk := func() int {
+	addChunk := func() {
 		mint := timeRange + 1                // Just after the new file cut.
 		maxt := timeRange + fileTimeStep - 1 // Just before the next file.
 
@@ -178,8 +177,6 @@ func TestOldChunkDiskMapper_Truncate(t *testing.T) {
 		})
 
 		timeRange += fileTimeStep
-
-		return mint
 	}
 
 	verifyFiles := func(remainingFiles []int) {
@@ -200,17 +197,12 @@ func TestOldChunkDiskMapper_Truncate(t *testing.T) {
 	// Create segments 1 to 7.
 	for i := 1; i <= 7; i++ {
 		require.NoError(t, hrw.CutNewFile())
-		mint := int64(addChunk())
-		if i == 3 {
-			thirdFileMinT = mint
-		} else if i == 6 {
-			sixthFileMinT = mint
-		}
+		addChunk()
 	}
 	verifyFiles([]int{1, 2, 3, 4, 5, 6, 7})
 
 	// Truncating files.
-	require.NoError(t, hrw.Truncate(thirdFileMinT))
+	require.NoError(t, hrw.Truncate(3))
 	verifyFiles([]int{3, 4, 5, 6, 7, 8})
 
 	dir := hrw.dir.Name()
@@ -231,21 +223,20 @@ func TestOldChunkDiskMapper_Truncate(t *testing.T) {
 	verifyFiles([]int{3, 4, 5, 6, 7, 8, 9})
 
 	// Truncating files after restart.
-	require.NoError(t, hrw.Truncate(sixthFileMinT))
+	require.NoError(t, hrw.Truncate(6))
 	verifyFiles([]int{6, 7, 8, 9, 10})
 
 	// As the last file was empty, this creates no new files.
-	require.NoError(t, hrw.Truncate(sixthFileMinT+1))
+	require.NoError(t, hrw.Truncate(6))
 	verifyFiles([]int{6, 7, 8, 9, 10})
 
-	// Truncation by file number.
-	require.NoError(t, hrw.TruncateBeforeFile(8))
+	require.NoError(t, hrw.Truncate(8))
 	verifyFiles([]int{8, 9, 10})
 
 	addChunk()
 
 	// Truncating till current time should not delete the current active file.
-	require.NoError(t, hrw.Truncate(int64(timeRange+(2*fileTimeStep))))
+	require.NoError(t, hrw.Truncate(10))
 	verifyFiles([]int{10, 11}) // One file is the previously active file and one currently created.
 }
 
@@ -302,14 +293,13 @@ func TestOldChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 
 	// Truncating files till 2. It should not delete anything after 3 (inclusive)
 	// though files 4 and 6 are empty.
-	file2Maxt := hrw.mmappedChunkFiles[2].maxt
-	require.NoError(t, hrw.Truncate(file2Maxt+1))
+	require.NoError(t, hrw.Truncate(3))
 	// As 6 was empty, it should not create another file.
 	verifyFiles([]int{3, 4, 5, 6})
 
 	addChunk()
 	// Truncate creates another file as 6 is not empty now.
-	require.NoError(t, hrw.Truncate(file2Maxt+1))
+	require.NoError(t, hrw.Truncate(3))
 	verifyFiles([]int{3, 4, 5, 6, 7})
 
 	dir := hrw.dir.Name()

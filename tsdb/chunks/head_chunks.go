@@ -835,23 +835,8 @@ func (cdm *ChunkDiskMapper) IterateAllChunks(f func(seriesRef HeadSeriesRef, chu
 	return nil
 }
 
-// Truncate deletes the head chunk files which are strictly below the mint.
-// mint should be in milliseconds.
-func (cdm *ChunkDiskMapper) Truncate(mint int64) error {
-	return cdm.truncate(func(seq int, maxt int64) bool {
-		return maxt >= mint
-	})
-}
-
-// TruncateBeforeFile deletes the head chunk files whose file number is less than given fileNo.
-func (cdm *ChunkDiskMapper) TruncateBeforeFile(fileNo int) error {
-	return cdm.truncate(func(seq int, maxt int64) bool {
-		return seq >= fileNo
-	})
-}
-
-// truncate deletes the head chunk files from the lowest file number in order until breakCondition becomes true.
-func (cdm *ChunkDiskMapper) truncate(breakCondition func(seq int, maxt int64) bool) error {
+// Truncate deletes the head chunk files whose file number is less than given fileNo.
+func (cdm *ChunkDiskMapper) Truncate(fileNo int) error {
 	if !cdm.fileMaxtSet {
 		return errors.New("maxt of the files are not set")
 	}
@@ -867,7 +852,7 @@ func (cdm *ChunkDiskMapper) truncate(breakCondition func(seq int, maxt int64) bo
 
 	var removedFiles []int
 	for _, seq := range chkFileIndices {
-		if seq == cdm.curFileSequence || breakCondition(seq, cdm.mmappedChunkFiles[seq].maxt) {
+		if seq == cdm.curFileSequence || seq >= fileNo {
 			break
 		}
 		removedFiles = append(removedFiles, seq)

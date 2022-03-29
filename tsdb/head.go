@@ -63,8 +63,7 @@ var (
 type chunkDiskMapper interface {
 	CutNewFile() (returnErr error)
 	IterateAllChunks(f func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16) error) (err error)
-	Truncate(mint int64) error
-	TruncateBeforeFile(fileNo int) error
+	Truncate(fileNo int) error
 	DeleteCorrupted(originalErr error) error
 	Size() (int64, error)
 	Close() error
@@ -880,14 +879,8 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 	}
 
 	// Truncate the chunk m-mapper.
-	if minMmapFile == math.MaxInt32 {
-		if err := h.chunkDiskMapper.Truncate(mint); err != nil {
-			return errors.Wrap(err, "truncate chunks.HeadReadWriter")
-		}
-	} else {
-		if err := h.chunkDiskMapper.TruncateBeforeFile(minMmapFile); err != nil {
-			return errors.Wrap(err, "truncate by file no chunks.HeadReadWriter")
-		}
+	if err := h.chunkDiskMapper.Truncate(minMmapFile); err != nil {
+		return errors.Wrap(err, "truncate by file no chunks.HeadReadWriter")
 	}
 	return nil
 }
