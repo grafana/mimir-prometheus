@@ -63,7 +63,7 @@ var (
 type chunkDiskMapper interface {
 	CutNewFile() (returnErr error)
 	IterateAllChunks(f func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16) error) (err error)
-	Truncate(mint int64) error
+	Truncate(fileNo int) error
 	DeleteCorrupted(originalErr error) error
 	Size() (int64, error)
 	Close() error
@@ -861,7 +861,7 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 	h.metrics.headTruncateTotal.Inc()
 	start := time.Now()
 
-	actualMint := h.gc()
+	actualMint, minMmapFile := h.gc()
 	level.Info(h.logger).Log("msg", "Head GC completed", "duration", time.Since(start))
 	h.metrics.gcDuration.Observe(time.Since(start).Seconds())
 	if actualMint > h.minTime.Load() {
@@ -879,8 +879,8 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 	}
 
 	// Truncate the chunk m-mapper.
-	if err := h.chunkDiskMapper.Truncate(mint); err != nil {
-		return errors.Wrap(err, "truncate chunks.HeadReadWriter")
+	if err := h.chunkDiskMapper.Truncate(minMmapFile); err != nil {
+		return errors.Wrap(err, "truncate by file no chunks.HeadReadWriter")
 	}
 	return nil
 }
@@ -1166,14 +1166,16 @@ func (h *Head) Delete(mint, maxt int64, ms ...*labels.Matcher) error {
 }
 
 // gc removes data before the minimum timestamp from the head.
-// It returns the actual min times of the chunks present in the Head.
-func (h *Head) gc() int64 {
+// It returns
+// * The actual min times of the chunks present in the Head.
+// * Min mmap file number seen in the series (in-order and out-of-order) after gc'ing the series.
+func (h *Head) gc() (int64, int) {
 	// Only data strictly lower than this timestamp must be deleted.
 	mint := h.MinTime()
 
 	// Drop old chunks and remember series IDs and hashes if they can be
 	// deleted entirely.
-	deleted, chunksRemoved, actualMint := h.series.gc(mint)
+	deleted, chunksRemoved, actualMint, minMmapFile := h.series.gc(mint)
 	seriesRemoved := len(deleted)
 
 	h.metrics.seriesRemoved.Add(float64(seriesRemoved))
@@ -1203,7 +1205,7 @@ func (h *Head) gc() int64 {
 		h.deletedMtx.Unlock()
 	}
 
-	return actualMint
+	return actualMint, minMmapFile
 }
 
 // Tombstones returns a new reader over the head's tombstones
@@ -1392,13 +1394,15 @@ func newStripeSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *st
 // note: returning map[chunks.HeadSeriesRef]struct{} would be more accurate,
 // but the returned map goes into postings.Delete() which expects a map[storage.SeriesRef]struct
 // and there's no easy way to cast maps.
-func (s *stripeSeries) gc(mint int64) (map[storage.SeriesRef]struct{}, int, int64) {
+// minMmapFile is the min mmap file number seen in the series (in-order and out-of-order) after gc'ing the series.
+func (s *stripeSeries) gc(mint int64) (_ map[storage.SeriesRef]struct{}, _ int, _ int64, minMmapFile int) {
 	var (
 		deleted                  = map[storage.SeriesRef]struct{}{}
 		deletedForCallback       = []labels.Labels{}
 		rmChunks                 = 0
 		actualMint         int64 = math.MaxInt64
 	)
+	minMmapFile = math.MaxInt32
 	// Run through all series and truncate old chunks. Mark those with no
 	// chunks left as deleted and store their ID.
 	for i := 0; i < s.size; i++ {
@@ -1409,6 +1413,18 @@ func (s *stripeSeries) gc(mint int64) (map[storage.SeriesRef]struct{}, int, int6
 				series.Lock()
 				rmChunks += series.truncateChunksBefore(mint)
 
+				if len(series.mmappedChunks) > 0 {
+					seq, _ := series.mmappedChunks[0].ref.Unpack()
+					if seq < minMmapFile {
+						minMmapFile = seq
+					}
+				}
+				if len(series.oooMmappedChunks) > 0 {
+					seq, _ := series.oooMmappedChunks[0].ref.Unpack()
+					if seq < minMmapFile {
+						minMmapFile = seq
+					}
+				}
 				if len(series.mmappedChunks) > 0 || series.headChunk != nil || series.pendingCommit {
 					seriesMint := series.minTime()
 					if seriesMint < actualMint {
@@ -1452,7 +1468,7 @@ func (s *stripeSeries) gc(mint int64) (map[storage.SeriesRef]struct{}, int, int6
 		actualMint = mint
 	}
 
-	return deleted, rmChunks, actualMint
+	return deleted, rmChunks, actualMint, minMmapFile
 }
 
 func (s *stripeSeries) getByID(id chunks.HeadSeriesRef) *memSeries {
