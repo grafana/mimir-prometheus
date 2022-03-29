@@ -1413,6 +1413,12 @@ func (s *stripeSeries) gc(mint int64) (_ map[storage.SeriesRef]struct{}, _ int, 
 				series.Lock()
 				rmChunks += series.truncateChunksBefore(mint)
 
+				if len(series.mmappedChunks) > 0 {
+					seq, _ := series.mmappedChunks[0].ref.Unpack()
+					if seq < minMmapFile {
+						minMmapFile = seq
+					}
+				}
 				if len(series.oooMmappedChunks) > 0 {
 					seq, _ := series.oooMmappedChunks[0].ref.Unpack()
 					if seq < minMmapFile {
@@ -1420,11 +1426,6 @@ func (s *stripeSeries) gc(mint int64) (_ map[storage.SeriesRef]struct{}, _ int, 
 					}
 				}
 				if len(series.mmappedChunks) > 0 || series.headChunk != nil || series.pendingCommit {
-					seq, _ := series.mmappedChunks[0].ref.Unpack()
-					if seq < minMmapFile {
-						minMmapFile = seq
-					}
-
 					seriesMint := series.minTime()
 					if seriesMint < actualMint {
 						actualMint = seriesMint
