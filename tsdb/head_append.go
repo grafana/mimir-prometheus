@@ -289,6 +289,9 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 			a.head.metrics.outOfOrderSamples.Inc()                     // TODO: should we keep reporting this even when we accept the OOO insert?
 			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000) // TODO: should we keep reporting this even when we accept the OOO insert?
 		}
+		if err == storage.ErrTooOldSample {
+			a.head.metrics.tooOldSamples.Inc()
+		}
 		return 0, err
 	}
 	s.pendingCommit = true
@@ -321,6 +324,9 @@ func (s *memSeries) appendable(t int64, v float64) (int64, error) {
 	}
 
 	if t < c.maxTime-s.oooAllowance {
+		if s.oooAllowance > 0 {
+			return c.maxTime - t, storage.ErrTooOldSample
+		}
 		return c.maxTime - t, storage.ErrOutOfOrderSample
 	}
 
@@ -465,7 +471,7 @@ func (a *headAppender) Commit() (err error) {
 	defer a.head.iso.closeAppend(a.appendID)
 
 	total := len(a.samples)
-	var oob, ooo, chunks int // out of bounds, out of order, and chunks created
+	var oob, ooo, tooOld int // out of bounds, out of order, too old
 
 	var series *memSeries
 	for i, s := range a.samples {
@@ -494,37 +500,34 @@ func (a *headAppender) Commit() (err error) {
 
 			} else {
 				// ...but the delta is beyond the OOO tolerance
-				ok = false
+				tooOld++
 			}
 		} else {
-			// Sample is not OOO or OOO handling is disabled
+			// Sample is in order and/or OOO handling is disabled
 			// if OOO is enabled, then Append() skipped this test. We must run it now.
-			if a.head.opts.OOOAllowance > 0 {
-
-				if s.T < a.minValidTime {
-					// Note: when this is breached and OOO inserts are enabled, we could technically
-					// insert this sample into an OOO chunk, even if the sample is not OOO. That would
-					// effectively support the "lagging series" (offset clock) use case, which we're not
-					// sure yet if we want to support that.  It may increase the volume of OOO chunk data
-					// significantly.
-					total--
-					oob++
-				}
-				break
+			if a.head.opts.OOOAllowance > 0 && s.T < a.minValidTime {
+				// Here, we know for sure the sample is in order.
+				// TODO: if OOO inserts are enabled, we could support the "lagging series" (offset clock) use case here.
+				// Even if the sample is in order, we could insert it into an OOO chunk
+				// Not sure yet if we want to support that.  It may increase the volume of OOO chunk data
+				// significantly. So for now, be conservative (reject), we may open this use case later.
+				total--
+				oob++
+				continue
 			}
 
 			delta, ok, chunkCreated = series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper)
 			// TODO: handle overwrite.
 			// this would be storage.ErrDuplicateSampleForTimestamp, it has no attached counter
 			// in case of identical timestamp and value, we should drop silently
+			if !ok {
+				total--
+				ooo++
+			}
 		}
 
 		if delta > 0 {
 			a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
-		}
-		if !ok {
-			total--
-			a.head.metrics.outOfOrderSamples.Inc()
 		}
 		if chunkCreated {
 			a.head.metrics.chunks.Inc()
@@ -536,7 +539,9 @@ func (a *headAppender) Commit() (err error) {
 		series.Unlock()
 	}
 
+	a.head.metrics.outOfOrderSamples.Add(float64(ooo))
 	a.head.metrics.outOfBoundSamples.Add(float64(oob))
+	a.head.metrics.tooOldSamples.Add(float64(tooOld))
 	a.head.metrics.samplesAppended.Add(float64(total))
 	a.head.updateMinMaxTime(a.mint, a.maxt)
 

@@ -320,6 +320,7 @@ type headMetrics struct {
 	samplesAppended          prometheus.Counter
 	outOfBoundSamples        prometheus.Counter
 	outOfOrderSamples        prometheus.Counter
+	tooOldSamples            prometheus.Counter
 	walTruncateDuration      prometheus.Summary
 	walCorruptionsTotal      prometheus.Counter
 	walTotalReplayDuration   prometheus.Gauge
@@ -398,6 +399,10 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_out_of_order_samples_total",
 			Help: "Total number of out of order samples ingestion failed attempts.",
 		}),
+		tooOldSamples: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_too_old_samples_total",
+			Help: "Total number of out of order samples ingestion failed attempts.",
+		}),
 		headTruncateFail: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_truncations_failed_total",
 			Help: "Total number of head truncations that failed.",
@@ -463,6 +468,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.samplesAppended,
 			m.outOfBoundSamples,
 			m.outOfOrderSamples,
+			m.tooOldSamples,
 			m.headTruncateFail,
 			m.headTruncateTotal,
 			m.checkpointDeleteFail,
@@ -1593,7 +1599,6 @@ type memSeries struct {
 	// It is nil only if headChunk is nil. E.g. if there was an appender that created a new series, but rolled back the commit
 	// (the first sample would create a headChunk, hence appender, but rollback skipped it while the Append() call would create a series).
 	app chunkenc.Appender
-	// TODO(jesus.vazquez) See if we need an oooApp for the ooo samples. Dieter doesn't think so. can just work on the OOOChunk directly?
 
 	memChunkPool *sync.Pool
 
