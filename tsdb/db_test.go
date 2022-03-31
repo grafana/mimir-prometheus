@@ -3512,3 +3512,141 @@ func newTestDB(t *testing.T) *DB {
 	})
 	return db
 }
+
+func TestOOOWALWrite(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.OOOCapMin = 10
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 30 * time.Minute.Milliseconds()
+
+	db, err := Open(dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	s1, s2 := labels.FromStrings("l", "v1"), labels.FromStrings("l", "v2")
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+
+	appendSample := func(app storage.Appender, l labels.Labels, ts int64, v float64) {
+		_, err = app.Append(0, l, ts, v)
+		require.NoError(t, err)
+	}
+
+	// Ingest sample at 1h.
+	app := db.Appender(context.Background())
+	appendSample(app, s1, minutes(60), 60)
+	appendSample(app, s2, minutes(60), 60)
+	require.NoError(t, app.Commit())
+
+	// OOO for s1.
+	app = db.Appender(context.Background())
+	appendSample(app, s1, minutes(40), 40)
+	require.NoError(t, app.Commit())
+
+	// OOO for s2.
+	app = db.Appender(context.Background())
+	appendSample(app, s2, minutes(42), 42)
+	require.NoError(t, app.Commit())
+
+	// OOO for both s1 and s2 in the same commit.
+	app = db.Appender(context.Background())
+	appendSample(app, s2, minutes(45), 45)
+	appendSample(app, s1, minutes(35), 35)
+	require.NoError(t, app.Commit())
+
+	// OOO for s1 but not for s2 in the same commit.
+	app = db.Appender(context.Background())
+	appendSample(app, s1, minutes(50), 50)
+	appendSample(app, s2, minutes(65), 65)
+	require.NoError(t, app.Commit())
+
+	oooSamplesRecords := [][]record.RefSample{
+		{
+			record.RefSample{Ref: 1, T: minutes(40), V: 40},
+		},
+		{
+			record.RefSample{Ref: 2, T: minutes(42), V: 42},
+		},
+		{
+			record.RefSample{Ref: 2, T: minutes(45), V: 45},
+			record.RefSample{Ref: 1, T: minutes(35), V: 35},
+		},
+		{ // Does not contain the in-order sample here.
+			record.RefSample{Ref: 1, T: minutes(50), V: 50},
+		},
+	}
+
+	inOrderSeriesRecords := [][]record.RefSeries{
+		{
+			record.RefSeries{Ref: 1, Labels: s1},
+			record.RefSeries{Ref: 2, Labels: s2},
+		},
+	}
+	// OOO samples also get written to the old WAL.
+	inOrderSamplesRecords := [][]record.RefSample{
+		{
+			record.RefSample{Ref: 1, T: minutes(60), V: 60},
+			record.RefSample{Ref: 2, T: minutes(60), V: 60},
+		},
+		{
+			record.RefSample{Ref: 1, T: minutes(40), V: 40},
+		},
+		{
+			record.RefSample{Ref: 2, T: minutes(42), V: 42},
+		},
+		{
+			record.RefSample{Ref: 2, T: minutes(45), V: 45},
+			record.RefSample{Ref: 1, T: minutes(35), V: 35},
+		},
+		{ // Contains both in-order and ooo sample.
+			record.RefSample{Ref: 1, T: minutes(50), V: 50},
+			record.RefSample{Ref: 2, T: minutes(65), V: 65},
+		},
+	}
+
+	getRecords := func(walDir string) ([][]record.RefSeries, [][]record.RefSample) {
+		sr, err := wal.NewSegmentsReader(walDir)
+		require.NoError(t, err)
+		r := wal.NewReader(sr)
+		defer func() {
+			require.NoError(t, sr.Close())
+		}()
+
+		var (
+			seriesRecords [][]record.RefSeries
+			sampleRecords [][]record.RefSample
+			dec           record.Decoder
+		)
+		for r.Next() {
+			rec := r.Record()
+			switch dec.Type(rec) {
+			case record.Series:
+				series, err := dec.Series(rec, nil)
+				require.NoError(t, err)
+				seriesRecords = append(seriesRecords, series)
+			case record.Samples:
+				samples, err := dec.Samples(rec, nil)
+				require.NoError(t, err)
+				sampleRecords = append(sampleRecords, samples)
+			default:
+				t.Fatalf("got a WAL record that is not series or samples")
+			}
+		}
+
+		return seriesRecords, sampleRecords
+	}
+
+	// The normal WAL.
+	series, samples := getRecords(path.Join(dir, "wal"))
+	require.Equal(t, inOrderSeriesRecords, series)
+	require.Equal(t, inOrderSamplesRecords, samples)
+
+	// The OOO WAL.
+	series, samples = getRecords(path.Join(dir, "ooo_wal"))
+	require.Equal(t, oooSamplesRecords, samples)
+	require.Len(t, series, 0)
+}

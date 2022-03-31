@@ -330,6 +330,11 @@ func (s *memSeries) appendable(t int64, v float64) (int64, error) {
 		return c.maxTime - t, storage.ErrOutOfOrderSample
 	}
 
+	if t != c.maxTime {
+		// Sample is ooo and within allowance.
+		return c.maxTime - t, nil
+	}
+
 	// We are allowing exact duplicates as we can encounter them in valid cases
 	// like federation and erroring out at that time would be extremely noisy.
 	// this only checks against the latest in-order sample.
@@ -432,15 +437,14 @@ func (a *headAppender) logOOO(oooSamples []record.RefSample) error {
 	if a.head.oooWal == nil || len(oooSamples) == 0 {
 		return nil
 	}
-
 	buf := a.head.getBytesBuffer()
 	defer func() { a.head.putBytesBuffer(buf) }()
 
 	var enc record.Encoder
-	rec := enc.Samples(a.samples, buf)
+	rec := enc.Samples(oooSamples, buf)
 	buf = rec[:0]
 
-	return a.head.wal.Log(rec)
+	return a.head.oooWal.Log(rec)
 }
 
 func exemplarsForEncoding(es []exemplarWithSeriesRef) []record.RefExemplar {
