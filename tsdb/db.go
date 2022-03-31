@@ -392,9 +392,13 @@ func (db *DBReadOnly) FlushWAL(dir string) (returnErr error) {
 	if err != nil {
 		return err
 	}
+	ooow, err := wal.Open(db.logger, filepath.Join(db.dir, "ooo_wal"))
+	if err != nil {
+		return err
+	}
 	opts := DefaultHeadOptions()
 	opts.ChunkDirRoot = db.dir
-	head, err := NewHead(nil, db.logger, w, opts, NewHeadStats())
+	head, err := NewHead(nil, db.logger, w, ooow, opts, NewHeadStats())
 	if err != nil {
 		return err
 	}
@@ -450,7 +454,7 @@ func (db *DBReadOnly) loadDataAsQueryable(maxt int64) (storage.SampleAndChunkQue
 
 	opts := DefaultHeadOptions()
 	opts.ChunkDirRoot = db.dir
-	head, err := NewHead(nil, db.logger, nil, opts, NewHeadStats())
+	head, err := NewHead(nil, db.logger, nil, nil, opts, NewHeadStats())
 	if err != nil {
 		return nil, err
 	}
@@ -468,9 +472,13 @@ func (db *DBReadOnly) loadDataAsQueryable(maxt int64) (storage.SampleAndChunkQue
 		if err != nil {
 			return nil, err
 		}
+		ooow, err := wal.Open(db.logger, filepath.Join(db.dir, "ooo_wal"))
+		if err != nil {
+			return nil, err
+		}
 		opts := DefaultHeadOptions()
 		opts.ChunkDirRoot = db.dir
-		head, err = NewHead(nil, db.logger, w, opts, NewHeadStats())
+		head, err = NewHead(nil, db.logger, w, ooow, opts, NewHeadStats())
 		if err != nil {
 			return nil, err
 		}
@@ -657,6 +665,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	}
 
 	walDir := filepath.Join(dir, "wal")
+	oooWalDir := filepath.Join(dir, "ooo_wal")
 
 	// Migrate old WAL if one exists.
 	if err := MigrateWAL(l, walDir); err != nil {
@@ -715,7 +724,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	}
 	db.compactCancel = cancel
 
-	var wlog *wal.WAL
+	var wlog, oooWlog *wal.WAL
 	segmentSize := wal.DefaultSegmentSize
 	// Wal is enabled.
 	if opts.WALSegmentSize >= 0 {
@@ -724,6 +733,10 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 			segmentSize = opts.WALSegmentSize
 		}
 		wlog, err = wal.NewSize(l, r, walDir, segmentSize, opts.WALCompression)
+		if err != nil {
+			return nil, err
+		}
+		oooWlog, err = wal.NewSize(l, r, oooWalDir, segmentSize, opts.WALCompression)
 		if err != nil {
 			return nil, err
 		}
@@ -749,7 +762,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		// We only override this flag if isolation is disabled at DB level. We use the default otherwise.
 		headOpts.IsolationDisabled = opts.IsolationDisabled
 	}
-	db.head, err = NewHead(r, l, wlog, headOpts, stats.Head)
+	db.head, err = NewHead(r, l, wlog, oooWlog, headOpts, stats.Head)
 	if err != nil {
 		return nil, err
 	}

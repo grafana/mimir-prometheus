@@ -427,6 +427,22 @@ func (a *headAppender) log() error {
 	return nil
 }
 
+// logOOO writes all the ooo samples committed by the appender.
+func (a *headAppender) logOOO(oooSamples []record.RefSample) error {
+	if a.head.oooWal == nil || len(oooSamples) == 0 {
+		return nil
+	}
+
+	buf := a.head.getBytesBuffer()
+	defer func() { a.head.putBytesBuffer(buf) }()
+
+	var enc record.Encoder
+	rec := enc.Samples(a.samples, buf)
+	buf = rec[:0]
+
+	return a.head.wal.Log(rec)
+}
+
 func exemplarsForEncoding(es []exemplarWithSeriesRef) []record.RefExemplar {
 	ret := make([]record.RefExemplar, 0, len(es))
 	for _, e := range es {
@@ -472,7 +488,7 @@ func (a *headAppender) Commit() (err error) {
 
 	total := len(a.samples)
 	var oob, ooo, tooOld int // out of bounds, out of order, too old
-
+	var oooWalSamples []record.RefSample
 	var series *memSeries
 	for i, s := range a.samples {
 
@@ -490,7 +506,10 @@ func (a *headAppender) Commit() (err error) {
 			if delta <= series.oooAllowance {
 				// ... and the delta is within the OOO tolerance
 
-				_, chunkCreated = series.insert(s.T, s.V, a.head.chunkDiskMapper)
+				ok, chunkCreated = series.insert(s.T, s.V, a.head.chunkDiskMapper)
+				if ok {
+					oooWalSamples = append(oooWalSamples, s)
+				}
 				//if !ok {
 				//	// the sample was an attempted update.
 				//	// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
@@ -544,6 +563,13 @@ func (a *headAppender) Commit() (err error) {
 	a.head.metrics.samplesAppended.Add(float64(total))
 	a.head.updateMinMaxTime(a.mint, a.maxt)
 
+	// TODO: currently WAL logging of ooo samples is best effort here since we cannot try logging
+	// until we have found what samples become OOO. We can try having a metric for this failure.
+	// Returning the error here is not correct because we have already put the samples into the memory,
+	// hence the append/insert was a success.
+	if err := a.logOOO(oooWalSamples); err != nil {
+		level.Error(a.head.logger).Log("msg", "Failed to log out of order samples into the WAL", "err", err)
+	}
 	return nil
 }
 

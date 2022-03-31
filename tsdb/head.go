@@ -86,7 +86,7 @@ type Head struct {
 
 	metrics         *headMetrics
 	opts            *HeadOptions
-	wal             *wal.WAL
+	wal, oooWal     *wal.WAL
 	exemplarMetrics *ExemplarMetrics
 	exemplars       ExemplarStorage
 	logger          log.Logger
@@ -196,7 +196,7 @@ type SeriesLifecycleCallback interface {
 }
 
 // NewHead opens the head block in dir.
-func NewHead(r prometheus.Registerer, l log.Logger, wal *wal.WAL, opts *HeadOptions, stats *HeadStats) (*Head, error) {
+func NewHead(r prometheus.Registerer, l log.Logger, wal, oooWal *wal.WAL, opts *HeadOptions, stats *HeadStats) (*Head, error) {
 	var err error
 	if l == nil {
 		l = log.NewNopLogger()
@@ -240,6 +240,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal *wal.WAL, opts *HeadOpti
 
 	h := &Head{
 		wal:    wal,
+		oooWal: oooWal,
 		logger: l,
 		opts:   opts,
 		memChunkPool: sync.Pool{
@@ -1293,6 +1294,9 @@ func (h *Head) Close() error {
 	errs := tsdb_errors.NewMulti(h.chunkDiskMapper.Close())
 	if h.wal != nil {
 		errs.Add(h.wal.Close())
+	}
+	if h.oooWal != nil {
+		errs.Add(h.oooWal.Close())
 	}
 	if errs.Err() == nil && h.opts.EnableMemorySnapshotOnShutdown {
 		errs.Add(h.performChunkSnapshot())
