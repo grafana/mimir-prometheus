@@ -203,16 +203,23 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal *wal.WAL, opts *HeadOpti
 	}
 
 	if opts.OOOAllowance < 0 {
-		return nil, errors.Errorf("OOOAllowance invalid %d . must >= 0", opts.OOOAllowance)
+		return nil, errors.Errorf("OOOAllowance invalid %d . must be >= 0", opts.OOOAllowance)
 	}
 
 	if opts.OOOAllowance > 0 {
+		if opts.OOOCapMin > 255 {
+			return nil, errors.Errorf("OOOCapMin invalid %d. must be <= 255", opts.OOOCapMin)
+		}
+		if opts.OOOCapMax > 255 {
+			return nil, errors.Errorf("OOOCapMax invalid %d. must be <= 255", opts.OOOCapMin)
+		}
+
 		if opts.OOOCapMin < 0 {
-			return nil, errors.Errorf("OOOCapMin invalid %d. must >= 0", opts.OOOCapMin)
+			return nil, errors.Errorf("OOOCapMin invalid %d. must be >= 0", opts.OOOCapMin)
 		}
 
 		if opts.OOOCapMax <= 0 || opts.OOOCapMax < opts.OOOCapMin {
-			return nil, errors.Errorf("OOOCapMax invalid %d. must > 0 and must >= OOOCapMin", opts.OOOCapMax)
+			return nil, errors.Errorf("OOOCapMax invalid %d. must be > 0 and >= OOOCapMin", opts.OOOCapMax)
 		}
 	}
 

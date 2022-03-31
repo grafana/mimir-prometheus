@@ -497,7 +497,6 @@ func (a *headAppender) Commit() (err error) {
 					// not with samples in already flushed OOO chunks.
 					// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
 				}
-
 			} else {
 				// ...but the delta is beyond the OOO tolerance
 				tooOld++
@@ -558,6 +557,14 @@ func (s *memSeries) insert(t int64, v float64, chunkDiskMapper chunkDiskMapper) 
 	}
 
 	ok := c.chunk.Insert(t, v)
+	if ok {
+		if chunkCreated || t < c.minTime {
+			c.minTime = t
+		}
+		if chunkCreated || t > c.maxTime {
+			c.maxTime = t
+		}
+	}
 	return ok, chunkCreated
 }
 
@@ -701,14 +708,14 @@ func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) {
 		// There is no head chunk, so nothing to m-map here.
 		return
 	}
-	// TODO(codesome): figure out how m-mapping will be handled in case of ooo chunks"
+	// TODO(codesome): Add metadata about this chunk being OOO. Needs support from ChunkDiskMapper.
 	xor, _ := s.oooHeadChunk.chunk.ToXor() // encode to XorChunk which is more compact and implements all of the needed functionality to be encoded
 	chunkRef := chunkDiskMapper.WriteChunk(s.ref, s.oooHeadChunk.minTime, s.oooHeadChunk.maxTime, xor, handleChunkWriteError)
-	s.mmappedChunks = append(s.mmappedChunks, &mmappedChunk{
+	s.oooMmappedChunks = append(s.oooMmappedChunks, &mmappedChunk{
 		ref:        chunkRef,
-		numSamples: uint16(s.headChunk.chunk.NumSamples()),
-		minTime:    s.headChunk.minTime,
-		maxTime:    s.headChunk.maxTime,
+		numSamples: uint16(xor.NumSamples()),
+		minTime:    s.oooHeadChunk.minTime,
+		maxTime:    s.oooHeadChunk.maxTime,
 	})
 }
 
