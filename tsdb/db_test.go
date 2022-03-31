@@ -3531,37 +3531,37 @@ func TestOOOWALWrite(t *testing.T) {
 	s1, s2 := labels.FromStrings("l", "v1"), labels.FromStrings("l", "v2")
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 
-	appendSample := func(app storage.Appender, l labels.Labels, ts int64, v float64) {
-		_, err = app.Append(0, l, ts, v)
+	appendSample := func(app storage.Appender, l labels.Labels, mins int64) {
+		_, err = app.Append(0, l, minutes(mins), float64(mins))
 		require.NoError(t, err)
 	}
 
 	// Ingest sample at 1h.
 	app := db.Appender(context.Background())
-	appendSample(app, s1, minutes(60), 60)
-	appendSample(app, s2, minutes(60), 60)
+	appendSample(app, s1, 60)
+	appendSample(app, s2, 60)
 	require.NoError(t, app.Commit())
 
 	// OOO for s1.
 	app = db.Appender(context.Background())
-	appendSample(app, s1, minutes(40), 40)
+	appendSample(app, s1, 40)
 	require.NoError(t, app.Commit())
 
 	// OOO for s2.
 	app = db.Appender(context.Background())
-	appendSample(app, s2, minutes(42), 42)
+	appendSample(app, s2, 42)
 	require.NoError(t, app.Commit())
 
 	// OOO for both s1 and s2 in the same commit.
 	app = db.Appender(context.Background())
-	appendSample(app, s2, minutes(45), 45)
-	appendSample(app, s1, minutes(35), 35)
+	appendSample(app, s2, 45)
+	appendSample(app, s1, 35)
 	require.NoError(t, app.Commit())
 
 	// OOO for s1 but not for s2 in the same commit.
 	app = db.Appender(context.Background())
-	appendSample(app, s1, minutes(50), 50)
-	appendSample(app, s2, minutes(65), 65)
+	appendSample(app, s1, 50)
+	appendSample(app, s2, 65)
 	require.NoError(t, app.Commit())
 
 	oooSamplesRecords := [][]record.RefSample{
