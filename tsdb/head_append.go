@@ -490,13 +490,13 @@ func (a *headAppender) Commit() (err error) {
 			if delta <= series.oooAllowance {
 				// ... and the delta is within the OOO tolerance
 
-				ok, chunkCreated = series.insert(s.T, s.V, a.head.chunkDiskMapper)
-				if !ok {
-					// the sample was an attempted update.
-					// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
-					// not with samples in already flushed OOO chunks.
-					// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
-				}
+				_, chunkCreated = series.insert(s.T, s.V, a.head.chunkDiskMapper)
+				//if !ok {
+				//	// the sample was an attempted update.
+				//	// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
+				//	// not with samples in already flushed OOO chunks.
+				//	// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
+				//}
 			} else {
 				// ...but the delta is beyond the OOO tolerance
 				tooOld++
