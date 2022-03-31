@@ -148,6 +148,9 @@ type HeadOptions struct {
 	ChunkWriteBufferSize int
 	ChunkEndTimeVariance float64
 	ChunkWriteQueueSize  int
+	OOOAllowance         int64
+	OOOCapMin            int64
+	OOOCapMax            int64
 
 	// StripeSize sets the number of entries in the hash map, it must be a power of 2.
 	// A larger StripeSize will allocate more memory up-front, but will increase performance when handling a large number of series.
@@ -171,6 +174,9 @@ func DefaultHeadOptions() *HeadOptions {
 		StripeSize:           DefaultStripeSize,
 		SeriesCallback:       &noopSeriesLifecycleCallback{},
 		IsolationDisabled:    defaultIsolationDisabled,
+		OOOAllowance:         0,
+		OOOCapMin:            4,
+		OOOCapMax:            32,
 	}
 }
 
@@ -195,6 +201,28 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal *wal.WAL, opts *HeadOpti
 	if l == nil {
 		l = log.NewNopLogger()
 	}
+
+	if opts.OOOAllowance < 0 {
+		return nil, errors.Errorf("OOOAllowance invalid %d . must be >= 0", opts.OOOAllowance)
+	}
+
+	if opts.OOOAllowance > 0 {
+		if opts.OOOCapMin > 255 {
+			return nil, errors.Errorf("OOOCapMin invalid %d. must be <= 255", opts.OOOCapMin)
+		}
+		if opts.OOOCapMax > 255 {
+			return nil, errors.Errorf("OOOCapMax invalid %d. must be <= 255", opts.OOOCapMin)
+		}
+
+		if opts.OOOCapMin < 0 {
+			return nil, errors.Errorf("OOOCapMin invalid %d. must be >= 0", opts.OOOCapMin)
+		}
+
+		if opts.OOOCapMax <= 0 || opts.OOOCapMax < opts.OOOCapMin {
+			return nil, errors.Errorf("OOOCapMax invalid %d. must be > 0 and >= OOOCapMin", opts.OOOCapMax)
+		}
+	}
+
 	if opts.ChunkRange < 1 {
 		return nil, errors.Errorf("invalid chunk range %d", opts.ChunkRange)
 	}
@@ -301,6 +329,7 @@ type headMetrics struct {
 	samplesAppended          prometheus.Counter
 	outOfBoundSamples        prometheus.Counter
 	outOfOrderSamples        prometheus.Counter
+	tooOldSamples            prometheus.Counter
 	walTruncateDuration      prometheus.Summary
 	walCorruptionsTotal      prometheus.Counter
 	walTotalReplayDuration   prometheus.Gauge
@@ -379,6 +408,10 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_out_of_order_samples_total",
 			Help: "Total number of out of order samples ingestion failed attempts.",
 		}),
+		tooOldSamples: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_too_old_samples_total",
+			Help: "Total number of out of order samples ingestion failed attempts.",
+		}),
 		headTruncateFail: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_truncations_failed_total",
 			Help: "Total number of head truncations that failed.",
@@ -444,6 +477,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.samplesAppended,
 			m.outOfBoundSamples,
 			m.outOfOrderSamples,
+			m.tooOldSamples,
 			m.headTruncateFail,
 			m.headTruncateTotal,
 			m.checkpointDeleteFail,
@@ -1290,7 +1324,7 @@ func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool, e
 
 func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
 	s, created, err := h.series.getOrSet(hash, lset, func() *memSeries {
-		return newMemSeries(lset, id, hash, h.chunkRange.Load(), h.opts.ChunkEndTimeVariance, &h.memChunkPool, h.opts.IsolationDisabled)
+		return newMemSeries(lset, id, hash, h.chunkRange.Load(), h.opts.OOOAllowance, h.opts.OOOCapMin, h.opts.OOOCapMax, h.opts.ChunkEndTimeVariance, &h.memChunkPool, h.opts.IsolationDisabled)
 	})
 	if err != nil {
 		return nil, false, err
@@ -1564,13 +1598,15 @@ type memSeries struct {
 	headChunk     *memChunk          // Most recent chunk in memory that's still being built.
 	firstChunkID  chunks.HeadChunkID // HeadChunkID for mmappedChunks[0]
 
-	oooMmappedChunks []*mmappedChunk // Immutable chunks on disk containing OOO samples.
-	// TODO(jesus.vazquez) New oooMemChunk type, not sure if we should implement the chunk interface, we can start with a slice of samples.
-	oooHeadChunk    *memChunk          // Most recent chunk for ooo samples in memory that's still being built.
-	firstOOOChunkID chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
+	oooMmappedChunks []*mmappedChunk    // Immutable chunks on disk containing OOO samples.
+	oooHeadChunk     *oooHeadChunk      // Most recent chunk for ooo samples in memory that's still being built.
+	firstOOOChunkID  chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
 
-	mmMaxTime  int64 // Max time of any mmapped chunk, only used during WAL replay.
-	chunkRange int64
+	mmMaxTime    int64 // Max time of any mmapped chunk, only used during WAL replay.
+	chunkRange   int64
+	oooAllowance int64
+	oooCapMin    uint8
+	oooCapMax    uint8
 
 	// chunkEndTimeVariance is how much variance (between 0 and 1) should be applied to the chunk end time,
 	// to spread chunks writing across time. Doesn't apply to the last chunk of the chunk range. 0 to disable variance.
@@ -1588,7 +1624,6 @@ type memSeries struct {
 	// It is nil only if headChunk is nil. E.g. if there was an appender that created a new series, but rolled back the commit
 	// (the first sample would create a headChunk, hence appender, but rollback skipped it while the Append() call would create a series).
 	app chunkenc.Appender
-	// TODO(jesus.vazquez) See if we need an oooApp for the ooo samples
 
 	memChunkPool *sync.Pool
 
@@ -1596,7 +1631,7 @@ type memSeries struct {
 	txs *txRing
 }
 
-func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chunkRange int64, chunkEndTimeVariance float64, memChunkPool *sync.Pool, isolationDisabled bool) *memSeries {
+func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chunkRange, oooAllowance, oooCapMin, oooCapMax int64, chunkEndTimeVariance float64, memChunkPool *sync.Pool, isolationDisabled bool) *memSeries {
 	s := &memSeries{
 		lset:                 lset,
 		hash:                 hash,
@@ -1605,6 +1640,9 @@ func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chun
 		chunkEndTimeVariance: chunkEndTimeVariance,
 		nextAt:               math.MinInt64,
 		memChunkPool:         memChunkPool,
+		oooAllowance:         oooAllowance,
+		oooCapMin:            uint8(oooCapMin),
+		oooCapMax:            uint8(oooCapMax),
 	}
 	if !isolationDisabled {
 		s.txs = newTxRing(4)
@@ -1623,6 +1661,7 @@ func (s *memSeries) minTime() int64 {
 }
 
 func (s *memSeries) maxTime() int64 {
+	// The highest timestamps will always be in the regular (non-OOO) chunks, even if OOO is enabled.
 	c := s.head()
 	if c != nil {
 		return c.maxTime
@@ -1673,6 +1712,16 @@ func (s *memSeries) head() *memChunk {
 type memChunk struct {
 	chunk            chunkenc.Chunk
 	minTime, maxTime int64
+}
+
+type oooHeadChunk struct {
+	chunk            *chunkenc.OOOChunk
+	minTime, maxTime int64 // can probably be removed and pulled out of the chunk instead
+}
+
+// OverlapsClosedInterval returns true if the chunk overlaps [mint, maxt].
+func (mc *oooHeadChunk) OverlapsClosedInterval(mint, maxt int64) bool {
+	return overlapsClosedInterval(mc.minTime, mc.maxTime, mint, maxt)
 }
 
 // OverlapsClosedInterval returns true if the chunk overlaps [mint, maxt].

@@ -165,7 +165,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 
 				if headChunk && len(tc.inputChunkIntervals) > 0 {
 					// Put the last interval in the head chunk
-					s1.oooHeadChunk = &memChunk{
+					s1.oooHeadChunk = &oooHeadChunk{
 						minTime: tc.inputChunkIntervals[len(tc.inputChunkIntervals)-1].mint,
 						maxTime: tc.inputChunkIntervals[len(tc.inputChunkIntervals)-1].maxt,
 					}
