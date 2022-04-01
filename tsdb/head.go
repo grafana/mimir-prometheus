@@ -333,7 +333,7 @@ type headMetrics struct {
 	tooOldSamples            prometheus.Counter
 	walTruncateDuration      prometheus.Summary
 	walCorruptionsTotal      prometheus.Counter
-	walTotalReplayDuration   prometheus.Gauge
+	dataTotalReplayDuration  prometheus.Gauge
 	headTruncateFail         prometheus.Counter
 	headTruncateTotal        prometheus.Counter
 	checkpointDeleteFail     prometheus.Counter
@@ -393,7 +393,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_wal_corruptions_total",
 			Help: "Total number of WAL corruptions.",
 		}),
-		walTotalReplayDuration: prometheus.NewGauge(prometheus.GaugeOpts{
+		dataTotalReplayDuration: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "prometheus_tsdb_data_replay_duration_seconds",
 			Help: "Time taken to replay the data on disk.",
 		}),
@@ -474,7 +474,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.gcDuration,
 			m.walTruncateDuration,
 			m.walCorruptionsTotal,
-			m.walTotalReplayDuration,
+			m.dataTotalReplayDuration,
 			m.samplesAppended,
 			m.outOfBoundSamples,
 			m.outOfOrderSamples,
@@ -716,14 +716,14 @@ func (h *Head) Init(minValidTime int64) error {
 
 	oooWalReplayDuration := time.Since(oooWalReplayStart)
 
-	walTotalReplayDuration := time.Since(start)
-	h.metrics.walTotalReplayDuration.Set(walTotalReplayDuration.Seconds())
+	totalReplayDuration := time.Since(start)
+	h.metrics.dataTotalReplayDuration.Set(totalReplayDuration.Seconds())
 	level.Info(h.logger).Log(
 		"msg", "WAL replay completed",
 		"checkpoint_replay_duration", checkpointReplayDuration.String(),
 		"wal_replay_duration", walReplayDuration.String(),
 		"ooo_wal_replay_duration", oooWalReplayDuration.String(),
-		"total_replay_duration", walTotalReplayDuration.String(),
+		"total_replay_duration", totalReplayDuration.String(),
 	)
 
 	return nil

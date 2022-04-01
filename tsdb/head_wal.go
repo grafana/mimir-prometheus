@@ -517,7 +517,7 @@ func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunk
 	// The records are always replayed from the oldest to the newest.
 	for d := range decoded {
 		samples := d
-		// We split up the samples into chunks of 5000 samples or less.
+		// We split up the samples into parts of 5000 samples or less.
 		// With O(300 * #cores) in-flight sample batches, large scrapes could otherwise
 		// cause thousands of very large in flight buffers occupying large amounts
 		// of unused memory.
