@@ -41,6 +41,7 @@ const (
 	DefaultSegmentSize = 128 * 1024 * 1024 // 128 MB
 	pageSize           = 32 * 1024         // 32KB
 	recordHeaderSize   = 7
+	OOOWalDirName      = "ooo_wal"
 )
 
 // The table gets initialized with sync.Once but may still cause a race
@@ -281,7 +282,7 @@ func NewSize(logger log.Logger, reg prometheus.Registerer, dir string, segmentSi
 		compress:    compress,
 	}
 	isOOO := false
-	if filepath.Base(dir) == "ooo_wal" {
+	if filepath.Base(dir) == OOOWalDirName {
 		// TODO(codesome): have a less hacky way to do it.
 		isOOO = true
 	}

@@ -392,7 +392,7 @@ func (db *DBReadOnly) FlushWAL(dir string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	ooow, err := wal.Open(db.logger, filepath.Join(db.dir, "ooo_wal"))
+	ooow, err := wal.Open(db.logger, filepath.Join(db.dir, wal.OOOWalDirName))
 	if err != nil {
 		return err
 	}
@@ -472,7 +472,7 @@ func (db *DBReadOnly) loadDataAsQueryable(maxt int64) (storage.SampleAndChunkQue
 		if err != nil {
 			return nil, err
 		}
-		ooow, err := wal.Open(db.logger, filepath.Join(db.dir, "ooo_wal"))
+		ooow, err := wal.Open(db.logger, filepath.Join(db.dir, wal.OOOWalDirName))
 		if err != nil {
 			return nil, err
 		}
@@ -665,7 +665,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	}
 
 	walDir := filepath.Join(dir, "wal")
-	oooWalDir := filepath.Join(dir, "ooo_wal")
+	oooWalDir := filepath.Join(dir, wal.OOOWalDirName)
 
 	// Migrate old WAL if one exists.
 	if err := MigrateWAL(l, walDir); err != nil {

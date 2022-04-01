@@ -3646,7 +3646,7 @@ func TestOOOWALWrite(t *testing.T) {
 	require.Equal(t, inOrderSamplesRecords, samples)
 
 	// The OOO WAL.
-	series, samples = getRecords(path.Join(dir, "ooo_wal"))
+	series, samples = getRecords(path.Join(dir, wal.OOOWalDirName))
 	require.Equal(t, oooSamplesRecords, samples)
 	require.Len(t, series, 0)
 }
