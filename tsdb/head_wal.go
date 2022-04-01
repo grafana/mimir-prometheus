@@ -446,6 +446,205 @@ func (wp *walSubsetProcessor) waitUntilIdle() {
 	}
 }
 
+func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunks.HeadSeriesRef) (err error) {
+	// Track number of samples that referenced a series we don't know about
+	// for error reporting.
+	var unknownRefs atomic.Uint64
+
+	// Start workers that each process samples for a partition of the series ID space.
+	var (
+		wg         sync.WaitGroup
+		n          = runtime.GOMAXPROCS(0)
+		processors = make([]oooWalSubsetProcessor, n)
+
+		dec    record.Decoder
+		shards = make([][]record.RefSample, n)
+
+		decoded     = make(chan []record.RefSample, 10)
+		decodeErr   error
+		samplesPool = sync.Pool{
+			New: func() interface{} {
+				return []record.RefSample{}
+			},
+		}
+	)
+
+	defer func() {
+		// For CorruptionErr ensure to terminate all workers before exiting.
+		_, ok := err.(*wal.CorruptionErr)
+		if ok {
+			for i := 0; i < n; i++ {
+				processors[i].closeAndDrain()
+			}
+			wg.Wait()
+		}
+	}()
+
+	wg.Add(n)
+	for i := 0; i < n; i++ {
+		processors[i].setup()
+
+		go func(wp *oooWalSubsetProcessor) {
+			unknown := wp.processWALSamples(h)
+			unknownRefs.Add(unknown)
+			wg.Done()
+		}(&processors[i])
+	}
+
+	go func() {
+		defer close(decoded)
+		for r.Next() {
+			rec := r.Record()
+			switch dec.Type(rec) {
+			case record.Samples:
+				samples := samplesPool.Get().([]record.RefSample)[:0]
+				samples, err = dec.Samples(rec, samples)
+				if err != nil {
+					decodeErr = &wal.CorruptionErr{
+						Err:     errors.Wrap(err, "decode samples"),
+						Segment: r.Segment(),
+						Offset:  r.Offset(),
+					}
+					return
+				}
+				decoded <- samples
+			default:
+				// Noop.
+			}
+		}
+	}()
+
+	// The records are always replayed from the oldest to the newest.
+	for d := range decoded {
+		samples := d
+		// We split up the samples into parts of 5000 samples or less.
+		// With O(300 * #cores) in-flight sample batches, large scrapes could otherwise
+		// cause thousands of very large in flight buffers occupying large amounts
+		// of unused memory.
+		for len(samples) > 0 {
+			m := 5000
+			if len(samples) < m {
+				m = len(samples)
+			}
+			for i := 0; i < n; i++ {
+				shards[i] = processors[i].reuseBuf()
+			}
+			for _, sam := range samples[:m] {
+				if r, ok := multiRef[sam.Ref]; ok {
+					sam.Ref = r
+				}
+				mod := uint64(sam.Ref) % uint64(n)
+				shards[mod] = append(shards[mod], sam)
+			}
+			for i := 0; i < n; i++ {
+				processors[i].input <- shards[i]
+			}
+			samples = samples[m:]
+		}
+		//nolint:staticcheck // Ignore SA6002 relax staticcheck verification.
+		samplesPool.Put(d)
+	}
+
+	if decodeErr != nil {
+		return decodeErr
+	}
+
+	// Signal termination to each worker and wait for it to close its output channel.
+	for i := 0; i < n; i++ {
+		processors[i].closeAndDrain()
+	}
+	wg.Wait()
+
+	if r.Err() != nil {
+		return errors.Wrap(r.Err(), "read records")
+	}
+
+	if unknownRefs.Load() > 0 {
+		level.Warn(h.logger).Log("msg", "Unknown series references for ooo WAL replay", "samples", unknownRefs.Load())
+	}
+	return nil
+}
+
+type errLoadOOOWal struct {
+	err error
+}
+
+func (e errLoadOOOWal) Error() string {
+	return e.err.Error()
+}
+
+// To support errors.Cause().
+func (e errLoadOOOWal) Cause() error {
+	return e.err
+}
+
+// To support errors.Unwrap().
+func (e errLoadOOOWal) Unwrap() error {
+	return e.err
+}
+
+// isErrLoadOOOWal returns a boolean if the error is errLoadOOOWal.
+func isErrLoadOOOWal(err error) bool {
+	_, ok := errors.Cause(err).(*errLoadOOOWal)
+	return ok
+}
+
+type oooWalSubsetProcessor struct {
+	mx     sync.Mutex // Take this lock while modifying series in the subset.
+	input  chan []record.RefSample
+	output chan []record.RefSample
+}
+
+func (wp *oooWalSubsetProcessor) setup() {
+	wp.output = make(chan []record.RefSample, 300)
+	wp.input = make(chan []record.RefSample, 300)
+}
+
+func (wp *oooWalSubsetProcessor) closeAndDrain() {
+	close(wp.input)
+	for range wp.output {
+	}
+}
+
+// If there is a buffer in the output chan, return it for reuse, otherwise return nil.
+func (wp *oooWalSubsetProcessor) reuseBuf() []record.RefSample {
+	select {
+	case buf := <-wp.output:
+		return buf[:0]
+	default:
+	}
+	return nil
+}
+
+// processWALSamples adds the samples it receives to the head and passes
+// the buffer received to an output channel for reuse.
+// Samples before the minValidTime timestamp are discarded.
+func (wp *oooWalSubsetProcessor) processWALSamples(h *Head) (unknownRefs uint64) {
+	defer close(wp.output)
+
+	// We don't check for minValidTime for ooo samples.
+
+	for samples := range wp.input {
+		wp.mx.Lock()
+		for _, s := range samples {
+			ms := h.series.getByID(s.Ref)
+			if ms == nil {
+				unknownRefs++
+				continue
+			}
+			// TODO(codesome): Ignore samples that are already m-mapped. Needs a m-map marker in the WAL.
+			if _, chunkCreated := ms.insert(s.T, s.V, h.chunkDiskMapper); chunkCreated {
+				h.metrics.chunksCreated.Inc()
+				h.metrics.chunks.Inc()
+			}
+		}
+		wp.mx.Unlock()
+		wp.output <- samples
+	}
+
+	return unknownRefs
+}
+
 const (
 	chunkSnapshotRecordTypeSeries     uint8 = 1
 	chunkSnapshotRecordTypeTombstones uint8 = 2

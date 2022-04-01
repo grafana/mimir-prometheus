@@ -788,10 +788,19 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 
 	if initErr := db.head.Init(minValidTime); initErr != nil {
 		db.head.metrics.walCorruptionsTotal.Inc()
-		level.Warn(db.logger).Log("msg", "Encountered WAL read error, attempting repair", "err", initErr)
-		if err := wlog.Repair(initErr); err != nil {
-			return nil, errors.Wrap(err, "repair corrupted WAL")
+		isOOOErr := isErrLoadOOOWal(initErr)
+		if isOOOErr {
+			level.Warn(db.logger).Log("msg", "Encountered OOO WAL read error, attempting repair", "err", initErr)
+			if err := oooWlog.Repair(initErr); err != nil {
+				return nil, errors.Wrap(err, "repair corrupted OOO WAL")
+			}
+		} else {
+			level.Warn(db.logger).Log("msg", "Encountered WAL read error, attempting repair", "err", initErr)
+			if err := wlog.Repair(initErr); err != nil {
+				return nil, errors.Wrap(err, "repair corrupted WAL")
+			}
 		}
+
 	}
 
 	go db.run()

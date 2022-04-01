@@ -333,7 +333,7 @@ type headMetrics struct {
 	tooOldSamples            prometheus.Counter
 	walTruncateDuration      prometheus.Summary
 	walCorruptionsTotal      prometheus.Counter
-	walTotalReplayDuration   prometheus.Gauge
+	dataTotalReplayDuration  prometheus.Gauge
 	headTruncateFail         prometheus.Counter
 	headTruncateTotal        prometheus.Counter
 	checkpointDeleteFail     prometheus.Counter
@@ -393,7 +393,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_wal_corruptions_total",
 			Help: "Total number of WAL corruptions.",
 		}),
-		walTotalReplayDuration: prometheus.NewGauge(prometheus.GaugeOpts{
+		dataTotalReplayDuration: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "prometheus_tsdb_data_replay_duration_seconds",
 			Help: "Time taken to replay the data on disk.",
 		}),
@@ -474,7 +474,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.gcDuration,
 			m.walTruncateDuration,
 			m.walCorruptionsTotal,
-			m.walTotalReplayDuration,
+			m.dataTotalReplayDuration,
 			m.samplesAppended,
 			m.outOfBoundSamples,
 			m.outOfOrderSamples,
@@ -686,14 +686,46 @@ func (h *Head) Init(minValidTime int64) error {
 		level.Info(h.logger).Log("msg", "WAL segment loaded", "segment", i, "maxSegment", endAt)
 		h.updateWALReplayStatusRead(i)
 	}
+	walReplayDuration := time.Since(walReplayStart)
 
-	walReplayDuration := time.Since(start)
-	h.metrics.walTotalReplayDuration.Set(walReplayDuration.Seconds())
+	oooWalReplayStart := time.Now()
+	if h.oooWal != nil {
+		// Replay OOO WAL.
+		startFrom, endAt, e = wal.Segments(h.oooWal.Dir())
+		if e != nil {
+			return errors.Wrap(e, "finding OOO WAL segments")
+		}
+		h.startWALReplayStatus(startFrom, endAt)
+
+		for i := startFrom; i <= endAt; i++ {
+			s, err := wal.OpenReadSegment(wal.SegmentName(h.oooWal.Dir(), i))
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("open OOO WAL segment: %d", i))
+			}
+
+			sr := wal.NewSegmentBufReader(s)
+			err = h.loadOOOWal(wal.NewReader(sr), multiRef)
+			if err := sr.Close(); err != nil {
+				level.Warn(h.logger).Log("msg", "Error while closing the ooo wal segments reader", "err", err)
+			}
+			if err != nil {
+				return err
+			}
+			level.Info(h.logger).Log("msg", "OOO WAL segment loaded", "segment", i, "maxSegment", endAt)
+			h.updateWALReplayStatusRead(i)
+		}
+	}
+
+	oooWalReplayDuration := time.Since(oooWalReplayStart)
+
+	totalReplayDuration := time.Since(start)
+	h.metrics.dataTotalReplayDuration.Set(totalReplayDuration.Seconds())
 	level.Info(h.logger).Log(
 		"msg", "WAL replay completed",
 		"checkpoint_replay_duration", checkpointReplayDuration.String(),
-		"wal_replay_duration", time.Since(walReplayStart).String(),
-		"total_replay_duration", walReplayDuration.String(),
+		"wal_replay_duration", walReplayDuration.String(),
+		"ooo_wal_replay_duration", oooWalReplayDuration.String(),
+		"total_replay_duration", totalReplayDuration.String(),
 	)
 
 	return nil
