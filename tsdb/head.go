@@ -688,30 +688,32 @@ func (h *Head) Init(minValidTime int64) error {
 	}
 	walReplayDuration := time.Since(walReplayStart)
 
-	// Replay OOO WAL.
 	oooWalReplayStart := time.Now()
-	startFrom, endAt, e = wal.Segments(h.oooWal.Dir())
-	if e != nil {
-		return errors.Wrap(e, "finding OOO WAL segments")
-	}
-	h.startWALReplayStatus(startFrom, endAt)
+	if h.oooWal != nil {
+		// Replay OOO WAL.
+		startFrom, endAt, e = wal.Segments(h.oooWal.Dir())
+		if e != nil {
+			return errors.Wrap(e, "finding OOO WAL segments")
+		}
+		h.startWALReplayStatus(startFrom, endAt)
 
-	for i := startFrom; i <= endAt; i++ {
-		s, err := wal.OpenReadSegment(wal.SegmentName(h.oooWal.Dir(), i))
-		if err != nil {
-			return errors.Wrap(err, fmt.Sprintf("open OOO WAL segment: %d", i))
-		}
+		for i := startFrom; i <= endAt; i++ {
+			s, err := wal.OpenReadSegment(wal.SegmentName(h.oooWal.Dir(), i))
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("open OOO WAL segment: %d", i))
+			}
 
-		sr := wal.NewSegmentBufReader(s)
-		err = h.loadOOOWal(wal.NewReader(sr), multiRef)
-		if err := sr.Close(); err != nil {
-			level.Warn(h.logger).Log("msg", "Error while closing the ooo wal segments reader", "err", err)
+			sr := wal.NewSegmentBufReader(s)
+			err = h.loadOOOWal(wal.NewReader(sr), multiRef)
+			if err := sr.Close(); err != nil {
+				level.Warn(h.logger).Log("msg", "Error while closing the ooo wal segments reader", "err", err)
+			}
+			if err != nil {
+				return err
+			}
+			level.Info(h.logger).Log("msg", "OOO WAL segment loaded", "segment", i, "maxSegment", endAt)
+			h.updateWALReplayStatusRead(i)
 		}
-		if err != nil {
-			return err
-		}
-		level.Info(h.logger).Log("msg", "OOO WAL segment loaded", "segment", i, "maxSegment", endAt)
-		h.updateWALReplayStatusRead(i)
 	}
 
 	oooWalReplayDuration := time.Since(oooWalReplayStart)
