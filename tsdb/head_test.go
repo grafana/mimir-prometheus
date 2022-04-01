@@ -3211,3 +3211,83 @@ func TestChunkSnapshotTakenAfterIncompleteSnapshot(t *testing.T) {
 	require.Equal(t, 0, idx)
 	require.Greater(t, offset, 0)
 }
+
+// TODO(codesome): Needs test for ooo WAL repair.
+func TestOOOWalReplay(t *testing.T) {
+	dir := t.TempDir()
+	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
+	require.NoError(t, err)
+	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "ooo_wal"), 32768, true)
+	require.NoError(t, err)
+
+	opts := DefaultHeadOptions()
+	opts.ChunkRange = 1000
+	opts.ChunkDirRoot = dir
+	opts.OOOCapMin = 4
+	opts.OOOCapMin = 30
+	opts.OOOAllowance = 30 * time.Minute.Milliseconds()
+
+	h, err := NewHead(nil, nil, wlog, oooWlog, opts, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Init(0))
+
+	var expOOOSamples []sample
+	l := labels.FromStrings("foo", "bar")
+	appendSample := func(mins int64, isOOO bool) {
+		app := h.Appender(context.Background())
+		ts, v := mins*time.Minute.Milliseconds(), float64(mins)
+		_, err := app.Append(0, l, ts, v)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		if isOOO {
+			expOOOSamples = append(expOOOSamples, sample{t: ts, v: v})
+		}
+	}
+
+	// In-order sample.
+	appendSample(60, false)
+
+	// Out of order samples.
+	appendSample(40, true)
+	appendSample(35, true)
+	appendSample(50, true)
+	appendSample(55, true)
+	appendSample(59, true)
+	appendSample(31, true)
+
+	// Restart head.
+	require.NoError(t, h.Close())
+	wlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
+	require.NoError(t, err)
+	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "ooo_wal"), 32768, true)
+	require.NoError(t, err)
+	h, err = NewHead(nil, nil, wlog, oooWlog, opts, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Init(0)) // Replay happens here.
+
+	// Get the ooo samples from the Head.
+	ms, ok, err := h.getOrCreate(l.Hash(), l)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.NotNil(t, ms)
+
+	xor, err := ms.oooHeadChunk.chunk.ToXor()
+	require.NoError(t, err)
+
+	it := xor.Iterator(nil)
+	actOOOSamples := make([]sample, 0, len(expOOOSamples))
+	for it.Next() {
+		ts, v := it.At()
+		actOOOSamples = append(actOOOSamples, sample{t: ts, v: v})
+	}
+
+	// OOO chunk will be sorted. Hence sort the expected samples.
+	sort.Slice(expOOOSamples, func(i, j int) bool {
+		return expOOOSamples[i].t < expOOOSamples[j].t
+	})
+
+	require.Equal(t, expOOOSamples, actOOOSamples)
+
+	require.NoError(t, h.Close())
+}
