@@ -460,7 +460,7 @@ func TestBlockQuerier_AgainstHeadWithOpenChunks(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			opts := DefaultHeadOptions()
 			opts.ChunkRange = 2 * time.Hour.Milliseconds()
-			h, err := NewHead(nil, nil, nil, opts, nil)
+			h, err := NewHead(nil, nil, nil, nil, opts, nil)
 			require.NoError(t, err)
 			defer h.Close()
 
@@ -1641,7 +1641,7 @@ func TestPostingsForMatchers(t *testing.T) {
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
 	opts.ChunkDirRoot = chunkDir
-	h, err := NewHead(nil, nil, nil, opts, nil)
+	h, err := NewHead(nil, nil, nil, nil, opts, nil)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, h.Close())

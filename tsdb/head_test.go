@@ -62,7 +62,7 @@ func newTestHead(t testing.TB, chunkRange int64, compressWAL bool) (*Head, *wal.
 	opts.EnableExemplarStorage = true
 	opts.MaxExemplars.Store(config.DefaultExemplarsConfig.MaxExemplars)
 
-	h, err := NewHead(nil, nil, wlog, opts, nil)
+	h, err := NewHead(nil, nil, wlog, nil, opts, nil)
 	require.NoError(t, err)
 
 	require.NoError(t, h.chunkDiskMapper.IterateAllChunks(func(_ chunks.HeadSeriesRef, _ chunks.ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
@@ -261,7 +261,7 @@ func BenchmarkLoadWAL(b *testing.B) {
 						opts := DefaultHeadOptions()
 						opts.ChunkRange = 1000
 						opts.ChunkDirRoot = w.Dir()
-						h, err := NewHead(nil, nil, w, opts, nil)
+						h, err := NewHead(nil, nil, w, nil, opts, nil)
 						require.NoError(b, err)
 						h.Init(0)
 					}
@@ -578,7 +578,7 @@ func TestHead_WALMultiRef(t *testing.T) {
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
 	opts.ChunkDirRoot = w.Dir()
-	head, err = NewHead(nil, nil, w, opts, nil)
+	head, err = NewHead(nil, nil, w, nil, opts, nil)
 	require.NoError(t, err)
 	require.NoError(t, head.Init(0))
 	defer func() {
@@ -897,7 +897,7 @@ func TestHeadDeleteSimple(t *testing.T) {
 				opts := DefaultHeadOptions()
 				opts.ChunkRange = 1000
 				opts.ChunkDirRoot = reloadedW.Dir()
-				reloadedHead, err := NewHead(nil, nil, reloadedW, opts, nil)
+				reloadedHead, err := NewHead(nil, nil, reloadedW, nil, opts, nil)
 				require.NoError(t, err)
 				require.NoError(t, reloadedHead.Init(0))
 
@@ -1582,7 +1582,7 @@ func TestWalRepair_DecodingError(t *testing.T) {
 					opts := DefaultHeadOptions()
 					opts.ChunkRange = 1
 					opts.ChunkDirRoot = w.Dir()
-					h, err := NewHead(nil, nil, w, opts, nil)
+					h, err := NewHead(nil, nil, w, nil, opts, nil)
 					require.NoError(t, err)
 					require.Equal(t, 0.0, prom_testutil.ToFloat64(h.metrics.walCorruptionsTotal))
 					initErr := h.Init(math.MinInt64)
@@ -1640,7 +1640,7 @@ func TestHeadReadWriterRepair(t *testing.T) {
 		opts := DefaultHeadOptions()
 		opts.ChunkRange = chunkRange
 		opts.ChunkDirRoot = dir
-		h, err := NewHead(nil, nil, w, opts, nil)
+		h, err := NewHead(nil, nil, w, nil, opts, nil)
 		require.NoError(t, err)
 		require.Equal(t, 0.0, prom_testutil.ToFloat64(h.metrics.mmapChunkCorruptionTotal))
 		require.NoError(t, h.Init(math.MinInt64))
@@ -1879,7 +1879,7 @@ func TestMemSeriesIsolation(t *testing.T) {
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
 	opts.ChunkDirRoot = wlog.Dir()
-	hb, err = NewHead(nil, nil, wlog, opts, nil)
+	hb, err = NewHead(nil, nil, wlog, nil, opts, nil)
 	defer func() { require.NoError(t, hb.Close()) }()
 	require.NoError(t, err)
 	require.NoError(t, hb.Init(0))
@@ -2886,7 +2886,7 @@ func TestChunkSnapshot(t *testing.T) {
 	openHeadAndCheckReplay := func() {
 		w, err := wal.NewSize(nil, nil, head.wal.Dir(), 32768, false)
 		require.NoError(t, err)
-		head, err = NewHead(nil, nil, w, head.opts, nil)
+		head, err = NewHead(nil, nil, w, nil, head.opts, nil)
 		require.NoError(t, err)
 		require.NoError(t, head.Init(math.MinInt64))
 
@@ -3096,7 +3096,7 @@ func TestSnapshotError(t *testing.T) {
 	w, err := wal.NewSize(nil, nil, head.wal.Dir(), 32768, false)
 	require.NoError(t, err)
 	// Testing https://github.com/prometheus/prometheus/issues/9437 with the registry.
-	head, err = NewHead(prometheus.NewRegistry(), nil, w, head.opts, nil)
+	head, err = NewHead(prometheus.NewRegistry(), nil, w, nil, head.opts, nil)
 	require.NoError(t, err)
 	require.NoError(t, head.Init(math.MinInt64))
 
@@ -3155,7 +3155,7 @@ func TestChunkSnapshotReplayBug(t *testing.T) {
 	opts := DefaultHeadOptions()
 	opts.ChunkDirRoot = dir
 	opts.EnableMemorySnapshotOnShutdown = true
-	head, err := NewHead(nil, nil, wlog, opts, nil)
+	head, err := NewHead(nil, nil, wlog, nil, opts, nil)
 	require.NoError(t, err)
 	require.NoError(t, head.Init(math.MinInt64))
 	defer func() {
@@ -3189,7 +3189,7 @@ func TestChunkSnapshotTakenAfterIncompleteSnapshot(t *testing.T) {
 	opts := DefaultHeadOptions()
 	opts.ChunkDirRoot = dir
 	opts.EnableMemorySnapshotOnShutdown = true
-	head, err := NewHead(nil, nil, wlog, opts, nil)
+	head, err := NewHead(nil, nil, wlog, nil, opts, nil)
 	require.NoError(t, err)
 	require.NoError(t, head.Init(math.MinInt64))
 
