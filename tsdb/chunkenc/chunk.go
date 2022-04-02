@@ -50,7 +50,7 @@ type Chunk interface {
 	// Appender returns an appender to append samples to the chunk.
 	Appender() (Appender, error)
 
-	// Iterator The iterator passed as argument is for re-use.
+	// The iterator passed as argument is for re-use.
 	// Depending on implementation, the iterator can
 	// be re-used or a new iterator can be allocated.
 	Iterator(Iterator) Iterator

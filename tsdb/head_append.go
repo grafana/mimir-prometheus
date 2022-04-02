@@ -513,15 +513,16 @@ func (a *headAppender) Commit() (err error) {
 				ok, chunkCreated = series.insert(s.T, s.V, a.head.chunkDiskMapper)
 				if ok {
 					oooWalSamples = append(oooWalSamples, s)
+				} else {
+					// the sample was an attempted update.
+					// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
+					// not with samples in already flushed OOO chunks.
+					// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
+					total--
 				}
-				//if !ok {
-				//	// the sample was an attempted update.
-				//	// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
-				//	// not with samples in already flushed OOO chunks.
-				//	// TODO: error reporting? depends on addressing https://github.com/prometheus/prometheus/discussions/10305
-				//}
 			} else {
 				// ...but the delta is beyond the OOO tolerance
+				total--
 				tooOld++
 			}
 		} else {
