@@ -738,9 +738,9 @@ func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) {
 		// There is no head chunk, so nothing to m-map here.
 		return
 	}
-	// TODO(codesome): Add metadata about this chunk being OOO. Needs support from ChunkDiskMapper.
 	xor, _ := s.oooHeadChunk.chunk.ToXor() // encode to XorChunk which is more compact and implements all of the needed functionality to be encoded
-	chunkRef := chunkDiskMapper.WriteChunk(s.ref, s.oooHeadChunk.minTime, s.oooHeadChunk.maxTime, xor, handleChunkWriteError)
+	oooXor := &chunkenc.OOOXORChunk{XORChunk: xor}
+	chunkRef := chunkDiskMapper.WriteChunk(s.ref, s.oooHeadChunk.minTime, s.oooHeadChunk.maxTime, oooXor, handleChunkWriteError)
 	s.oooMmappedChunks = append(s.oooMmappedChunks, &mmappedChunk{
 		ref:        chunkRef,
 		numSamples: uint16(xor.NumSamples()),

@@ -42,7 +42,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/wal"
 )
 
-func (h *Head) loadWAL(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunks.HeadSeriesRef, mmappedChunks map[chunks.HeadSeriesRef][]*mmappedChunk) (err error) {
+func (h *Head) loadWAL(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunks.HeadSeriesRef, mmappedChunks, oooMmappedChunks map[chunks.HeadSeriesRef][]*mmappedChunk) (err error) {
 	// Track number of samples that referenced a series we don't know about
 	// for error reporting.
 	var unknownRefs atomic.Uint64
@@ -215,10 +215,11 @@ Outer:
 				processors[idx].mx.Lock()
 
 				mmc := mmappedChunks[walSeries.Ref]
+				oooMmc := oooMmappedChunks[walSeries.Ref]
 
 				if created {
 					// This is the first WAL series record for this series.
-					h.resetSeriesWithMMappedChunks(mSeries, mmc)
+					h.resetSeriesWithMMappedChunks(mSeries, mmc, oooMmc)
 					processors[idx].mx.Unlock()
 					continue
 				}
@@ -252,7 +253,7 @@ Outer:
 				}
 
 				// Replacing m-mapped chunks with the new ones (could be empty).
-				h.resetSeriesWithMMappedChunks(mSeries, mmc)
+				h.resetSeriesWithMMappedChunks(mSeries, mmc, oooMmc)
 
 				processors[idx].mx.Unlock()
 			}
@@ -343,11 +344,12 @@ Outer:
 }
 
 // resetSeriesWithMMappedChunks is only used during the WAL replay.
-func (h *Head) resetSeriesWithMMappedChunks(mSeries *memSeries, mmc []*mmappedChunk) {
-	h.metrics.chunksCreated.Add(float64(len(mmc)))
-	h.metrics.chunksRemoved.Add(float64(len(mSeries.mmappedChunks)))
-	h.metrics.chunks.Add(float64(len(mmc) - len(mSeries.mmappedChunks)))
+func (h *Head) resetSeriesWithMMappedChunks(mSeries *memSeries, mmc, oooMmc []*mmappedChunk) {
+	h.metrics.chunksCreated.Add(float64(len(mmc) + len(oooMmc)))
+	h.metrics.chunksRemoved.Add(float64(len(mSeries.mmappedChunks) + len(mSeries.oooMmappedChunks)))
+	h.metrics.chunks.Add(float64(len(mmc) + len(oooMmc) - len(mSeries.mmappedChunks) - len(mSeries.oooMmappedChunks)))
 	mSeries.mmappedChunks = mmc
+	mSeries.oooMmappedChunks = oooMmc
 	// Cache the last mmapped chunk time, so we can skip calling append() for samples it will reject.
 	if len(mmc) == 0 {
 		mSeries.mmMaxTime = math.MinInt64
@@ -357,6 +359,8 @@ func (h *Head) resetSeriesWithMMappedChunks(mSeries *memSeries, mmc []*mmappedCh
 	}
 
 	// Any samples replayed till now would already be compacted. Resetting the head chunk.
+	// We do not reset oooHeadChunk because that is being replayed from a different WAL
+	// and has not been replayed here.
 	mSeries.nextAt = 0
 	mSeries.headChunk = nil
 	mSeries.app = nil

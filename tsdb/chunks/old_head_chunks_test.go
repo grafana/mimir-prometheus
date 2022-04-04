@@ -43,6 +43,7 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 		mint, maxt int64
 		numSamples uint16
 		chunk      chunkenc.Chunk
+		isOOO      bool
 	}
 	expectedData := []expectedDataType{}
 
@@ -52,7 +53,7 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 	for hrw.curFileSequence < 3 || hrw.chkWriter.Buffered() == 0 {
 		addChunks := func(numChunks int) {
 			for i := 0; i < numChunks; i++ {
-				seriesRef, chkRef, mint, maxt, chunk := createChunkForOld(t, totalChunks, hrw)
+				seriesRef, chkRef, mint, maxt, chunk, isOOO := createChunkForOld(t, totalChunks, hrw)
 				totalChunks++
 				expectedData = append(expectedData, expectedDataType{
 					seriesRef:  seriesRef,
@@ -61,6 +62,7 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 					chunkRef:   chkRef,
 					chunk:      chunk,
 					numSamples: uint16(chunk.NumSamples()),
+					isOOO:      isOOO,
 				})
 
 				if hrw.curFileSequence != 1 {
@@ -133,7 +135,7 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 	require.NoError(t, err)
 
 	idx := 0
-	require.NoError(t, hrw.IterateAllChunks(func(seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, numSamples uint16) error {
+	require.NoError(t, hrw.IterateAllChunks(func(seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, isOOO bool) error {
 		t.Helper()
 
 		expData := expectedData[idx]
@@ -142,6 +144,7 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 		require.Equal(t, expData.maxt, maxt)
 		require.Equal(t, expData.maxt, maxt)
 		require.Equal(t, expData.numSamples, numSamples)
+		require.Equal(t, expData.isOOO, isOOO)
 
 		actChunk, err := hrw.Chunk(expData.chunkRef)
 		require.NoError(t, err)
@@ -214,7 +217,7 @@ func TestOldChunkDiskMapper_Truncate(t *testing.T) {
 	require.NoError(t, err)
 
 	require.False(t, hrw.fileMaxtSet)
-	require.NoError(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
+	require.NoError(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16, _ bool) error { return nil }))
 	require.True(t, hrw.fileMaxtSet)
 
 	verifyFiles([]int{3, 4, 5, 6, 7, 8})
@@ -333,7 +336,7 @@ func TestOldChunkDiskMapper_TruncateAfterFailedIterateChunks(t *testing.T) {
 	require.NoError(t, err)
 
 	// Forcefully failing IterateAllChunks.
-	require.Error(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16) error {
+	require.Error(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16, _ bool) error {
 		return errors.New("random error")
 	}))
 
@@ -390,7 +393,7 @@ func TestOldChunkDiskMapper_ReadRepairOnEmptyLastFile(t *testing.T) {
 	hrw, err = NewOldChunkDiskMapper(dir, chunkenc.NewPool(), DefaultWriteBufferSize)
 	require.NoError(t, err)
 	require.False(t, hrw.fileMaxtSet)
-	require.NoError(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
+	require.NoError(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16, _ bool) error { return nil }))
 	require.True(t, hrw.fileMaxtSet)
 
 	// Removed from memory.
@@ -420,16 +423,20 @@ func testOldChunkDiskMapper(t *testing.T) *OldChunkDiskMapper {
 	hrw, err := NewOldChunkDiskMapper(tmpdir, chunkenc.NewPool(), DefaultWriteBufferSize)
 	require.NoError(t, err)
 	require.False(t, hrw.fileMaxtSet)
-	require.NoError(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
+	require.NoError(t, hrw.IterateAllChunks(func(_ HeadSeriesRef, _ ChunkDiskMapperRef, _, _ int64, _ uint16, _ bool) error { return nil }))
 	require.True(t, hrw.fileMaxtSet)
 	return hrw
 }
 
-func createChunkForOld(t *testing.T, idx int, hrw *OldChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
+func createChunkForOld(t *testing.T, idx int, hrw *OldChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk, isOOO bool) {
 	seriesRef = HeadSeriesRef(rand.Int63())
 	mint = int64((idx)*1000 + 1)
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomChunk(t)
+	if rand.Intn(2) == 0 {
+		isOOO = true
+		chunk = &chunkenc.OOOXORChunk{XORChunk: chunk.(*chunkenc.XORChunk)}
+	}
 	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(err error) {
 		require.NoError(t, err)
 	})
