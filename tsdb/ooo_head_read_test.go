@@ -322,7 +322,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 						}
 						expChunks = append(expChunks, meta)
 					}
-					sort.Sort(byMinTime(expChunks)) // we always want the chunks to come back sorted by minTime asc
+					sort.Sort(byMinTimeAndMinRef(expChunks)) // we always want the chunks to come back sorted by minTime asc
 
 					if headChunk && len(intervals) > 0 {
 						// Put the last interval in the head chunk
@@ -434,7 +434,7 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 				sample{t: minutes(45), v: float64(0)},
 				// The following samples will go to the head chunk, and we want it
 				// to overlap with the previous chunk
-				sample{t: minutes(40), v: float64(1)},
+				sample{t: minutes(30), v: float64(1)},
 				sample{t: minutes(50), v: float64(1)},
 			},
 			expChunkError: false,
@@ -446,7 +446,7 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			// Output Graphically                                 [-----------------] (With 7 samples)
 			expChunksSamples: []tsdbutil.SampleSlice{
 				{
-					sample{t: minutes(40), v: float64(1)},
+					sample{t: minutes(30), v: float64(1)},
 					sample{t: minutes(41), v: float64(0)},
 					sample{t: minutes(42), v: float64(0)},
 					sample{t: minutes(43), v: float64(0)},
@@ -621,6 +621,70 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 				}
 				require.Equal(t, tc.expChunksSamples[i], resultSamples)
 			}
+		})
+	}
+}
+
+// TestSortByMinTimeAndMinRef tests that the sort function for chunk metas does sort
+// by chunk meta MinTime and in case of same references by the lower reference.
+func TestSortByMinTimeAndMinRef(t *testing.T) {
+	tests := []struct {
+		name       string
+		inputMetas []chunks.Meta
+		expMetas   []chunks.Meta
+	}{
+		{
+			name: "chunks are ordered by min time",
+			inputMetas: []chunks.Meta{
+				{
+					Ref:     0,
+					MinTime: 0,
+				},
+				{
+					Ref:     1,
+					MinTime: 1,
+				},
+			},
+			expMetas: []chunks.Meta{
+				{
+					Ref:     0,
+					MinTime: 0,
+				},
+				{
+					Ref:     1,
+					MinTime: 1,
+				},
+			},
+		},
+		{
+			name: "if same mintime, lower reference goes first",
+			inputMetas: []chunks.Meta{
+				{
+					Ref:     10,
+					MinTime: 0,
+				},
+				{
+					Ref:     5,
+					MinTime: 0,
+				},
+			},
+			expMetas: []chunks.Meta{
+				{
+					Ref:     5,
+					MinTime: 0,
+				},
+				{
+					Ref:     10,
+					MinTime: 0,
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			sort.Sort(byMinTimeAndMinRef(tc.inputMetas))
+			require.Equal(t, tc.expMetas, tc.inputMetas)
 		})
 	}
 }

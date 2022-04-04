@@ -103,7 +103,7 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 
 	// Next we want to sort all the collected chunks by min time so we can find
 	// those that overlap.
-	sort.Sort(byMinTime(tmpChks))
+	sort.Sort(byMinTimeAndMinRef(tmpChks))
 
 	// Next we want to iterate the sorted collected chunks and only return the
 	// chunks Meta the first chunk that overlaps with others.
@@ -125,11 +125,17 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	return nil
 }
 
-type byMinTime []chunks.Meta
+type byMinTimeAndMinRef []chunks.Meta
 
-func (b byMinTime) Len() int           { return len(b) }
-func (b byMinTime) Less(i, j int) bool { return b[i].MinTime < b[j].MinTime }
-func (b byMinTime) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
+func (b byMinTimeAndMinRef) Len() int { return len(b) }
+func (b byMinTimeAndMinRef) Less(i, j int) bool {
+	if b[i].MinTime == b[j].MinTime {
+		return b[i].Ref < b[j].Ref
+	}
+	return b[i].MinTime < b[j].MinTime
+}
+
+func (b byMinTimeAndMinRef) Swap(i, j int) { b[i], b[j] = b[j], b[i] }
 
 func (oh *OOOHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
 	switch len(values) {

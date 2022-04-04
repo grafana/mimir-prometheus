@@ -428,7 +428,7 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 
 	// Next we want to sort all the collected chunks by min time so we can find
 	// those that overlap and stop when we know the rest don't.
-	sort.Sort(byMinTime(tmpChks))
+	sort.Sort(byMinTimeAndMinRef(tmpChks))
 
 	oc := &mergedOOOChunks{}
 	for _, c := range tmpChks {
@@ -440,7 +440,7 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 		if c.Ref == meta.Ref || len(oc.chunks) > 0 && c.MinTime <= oc.chunks[len(oc.chunks)-1].MaxTime {
 
 			if c.Ref == oooHeadRef {
-				xor, err := s.oooHeadChunk.chunk.ToXor()
+				xor, err := s.oooHeadChunk.chunk.ToXor() // TODO(jesus.vazquez) See if we could use a copy of the underlying slice. That would leave the more expensive ToXor() function only for the usecase where Bytes() is called.
 				if err != nil {
 					return nil, errors.Wrap(err, "failed to convert ooo head chunk to xor chunk")
 				}
