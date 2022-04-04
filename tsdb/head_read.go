@@ -395,7 +395,6 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 
 	oooHeadRef := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks))))
 	if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(mint, maxt) {
-
 		if oooHeadRef == meta.OOOLastRef {
 			tmpChks = append(tmpChks, chunks.Meta{
 				MinTime: meta.OOOLastMinTime,
@@ -433,11 +432,13 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 
 	oc := &mergedOOOChunks{}
 	for _, c := range tmpChks {
-		if c.Ref < meta.Ref {
-			continue
-		}
+		// TODO(Jesus.vazquez) Note that chunks are sorted by mintime but the head could get an old enough sample and this condition would make us discard overlapping chunks
+		// if c.Ref < meta.Ref {
+		// 	continue
+		// }
 
-		if c.Ref == meta.Ref || c.MinTime <= oc.chunks[len(oc.chunks)-1].MaxTime {
+		if c.Ref == meta.Ref || len(oc.chunks) > 0 && c.MinTime <= oc.chunks[len(oc.chunks)-1].MaxTime {
+
 			if c.Ref == oooHeadRef {
 				xor, err := s.oooHeadChunk.chunk.ToXor()
 				if err != nil {
@@ -445,7 +446,17 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 				}
 				c.Chunk = xor
 			} else {
-				chk, err := cdm.Chunk(s.oooMmappedChunks[ix].ref)
+				// TODO(jesus.vazquez) Get rid of this loop
+				id := 0
+				for i := range s.oooMmappedChunks {
+					chunkRef := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i)))
+					if chunkRef == c.Ref {
+						id = i
+						break
+					}
+				}
+
+				chk, err := cdm.Chunk(s.oooMmappedChunks[id].ref)
 				if err != nil {
 					if _, ok := err.(*chunks.CorruptionErr); ok {
 						return nil, errors.Wrap(err, "invalid ooo mmapped chunk")
@@ -462,7 +473,8 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 	return oc, nil
 }
 
-// mergedOOOChunks holds the list of overlapping chunks.
+// mergedOOOChunks holds the list of overlapping chunks. This struct satisfies
+// chunkenc.Chunk.
 type mergedOOOChunks struct {
 	chunks []chunks.Meta
 }

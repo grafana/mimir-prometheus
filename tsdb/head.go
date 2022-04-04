@@ -1688,7 +1688,6 @@ type memSeries struct {
 	// (the first sample would create a headChunk, hence appender, but rollback skipped it while the Append() call would create a series).
 	app chunkenc.Appender
 
-	// TODO(jesus.vazquez) What is memChunkPool for?
 	memChunkPool *sync.Pool
 
 	// txs is nil if isolation is disabled.
