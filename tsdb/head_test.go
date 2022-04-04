@@ -65,7 +65,9 @@ func newTestHead(t testing.TB, chunkRange int64, compressWAL bool) (*Head, *wal.
 	h, err := NewHead(nil, nil, wlog, nil, opts, nil)
 	require.NoError(t, err)
 
-	require.NoError(t, h.chunkDiskMapper.IterateAllChunks(func(_ chunks.HeadSeriesRef, _ chunks.ChunkDiskMapperRef, _, _ int64, _ uint16) error { return nil }))
+	require.NoError(t, h.chunkDiskMapper.IterateAllChunks(func(_ chunks.HeadSeriesRef, _ chunks.ChunkDiskMapperRef, _, _ int64, _ uint16, _ bool) error {
+		return nil
+	}))
 
 	t.Cleanup(func() {
 		require.NoError(t, os.RemoveAll(dir))
@@ -3223,8 +3225,6 @@ func TestOOOWalReplay(t *testing.T) {
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
 	opts.ChunkDirRoot = dir
-	opts.OOOCapMin = 4
-	opts.OOOCapMin = 30
 	opts.OOOAllowance = 30 * time.Minute.Milliseconds()
 
 	h, err := NewHead(nil, nil, wlog, oooWlog, opts, nil)
@@ -3288,6 +3288,94 @@ func TestOOOWalReplay(t *testing.T) {
 	})
 
 	require.Equal(t, expOOOSamples, actOOOSamples)
+
+	require.NoError(t, h.Close())
+}
+
+func TestOOOMmapReplay(t *testing.T) {
+	dir := t.TempDir()
+	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
+	require.NoError(t, err)
+	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "ooo_wal"), 32768, true)
+	require.NoError(t, err)
+
+	opts := DefaultHeadOptions()
+	opts.ChunkRange = 1000
+	opts.ChunkDirRoot = dir
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 1000 * time.Minute.Milliseconds()
+
+	h, err := NewHead(nil, nil, wlog, oooWlog, opts, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Init(0))
+
+	l := labels.FromStrings("foo", "bar")
+	appendSample := func(mins int64) {
+		app := h.Appender(context.Background())
+		ts, v := mins*time.Minute.Milliseconds(), float64(mins)
+		_, err := app.Append(0, l, ts, v)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+	}
+
+	// In-order sample.
+	appendSample(200)
+
+	// Out of order samples. 92 samples to create 3 m-map chunks.
+	for mins := int64(100); mins <= 191; mins++ {
+		appendSample(mins)
+	}
+
+	ms, ok, err := h.getOrCreate(l.Hash(), l)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.NotNil(t, ms)
+
+	require.Len(t, ms.oooMmappedChunks, 3)
+	// Verify that we can access the chunks without error.
+	for _, m := range ms.oooMmappedChunks {
+		chk, err := h.chunkDiskMapper.Chunk(m.ref)
+		require.NoError(t, err)
+		require.Equal(t, int(m.numSamples), chk.NumSamples())
+	}
+
+	expMmapChunks := make([]*mmappedChunk, 3)
+	copy(expMmapChunks, ms.oooMmappedChunks)
+
+	// Restart head.
+
+	require.NoError(t, h.Close())
+
+	// Remove ooo_wal to not create duplicate ooo-chunks.
+	// TODO(codesome): Remove this test hack once we have m-map markers in the WAL.
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "ooo_wal")))
+
+	wlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
+	require.NoError(t, err)
+	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "ooo_wal"), 32768, true)
+	require.NoError(t, err)
+	h, err = NewHead(nil, nil, wlog, oooWlog, opts, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Init(0)) // Replay happens here.
+
+	// Get the mmap chunks from the Head.
+	ms, ok, err = h.getOrCreate(l.Hash(), l)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.NotNil(t, ms)
+
+	require.Len(t, ms.oooMmappedChunks, len(expMmapChunks))
+	// Verify that we can access the chunks without error.
+	for _, m := range ms.oooMmappedChunks {
+		chk, err := h.chunkDiskMapper.Chunk(m.ref)
+		require.NoError(t, err)
+		require.Equal(t, int(m.numSamples), chk.NumSamples())
+	}
+
+	actMmapChunks := make([]*mmappedChunk, len(expMmapChunks))
+	copy(actMmapChunks, ms.oooMmappedChunks)
+
+	require.Equal(t, expMmapChunks, actMmapChunks)
 
 	require.NoError(t, h.Close())
 }

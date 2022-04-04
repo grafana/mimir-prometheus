@@ -62,7 +62,7 @@ var (
 // 0 size queue to queue based chunk disk mapper.
 type chunkDiskMapper interface {
 	CutNewFile() (returnErr error)
-	IterateAllChunks(f func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16) error) (err error)
+	IterateAllChunks(f func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, isOOO bool) error) (err error)
 	Truncate(fileNo int) error
 	DeleteCorrupted(originalErr error) error
 	Size() (int64, error)
@@ -595,7 +595,7 @@ func (h *Head) Init(minValidTime int64) error {
 	}
 
 	mmapChunkReplayStart := time.Now()
-	mmappedChunks, err := h.loadMmappedChunks(refSeries)
+	mmappedChunks, oooMmappedChunks, err := h.loadMmappedChunks(refSeries)
 	if err != nil {
 		level.Error(h.logger).Log("msg", "Loading on-disk chunks failed", "err", err)
 		if _, ok := errors.Cause(err).(*chunks.CorruptionErr); ok {
@@ -603,7 +603,7 @@ func (h *Head) Init(minValidTime int64) error {
 		}
 		// If this fails, data will be recovered from WAL.
 		// Hence we wont lose any data (given WAL is not corrupt).
-		mmappedChunks = h.removeCorruptedMmappedChunks(err, refSeries)
+		mmappedChunks, oooMmappedChunks = h.removeCorruptedMmappedChunks(err, refSeries)
 	}
 
 	level.Info(h.logger).Log("msg", "On-disk memory mappable chunks replay completed", "duration", time.Since(mmapChunkReplayStart).String())
@@ -643,7 +643,7 @@ func (h *Head) Init(minValidTime int64) error {
 
 		// A corrupted checkpoint is a hard error for now and requires user
 		// intervention. There's likely little data that can be recovered anyway.
-		if err := h.loadWAL(wal.NewReader(sr), multiRef, mmappedChunks); err != nil {
+		if err := h.loadWAL(wal.NewReader(sr), multiRef, mmappedChunks, oooMmappedChunks); err != nil {
 			return errors.Wrap(err, "backfill checkpoint")
 		}
 		h.updateWALReplayStatusRead(startFrom)
@@ -676,7 +676,7 @@ func (h *Head) Init(minValidTime int64) error {
 		if err != nil {
 			return errors.Wrapf(err, "segment reader (offset=%d)", offset)
 		}
-		err = h.loadWAL(wal.NewReader(sr), multiRef, mmappedChunks)
+		err = h.loadWAL(wal.NewReader(sr), multiRef, mmappedChunks, oooMmappedChunks)
 		if err := sr.Close(); err != nil {
 			level.Warn(h.logger).Log("msg", "Error while closing the wal segments reader", "err", err)
 		}
@@ -731,13 +731,39 @@ func (h *Head) Init(minValidTime int64) error {
 	return nil
 }
 
-func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) (map[chunks.HeadSeriesRef][]*mmappedChunk, error) {
+func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) (map[chunks.HeadSeriesRef][]*mmappedChunk, map[chunks.HeadSeriesRef][]*mmappedChunk, error) {
 	mmappedChunks := map[chunks.HeadSeriesRef][]*mmappedChunk{}
-	if err := h.chunkDiskMapper.IterateAllChunks(func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16) error {
-		if maxt < h.minValidTime.Load() {
+	oooMmappedChunks := map[chunks.HeadSeriesRef][]*mmappedChunk{}
+	if err := h.chunkDiskMapper.IterateAllChunks(func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, isOOO bool) error {
+		if !isOOO && maxt < h.minValidTime.Load() {
 			return nil
 		}
 		ms, ok := refSeries[seriesRef]
+
+		if isOOO {
+			if !ok {
+				oooMmappedChunks[seriesRef] = append(oooMmappedChunks[seriesRef], &mmappedChunk{
+					ref:        chunkRef,
+					minTime:    mint,
+					maxTime:    maxt,
+					numSamples: numSamples,
+				})
+				return nil
+			}
+
+			h.metrics.chunks.Inc()
+			h.metrics.chunksCreated.Inc()
+
+			ms.oooMmappedChunks = append(ms.oooMmappedChunks, &mmappedChunk{
+				ref:        chunkRef,
+				minTime:    mint,
+				maxTime:    maxt,
+				numSamples: numSamples,
+			})
+
+			return nil
+		}
+
 		if !ok {
 			slice := mmappedChunks[seriesRef]
 			if len(slice) > 0 && slice[len(slice)-1].maxTime >= mint {
@@ -776,29 +802,29 @@ func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) 
 		}
 		return nil
 	}); err != nil {
-		return nil, errors.Wrap(err, "iterate on on-disk chunks")
+		return nil, nil, errors.Wrap(err, "iterate on on-disk chunks")
 	}
-	return mmappedChunks, nil
+	return mmappedChunks, oooMmappedChunks, nil
 }
 
 // removeCorruptedMmappedChunks attempts to delete the corrupted mmapped chunks and if it fails, it clears all the previously
 // loaded mmapped chunks.
-func (h *Head) removeCorruptedMmappedChunks(err error, refSeries map[chunks.HeadSeriesRef]*memSeries) map[chunks.HeadSeriesRef][]*mmappedChunk {
+func (h *Head) removeCorruptedMmappedChunks(err error, refSeries map[chunks.HeadSeriesRef]*memSeries) (map[chunks.HeadSeriesRef][]*mmappedChunk, map[chunks.HeadSeriesRef][]*mmappedChunk) {
 	level.Info(h.logger).Log("msg", "Deleting mmapped chunk files")
 
 	if err := h.chunkDiskMapper.DeleteCorrupted(err); err != nil {
 		level.Info(h.logger).Log("msg", "Deletion of mmap chunk files failed, discarding chunk files completely", "err", err)
-		return map[chunks.HeadSeriesRef][]*mmappedChunk{}
+		return map[chunks.HeadSeriesRef][]*mmappedChunk{}, map[chunks.HeadSeriesRef][]*mmappedChunk{}
 	}
 
 	level.Info(h.logger).Log("msg", "Deletion of mmap chunk files successful, reattempting m-mapping the on-disk chunks")
-	mmappedChunks, err := h.loadMmappedChunks(refSeries)
+	mmappedChunks, oooMmappedChunks, err := h.loadMmappedChunks(refSeries)
 	if err != nil {
 		level.Error(h.logger).Log("msg", "Loading on-disk chunks failed, discarding chunk files completely", "err", err)
 		mmappedChunks = map[chunks.HeadSeriesRef][]*mmappedChunk{}
 	}
 
-	return mmappedChunks
+	return mmappedChunks, oooMmappedChunks
 }
 
 func (h *Head) ApplyConfig(cfg *config.Config) error {
@@ -1495,7 +1521,8 @@ func (s *stripeSeries) gc(mint int64) (_ map[storage.SeriesRef]struct{}, _ int, 
 						minMmapFile = seq
 					}
 				}
-				if len(series.mmappedChunks) > 0 || series.headChunk != nil || series.pendingCommit {
+				if len(series.mmappedChunks) > 0 || len(series.oooMmappedChunks) > 0 ||
+					series.headChunk != nil || series.oooHeadChunk != nil || series.pendingCommit {
 					seriesMint := series.minTime()
 					if seriesMint < actualMint {
 						actualMint = seriesMint
