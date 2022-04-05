@@ -212,12 +212,16 @@ func (h *headIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels, chk
 	return nil
 }
 
-// headChunkID returns the HeadChunkID corresponding to .mmappedChunks[pos]
+// headChunkID returns the HeadChunkID referred to by the given position.
+// * 0 <= pos < len(s.mmappedChunks) refer to s.mmappedChunks[pos]
+// * pos == len(s.mmappedChunks) refers to s.headChunk
 func (s *memSeries) headChunkID(pos int) chunks.HeadChunkID {
 	return chunks.HeadChunkID(pos) + s.firstChunkID
 }
 
-// oooHeadChunkID returns the HeadChunkID corresponding to .oooMmappedChunks[pos]
+// oooHeadChunkID returns the HeadChunkID referred to by the given position.
+// * 0 <= pos < len(s.oooMmappedChunks) refer to s.oooMmappedChunks[pos]
+// * pos == len(s.oooMmappedChunks) refers to s.oooHeadChunk
 func (s *memSeries) oooHeadChunkID(pos int) chunks.HeadChunkID {
 	return chunks.HeadChunkID(pos) + s.firstOOOChunkID
 }
