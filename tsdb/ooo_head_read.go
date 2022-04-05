@@ -68,7 +68,7 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 
 		tmpChks = append(tmpChks, chunks.Meta{
 			MinTime:        s.oooHeadChunk.minTime,
-			MaxTime:        math.MaxInt64, // Set the head chunks as open (being appended to).
+			MaxTime:        s.oooHeadChunk.maxTime,
 			Ref:            lastChunkRef,
 			OOOLastRef:     lastChunkRef,
 			OOOLastMinTime: lastMinT,

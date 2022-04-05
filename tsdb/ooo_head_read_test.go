@@ -2,7 +2,6 @@ package tsdb
 
 import (
 	"fmt"
-	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -113,12 +112,60 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			// Chunk 2: 0x1000002                                                      [------------------]
 			// Chunk 3: 0x1000003                                                                          [------------------]
 			// Expected Output  [0x1000000, 0x1000001, 0x1000002, 0x1000003] with OOOLastReferences pointing to 0x1000003
-			// Output Graphically              [------------------------------------------------------------------------------]
+			// Output Graphically              [------------------][------------------][------------------][------------------]
 			expChunks: []chunks.Meta{
 				{Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 199, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
 				{Ref: 0x1000001, Chunk: chunkenc.Chunk(nil), MinTime: 200, MaxTime: 299, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
 				{Ref: 0x1000002, Chunk: chunkenc.Chunk(nil), MinTime: 300, MaxTime: 399, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
 				{Ref: 0x1000003, Chunk: chunkenc.Chunk(nil), MinTime: 400, MaxTime: 499, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
+			},
+		},
+		{
+			name:      "chunks can overlap in increasing order",
+			queryMinT: 0,
+			queryMaxT: 700,
+			inputChunkIntervals: []struct{ mint, maxt int64 }{
+				{100, 200},
+				{200, 299},
+				{300, 400},
+				{400, 499},
+			},
+			expSeriesError: false,
+			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
+			// Query Interval        [---------------------------------------------------------------------------------------------------------------------------------]
+			// Chunk 0: 0x1000000              [-------------------]
+			// Chunk 1: 0x1000001                                  [------------------]
+			// Chunk 2: 0x1000002                                                      [-------------------]
+			// Chunk 3: 0x1000003                                                                          [------------------]
+			// Expected Output  [0x1000000, 0x1000002] with OOOLastReferences pointing to 0x1000003
+			// Output Graphically              [--------------------------------------][--------------------------------------]
+			expChunks: []chunks.Meta{
+				{Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 299, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
+				{Ref: 0x1000002, Chunk: chunkenc.Chunk(nil), MinTime: 300, MaxTime: 499, OOOLastRef: 0x1000003, OOOLastMinTime: 400, OOOLastMaxTime: 499},
+			},
+		},
+		{
+			name:      "chunks can overlap in decreasing order",
+			queryMinT: 0,
+			queryMaxT: 700,
+			inputChunkIntervals: []struct{ mint, maxt int64 }{
+				{400, 499},
+				{300, 400},
+				{200, 299},
+				{100, 200},
+			},
+			expSeriesError: false,
+			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
+			// Query Interval        [---------------------------------------------------------------------------------------------------------------------------------]
+			// Chunk 0: 0x1000000                                                                          [-------------------]
+			// Chunk 1: 0x1000001                                                      [-------------------]
+			// Chunk 2: 0x1000002                                  [------------------]
+			// Chunk 3: 0x1000003              [-------------------]
+			// Expected Output  [0x1000001, 0x1000003] with OOOLastReferences pointing to 0x1000003
+			// Output Graphically              [--------------------------------------][--------------------------------------]
+			expChunks: []chunks.Meta{
+				{Ref: 0x1000003, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 299, OOOLastRef: 0x1000003, OOOLastMinTime: 100, OOOLastMaxTime: 200},
+				{Ref: 0x1000001, Chunk: chunkenc.Chunk(nil), MinTime: 300, MaxTime: 499, OOOLastRef: 0x1000003, OOOLastMinTime: 100, OOOLastMaxTime: 200},
 			},
 		},
 		{
@@ -191,9 +238,6 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				}
 				require.Equal(t, s1Lset, respLset)
 
-				if headChunk && len(tc.expChunks) > 0 {
-					tc.expChunks[len(tc.expChunks)-1].MaxTime = math.MaxInt64
-				}
 				require.Equal(t, tc.expChunks, chks)
 			})
 		}
