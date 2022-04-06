@@ -50,7 +50,6 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 		expChunks           []chunkInterval
 	}{
 		{
-			// TODO with the permutation stuff, seems like we skip this first one
 			name:           "Test1: Empty result and no error when head is empty",
 			queryMinT:      0,
 			queryMaxT:      100,
@@ -190,7 +189,15 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 	s1ID := uint64(1)
 
 	for _, tc := range tests {
-		permutations := permutateChunkIntervals(tc.inputChunkIntervals, nil, 0, len(tc.inputChunkIntervals)-1)
+		var permutations [][]chunkInterval
+		if len(tc.inputChunkIntervals) == 0 {
+			// handle special case
+			permutations = [][]chunkInterval{
+				nil,
+			}
+		} else {
+			permutations = permutateChunkIntervals(tc.inputChunkIntervals, nil, 0, len(tc.inputChunkIntervals)-1)
+		}
 		for perm, intervals := range permutations {
 			for _, headChunk := range []bool{false, true} {
 				t.Run(fmt.Sprintf("name=%s, permutation=%d, headChunk=%t", tc.name, perm, headChunk), func(t *testing.T) {
