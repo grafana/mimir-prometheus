@@ -2,6 +2,7 @@ package tsdb
 
 import (
 	"fmt"
+	"sort"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -50,14 +51,14 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 		expChunks           []chunkInterval
 	}{
 		{
-			name:           "Test1: Empty result and no error when head is empty",
+			name:           "Empty result and no error when head is empty",
 			queryMinT:      0,
 			queryMaxT:      100,
 			expSeriesError: false,
 			expChunks:      nil,
 		},
 		{
-			name:      "Test2: If query interval is bigger than the existing chunks nothing is returned",
+			name:      "If query interval is bigger than the existing chunks nothing is returned",
 			queryMinT: 500,
 			queryMaxT: 700,
 			inputChunkIntervals: []chunkInterval{
@@ -71,7 +72,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			expChunks: nil,
 		},
 		{
-			name:      "Test3: If query interval is smaller than the existing chunks nothing is returned",
+			name:      "If query interval is smaller than the existing chunks nothing is returned",
 			queryMinT: 100,
 			queryMaxT: 400,
 			inputChunkIntervals: []chunkInterval{
@@ -85,7 +86,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			expChunks: nil,
 		},
 		{
-			name:      "Test4: If query interval exceeds the existing chunk, it is returned",
+			name:      "If query interval exceeds the existing chunk, it is returned",
 			queryMinT: 100,
 			queryMaxT: 400,
 			inputChunkIntervals: []chunkInterval{
@@ -101,7 +102,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			},
 		},
 		{
-			name:      "Test5: If chunk exceeds the query interval, it is returned",
+			name:      "If chunk exceeds the query interval, it is returned",
 			queryMinT: 150,
 			queryMaxT: 350,
 			inputChunkIntervals: []chunkInterval{
@@ -117,7 +118,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			},
 		},
 		{
-			name:      "Test6: Pairwise overlaps should return the references of the first of each pair",
+			name:      "Pairwise overlaps should return the references of the first of each pair",
 			queryMinT: 0,
 			queryMaxT: 700,
 			inputChunkIntervals: []chunkInterval{
@@ -141,7 +142,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			},
 		},
 		{
-			name:      "Test5: If all chunks overlap, single big chunk is returned",
+			name:      "If all chunks overlap, single big chunk is returned",
 			queryMinT: 0,
 			queryMaxT: 700,
 			inputChunkIntervals: []chunkInterval{
@@ -164,7 +165,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			},
 		},
 		{
-			name:      "Test6: If no chunks overlap, all chunks are returned",
+			name:      "If no chunks overlap, all chunks are returned",
 			queryMinT: 0,
 			queryMaxT: 700,
 			inputChunkIntervals: []chunkInterval{
@@ -190,7 +191,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			},
 		},
 		{
-			name:      "Test9: Triplet with pairwise overlaps, query range covers all, and distractor extra chunk",
+			name:      "Triplet with pairwise overlaps, query range covers all, and distractor extra chunk",
 			queryMinT: 0,
 			queryMaxT: 400,
 			inputChunkIntervals: []chunkInterval{
@@ -213,7 +214,28 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			},
 		},
 		{
-			name:      "Test7: a full overlap pair and disjointed triplet",
+			name:      "Query interval partially overlaps some chunks",
+			queryMinT: 100,
+			queryMaxT: 400,
+			inputChunkIntervals: []chunkInterval{
+				{0, 250, 500},
+				{1, 0, 200},
+				{2, 150, 300},
+			},
+			expSeriesError: false,
+			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
+			// Query Interval                [------------------------------------------------------------]
+			// Chunk 0:                                                     [-------------------------------------------------]
+			// Chunk 1:             [-----------------------------]
+			// Chunk 2:                                [------------------------------]
+			// Expected Output  [0x1000000, 0x1000001, 0x1000002] with OOOLastReferences pointing to 0x1000002
+			// Output Graphically   [-----------------------------------------------------------------------------------------]
+			expChunks: []chunkInterval{
+				{1, 0, 500},
+			},
+		},
+		{
+			name:      "A full overlap pair and disjointed triplet",
 			queryMinT: 0,
 			queryMaxT: 900,
 			inputChunkIntervals: []chunkInterval{
@@ -236,6 +258,29 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			expChunks: []chunkInterval{
 				{0, 100, 300},
 				{4, 600, 850},
+			},
+		},
+		{
+			name:      "Query range covers 3 disjoint chunks",
+			queryMinT: 0,
+			queryMaxT: 650,
+			inputChunkIntervals: []chunkInterval{
+				{0, 100, 150},
+				{1, 300, 350},
+				{2, 200, 250},
+			},
+			expSeriesError: false,
+			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700       750       800       850
+			// Query Interval        [----------------------------------------------------------------------------------------------------------------------]
+			// Chunk 0:                        [-------]
+			// Chunk 1:                                                              [----------]
+			// Chunk 2:                                           [--------]
+			// Expected Output  [0x1000000, 0x1000001, 0x000002] With OOOLastReferences pointing to 0v1000002
+			// Output Graphically              [-------] [--------]                  [--------------]
+			expChunks: []chunkInterval{
+				{0, 100, 150},
+				{1, 300, 350},
+				{2, 200, 250},
 			},
 		},
 	}
@@ -298,6 +343,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 						}
 						expChunks = append(expChunks, meta)
 					}
+					sort.Sort(byMinTime(expChunks)) // we always want the chunks to come back sorted by minTime asc
 
 					if headChunk && len(intervals) > 0 {
 						// Put the last interval in the head chunk
