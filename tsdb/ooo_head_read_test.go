@@ -85,7 +85,39 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			expChunks: nil,
 		},
 		{
-			name:      "Test4: Pairwise overlaps should return the references of the first of each pair",
+			name:      "Test4: If query interval exceeds the existing chunk, it is returned",
+			queryMinT: 100,
+			queryMaxT: 400,
+			inputChunkIntervals: []chunkInterval{
+				{0, 150, 350},
+			},
+			expSeriesError: false,
+			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
+			// Query Interval                [-----------------------------------------------------------]
+			// Chunk 0:                                 [---------------------------------------]
+			// Expected Output  Empty
+			expChunks: []chunkInterval{
+				{0, 150, 350},
+			},
+		},
+		{
+			name:      "Test5: If chunk exceeds the query interval, it is returned",
+			queryMinT: 150,
+			queryMaxT: 350,
+			inputChunkIntervals: []chunkInterval{
+				{0, 100, 400},
+			},
+			expSeriesError: false,
+			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
+			// Query Interval:                          [---------------------------------------]
+			// Chunk 0:                       [-----------------------------------------------------------]
+			// Expected Output  Empty
+			expChunks: []chunkInterval{
+				{0, 100, 400},
+			},
+		},
+		{
+			name:      "Test6: Pairwise overlaps should return the references of the first of each pair",
 			queryMinT: 0,
 			queryMaxT: 700,
 			inputChunkIntervals: []chunkInterval{
