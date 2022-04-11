@@ -3219,7 +3219,7 @@ func TestOOOWalReplay(t *testing.T) {
 	dir := t.TempDir()
 	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "ooo_wal"), 32768, true)
+	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
 	require.NoError(t, err)
 
 	opts := DefaultHeadOptions()
@@ -3260,7 +3260,7 @@ func TestOOOWalReplay(t *testing.T) {
 	require.NoError(t, h.Close())
 	wlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "ooo_wal"), 32768, true)
+	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
 	require.NoError(t, err)
 	h, err = NewHead(nil, nil, wlog, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -3296,7 +3296,7 @@ func TestOOOMmapReplay(t *testing.T) {
 	dir := t.TempDir()
 	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "ooo_wal"), 32768, true)
+	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
 	require.NoError(t, err)
 
 	opts := DefaultHeadOptions()
@@ -3343,16 +3343,11 @@ func TestOOOMmapReplay(t *testing.T) {
 	copy(expMmapChunks, ms.oooMmappedChunks)
 
 	// Restart head.
-
 	require.NoError(t, h.Close())
-
-	// Remove ooo_wal to not create duplicate ooo-chunks.
-	// TODO(codesome): Remove this test hack once we have m-map markers in the WAL.
-	require.NoError(t, os.RemoveAll(filepath.Join(dir, "ooo_wal")))
 
 	wlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "ooo_wal"), 32768, true)
+	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
 	require.NoError(t, err)
 	h, err = NewHead(nil, nil, wlog, oooWlog, opts, nil)
 	require.NoError(t, err)

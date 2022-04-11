@@ -450,11 +450,12 @@ func (wp *walSubsetProcessor) waitUntilIdle() {
 	}
 }
 
-func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunks.HeadSeriesRef) (err error) {
+func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunks.HeadSeriesRef, lastMmapRef chunks.ChunkDiskMapperRef) (err error) {
 	// Track number of samples that referenced a series we don't know about
 	// for error reporting.
 	var unknownRefs atomic.Uint64
 
+	lastSeq, lastOff := lastMmapRef.Unpack()
 	// Start workers that each process samples for a partition of the series ID space.
 	var (
 		wg         sync.WaitGroup
@@ -464,11 +465,16 @@ func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunk
 		dec    record.Decoder
 		shards = make([][]record.RefSample, n)
 
-		decoded     = make(chan []record.RefSample, 10)
+		decoded     = make(chan interface{}, 10)
 		decodeErr   error
 		samplesPool = sync.Pool{
 			New: func() interface{} {
 				return []record.RefSample{}
+			},
+		}
+		markersPool = sync.Pool{
+			New: func() interface{} {
+				return []record.RefMmapMarker{}
 			},
 		}
 	)
@@ -512,6 +518,18 @@ func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunk
 					return
 				}
 				decoded <- samples
+			case record.MmapMarkers:
+				markers := markersPool.Get().([]record.RefMmapMarker)[:0]
+				markers, err = dec.MmapMarkers(rec, markers)
+				if err != nil {
+					decodeErr = &wal.CorruptionErr{
+						Err:     errors.Wrap(err, "decode mmap markers"),
+						Segment: r.Segment(),
+						Offset:  r.Offset(),
+					}
+					return
+				}
+				decoded <- markers
 			default:
 				// Noop.
 			}
@@ -520,33 +538,70 @@ func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunk
 
 	// The records are always replayed from the oldest to the newest.
 	for d := range decoded {
-		samples := d
-		// We split up the samples into parts of 5000 samples or less.
-		// With O(300 * #cores) in-flight sample batches, large scrapes could otherwise
-		// cause thousands of very large in flight buffers occupying large amounts
-		// of unused memory.
-		for len(samples) > 0 {
-			m := 5000
-			if len(samples) < m {
-				m = len(samples)
-			}
-			for i := 0; i < n; i++ {
-				shards[i] = processors[i].reuseBuf()
-			}
-			for _, sam := range samples[:m] {
-				if r, ok := multiRef[sam.Ref]; ok {
-					sam.Ref = r
+		switch v := d.(type) {
+		case []record.RefSample:
+			samples := v
+			// We split up the samples into parts of 5000 samples or less.
+			// With O(300 * #cores) in-flight sample batches, large scrapes could otherwise
+			// cause thousands of very large in flight buffers occupying large amounts
+			// of unused memory.
+			for len(samples) > 0 {
+				m := 5000
+				if len(samples) < m {
+					m = len(samples)
 				}
-				mod := uint64(sam.Ref) % uint64(n)
-				shards[mod] = append(shards[mod], sam)
+				for i := 0; i < n; i++ {
+					shards[i] = processors[i].reuseBuf()
+				}
+				for _, sam := range samples[:m] {
+					if r, ok := multiRef[sam.Ref]; ok {
+						sam.Ref = r
+					}
+					mod := uint64(sam.Ref) % uint64(n)
+					shards[mod] = append(shards[mod], sam)
+				}
+				for i := 0; i < n; i++ {
+					processors[i].input <- shards[i]
+				}
+				samples = samples[m:]
 			}
-			for i := 0; i < n; i++ {
-				processors[i].input <- shards[i]
+			//nolint:staticcheck // Ignore SA6002 relax staticcheck verification.
+			samplesPool.Put(d)
+		case []record.RefMmapMarker:
+			markers := v
+			for _, rm := range markers {
+				seq, off := rm.MmapRef.Unpack()
+				if seq > lastSeq || (seq == lastSeq && off > lastOff) {
+					// This m-map chunk from markers was not present in the replay.
+					continue
+				}
+
+				ms := h.series.getByID(rm.Ref)
+				if ms == nil {
+					unknownRefs.Inc()
+					continue
+				}
+
+				idx := uint64(ms.ref) % uint64(n)
+				// It is possible that some old sample is being processed in processWALSamples that
+				// could cause race below. So we wait for the goroutine to empty input the buffer and finish
+				// processing all old samples after emptying the buffer.
+				processors[idx].waitUntilIdle()
+				// Lock the subset so we can modify the series object
+				processors[idx].mx.Lock()
+
+				// All samples till now have been m-mapped. Hence clear out the headChunk.
+				// In case some samples slipped through and went into m-map chunks because of changed
+				// chunk size parameters, we are not taking care of that here.
+				// TODO(codesome): see if there is a way to avoid duplicate m-map chunks if
+				// the size of ooo chunk was reduced between restart.
+				ms.oooHeadChunk = nil
+
+				processors[idx].mx.Unlock()
 			}
-			samples = samples[m:]
+		default:
+			panic(fmt.Errorf("unexpected decoded type: %T", d))
 		}
-		//nolint:staticcheck // Ignore SA6002 relax staticcheck verification.
-		samplesPool.Put(d)
 	}
 
 	if decodeErr != nil {
@@ -637,7 +692,7 @@ func (wp *oooWalSubsetProcessor) processWALSamples(h *Head) (unknownRefs uint64)
 				continue
 			}
 			// TODO(codesome): Ignore samples that are already m-mapped. Needs a m-map marker in the WAL.
-			if _, chunkCreated := ms.insert(s.T, s.V, h.chunkDiskMapper); chunkCreated {
+			if _, chunkCreated, _ := ms.insert(s.T, s.V, h.chunkDiskMapper); chunkCreated {
 				h.metrics.chunksCreated.Inc()
 				h.metrics.chunks.Inc()
 			}
@@ -647,6 +702,21 @@ func (wp *oooWalSubsetProcessor) processWALSamples(h *Head) (unknownRefs uint64)
 	}
 
 	return unknownRefs
+}
+
+func (wp *oooWalSubsetProcessor) waitUntilIdle() {
+	select {
+	case <-wp.output: // Allow output side to drain to avoid deadlock.
+	default:
+	}
+	wp.input <- []record.RefSample{}
+	for len(wp.input) != 0 {
+		time.Sleep(1 * time.Millisecond)
+		select {
+		case <-wp.output: // Allow output side to drain to avoid deadlock.
+		default:
+		}
+	}
 }
 
 const (
