@@ -59,49 +59,40 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	var lastChunkRef chunks.ChunkRef
 	lastMinT, lastMaxT := int64(math.MaxInt64), int64(math.MaxInt64)
 
-	// We first collect the oooHeadChunk, if any. And if it exists we set value
-	// for the markers defined above.
-	if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(oh.mint, oh.maxt) {
-		lastMinT = s.oooHeadChunk.minTime
-		lastMaxT = s.oooHeadChunk.maxTime
-		lastChunkRef = chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks))))
+	addChunk := func(minT, maxT int64, ref chunks.ChunkRef) {
+		// the first time we get called is for the last included chunk.
+		// set the markers accordingly
+		if lastMinT == int64(math.MaxInt64) {
+			lastChunkRef = ref
+			lastMinT = minT
+			lastMaxT = maxT
+		}
 
 		tmpChks = append(tmpChks, chunks.Meta{
-			MinTime:        s.oooHeadChunk.minTime,
-			MaxTime:        math.MaxInt64, // Set the head chunks as open (being appended to).
-			Ref:            lastChunkRef,
+			MinTime:        minT,
+			MaxTime:        maxT,
+			Ref:            ref,
 			OOOLastRef:     lastChunkRef,
 			OOOLastMinTime: lastMinT,
 			OOOLastMaxTime: lastMaxT,
 		})
-
 	}
 
-	// Next collect the memory mapped chunks in reverse order, if any.
-	// In case there was no head chunk before, we want the last memory mapped
-	// chunk to be our last reference for the markers and the chunk meta.
+	// Collect all chunks that overlap the query range, in order from most recent to most old,
+	// so we can set the correct markers.
+	if s.oooHeadChunk != nil {
+		c := s.oooHeadChunk
+		if c.OverlapsClosedInterval(oh.mint, oh.maxt) {
+			ref := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks))))
+			addChunk(c.minTime, c.maxTime, ref)
+		}
+	}
 	for i := len(s.oooMmappedChunks) - 1; i >= 0; i-- {
 		c := s.oooMmappedChunks[i]
-
-		// Do not expose chunks that are outside of the specified range.
-		if !c.OverlapsClosedInterval(oh.mint, oh.maxt) {
-			continue
+		if c.OverlapsClosedInterval(oh.mint, oh.maxt) {
+			ref := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i)))
+			addChunk(c.minTime, c.maxTime, ref)
 		}
-
-		if lastMinT == int64(math.MaxInt64) {
-			lastChunkRef = chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i)))
-			lastMinT = c.minTime
-			lastMaxT = c.maxTime
-		}
-
-		tmpChks = append(tmpChks, chunks.Meta{
-			MinTime:        c.minTime,
-			MaxTime:        c.maxTime,
-			Ref:            chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i))),
-			OOOLastRef:     lastChunkRef,
-			OOOLastMinTime: lastMinT,
-			OOOLastMaxTime: lastMaxT,
-		})
 	}
 
 	// There is nothing to do if we did not collect any chunk
@@ -119,7 +110,7 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	// In the example 5 overlaps with 7 and 6 overlaps with 8 so we only want to
 	// to return chunk Metas for chunk 5 and chunk 6
 	*chks = append(*chks, tmpChks[0])
-	maxTime := tmpChks[0].MaxTime
+	maxTime := tmpChks[0].MaxTime // tracks the maxTime of the previous "to be merged chunk"
 	for _, c := range tmpChks[1:] {
 		if c.MinTime > maxTime {
 			*chks = append(*chks, c)
