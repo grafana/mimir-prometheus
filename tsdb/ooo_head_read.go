@@ -60,7 +60,6 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	lastMinT, lastMaxT := int64(math.MaxInt64), int64(math.MaxInt64)
 
 	addChunk := func(minT, maxT int64, ref chunks.ChunkRef) {
-
 		// the first time we get called is for the last included chunk.
 		// set the markers accordingly
 		if lastMinT == int64(math.MaxInt64) {

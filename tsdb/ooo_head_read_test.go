@@ -47,15 +47,13 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 		queryMinT           int64
 		queryMaxT           int64
 		inputChunkIntervals []chunkInterval
-		expSeriesError      bool
 		expChunks           []chunkInterval
 	}{
 		{
-			name:           "Empty result and no error when head is empty",
-			queryMinT:      0,
-			queryMaxT:      100,
-			expSeriesError: false,
-			expChunks:      nil,
+			name:      "Empty result and no error when head is empty",
+			queryMinT: 0,
+			queryMaxT: 100,
+			expChunks: nil,
 		},
 		{
 			name:      "If query interval is bigger than the existing chunks nothing is returned",
@@ -64,11 +62,9 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			inputChunkIntervals: []chunkInterval{
 				{0, 100, 400},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval                                                                                                  [---------------------------------------]
 			// Chunk 0                         [-----------------------------------------------------------]
-			// Expected Output  Empty
 			expChunks: nil,
 		},
 		{
@@ -78,11 +74,9 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			inputChunkIntervals: []chunkInterval{
 				{0, 500, 700},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval                [-----------------------------------------------------------]
 			// Chunk 0:                                                                                                        [---------------------------------------]
-			// Expected Output  Empty
 			expChunks: nil,
 		},
 		{
@@ -92,11 +86,9 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			inputChunkIntervals: []chunkInterval{
 				{0, 150, 350},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval                [-----------------------------------------------------------]
 			// Chunk 0:                                 [---------------------------------------]
-			// Expected Output  Empty
 			expChunks: []chunkInterval{
 				{0, 150, 350},
 			},
@@ -108,11 +100,9 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			inputChunkIntervals: []chunkInterval{
 				{0, 100, 400},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval:                          [---------------------------------------]
 			// Chunk 0:                       [-----------------------------------------------------------]
-			// Expected Output  Empty
 			expChunks: []chunkInterval{
 				{0, 100, 400},
 			},
@@ -127,14 +117,12 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				{2, 150, 250},
 				{3, 550, 650},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval        [---------------------------------------------------------------------------------------------------------------------------------]
 			// Chunk 0:                        [-------------------]
 			// Chunk 1:                                                                                                        [-------------------]
 			// Chunk 2:                                  [-------------------]
 			// Chunk 3:                                                                                                                  [-------------------]
-			// Expected Output  [0x1000000, 0x1000001] with OOOLastReferences pointing to 0x1000003
 			// Output Graphically              [-----------------------------]                                                 [-----------------------------]
 			expChunks: []chunkInterval{
 				{0, 100, 250},
@@ -151,14 +139,12 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				{2, 300, 400},
 				{3, 400, 500},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval        [---------------------------------------------------------------------------------------------------------------------------------]
 			// Chunk 0:                        [-------------------]
 			// Chunk 1:                                            [-------------------]
 			// Chunk 2:                                                                [-------------------]
 			// Chunk 3:                                                                                    [------------------]
-			// Expected Output  [0x1000000] with OOOLastReferences pointing to 0x1000003
 			// Output Graphically              [------------------------------------------------------------------------------]
 			expChunks: []chunkInterval{
 				{0, 100, 500},
@@ -174,14 +160,12 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				{2, 300, 399},
 				{3, 400, 499},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval        [---------------------------------------------------------------------------------------------------------------------------------]
 			// Chunk 0:                        [------------------]
 			// Chunk 1:                                            [------------------]
 			// Chunk 2:                                                                [------------------]
 			// Chunk 3:                                                                                    [------------------]
-			// Expected Output  [0x1000000, 0x1000001, 0x1000002, 0x1000003] with OOOLastReferences pointing to 0x1000003
 			// Output Graphically              [------------------][------------------][------------------][------------------]
 			expChunks: []chunkInterval{
 				{0, 100, 199},
@@ -200,14 +184,12 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				{2, 250, 350},
 				{3, 450, 550},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval        [--------------------------------------------------------------------]
 			// Chunk 0:                        [------------------]
 			// Chunk 1:                                 [-----------------------------]
 			// Chunk 2:                                                     [------------------]
 			// Chunk 3:                                                                                             [------------------]
-			// Expected Output  [0x1000000, 0x1000001, 0x1000002] with OOOLastReferences pointing to 0x1000002
 			// Output Graphically              [-----------------------------------------------]
 			expChunks: []chunkInterval{
 				{0, 100, 350},
@@ -222,13 +204,11 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				{1, 0, 200},
 				{2, 150, 300},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700
 			// Query Interval                [------------------------------------------------------------]
 			// Chunk 0:                                                     [-------------------------------------------------]
 			// Chunk 1:             [-----------------------------]
 			// Chunk 2:                                [------------------------------]
-			// Expected Output  [0x1000000, 0x1000001, 0x1000002] with OOOLastReferences pointing to 0x1000002
 			// Output Graphically   [-----------------------------------------------------------------------------------------]
 			expChunks: []chunkInterval{
 				{1, 0, 500},
@@ -245,7 +225,6 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				{3, 650, 750},
 				{4, 600, 800},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700       750       800       850
 			// Query Interval        [---------------------------------------------------------------------------------------------------------------------------------------------------------------]
 			// Chunk 0:                        [---------------------------------------]
@@ -253,7 +232,6 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			// Chunk 2:                                  [-------------------]
 			// Chunk 3:                                                                                                                                      [-------------------]
 			// Chunk 4:                                                                                                                             [---------------------------------------]
-			// Expected Output  [0x1000000, 0x1000004] With OOOLastReferences pointing to 0v1000004
 			// Output Graphically              [---------------------------------------]                                                            [------------------------------------------------]
 			expChunks: []chunkInterval{
 				{0, 100, 300},
@@ -269,14 +247,12 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 				{1, 300, 350},
 				{2, 200, 250},
 			},
-			expSeriesError: false,
 			// ts                    0       100       150       200       250       300       350       400       450       500       550       600       650       700       750       800       850
 			// Query Interval        [----------------------------------------------------------------------------------------------------------------------]
 			// Chunk 0:                        [-------]
 			// Chunk 1:                                                              [----------]
 			// Chunk 2:                                           [--------]
-			// Expected Output  [0x1000000, 0x1000001, 0x000002] With OOOLastReferences pointing to 0v1000002
-			// Output Graphically              [-------] [--------]                  [--------------]
+			// Output Graphically              [-------]          [--------]         [----------]
 			expChunks: []chunkInterval{
 				{0, 100, 150},
 				{1, 300, 350},
@@ -309,17 +285,17 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 
 					s1, _, _ := h.getOrCreate(s1ID, s1Lset)
 
-					var markerChunk chunkInterval
-					var markerPos int
+					var lastChunk chunkInterval
+					var lastChunkPos int
 
 					// the marker should be set based on whichever is the last chunk/interval that overlaps with the query range
 					for i, interv := range intervals {
 						if overlapsClosedInterval(interv.mint, interv.maxt, tc.queryMinT, tc.queryMaxT) {
-							markerChunk = interv
-							markerPos = i
+							lastChunk = interv
+							lastChunkPos = i
 						}
 					}
-					markerRef := chunks.ChunkRef(chunks.NewHeadChunkRef(1, chunks.HeadChunkID(uint64(markerPos))))
+					lastChunkRef := chunks.ChunkRef(chunks.NewHeadChunkRef(1, chunks.HeadChunkID(uint64(lastChunkPos))))
 
 					// define our expected chunks, by looking at the expected ChunkIntervals and setting...
 					var expChunks []chunks.Meta
@@ -328,16 +304,16 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 							Chunk:   chunkenc.Chunk(nil),
 							MinTime: e.mint,
 							MaxTime: e.maxt,
-							// 1) markers based on the last chunk we found above
-							OOOLastMinTime: markerChunk.mint,
-							OOOLastMaxTime: markerChunk.maxt,
-							OOOLastRef:     markerRef,
+							// markers based on the last chunk we found above
+							OOOLastMinTime: lastChunk.mint,
+							OOOLastMaxTime: lastChunk.maxt,
+							OOOLastRef:     lastChunkRef,
 						}
 
-						// 3) Ref to whatever Ref the chunk has, that we refer to by ID
+						// Ref to whatever Ref the chunk has, that we refer to by ID
 						for ref, c := range intervals {
 							if c.ID == e.ID {
-								meta.Ref = chunks.ChunkRef(chunks.NewHeadChunkRef(1, chunks.HeadChunkID(ref)))
+								meta.Ref = chunks.ChunkRef(chunks.NewHeadChunkRef(chunks.HeadSeriesRef(s1ID), chunks.HeadChunkID(ref)))
 								break
 							}
 						}
@@ -347,7 +323,6 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 
 					if headChunk && len(intervals) > 0 {
 						// Put the last interval in the head chunk
-						//t.Logf("headchunk %v", intervals[len(intervals)-1])
 						s1.oooHeadChunk = &oooHeadChunk{
 							minTime: intervals[len(intervals)-1].mint,
 							maxTime: intervals[len(intervals)-1].maxt,
@@ -360,7 +335,6 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 							minTime: ic.mint,
 							maxTime: ic.maxt,
 						})
-						//t.Logf("     chunk %v", ic)
 					}
 
 					ir := NewOOOHeadIndexReader(h, tc.queryMinT, tc.queryMaxT)
@@ -368,14 +342,12 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 					var chks []chunks.Meta
 					var respLset labels.Labels
 					err := ir.Series(storage.SeriesRef(s1ID), &respLset, &chks)
-					if tc.expSeriesError {
-						require.Error(t, err)
-					} else {
-						require.NoError(t, err)
-					}
+					require.NoError(t, err)
 					require.Equal(t, s1Lset, respLset)
-
 					require.Equal(t, expChunks, chks)
+
+					err = ir.Series(storage.SeriesRef(s1ID+1), &respLset, &chks)
+					require.Equal(t, storage.ErrNotFound, err)
 				})
 			}
 		}
