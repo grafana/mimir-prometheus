@@ -159,7 +159,7 @@ func TestOldChunkDiskMapper_WriteUnsupportedChunk_Chunk_IterateChunks(t *testing
 		require.NoError(t, hrw.Close())
 	}()
 
-	ucSeriesRef, ucChkRef, ucMint, ucMaxt, uchunk := createUnsupportedChunk(t, 0, nil, hrw)
+	ucSeriesRef, ucChkRef, ucMint, ucMaxt, uchunk := writeUnsupportedChunk(t, 0, nil, hrw)
 
 	// Checking on-disk bytes for the first file.
 	require.Equal(t, 1, len(hrw.mmappedChunkFiles), "expected 1 mmapped file, got %d", len(hrw.mmappedChunkFiles))
