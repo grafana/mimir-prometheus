@@ -86,7 +86,7 @@ type Head struct {
 
 	metrics         *headMetrics
 	opts            *HeadOptions
-	wal, oooWal     *wal.WAL
+	wal, oooWbl     *wal.WAL
 	exemplarMetrics *ExemplarMetrics
 	exemplars       ExemplarStorage
 	logger          log.Logger
@@ -240,7 +240,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, oooWal *wal.WAL, opts *
 
 	h := &Head{
 		wal:    wal,
-		oooWal: oooWal,
+		oooWbl: oooWal,
 		logger: l,
 		opts:   opts,
 		memChunkPool: sync.Pool{
@@ -690,16 +690,16 @@ func (h *Head) Init(minValidTime int64) error {
 	walReplayDuration := time.Since(walReplayStart)
 
 	oooWalReplayStart := time.Now()
-	if h.oooWal != nil {
+	if h.oooWbl != nil {
 		// Replay OOO WAL.
-		startFrom, endAt, e = wal.Segments(h.oooWal.Dir())
+		startFrom, endAt, e = wal.Segments(h.oooWbl.Dir())
 		if e != nil {
 			return errors.Wrap(e, "finding OOO WAL segments")
 		}
 		h.startWALReplayStatus(startFrom, endAt)
 
 		for i := startFrom; i <= endAt; i++ {
-			s, err := wal.OpenReadSegment(wal.SegmentName(h.oooWal.Dir(), i))
+			s, err := wal.OpenReadSegment(wal.SegmentName(h.oooWbl.Dir(), i))
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("open OOO WAL segment: %d", i))
 			}
@@ -1358,8 +1358,8 @@ func (h *Head) Close() error {
 	if h.wal != nil {
 		errs.Add(h.wal.Close())
 	}
-	if h.oooWal != nil {
-		errs.Add(h.oooWal.Close())
+	if h.oooWbl != nil {
+		errs.Add(h.oooWbl.Close())
 	}
 	if errs.Err() == nil && h.opts.EnableMemorySnapshotOnShutdown {
 		errs.Add(h.performChunkSnapshot())

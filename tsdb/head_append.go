@@ -490,6 +490,12 @@ func (a *headAppender) Commit() (err error) {
 		}
 	}()
 	collectOOORecords := func() {
+		if a.head.oooWbl == nil {
+			// WAL is not enabled. So no need to collect.
+			oooWblSamples = nil
+			oooMmapMarkers = nil
+			return
+		}
 		// The m-map happens before adding a new sample. So we collect
 		// the m-map markers first, and then samples.
 		if oooMmapMarkers != nil {
@@ -602,8 +608,10 @@ func (a *headAppender) Commit() (err error) {
 	// Returning the error here is not correct because we have already put the samples into the memory,
 	// hence the append/insert was a success.
 	collectOOORecords()
-	if err := a.head.oooWal.Log(oooRecords...); err != nil {
-		level.Error(a.head.logger).Log("msg", "Failed to log out of order samples into the WAL", "err", err)
+	if a.head.oooWbl != nil {
+		if err := a.head.oooWbl.Log(oooRecords...); err != nil {
+			level.Error(a.head.logger).Log("msg", "Failed to log out of order samples into the WAL", "err", err)
+		}
 	}
 	return nil
 }
