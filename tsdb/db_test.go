@@ -3517,8 +3517,8 @@ func TestOOOWALWrite(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
-	opts.OOOCapMin = 10
-	opts.OOOCapMax = 30
+	opts.OOOCapMin = 2
+	opts.OOOCapMax = 2
 	opts.OOOAllowance = 30 * time.Minute.Milliseconds()
 
 	db, err := Open(dir, nil, nil, opts, nil)
@@ -3560,55 +3560,96 @@ func TestOOOWALWrite(t *testing.T) {
 
 	// OOO for s1 but not for s2 in the same commit.
 	app = db.Appender(context.Background())
-	appendSample(app, s1, 50)
+	appendSample(app, s1, 50) // m-maps.
 	appendSample(app, s2, 65)
 	require.NoError(t, app.Commit())
 
-	oooSamplesRecords := [][]record.RefSample{
-		{
-			record.RefSample{Ref: 1, T: minutes(40), V: 40},
+	// Single commit has 2 times m-mapping and more samples after m-map.
+	app = db.Appender(context.Background())
+	appendSample(app, s2, 50) // m-maps.
+	appendSample(app, s2, 51)
+	appendSample(app, s2, 52) // m-maps.
+	appendSample(app, s2, 53)
+	require.NoError(t, app.Commit())
+
+	// The MmapRef in this are not hand calculated, and instead taken from the test run.
+	// What is important here is the order of records, and that MmapRef increases for each record.
+	oooRecords := []interface{}{
+		[]record.RefMmapMarker{
+			{Ref: 1},
 		},
-		{
-			record.RefSample{Ref: 2, T: minutes(42), V: 42},
+		[]record.RefSample{
+			{Ref: 1, T: minutes(40), V: 40},
 		},
-		{
-			record.RefSample{Ref: 2, T: minutes(45), V: 45},
-			record.RefSample{Ref: 1, T: minutes(35), V: 35},
+
+		[]record.RefMmapMarker{
+			{Ref: 2},
 		},
-		{ // Does not contain the in-order sample here.
-			record.RefSample{Ref: 1, T: minutes(50), V: 50},
+		[]record.RefSample{
+			{Ref: 2, T: minutes(42), V: 42},
+		},
+
+		[]record.RefSample{
+			{Ref: 2, T: minutes(45), V: 45},
+			{Ref: 1, T: minutes(35), V: 35},
+		},
+
+		[]record.RefMmapMarker{ // 3rd sample, hence m-mapped.
+			{Ref: 1, MmapRef: 4294967304},
+		},
+		[]record.RefSample{ // Does not contain the in-order sample here.
+			{Ref: 1, T: minutes(50), V: 50},
+		},
+
+		// Single commit but multiple OOO records.
+		[]record.RefMmapMarker{
+			{Ref: 2, MmapRef: 4294967354},
+		},
+		[]record.RefSample{
+			{Ref: 2, T: minutes(50), V: 50},
+			{Ref: 2, T: minutes(51), V: 51},
+		},
+		[]record.RefMmapMarker{
+			{Ref: 2, MmapRef: 4294967403},
+		},
+		[]record.RefSample{
+			{Ref: 2, T: minutes(52), V: 52},
+			{Ref: 2, T: minutes(53), V: 53},
 		},
 	}
 
-	inOrderSeriesRecords := [][]record.RefSeries{
-		{
-			record.RefSeries{Ref: 1, Labels: s1},
-			record.RefSeries{Ref: 2, Labels: s2},
+	inOrderRecords := []interface{}{
+		[]record.RefSeries{
+			{Ref: 1, Labels: s1},
+			{Ref: 2, Labels: s2},
 		},
-	}
-	// OOO samples also get written to the old WAL.
-	inOrderSamplesRecords := [][]record.RefSample{
-		{
-			record.RefSample{Ref: 1, T: minutes(60), V: 60},
-			record.RefSample{Ref: 2, T: minutes(60), V: 60},
+		[]record.RefSample{
+			{Ref: 1, T: minutes(60), V: 60},
+			{Ref: 2, T: minutes(60), V: 60},
 		},
-		{
-			record.RefSample{Ref: 1, T: minutes(40), V: 40},
+		[]record.RefSample{
+			{Ref: 1, T: minutes(40), V: 40},
 		},
-		{
-			record.RefSample{Ref: 2, T: minutes(42), V: 42},
+		[]record.RefSample{
+			{Ref: 2, T: minutes(42), V: 42},
 		},
-		{
-			record.RefSample{Ref: 2, T: minutes(45), V: 45},
-			record.RefSample{Ref: 1, T: minutes(35), V: 35},
+		[]record.RefSample{
+			{Ref: 2, T: minutes(45), V: 45},
+			{Ref: 1, T: minutes(35), V: 35},
 		},
-		{ // Contains both in-order and ooo sample.
-			record.RefSample{Ref: 1, T: minutes(50), V: 50},
-			record.RefSample{Ref: 2, T: minutes(65), V: 65},
+		[]record.RefSample{ // Contains both in-order and ooo sample.
+			{Ref: 1, T: minutes(50), V: 50},
+			{Ref: 2, T: minutes(65), V: 65},
+		},
+		[]record.RefSample{
+			{Ref: 2, T: minutes(50), V: 50},
+			{Ref: 2, T: minutes(51), V: 51},
+			{Ref: 2, T: minutes(52), V: 52},
+			{Ref: 2, T: minutes(53), V: 53},
 		},
 	}
 
-	getRecords := func(walDir string) ([][]record.RefSeries, [][]record.RefSample) {
+	getRecords := func(walDir string) []interface{} {
 		sr, err := wal.NewSegmentsReader(walDir)
 		require.NoError(t, err)
 		r := wal.NewReader(sr)
@@ -3617,36 +3658,37 @@ func TestOOOWALWrite(t *testing.T) {
 		}()
 
 		var (
-			seriesRecords [][]record.RefSeries
-			sampleRecords [][]record.RefSample
-			dec           record.Decoder
+			records []interface{}
+			dec     record.Decoder
 		)
 		for r.Next() {
 			rec := r.Record()
-			switch dec.Type(rec) {
+			switch typ := dec.Type(rec); typ {
 			case record.Series:
 				series, err := dec.Series(rec, nil)
 				require.NoError(t, err)
-				seriesRecords = append(seriesRecords, series)
+				records = append(records, series)
 			case record.Samples:
 				samples, err := dec.Samples(rec, nil)
 				require.NoError(t, err)
-				sampleRecords = append(sampleRecords, samples)
+				records = append(records, samples)
+			case record.MmapMarkers:
+				markers, err := dec.MmapMarkers(rec, nil)
+				require.NoError(t, err)
+				records = append(records, markers)
 			default:
-				t.Fatalf("got a WAL record that is not series or samples")
+				t.Fatalf("got a WAL record that is not series or samples: %v", typ)
 			}
 		}
 
-		return seriesRecords, sampleRecords
+		return records
 	}
 
 	// The normal WAL.
-	series, samples := getRecords(path.Join(dir, "wal"))
-	require.Equal(t, inOrderSeriesRecords, series)
-	require.Equal(t, inOrderSamplesRecords, samples)
+	actRecs := getRecords(path.Join(dir, "wal"))
+	require.Equal(t, inOrderRecords, actRecs)
 
 	// The OOO WAL.
-	series, samples = getRecords(path.Join(dir, wal.OOOWalDirName))
-	require.Equal(t, oooSamplesRecords, samples)
-	require.Len(t, series, 0)
+	actRecs = getRecords(path.Join(dir, wal.OOOWblDirName))
+	require.Equal(t, oooRecords, actRecs)
 }
