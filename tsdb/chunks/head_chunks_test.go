@@ -158,7 +158,7 @@ func TestChunkDiskMapper_WriteUnsupportedChunk_Chunk_IterateChunks(t *testing.T)
 		require.NoError(t, hrw.Close())
 	}()
 
-	ucSeriesRef, ucChkRef, ucMint, ucMaxt, uchunk := createUnsupportedChunk(t, 0, hrw)
+	ucSeriesRef, ucChkRef, ucMint, ucMaxt, uchunk := createUnsupportedChunk(t, 0, hrw, nil)
 
 	// Checking on-disk bytes for the first file.
 	require.Equal(t, 1, len(hrw.mmappedChunkFiles), "expected 1 mmapped file, got %d", len(hrw.mmappedChunkFiles))
@@ -544,17 +544,24 @@ func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSer
 	return
 }
 
-func createUnsupportedChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
+func createUnsupportedChunk(t *testing.T, idx int, hrw *ChunkDiskMapper, hrwOld *OldChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
 	var err error
 	seriesRef = HeadSeriesRef(rand.Int63())
 	mint = int64((idx)*1000 + 1)
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomUnsupportedChunk(t)
 	awaitCb := make(chan struct{})
-	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(cbErr error) {
-		require.NoError(t, err)
+	if hrw != nil {
+		chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(cbErr error) {
+			require.NoError(t, err)
+			close(awaitCb)
+		})
+	} else {
+		chunkRef = hrwOld.WriteChunk(seriesRef, mint, maxt, chunk, func(cbErr error) {
+			require.NoError(t, err)
+		})
 		close(awaitCb)
-	})
+	}
 	<-awaitCb
 	return
 }

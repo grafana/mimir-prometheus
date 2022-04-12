@@ -153,6 +153,45 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 	require.Equal(t, len(expectedData), idx)
 }
 
+func TestOldChunkDiskMapper_WriteUnsupportedChunk_Chunk_IterateChunks(t *testing.T) {
+	hrw := testOldChunkDiskMapper(t)
+	defer func() {
+		require.NoError(t, hrw.Close())
+	}()
+
+	ucSeriesRef, ucChkRef, ucMint, ucMaxt, uchunk := createUnsupportedChunk(t, 0, nil, hrw)
+
+	// Checking on-disk bytes for the first file.
+	require.Equal(t, 1, len(hrw.mmappedChunkFiles), "expected 1 mmapped file, got %d", len(hrw.mmappedChunkFiles))
+	require.Equal(t, len(hrw.mmappedChunkFiles), len(hrw.closers))
+
+	// Testing IterateAllChunks method.
+	dir := hrw.dir.Name()
+	require.NoError(t, hrw.Close())
+	hrw, err := NewOldChunkDiskMapper(dir, chunkenc.NewPool(), DefaultWriteBufferSize)
+	require.NoError(t, err)
+
+	require.NoError(t, hrw.IterateAllChunks(func(seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, encoding chunkenc.Encoding) error {
+		t.Helper()
+
+		require.Equal(t, ucSeriesRef, seriesRef)
+		require.Equal(t, ucChkRef, chunkRef)
+		require.Equal(t, ucMint, mint)
+		require.Equal(t, ucMaxt, maxt)
+		require.Equal(t, uchunk.Encoding(), encoding) // Asserts that the encoding is EncUnsupportedXOR
+
+		actChunk, err := hrw.Chunk(chunkRef)
+		// The chunk encoding is unknown so Chunk() should fail but us the caller
+		// are ok with that. Above we asserted that the encoding we expected was
+		// EncUnsupportedXOR
+		require.NotNil(t, err)
+		require.Contains(t, err.Error(), "invalid chunk encoding \"<unknown>\"")
+		require.Nil(t, actChunk)
+
+		return nil
+	}))
+}
+
 // TestOldChunkDiskMapper_Truncate tests
 // * If truncation is happening properly based on the time passed.
 // * The active file is not deleted even if the passed time makes it eligible to be deleted.
