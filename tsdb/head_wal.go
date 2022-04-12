@@ -691,7 +691,6 @@ func (wp *oooWalSubsetProcessor) processWALSamples(h *Head) (unknownRefs uint64)
 				unknownRefs++
 				continue
 			}
-			// TODO(codesome): Ignore samples that are already m-mapped. Needs a m-map marker in the WAL.
 			if _, chunkCreated, _ := ms.insert(s.T, s.V, h.chunkDiskMapper); chunkCreated {
 				h.metrics.chunksCreated.Inc()
 				h.metrics.chunks.Inc()

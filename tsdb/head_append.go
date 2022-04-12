@@ -491,7 +491,7 @@ func (a *headAppender) Commit() (err error) {
 	}()
 	collectOOORecords := func() {
 		if a.head.oooWbl == nil {
-			// WAL is not enabled. So no need to collect.
+			// WBL is not enabled. So no need to collect.
 			oooWblSamples = nil
 			oooMmapMarkers = nil
 			return

@@ -42,7 +42,7 @@ const (
 	Tombstones Type = 3
 	// Exemplars is used to match WAL records of type Exemplars.
 	Exemplars Type = 4
-	// MmapMarkers is used to match WAL records of type MmapMarkers.
+	// MmapMarkers is used to match OOO WBL records of type MmapMarkers.
 	MmapMarkers Type = 5
 )
 
