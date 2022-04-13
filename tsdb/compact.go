@@ -472,6 +472,17 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 		uids = append(uids, b.meta.ULID.String())
 	}
 
+	// TODO: create outBlocks := [][]shardedBlock instead.
+	// That way, outBlocks[x] will still be label based sharding, while outBlocks[x][y] will be time based for out of order samples.
+	// For compactions that is not for out of order samples, len(outBlocks[x]) will always be 1.
+
+	// During ingestion of samples we can identify which ooo blocks will exists so that
+	// we dont have to prefill symbols and etc for the blocks that will be empty.
+	// With this, len(outBlocks[x]) will still be the same for all x so that we can pick blocks easily.
+	// Just that, only some of the outBlocks[x][y] will be valid and populated based on preexisting knowledge of
+	// which blocks to expect.
+	// In case we see a sample that is not present in the estimated block ranges, we will create them on flight.
+
 	outBlocks := make([]shardedBlock, shardCount)
 	outBlocksTime := ulid.Now() // Make all out blocks share the same timestamp in the ULID.
 	for ix := range outBlocks {
@@ -958,6 +969,20 @@ func (c *LeveledCompactor) populateBlock(blocks []BlockReader, minT, maxT int64,
 		}
 
 		debugOutOfOrderChunks(chks, c.logger)
+
+		// TODO(codesome):
+		// Split the chunks into different blocks.
+		// And then call blockWriters for them all.
+
+		//splitChunks := func(chks []chunks.Meta) []chunks.Meta {
+		//	// Splits chunks into pieces such that it does not cross block boundaries.
+		//  // Also merge smaller chunks of same block if possible.
+		//}
+		//chks = splitChunks(chks)
+
+		//selectBlock := func(lbls labels.Labels, chkMint, chkMaxt, blockMint, blockMaxt, blockRange int64) {
+		//	// Based on the chunk range and series labels, decide which block does the chunk belong to.
+		//}
 
 		obIx := uint64(0)
 		if len(outBlocks) > 1 {
