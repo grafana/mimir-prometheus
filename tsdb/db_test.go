@@ -2814,7 +2814,7 @@ func TestChunkWriter_ReadAfterWrite(t *testing.T) {
 
 			for _, chks := range test.chks {
 				for _, chkExp := range chks {
-					chkAct, err := r.Chunk(chkExp.Ref)
+					chkAct, err := r.Chunk(chkExp)
 					require.NoError(t, err)
 					require.Equal(t, chkExp.Chunk.Bytes(), chkAct.Bytes())
 				}
@@ -2876,7 +2876,7 @@ func TestChunkReader_ConcurrentReads(t *testing.T) {
 			go func(chunk chunks.Meta) {
 				defer wg.Done()
 
-				chkAct, err := r.Chunk(chunk.Ref)
+				chkAct, err := r.Chunk(chunk)
 				require.NoError(t, err)
 				require.Equal(t, chunk.Chunk.Bytes(), chkAct.Bytes())
 			}(chk)

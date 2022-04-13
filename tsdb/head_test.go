@@ -1370,16 +1370,16 @@ func TestGCChunkAccess(t *testing.T) {
 
 	cr, err := h.chunksRange(0, 1500, nil)
 	require.NoError(t, err)
-	_, err = cr.Chunk(chunks[0].Ref)
+	_, err = cr.Chunk(chunks[0])
 	require.NoError(t, err)
-	_, err = cr.Chunk(chunks[1].Ref)
+	_, err = cr.Chunk(chunks[1])
 	require.NoError(t, err)
 
 	require.NoError(t, h.Truncate(1500)) // Remove a chunk.
 
-	_, err = cr.Chunk(chunks[0].Ref)
+	_, err = cr.Chunk(chunks[0])
 	require.Equal(t, storage.ErrNotFound, err)
-	_, err = cr.Chunk(chunks[1].Ref)
+	_, err = cr.Chunk(chunks[1])
 	require.NoError(t, err)
 }
 
@@ -1424,18 +1424,18 @@ func TestGCSeriesAccess(t *testing.T) {
 
 	cr, err := h.chunksRange(0, 2000, nil)
 	require.NoError(t, err)
-	_, err = cr.Chunk(chunks[0].Ref)
+	_, err = cr.Chunk(chunks[0])
 	require.NoError(t, err)
-	_, err = cr.Chunk(chunks[1].Ref)
+	_, err = cr.Chunk(chunks[1])
 	require.NoError(t, err)
 
 	require.NoError(t, h.Truncate(2000)) // Remove the series.
 
 	require.Equal(t, (*memSeries)(nil), h.series.getByID(1))
 
-	_, err = cr.Chunk(chunks[0].Ref)
+	_, err = cr.Chunk(chunks[0])
 	require.Equal(t, storage.ErrNotFound, err)
-	_, err = cr.Chunk(chunks[1].Ref)
+	_, err = cr.Chunk(chunks[1])
 	require.Equal(t, storage.ErrNotFound, err)
 }
 

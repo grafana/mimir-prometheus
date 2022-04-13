@@ -556,8 +556,8 @@ func (s *Reader) Size() int64 {
 }
 
 // Chunk returns a chunk from a given reference.
-func (s *Reader) Chunk(ref ChunkRef) (chunkenc.Chunk, error) {
-	sgmIndex, chkStart := BlockChunkRef(ref).Unpack()
+func (s *Reader) Chunk(meta Meta) (chunkenc.Chunk, error) {
+	sgmIndex, chkStart := BlockChunkRef(meta.Ref).Unpack()
 	chkCRC32 := newCRC32()
 
 	if sgmIndex >= len(s.bs) {

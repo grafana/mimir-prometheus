@@ -6,6 +6,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/index"
 )
@@ -102,7 +103,7 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 
 	// Next we want to sort all the collected chunks by min time so we can find
 	// those that overlap.
-	sort.Sort(byMinTime(tmpChks))
+	sort.Sort(byMinTimeAndMinRef(tmpChks))
 
 	// Next we want to iterate the sorted collected chunks and only return the
 	// chunks Meta the first chunk that overlaps with others.
@@ -124,11 +125,17 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	return nil
 }
 
-type byMinTime []chunks.Meta
+type byMinTimeAndMinRef []chunks.Meta
 
-func (b byMinTime) Len() int           { return len(b) }
-func (b byMinTime) Less(i, j int) bool { return b[i].MinTime < b[j].MinTime }
-func (b byMinTime) Swap(i, j int)      { b[i], b[j] = b[j], b[i] }
+func (b byMinTimeAndMinRef) Len() int { return len(b) }
+func (b byMinTimeAndMinRef) Less(i, j int) bool {
+	if b[i].MinTime == b[j].MinTime {
+		return b[i].Ref < b[j].Ref
+	}
+	return b[i].MinTime < b[j].MinTime
+}
+
+func (b byMinTimeAndMinRef) Swap(i, j int) { b[i], b[j] = b[j], b[i] }
 
 func (oh *OOOHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
 	switch len(values) {
@@ -144,4 +151,45 @@ func (oh *OOOHeadIndexReader) Postings(name string, values ...string) (index.Pos
 		}
 		return index.Merge(res...), nil
 	}
+}
+
+type OOOHeadChunkReader struct {
+	head       *Head
+	mint, maxt int64
+}
+
+func NewOOOHeadChunkReader(head *Head, mint, maxt int64) *OOOHeadChunkReader {
+	return &OOOHeadChunkReader{
+		head: head,
+		mint: mint,
+		maxt: maxt,
+	}
+}
+
+func (cr OOOHeadChunkReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
+	sid, _ := chunks.HeadChunkRef(meta.Ref).Unpack()
+
+	s := cr.head.series.getByID(sid)
+	// This means that the series has been garbage collected.
+	if s == nil {
+		return nil, storage.ErrNotFound
+	}
+
+	s.Lock()
+	c, err := s.oooMergedChunk(meta, cr.head.chunkDiskMapper, cr.mint, cr.maxt)
+	s.Unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	// This means that the query range did not overlap with the requested chunk.
+	if len(c.chunks) == 0 {
+		return nil, storage.ErrNotFound
+	}
+
+	return c, nil
+}
+
+func (cr OOOHeadChunkReader) Close() error {
+	return nil
 }

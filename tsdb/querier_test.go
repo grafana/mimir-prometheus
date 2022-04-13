@@ -629,10 +629,10 @@ func createFakeReaderAndNotPopulatedChunks(s ...[]tsdbutil.Sample) (*fakeChunksR
 	return f, chks
 }
 
-func (r *fakeChunksReader) Chunk(ref chunks.ChunkRef) (chunkenc.Chunk, error) {
-	chk, ok := r.chks[ref]
+func (r *fakeChunksReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
+	chk, ok := r.chks[meta.Ref]
 	if !ok {
-		return nil, errors.Errorf("chunk not found at ref %v", ref)
+		return nil, errors.Errorf("chunk not found at ref %v", meta.Ref)
 	}
 	return chk, nil
 }
@@ -1018,8 +1018,8 @@ func BenchmarkMergedSeriesSet(b *testing.B) {
 
 type mockChunkReader map[chunks.ChunkRef]chunkenc.Chunk
 
-func (cr mockChunkReader) Chunk(id chunks.ChunkRef) (chunkenc.Chunk, error) {
-	chk, ok := cr[id]
+func (cr mockChunkReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
+	chk, ok := cr[meta.Ref]
 	if ok {
 		return chk, nil
 	}

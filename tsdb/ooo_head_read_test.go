@@ -1,9 +1,11 @@
 package tsdb
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -11,6 +13,7 @@ import (
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 )
 
 type chunkInterval struct {
@@ -319,7 +322,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 						}
 						expChunks = append(expChunks, meta)
 					}
-					sort.Sort(byMinTime(expChunks)) // we always want the chunks to come back sorted by minTime asc
+					sort.Sort(byMinTimeAndMinRef(expChunks)) // we always want the chunks to come back sorted by minTime asc
 
 					if headChunk && len(intervals) > 0 {
 						// Put the last interval in the head chunk
@@ -352,4 +355,349 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 			}
 		}
 	}
+}
+
+// TestOOOHeadChunkReader_Chunk tests that the Chunk method works as expected.
+// It does so by appending out of order samples to the db and then initializing
+// an OOOHeadChunkReader to read chunks from it.
+func TestOOOHeadChunkReader_Chunk(t *testing.T) {
+	opts := DefaultOptions()
+	opts.OOOCapMin = 1
+	opts.OOOCapMax = 5
+	opts.OOOAllowance = 120 * time.Minute.Milliseconds()
+
+	s1 := labels.FromStrings("l", "v1")
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+
+	appendSample := func(app storage.Appender, l labels.Labels, timestamp int64, value float64) storage.SeriesRef {
+		ref, err := app.Append(0, l, timestamp, value)
+		require.NoError(t, err)
+		return ref
+	}
+
+	t.Run("Getting a non existing chunk fails with not found error", func(t *testing.T) {
+		db := newTestDBWithOpts(t, opts)
+
+		cr := NewOOOHeadChunkReader(db.head, 0, 1000)
+		c, err := cr.Chunk(chunks.Meta{
+			Ref: 0x1000000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 300,
+		})
+		require.Equal(t, err, fmt.Errorf("not found"))
+		require.Equal(t, c, nil)
+	})
+
+	tests := []struct {
+		name                 string
+		queryMinT            int64
+		queryMaxT            int64
+		firstInOrderSampleAt int64
+		dbOpts               *Options
+		inputSamples         tsdbutil.SampleSlice
+		expChunkError        bool
+		expChunksSamples     []tsdbutil.SampleSlice
+	}{
+		{
+			name:                 "Getting the head when there are no overlapping chunks returns just the samples in the head",
+			queryMinT:            minutes(0),
+			queryMaxT:            minutes(100),
+			firstInOrderSampleAt: minutes(120),
+			dbOpts:               opts,
+			inputSamples: tsdbutil.SampleSlice{
+				sample{t: minutes(30), v: float64(0)},
+				sample{t: minutes(40), v: float64(0)},
+			},
+			expChunkError: false,
+			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
+			// Query Interval          [------------------------------------------------------------------------------------------]
+			// Chunk 0: Current Head                              [--------] (With 2 samples)
+			// Expected Output
+			// Output Graphically                                 [--------] (With 2 samples)
+			expChunksSamples: []tsdbutil.SampleSlice{
+				{
+					sample{t: minutes(30), v: float64(0)},
+					sample{t: minutes(40), v: float64(0)},
+				},
+			},
+		},
+		{
+			name:                 "Getting the head chunk when there are overlapping chunks returns all combined",
+			queryMinT:            minutes(0),
+			queryMaxT:            minutes(100),
+			firstInOrderSampleAt: minutes(120),
+			dbOpts:               opts,
+			inputSamples: tsdbutil.SampleSlice{
+				// opts.OOOCapMax is 5 so these will be mmapped to the first mmapped chunk
+				sample{t: minutes(41), v: float64(0)},
+				sample{t: minutes(42), v: float64(0)},
+				sample{t: minutes(43), v: float64(0)},
+				sample{t: minutes(44), v: float64(0)},
+				sample{t: minutes(45), v: float64(0)},
+				// The following samples will go to the head chunk, and we want it
+				// to overlap with the previous chunk
+				sample{t: minutes(30), v: float64(1)},
+				sample{t: minutes(50), v: float64(1)},
+			},
+			expChunkError: false,
+			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
+			// Query Interval          [------------------------------------------------------------------------------------------]
+			// Chunk 0                                                     [---] (With 5 samples)
+			// Chunk 1: Current Head                              [-----------------] (With 2 samples)
+			// Expected Output  [Chunk 1] With 7 samples
+			// Output Graphically                                 [-----------------] (With 7 samples)
+			expChunksSamples: []tsdbutil.SampleSlice{
+				{
+					sample{t: minutes(30), v: float64(1)},
+					sample{t: minutes(41), v: float64(0)},
+					sample{t: minutes(42), v: float64(0)},
+					sample{t: minutes(43), v: float64(0)},
+					sample{t: minutes(44), v: float64(0)},
+					sample{t: minutes(45), v: float64(0)},
+					sample{t: minutes(50), v: float64(1)},
+				},
+			},
+		},
+		{
+			name:                 "Two windows of overlapping chunks get properly converged",
+			queryMinT:            minutes(0),
+			queryMaxT:            minutes(100),
+			firstInOrderSampleAt: minutes(120),
+			dbOpts:               opts,
+			inputSamples: tsdbutil.SampleSlice{
+				// Chunk 0
+				sample{t: minutes(10), v: float64(0)},
+				sample{t: minutes(12), v: float64(0)},
+				sample{t: minutes(14), v: float64(0)},
+				sample{t: minutes(16), v: float64(0)},
+				sample{t: minutes(20), v: float64(0)},
+				// Chunk 1
+				sample{t: minutes(20), v: float64(1)},
+				sample{t: minutes(22), v: float64(1)},
+				sample{t: minutes(24), v: float64(1)},
+				sample{t: minutes(26), v: float64(1)},
+				sample{t: minutes(29), v: float64(1)},
+				// Chunk 2
+				sample{t: minutes(30), v: float64(2)},
+				sample{t: minutes(32), v: float64(2)},
+				sample{t: minutes(34), v: float64(2)},
+				sample{t: minutes(36), v: float64(2)},
+				sample{t: minutes(40), v: float64(2)},
+				// Head
+				sample{t: minutes(40), v: float64(3)},
+				sample{t: minutes(50), v: float64(3)},
+			},
+			expChunkError: false,
+			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
+			// Query Interval          [------------------------------------------------------------------------------------------]
+			// Chunk 0                          [--------]
+			// Chunk 1                                   [-------]
+			// Chunk 2                                            [--------]
+			// Chunk 3: Current Head                                       [--------]
+			// Expected Output  [Chunk 0] (With samples between minute 10 and minute 29) and [Chunk 3] (With samples between minute 30 and minute 50)
+			// Output Graphically               [----------------][-----------------]
+			expChunksSamples: []tsdbutil.SampleSlice{
+				{
+					sample{t: minutes(10), v: float64(0)},
+					sample{t: minutes(12), v: float64(0)},
+					sample{t: minutes(14), v: float64(0)},
+					sample{t: minutes(16), v: float64(0)},
+					sample{t: minutes(20), v: float64(1)},
+					sample{t: minutes(22), v: float64(1)},
+					sample{t: minutes(24), v: float64(1)},
+					sample{t: minutes(26), v: float64(1)},
+					sample{t: minutes(29), v: float64(1)},
+				},
+				{
+					sample{t: minutes(30), v: float64(2)},
+					sample{t: minutes(32), v: float64(2)},
+					sample{t: minutes(34), v: float64(2)},
+					sample{t: minutes(36), v: float64(2)},
+					sample{t: minutes(40), v: float64(3)},
+					sample{t: minutes(50), v: float64(3)},
+				},
+			},
+		},
+		{
+			name:                 "If chunks are not overlapped they are not converged",
+			queryMinT:            minutes(0),
+			queryMaxT:            minutes(100),
+			firstInOrderSampleAt: minutes(120),
+			dbOpts:               opts,
+			inputSamples: tsdbutil.SampleSlice{
+				// Chunk 0
+				sample{t: minutes(10), v: float64(0)},
+				sample{t: minutes(12), v: float64(0)},
+				sample{t: minutes(14), v: float64(0)},
+				sample{t: minutes(16), v: float64(0)},
+				sample{t: minutes(18), v: float64(0)},
+				// Chunk 1
+				sample{t: minutes(20), v: float64(1)},
+				sample{t: minutes(22), v: float64(1)},
+				sample{t: minutes(24), v: float64(1)},
+				sample{t: minutes(26), v: float64(1)},
+				sample{t: minutes(28), v: float64(1)},
+				// Chunk 2
+				sample{t: minutes(30), v: float64(2)},
+				sample{t: minutes(32), v: float64(2)},
+				sample{t: minutes(34), v: float64(2)},
+				sample{t: minutes(36), v: float64(2)},
+				sample{t: minutes(38), v: float64(2)},
+				// Head
+				sample{t: minutes(40), v: float64(3)},
+				sample{t: minutes(42), v: float64(3)},
+			},
+			expChunkError: false,
+			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
+			// Query Interval          [------------------------------------------------------------------------------------------]
+			// Chunk 0                          [-------]
+			// Chunk 1                                   [-------]
+			// Chunk 2                                            [-------]
+			// Chunk 3: Current Head                                       [-------]
+			// Expected Output  All chunks separated since they dont overlap
+			// Output Graphically               [-------][-------][-------][--------]
+			expChunksSamples: []tsdbutil.SampleSlice{
+				{
+					sample{t: minutes(10), v: float64(0)},
+					sample{t: minutes(12), v: float64(0)},
+					sample{t: minutes(14), v: float64(0)},
+					sample{t: minutes(16), v: float64(0)},
+					sample{t: minutes(18), v: float64(0)},
+				},
+				{
+					sample{t: minutes(20), v: float64(1)},
+					sample{t: minutes(22), v: float64(1)},
+					sample{t: minutes(24), v: float64(1)},
+					sample{t: minutes(26), v: float64(1)},
+					sample{t: minutes(28), v: float64(1)},
+				},
+				{
+					sample{t: minutes(30), v: float64(2)},
+					sample{t: minutes(32), v: float64(2)},
+					sample{t: minutes(34), v: float64(2)},
+					sample{t: minutes(36), v: float64(2)},
+					sample{t: minutes(38), v: float64(2)},
+				},
+				{
+					sample{t: minutes(40), v: float64(3)},
+					sample{t: minutes(42), v: float64(3)},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			db := newTestDBWithOpts(t, tc.dbOpts)
+
+			app := db.Appender(context.Background())
+			s1Ref := appendSample(app, s1, tc.firstInOrderSampleAt, float64(tc.firstInOrderSampleAt/1*time.Minute.Milliseconds()))
+			require.NoError(t, app.Commit())
+
+			// OOO few samples for s1.
+			app = db.Appender(context.Background())
+			for _, s := range tc.inputSamples {
+				appendSample(app, s1, s.T(), s.V())
+			}
+			require.NoError(t, app.Commit())
+
+			// The Series method is the one that populates the chunk meta OOO
+			// markers like OOOLastRef. These are then used by the ChunkReader.
+			ir := NewOOOHeadIndexReader(db.head, tc.queryMinT, tc.queryMaxT)
+			var chks []chunks.Meta
+			var respLset labels.Labels
+			err := ir.Series(s1Ref, &respLset, &chks)
+			require.NoError(t, err)
+			require.Equal(t, len(tc.expChunksSamples), len(chks))
+
+			cr := NewOOOHeadChunkReader(db.head, tc.queryMinT, tc.queryMaxT)
+			for i := 0; i < len(chks); i++ {
+				c, err := cr.Chunk(chks[i])
+				require.NoError(t, err)
+
+				var resultSamples tsdbutil.SampleSlice
+				it := c.Iterator(nil)
+				for it.Next() {
+					t, v := it.At()
+					resultSamples = append(resultSamples, sample{t: t, v: v})
+				}
+				require.Equal(t, tc.expChunksSamples[i], resultSamples)
+			}
+		})
+	}
+}
+
+// TestSortByMinTimeAndMinRef tests that the sort function for chunk metas does sort
+// by chunk meta MinTime and in case of same references by the lower reference.
+func TestSortByMinTimeAndMinRef(t *testing.T) {
+	tests := []struct {
+		name       string
+		inputMetas []chunks.Meta
+		expMetas   []chunks.Meta
+	}{
+		{
+			name: "chunks are ordered by min time",
+			inputMetas: []chunks.Meta{
+				{
+					Ref:     0,
+					MinTime: 0,
+				},
+				{
+					Ref:     1,
+					MinTime: 1,
+				},
+			},
+			expMetas: []chunks.Meta{
+				{
+					Ref:     0,
+					MinTime: 0,
+				},
+				{
+					Ref:     1,
+					MinTime: 1,
+				},
+			},
+		},
+		{
+			name: "if same mintime, lower reference goes first",
+			inputMetas: []chunks.Meta{
+				{
+					Ref:     10,
+					MinTime: 0,
+				},
+				{
+					Ref:     5,
+					MinTime: 0,
+				},
+			},
+			expMetas: []chunks.Meta{
+				{
+					Ref:     5,
+					MinTime: 0,
+				},
+				{
+					Ref:     10,
+					MinTime: 0,
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			sort.Sort(byMinTimeAndMinRef(tc.inputMetas))
+			require.Equal(t, tc.expMetas, tc.inputMetas)
+		})
+	}
+}
+
+func newTestDBWithOpts(t *testing.T, opts *Options) *DB {
+	dir := t.TempDir()
+
+	db, err := Open(dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	return db
 }
