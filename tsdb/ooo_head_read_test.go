@@ -514,6 +514,65 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			},
 		},
 		{
+			name:                 "Two windows of overlapping chunks in descending order get properly converged",
+			queryMinT:            minutes(0),
+			queryMaxT:            minutes(100),
+			firstInOrderSampleAt: minutes(120),
+			dbOpts:               opts,
+			inputSamples: tsdbutil.SampleSlice{
+				// Chunk 0
+				sample{t: minutes(40), v: float64(0)},
+				sample{t: minutes(42), v: float64(0)},
+				sample{t: minutes(44), v: float64(0)},
+				sample{t: minutes(46), v: float64(0)},
+				sample{t: minutes(50), v: float64(0)},
+				// Chunk 1
+				sample{t: minutes(30), v: float64(1)},
+				sample{t: minutes(32), v: float64(1)},
+				sample{t: minutes(34), v: float64(1)},
+				sample{t: minutes(36), v: float64(1)},
+				sample{t: minutes(40), v: float64(1)},
+				// Chunk 2
+				sample{t: minutes(20), v: float64(2)},
+				sample{t: minutes(22), v: float64(2)},
+				sample{t: minutes(24), v: float64(2)},
+				sample{t: minutes(26), v: float64(2)},
+				sample{t: minutes(29), v: float64(2)},
+				// Head
+				sample{t: minutes(10), v: float64(3)},
+				sample{t: minutes(20), v: float64(3)},
+			},
+			expChunkError: false,
+			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
+			// Query Interval          [------------------------------------------------------------------------------------------]
+			// Chunk 0                                                     [--------]
+			// Chunk 1                                            [--------]
+			// Chunk 2                                   [-------]
+			// Chunk 3: Current Head            [--------]
+			// Output Graphically               [----------------][-----------------]
+			expChunksSamples: []tsdbutil.SampleSlice{
+				{
+					sample{t: minutes(10), v: float64(3)},
+					sample{t: minutes(20), v: float64(2)},
+					sample{t: minutes(22), v: float64(2)},
+					sample{t: minutes(24), v: float64(2)},
+					sample{t: minutes(26), v: float64(2)},
+					sample{t: minutes(29), v: float64(2)},
+				},
+				{
+					sample{t: minutes(30), v: float64(1)},
+					sample{t: minutes(32), v: float64(1)},
+					sample{t: minutes(34), v: float64(1)},
+					sample{t: minutes(36), v: float64(1)},
+					sample{t: minutes(40), v: float64(0)},
+					sample{t: minutes(42), v: float64(0)},
+					sample{t: minutes(44), v: float64(0)},
+					sample{t: minutes(46), v: float64(0)},
+					sample{t: minutes(50), v: float64(0)},
+				},
+			},
+		},
+		{
 			name:                 "If chunks are not overlapped they are not converged",
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
