@@ -768,9 +768,136 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 	}
 }
 
-// TestSortByMinTimeAndMinRef tests that the sort function for chunk metas,
-// wrapped into chunkMetaAndChunkDiskMapperRef, does sort by chunk meta MinTime
-// and in case of same references by the lower reference.
+// TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding tests
+// that if a query comes and performs a Series() call followed by a Chunks() call
+// the response is consistent with the data seen by Series() even if the OOO
+// head receives more samples before Chunks() is called.
+// An example:
+// - Response A comes from: Series() then Chunk()
+// - Response B comes from : Series(), in parallel new samples added to the head, then Chunk()
+// - A == B
+func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(t *testing.T) {
+	opts := DefaultOptions()
+	opts.OOOCapMin = 1
+	opts.OOOCapMax = 5
+	opts.OOOAllowance = 120 * time.Minute.Milliseconds()
+
+	s1 := labels.FromStrings("l", "v1")
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+
+	appendSample := func(app storage.Appender, l labels.Labels, timestamp int64, value float64) storage.SeriesRef {
+		ref, err := app.Append(0, l, timestamp, value)
+		require.NoError(t, err)
+		return ref
+	}
+
+	tests := []struct {
+		name                   string
+		queryMinT              int64
+		queryMaxT              int64
+		firstInOrderSampleAt   int64
+		dbOpts                 *Options
+		initialSamples         tsdbutil.SampleSlice
+		samplesAfterSeriesCall tsdbutil.SampleSlice
+		expChunkError          bool
+		expChunksSamples       []tsdbutil.SampleSlice
+	}{
+		{
+			name:                 "Current head gets old, new and in between sample after Series call, they all should be omitted from the result",
+			queryMinT:            minutes(0),
+			queryMaxT:            minutes(100),
+			firstInOrderSampleAt: minutes(120),
+			dbOpts:               opts,
+			initialSamples: tsdbutil.SampleSlice{
+				// Chunk 0
+				sample{t: minutes(20), v: float64(0)},
+				sample{t: minutes(22), v: float64(0)},
+				sample{t: minutes(24), v: float64(0)},
+				sample{t: minutes(26), v: float64(0)},
+				sample{t: minutes(30), v: float64(0)},
+				// Chunk 1 Head
+				sample{t: minutes(25), v: float64(1)},
+				sample{t: minutes(35), v: float64(1)},
+			},
+			samplesAfterSeriesCall: tsdbutil.SampleSlice{
+				sample{t: minutes(10), v: float64(1)},
+				sample{t: minutes(32), v: float64(1)},
+				sample{t: minutes(50), v: float64(1)},
+			},
+			expChunkError: false,
+			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
+			// Query Interval                       [----------------------]
+			// Chunk 0:                                  [--------] (5 samples)
+			// Chunk 1: Current Head                          [-------] (2 samples)
+			// New samples added after Series()
+			// Chunk 1: Current Head            [-----------------------------------] (5 samples)
+			// Output Graphically                        [------------] (With 8 samples, samples newer than lastmint or older than lastmaxt are omitted but the ones in between are kept)
+			expChunksSamples: []tsdbutil.SampleSlice{
+				{
+					sample{t: minutes(20), v: float64(0)},
+					sample{t: minutes(22), v: float64(0)},
+					sample{t: minutes(24), v: float64(0)},
+					sample{t: minutes(25), v: float64(1)},
+					sample{t: minutes(26), v: float64(0)},
+					sample{t: minutes(30), v: float64(0)},
+					sample{t: minutes(32), v: float64(1)}, // This sample was added after Series() but before Chunk() and its in between the lastmint and maxt so it should be kept
+					sample{t: minutes(35), v: float64(1)},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			db := newTestDBWithOpts(t, tc.dbOpts)
+
+			app := db.Appender(context.Background())
+			s1Ref := appendSample(app, s1, tc.firstInOrderSampleAt, float64(tc.firstInOrderSampleAt/1*time.Minute.Milliseconds()))
+			require.NoError(t, app.Commit())
+
+			// OOO few samples for s1.
+			app = db.Appender(context.Background())
+			for _, s := range tc.initialSamples {
+				appendSample(app, s1, s.T(), s.V())
+			}
+			require.NoError(t, app.Commit())
+
+			// The Series method is the one that populates the chunk meta OOO
+			// markers like OOOLastRef. These are then used by the ChunkReader.
+			ir := NewOOOHeadIndexReader(db.head, tc.queryMinT, tc.queryMaxT)
+			var chks []chunks.Meta
+			var respLset labels.Labels
+			err := ir.Series(s1Ref, &respLset, &chks)
+			require.NoError(t, err)
+			require.Equal(t, len(tc.expChunksSamples), len(chks))
+
+			// Now we keep receiving ooo samples
+			// OOO few samples for s1.
+			app = db.Appender(context.Background())
+			for _, s := range tc.samplesAfterSeriesCall {
+				appendSample(app, s1, s.T(), s.V())
+			}
+			require.NoError(t, app.Commit())
+
+			cr := NewOOOHeadChunkReader(db.head, tc.queryMinT, tc.queryMaxT)
+			for i := 0; i < len(chks); i++ {
+				c, err := cr.Chunk(chks[i])
+				require.NoError(t, err)
+
+				var resultSamples tsdbutil.SampleSlice
+				it := c.Iterator(nil)
+				for it.Next() {
+					t, v := it.At()
+					resultSamples = append(resultSamples, sample{t: t, v: v})
+				}
+				require.Equal(t, tc.expChunksSamples[i], resultSamples)
+			}
+		})
+	}
+}
+
+// TestSortByMinTimeAndMinRef tests that the sort function for chunk metas does sort
+// by chunk meta MinTime and in case of same references by the lower reference.
 func TestSortByMinTimeAndMinRef(t *testing.T) {
 	tests := []struct {
 		name  string
