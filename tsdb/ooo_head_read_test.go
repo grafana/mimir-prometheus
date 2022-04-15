@@ -410,7 +410,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
 			// Query Interval          [------------------------------------------------------------------------------------------]
 			// Chunk 0: Current Head                              [--------] (With 2 samples)
-			// Expected Output
 			// Output Graphically                                 [--------] (With 2 samples)
 			expChunksSamples: []tsdbutil.SampleSlice{
 				{
@@ -442,7 +441,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			// Query Interval          [------------------------------------------------------------------------------------------]
 			// Chunk 0                                                     [---] (With 5 samples)
 			// Chunk 1: Current Head                              [-----------------] (With 2 samples)
-			// Expected Output  [Chunk 1] With 7 samples
 			// Output Graphically                                 [-----------------] (With 7 samples)
 			expChunksSamples: []tsdbutil.SampleSlice{
 				{
@@ -492,7 +490,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			// Chunk 1                                   [-------]
 			// Chunk 2                                            [--------]
 			// Chunk 3: Current Head                                       [--------]
-			// Expected Output  [Chunk 0] (With samples between minute 10 and minute 29) and [Chunk 3] (With samples between minute 30 and minute 50)
 			// Output Graphically               [----------------][-----------------]
 			expChunksSamples: []tsdbutil.SampleSlice{
 				{
@@ -552,7 +549,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			// Chunk 1                                   [-------]
 			// Chunk 2                                            [-------]
 			// Chunk 3: Current Head                                       [-------]
-			// Expected Output  All chunks separated since they dont overlap
 			// Output Graphically               [-------][-------][-------][--------]
 			expChunksSamples: []tsdbutil.SampleSlice{
 				{
