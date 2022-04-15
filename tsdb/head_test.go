@@ -28,6 +28,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"text/tabwriter"
 	"time"
 
 	"github.com/pkg/errors"
@@ -40,6 +41,7 @@ import (
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
@@ -3210,4 +3212,157 @@ func TestChunkSnapshotTakenAfterIncompleteSnapshot(t *testing.T) {
 	require.True(t, name != "")
 	require.Equal(t, 0, idx)
 	require.Greater(t, offset, 0)
+}
+
+func TestWritingHighFreqSamples(t *testing.T) {
+	sampleCount := 1200            // one chunk file is supposed to have max 120 samples, this should create at least 10 chunk files.
+	sampleRate := time.Millisecond // time delta between each two samples
+	metricName := "my_test_metric"
+	startTs := time.Now()
+	untilTs := time.Now().Add(time.Duration(sampleCount) * sampleRate)
+	sampleTs := startTs
+
+	dir := t.TempDir()
+	db, err := Open(dir, nil, nil, &Options{
+		IsolationDisabled: true,
+	}, nil)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	app := db.Appender(context.Background())
+
+	for sampleIdx := 0; sampleIdx < sampleCount; sampleIdx++ {
+		_, err = app.Append(0, labels.Labels{{Name: "__name__", Value: metricName}}, sampleTs.UnixMilli(), 10)
+		require.NoError(t, err)
+		sampleTs = sampleTs.Add(sampleRate)
+	}
+
+	require.NoError(t, app.Commit())
+
+	h := db.Head()
+	db.CompactHead(NewRangeHead(h, startTs.UnixMilli(), untilTs.UnixMilli()))
+
+	cq, err := db.ChunkQuerier(context.Background(), startTs.UnixMilli(), untilTs.UnixMilli())
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, cq.Close())
+	}()
+
+	type sample struct {
+		t int64
+		v float64
+	}
+
+	matcher, err := labels.NewMatcher(labels.MatchEqual, "__name__", metricName)
+	require.NoError(t, err)
+	css := cq.Select(false, nil, matcher)
+	require.NoError(t, css.Err())
+
+	samplesPerChunkWithSampleLimit := make(map[uint64][]sample)
+	for css.Next() {
+		series := css.At()
+		sit := series.Iterator()
+		for sit.Next() {
+			meta := sit.At()
+
+			cit := meta.Chunk.Iterator(nil)
+			for cit.Err() == nil && cit.Next() {
+				ts, val := cit.At()
+				samplesPerChunkWithSampleLimit[uint64(meta.Ref)] = append(
+					samplesPerChunkWithSampleLimit[uint64(meta.Ref)],
+					sample{
+						t: ts, v: val,
+					},
+				)
+			}
+
+			require.NoError(t, cit.Err())
+		}
+	}
+
+	css = cq.Select(false, nil, matcher)
+	require.NoError(t, css.Err())
+
+	samplesPerChunkWithoutSampleLimit := make(map[uint64][]sample)
+	for css.Next() {
+		series := css.At()
+		sit := series.Iterator()
+		for sit.Next() {
+			fmt.Println("--- new chunk ---")
+			meta := sit.At()
+
+			cit := meta.Chunk.(*chunkenc.XORChunk).IteratorWithoutSampleLimit()
+			for cit.Err() == nil && cit.Next() {
+				ts, val := cit.At()
+				samplesPerChunkWithoutSampleLimit[uint64(meta.Ref)] = append(
+					samplesPerChunkWithoutSampleLimit[uint64(meta.Ref)],
+					sample{
+						t: ts, v: val,
+					},
+				)
+			}
+
+			err = cit.Err()
+			// ignore EOF errors, they happen because we don't limit by sample count anymore.
+			if err != io.EOF {
+				require.NoError(t, err)
+			}
+
+			if len(samplesPerChunkWithSampleLimit[uint64(meta.Ref)]) != len(samplesPerChunkWithoutSampleLimit[uint64(meta.Ref)]) {
+				w := tabwriter.NewWriter(os.Stdout, 1, 1, 1, ' ', 0)
+
+				samplesWith := samplesPerChunkWithSampleLimit[uint64(meta.Ref)]
+				samplesWithout := samplesPerChunkWithoutSampleLimit[uint64(meta.Ref)]
+				var idxWith, idxWithout int
+				var vWith, vWithout float64
+				var tWith, tWithout int64
+				for {
+					if idxWith >= len(samplesWith) && idxWithout >= len(samplesWithout) {
+						break
+					}
+
+					onlyWith := func() {
+						vWithout = 0
+						tWithout = 0
+
+						vWith = samplesWith[idxWith].v
+						tWith = samplesWith[idxWith].t
+						idxWith++
+					}
+					onlyWithout := func() {
+						vWith = 0
+						tWith = 0
+
+						vWithout = samplesWithout[idxWithout].v
+						tWithout = samplesWithout[idxWithout].t
+						idxWithout++
+					}
+
+					if idxWith >= len(samplesWith) {
+						onlyWithout()
+					} else if idxWithout >= len(samplesWithout) {
+						onlyWith()
+					} else if samplesWith[idxWith].t > samplesWithout[idxWithout].t {
+						onlyWithout()
+					} else if samplesWith[idxWith].t < samplesWithout[idxWithout].t {
+						onlyWith()
+					} else {
+						vWith = samplesWith[idxWith].v
+						tWith = samplesWith[idxWith].t
+						idxWith++
+
+						vWithout = samplesWithout[idxWithout].v
+						tWithout = samplesWithout[idxWithout].t
+						idxWithout++
+					}
+
+					fmt.Fprintf(w, "%f\t%d (%s) \t|\t%f\t%d (%s)\n", vWith, tWith, timestamp.Time(tWith).UTC().Format(time.RFC3339Nano), vWithout, tWithout, timestamp.Time(tWithout).UTC().Format(time.RFC3339Nano))
+				}
+
+				w.Flush()
+			}
+		}
+	}
 }

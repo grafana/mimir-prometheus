@@ -131,9 +131,23 @@ func (c *XORChunk) iterator(it Iterator) *xorIterator {
 	}
 }
 
+func (c *XORChunk) iteratorWithoutSampleLimit() *xorIteratorWithoutSampleLimit {
+	return &xorIteratorWithoutSampleLimit{
+		// The first 2 bytes contain chunk headers.
+		// We skip that for actual samples.
+		br:       newBReader(c.b.bytes()[2:]),
+		numTotal: binary.BigEndian.Uint16(c.b.bytes()),
+		t:        math.MinInt64,
+	}
+}
+
 // Iterator implements the Chunk interface.
 func (c *XORChunk) Iterator(it Iterator) Iterator {
 	return c.iterator(it)
+}
+
+func (c *XORChunk) IteratorWithoutSampleLimit() Iterator {
+	return c.iteratorWithoutSampleLimit()
 }
 
 type xorAppender struct {
