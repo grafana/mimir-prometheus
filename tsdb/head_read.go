@@ -432,11 +432,6 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 
 	oc := &mergedOOOChunks{}
 	for _, c := range tmpChks {
-		// TODO(Jesus.vazquez) Note that chunks are sorted by mintime but the head could get an old enough sample and this condition would make us discard overlapping chunks
-		// if c.Ref < meta.Ref {
-		// 	continue
-		// }
-
 		if c.Ref == meta.Ref || len(oc.chunks) > 0 && c.MinTime <= oc.chunks[len(oc.chunks)-1].MaxTime {
 
 			if c.Ref == oooHeadRef {
