@@ -552,6 +552,107 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 	return nil, errs.Err()
 }
 
+func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, shardCount uint64) (_ [][]ulid.ULID, err error) {
+	if shardCount == 0 {
+		shardCount = 1
+	}
+
+	start := time.Now()
+
+	if err != nil {
+		return nil, err
+	}
+
+	// The first dimension of outBlocks determines the time based splitting (i.e. outBlocks[i] has blocks all for the same time range).
+	// The second dimension of outBlocks determines the label based shard (i.e. outBlocks[i][j] is the (j+1)th shard.
+	// During ingestion of samples we can identify which ooo blocks will exists so that
+	// we dont have to prefill symbols and etc for the blocks that will be empty.
+	// With this, len(outBlocks[x]) will still be the same for all x so that we can pick blocks easily.
+	// Just that, only some of the outBlocks[x][y] will be valid and populated based on preexisting knowledge of
+	// which blocks to expect.
+	// In case we see a sample that is not present in the estimated block ranges, we will create them on flight.
+	outBlocks := make([][]shardedBlock, 0)
+	outBlocksTime := ulid.Now() // Make all out blocks share the same timestamp in the ULID.
+	blockSize := oooHead.ChunkRange()
+	oooHeadMint, oooHeadMaxt := oooHead.MinTime(), oooHead.MaxTime()
+	ulids := make([][]ulid.ULID, 0)
+	for t := blockSize * (oooHeadMint / blockSize); t <= oooHeadMaxt; t = t + blockSize {
+		mint, maxt := t, t+blockSize
+
+		outBlocks = append(outBlocks, make([]shardedBlock, shardCount))
+		ulids = append(ulids, make([]ulid.ULID, shardCount))
+		ix := len(outBlocks) - 1
+
+		for jx := range outBlocks[ix] {
+			uid := ulid.MustNew(outBlocksTime, rand.Reader)
+			meta := &BlockMeta{
+				ULID:    uid,
+				MinTime: mint,
+				MaxTime: maxt,
+			}
+			meta.Compaction.Level = 1
+			meta.Compaction.Sources = []ulid.ULID{uid}
+
+			outBlocks[ix][jx] = shardedBlock{
+				meta: meta,
+			}
+			ulids[ix][jx] = meta.ULID
+		}
+
+		// Block intervals are half-open: [b.MinTime, b.MaxTime). Block intervals are always +1 than the total samples it includes.
+		err := c.write(dest, outBlocks[ix], oooHead.CloneForTimeRange(mint, maxt-1))
+		if err != nil {
+			// We need to delete all blocks in case there was an error.
+			for _, obs := range outBlocks {
+				for _, ob := range obs {
+					if ob.tmpDir != "" {
+						if removeErr := os.RemoveAll(ob.tmpDir); removeErr != nil {
+							level.Error(c.logger).Log("msg", "Failed to remove temp folder after failed compaction", "dir", ob.tmpDir, "err", removeErr.Error())
+						}
+					}
+					if ob.blockDir != "" {
+						if removeErr := os.RemoveAll(ob.blockDir); removeErr != nil {
+							level.Error(c.logger).Log("msg", "Failed to remove block folder after failed compaction", "dir", ob.blockDir, "err", removeErr.Error())
+						}
+					}
+				}
+			}
+			return nil, err
+		}
+	}
+
+	noOOOBlock := true
+	for ix, obs := range outBlocks {
+		for jx := range obs {
+			meta := outBlocks[ix][jx].meta
+			if meta.Stats.NumSamples != 0 {
+				noOOOBlock = false
+				level.Info(c.logger).Log(
+					"msg", "compact ooo head",
+					"mint", meta.MinTime,
+					"maxt", meta.MaxTime,
+					"ulid", meta.ULID,
+					"duration", time.Since(start),
+					"shard", fmt.Sprintf("%d_of_%d", jx+1, shardCount),
+				)
+			} else {
+				// This block did not get any data. So clear out the ulid to signal this.
+				ulids[ix][jx] = ulid.ULID{}
+			}
+		}
+	}
+
+	if noOOOBlock {
+		level.Info(c.logger).Log(
+			"msg", "compact ooo head resulted in no blocks",
+			"duration", time.Since(start),
+		)
+		return nil, nil
+	}
+
+	return ulids, nil
+}
+
 func (c *LeveledCompactor) Write(dest string, b BlockReader, mint, maxt int64, parent *BlockMeta) (ulid.ULID, error) {
 	start := time.Now()
 

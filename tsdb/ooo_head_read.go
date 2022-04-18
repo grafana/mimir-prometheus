@@ -227,10 +227,7 @@ type OOOCompactionHead struct {
 	lastMmapRef chunks.ChunkDiskMapperRef
 	postings    []storage.SeriesRef
 	chunkRange  int64
-
-	// For a million series having ooo samples and spanning X block ranges, this is going
-	// to take a maximum of 8*X MiB approximately.
-	blockToSeries map[int64][]storage.SeriesRef
+	mint, maxt  int64 // Among all the compactable chunks.
 }
 
 // NewOOOCompactionHead does the following:
@@ -245,8 +242,9 @@ func NewOOOCompactionHead(head *Head) (*OOOCompactionHead, error) {
 	// 2. Track the last m-map chunk.
 
 	ch := &OOOCompactionHead{
-		blockToSeries: make(map[int64][]storage.SeriesRef),
-		chunkRange:    head.chunkRange.Load(),
+		chunkRange: head.chunkRange.Load(),
+		mint:       math.MaxInt64,
+		maxt:       math.MinInt64,
 	}
 
 	ch.oooIR = NewOOOHeadIndexReader(head, math.MinInt64, math.MaxInt64)
@@ -280,32 +278,19 @@ func NewOOOCompactionHead(head *Head) (*OOOCompactionHead, error) {
 
 		if len(ms.oooMmappedChunks) > 0 {
 			ch.postings = append(ch.postings, seriesRef)
-		}
-		if ms.oooBlockRanges != nil {
-			for bIdx := range ms.oooBlockRanges {
-				// TODO: the chunkRange of series and Head might be different? Then the bIdx might not refer to the same block.
-				ch.blockToSeries[bIdx] = append(ch.blockToSeries[bIdx], seriesRef)
+			for _, c := range ms.oooMmappedChunks {
+				if c.minTime < ch.mint {
+					ch.mint = c.minTime
+				}
+				if c.maxTime > ch.maxt {
+					ch.maxt = c.maxTime
+				}
 			}
-			ms.oooBlockRanges = nil // Resetting to compute fresh ones for the next compaction.
 		}
-
 		ms.Unlock()
 	}
 
 	return ch, nil
-}
-
-func (ch *OOOCompactionHead) ExpectedBlockRanges() [][2]int64 {
-	var exp [][2]int64
-	for bIdx := range ch.blockToSeries {
-		start := bIdx * ch.chunkRange
-		end := start + ch.chunkRange - 1
-		exp = append(exp, [2]int64{start, end})
-	}
-	sort.Slice(exp, func(i, j int) bool {
-		return exp[i][0] < exp[j][0]
-	})
-	return exp
 }
 
 func (ch *OOOCompactionHead) Index() (IndexReader, error) {
@@ -324,8 +309,8 @@ func (ch *OOOCompactionHead) Meta() BlockMeta {
 	var id [16]byte
 	copy(id[:], "copy(id[:], \"ooo_compact_head\")")
 	return BlockMeta{
-		MinTime: math.MinInt64,
-		MaxTime: math.MaxInt64,
+		MinTime: ch.mint,
+		MaxTime: ch.maxt,
 		ULID:    id,
 		Stats: BlockStats{
 			NumSeries: uint64(len(ch.postings)),
@@ -333,9 +318,25 @@ func (ch *OOOCompactionHead) Meta() BlockMeta {
 	}
 }
 
-func (ch *OOOCompactionHead) Size() int64 {
-	return 0
+// CloneForTimeRange clones the OOOCompactionHead such that the IndexReader and ChunkReader
+// obtained from this only looks at the m-map chunks within the given time ranges while not looking
+// beyond the ch.lastMmapRef.
+// Only the method of BlockReader interface are valid for the cloned OOOCompactionHead.
+func (ch *OOOCompactionHead) CloneForTimeRange(mint, maxt int64) *OOOCompactionHead {
+	return &OOOCompactionHead{
+		oooIR:       NewOOOHeadIndexReader(ch.oooIR.head, mint, maxt),
+		lastMmapRef: ch.lastMmapRef,
+		postings:    ch.postings,
+		chunkRange:  ch.chunkRange,
+		mint:        ch.mint,
+		maxt:        ch.maxt,
+	}
 }
+
+func (ch *OOOCompactionHead) Size() int64       { return 0 }
+func (ch *OOOCompactionHead) MinTime() int64    { return ch.mint }
+func (ch *OOOCompactionHead) MaxTime() int64    { return ch.maxt }
+func (ch *OOOCompactionHead) ChunkRange() int64 { return ch.chunkRange }
 
 type OOOCompactionHeadIndexReader struct {
 	ch *OOOCompactionHead
