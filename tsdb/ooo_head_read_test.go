@@ -684,7 +684,7 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 		{
 			name:                 "Query interval partially overlaps with a triplet of chunks but still returns a single merged chunk",
 			queryMinT:            minutes(12),
-			queryMaxT:            minutes(48),
+			queryMaxT:            minutes(33),
 			firstInOrderSampleAt: minutes(120),
 			dbOpts:               opts,
 			inputSamples: tsdbutil.SampleSlice{
@@ -706,7 +706,7 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			},
 			expChunkError: false,
 			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
-			// Query Interval                     [------------------------------]
+			// Query Interval                     [------------------]
 			// Chunk 0                          [-----------------]
 			// Chunk 1                                   [--------------------]
 			// Chunk 2 Current Head                                  [--------------]
