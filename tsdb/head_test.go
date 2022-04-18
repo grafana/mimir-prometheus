@@ -3215,7 +3215,8 @@ func TestChunkSnapshotTakenAfterIncompleteSnapshot(t *testing.T) {
 }
 
 func TestWritingHighFreqSamples(t *testing.T) {
-	sampleCount := 120000          // one chunk file is supposed to have max 120 samples, this should create at least 10 chunk files.
+	sampleCount := 12000           // one chunk file is supposed to have max 120 samples, this should create at least 100 chunk files.
+	compactInterval := 1000        // compact after every 1k samples
 	sampleRate := time.Millisecond // time delta between each two samples
 	metricName := "my_test_metric"
 	startTs := time.Now()
@@ -3243,16 +3244,24 @@ func TestWritingHighFreqSamples(t *testing.T) {
 		require.NoError(t, db.Close())
 	}()
 
+	compact := func() {
+		h := db.Head()
+		db.CompactHead(NewRangeHead(h, h.MinTime(), h.MaxTime()))
+	}
+
 	for sampleIdx := 0; sampleIdx < sampleCount; sampleIdx++ {
 		app := db.Appender(context.Background())
 		_, err = app.Append(0, labels.Labels{{Name: "__name__", Value: metricName}}, sampleTs.UnixMilli(), 10)
 		require.NoError(t, err)
-		sampleTs = sampleTs.Add(sampleRate)
 		require.NoError(t, app.Commit())
-	}
 
-	h := db.Head()
-	db.CompactHead(NewRangeHead(h, startTs.UnixMilli(), untilTs.UnixMilli()))
+		if sampleIdx%compactInterval == 0 {
+			compact()
+		}
+
+		sampleTs = sampleTs.Add(sampleRate)
+	}
+	compact()
 
 	cq, err := db.ChunkQuerier(context.Background(), startTs.UnixMilli(), untilTs.UnixMilli())
 	require.NoError(t, err)
@@ -3300,7 +3309,6 @@ func TestWritingHighFreqSamples(t *testing.T) {
 		series := css.At()
 		sit := series.Iterator()
 		for sit.Next() {
-			fmt.Println("--- new chunk ---")
 			meta := sit.At()
 
 			cit := meta.Chunk.(*chunkenc.XORChunk).IteratorWithoutSampleLimit()
@@ -3321,6 +3329,7 @@ func TestWritingHighFreqSamples(t *testing.T) {
 			}
 
 			if len(samplesPerChunkWithSampleLimit[uint64(meta.Ref)]) != len(samplesPerChunkWithoutSampleLimit[uint64(meta.Ref)]) {
+				fmt.Println("--- new chunk ---")
 				//if len(samplesPerChunkWithSampleLimit[uint64(meta.Ref)]) < len(samplesPerChunkWithoutSampleLimit[uint64(meta.Ref)])-1 {
 				w := tabwriter.NewWriter(os.Stdout, 1, 1, 1, ' ', 0)
 
