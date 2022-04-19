@@ -43,7 +43,6 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 		mint, maxt int64
 		numSamples uint16
 		chunk      chunkenc.Chunk
-		isOOO      bool
 	}
 	expectedData := []expectedDataType{}
 
@@ -53,7 +52,7 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 	for hrw.curFileSequence < 3 || hrw.chkWriter.Buffered() == 0 {
 		addChunks := func(numChunks int) {
 			for i := 0; i < numChunks; i++ {
-				seriesRef, chkRef, mint, maxt, chunk, isOOO := createChunkForOld(t, totalChunks, hrw)
+				seriesRef, chkRef, mint, maxt, chunk := createChunkForOld(t, totalChunks, hrw)
 				totalChunks++
 				expectedData = append(expectedData, expectedDataType{
 					seriesRef:  seriesRef,
@@ -62,7 +61,6 @@ func TestOldChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 					chunkRef:   chkRef,
 					chunk:      chunk,
 					numSamples: uint16(chunk.NumSamples()),
-					isOOO:      isOOO,
 				})
 
 				if hrw.curFileSequence != 1 {
@@ -473,13 +471,12 @@ func testOldChunkDiskMapper(t *testing.T) *OldChunkDiskMapper {
 	return hrw
 }
 
-func createChunkForOld(t *testing.T, idx int, hrw *OldChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk, isOOO bool) {
+func createChunkForOld(t *testing.T, idx int, hrw *OldChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
 	seriesRef = HeadSeriesRef(rand.Int63())
 	mint = int64((idx)*1000 + 1)
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomChunk(t)
 	if rand.Intn(2) == 0 {
-		isOOO = true
 		chunk = &chunkenc.OOOXORChunk{XORChunk: chunk.(*chunkenc.XORChunk)}
 	}
 	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(err error) {
