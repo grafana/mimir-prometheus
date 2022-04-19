@@ -395,32 +395,29 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 
 	oooHeadRef := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks))))
 	if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(mint, maxt) {
+		// We only want to append the head chunk if this chunk existed when
+		// Series() was called. This brings consistency in case new data
+		// is added in between Series() and Chunk() calls
 		if oooHeadRef == meta.OOOLastRef {
 			tmpChks = append(tmpChks, chunks.Meta{
-				MinTime: meta.OOOLastMinTime,
-				MaxTime: meta.OOOLastMaxTime,
+				MinTime: meta.OOOLastMinTime, // we want to ignore samples that were added before last known min time
+				MaxTime: meta.OOOLastMaxTime, // we want to ignore samples that were added after last known max time
 				Ref:     oooHeadRef,
 			})
 		}
 	}
 
-	for i := 0; i <= len(s.oooMmappedChunks)-1; i++ {
+	for i, c := range s.oooMmappedChunks {
 		chunkRef := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i)))
 		// We can skip chunks that came in later than the last known OOOLastRef
 		if chunkRef > meta.OOOLastRef {
 			break
 		}
 
-		if chunkRef == meta.OOOLastRef {
+		if chunkRef == meta.OOOLastRef || c.OverlapsClosedInterval(mint, maxt) {
 			tmpChks = append(tmpChks, chunks.Meta{
-				MinTime: meta.MinTime,
-				MaxTime: meta.MaxTime,
-				Ref:     chunkRef,
-			})
-		} else if s.oooMmappedChunks[i].OverlapsClosedInterval(mint, maxt) {
-			tmpChks = append(tmpChks, chunks.Meta{
-				MinTime: s.oooMmappedChunks[i].minTime,
-				MaxTime: s.oooMmappedChunks[i].maxTime,
+				MinTime: c.minTime,
+				MaxTime: c.maxTime,
 				Ref:     chunkRef,
 			})
 		}
@@ -467,6 +464,8 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 
 	return oc, nil
 }
+
+var _ chunkenc.Chunk = &mergedOOOChunks{}
 
 // mergedOOOChunks holds the list of overlapping chunks. This struct satisfies
 // chunkenc.Chunk.
@@ -515,6 +514,7 @@ func (o mergedOOOChunks) NumSamples() int {
 	return samples
 }
 
+// Compact TODO(jesus.vazquez) Clarify why this method wont be called
 func (o mergedOOOChunks) Compact() {}
 
 // safeChunk makes sure that the chunk can be accessed without a race condition
