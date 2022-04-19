@@ -103,7 +103,7 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 
 	// Next we want to sort all the collected chunks by min time so we can find
 	// those that overlap.
-	sort.Sort(byMinTimeAndMinRef(tmpChks))
+	sort.Sort(metaByMinTimeAndMinRef(tmpChks))
 
 	// Next we want to iterate the sorted collected chunks and only return the
 	// chunks Meta the first chunk that overlaps with others.
@@ -125,17 +125,35 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	return nil
 }
 
-type byMinTimeAndMinRef []chunks.Meta
+type chunkMetaAndChunkDiskMapperRef struct {
+	meta chunks.Meta
+	ref  chunks.ChunkDiskMapperRef
+}
+
+// TODO See if we can reuse the sort implementation below
+type byMinTimeAndMinRef []chunkMetaAndChunkDiskMapperRef
 
 func (b byMinTimeAndMinRef) Len() int { return len(b) }
 func (b byMinTimeAndMinRef) Less(i, j int) bool {
+	if b[i].meta.MinTime == b[j].meta.MinTime {
+		return b[i].meta.Ref < b[j].meta.Ref
+	}
+	return b[i].meta.MinTime < b[j].meta.MinTime
+}
+
+func (b byMinTimeAndMinRef) Swap(i, j int) { b[i], b[j] = b[j], b[i] }
+
+type metaByMinTimeAndMinRef []chunks.Meta
+
+func (b metaByMinTimeAndMinRef) Len() int { return len(b) }
+func (b metaByMinTimeAndMinRef) Less(i, j int) bool {
 	if b[i].MinTime == b[j].MinTime {
 		return b[i].Ref < b[j].Ref
 	}
 	return b[i].MinTime < b[j].MinTime
 }
 
-func (b byMinTimeAndMinRef) Swap(i, j int) { b[i], b[j] = b[j], b[i] }
+func (b metaByMinTimeAndMinRef) Swap(i, j int) { b[i], b[j] = b[j], b[i] }
 
 func (oh *OOOHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
 	switch len(values) {
