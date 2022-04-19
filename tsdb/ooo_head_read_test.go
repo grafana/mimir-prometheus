@@ -845,6 +845,53 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 				},
 			},
 		},
+		{
+			name:                 "After Series() previous head gets mmapped after getting samples, new head gets new samples also overlapping, none of these should appear in the response.",
+			queryMinT:            minutes(0),
+			queryMaxT:            minutes(100),
+			firstInOrderSampleAt: minutes(120),
+			dbOpts:               opts,
+			initialSamples: tsdbutil.SampleSlice{
+				// Chunk 0
+				sample{t: minutes(20), v: float64(0)},
+				sample{t: minutes(22), v: float64(0)},
+				sample{t: minutes(24), v: float64(0)},
+				sample{t: minutes(26), v: float64(0)},
+				sample{t: minutes(30), v: float64(0)},
+				// Chunk 1 Head
+				sample{t: minutes(25), v: float64(1)},
+				sample{t: minutes(35), v: float64(1)},
+			},
+			samplesAfterSeriesCall: tsdbutil.SampleSlice{
+				sample{t: minutes(10), v: float64(1)},
+				sample{t: minutes(32), v: float64(1)},
+				sample{t: minutes(50), v: float64(1)},
+				// Chunk 1 gets mmapped and Chunk 2, the new head is born
+				sample{t: minutes(25), v: float64(2)},
+				sample{t: minutes(31), v: float64(2)},
+			},
+			expChunkError: false,
+			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
+			// Query Interval                       [----------------------]
+			// Chunk 0:                                  [--------] (5 samples)
+			// Chunk 1: Current Head                          [-------] (2 samples)
+			// New samples added after Series()
+			// Chunk 1 (mmapped)                     [-------------------------] (5 samples)
+			// Chunk 2: Current Head                    [-----------] (2 samples)
+			// Output Graphically                        [------------]  (8 samples) It has 5 from Chunk 0 and 3 from Chunk 1
+			expChunksSamples: []tsdbutil.SampleSlice{
+				{
+					sample{t: minutes(20), v: float64(0)},
+					sample{t: minutes(22), v: float64(0)},
+					sample{t: minutes(24), v: float64(0)},
+					sample{t: minutes(25), v: float64(1)},
+					sample{t: minutes(26), v: float64(0)},
+					sample{t: minutes(30), v: float64(0)},
+					sample{t: minutes(32), v: float64(1)}, // This sample was added after Series() but before Chunk() and its in between the lastmint and maxt so it should be kept
+					sample{t: minutes(35), v: float64(1)},
+				},
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -887,8 +934,10 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 				var resultSamples tsdbutil.SampleSlice
 				it := c.Iterator(nil)
 				for it.Next() {
-					t, v := it.At()
-					resultSamples = append(resultSamples, sample{t: t, v: v})
+					ts, v := it.At()
+					// t.Logf("Equivalence %d=%d", ts, ts/time.Minute.Milliseconds())
+					t.Logf("Got %d:%f", ts/time.Minute.Milliseconds(), v)
+					resultSamples = append(resultSamples, sample{t: ts, v: v})
 				}
 				require.Equal(t, tc.expChunksSamples[i], resultSamples)
 			}
