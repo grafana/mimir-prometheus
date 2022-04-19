@@ -785,12 +785,14 @@ func TestSortByMinTimeAndMinRef(t *testing.T) {
 						Ref:     0,
 						MinTime: 0,
 					},
+					ref: chunks.ChunkDiskMapperRef(0),
 				},
 				{
 					meta: chunks.Meta{
 						Ref:     1,
 						MinTime: 1,
 					},
+					ref: chunks.ChunkDiskMapperRef(1),
 				},
 			},
 			exp: []chunkMetaAndChunkDiskMapperRef{
@@ -799,12 +801,14 @@ func TestSortByMinTimeAndMinRef(t *testing.T) {
 						Ref:     0,
 						MinTime: 0,
 					},
+					ref: chunks.ChunkDiskMapperRef(0),
 				},
 				{
 					meta: chunks.Meta{
 						Ref:     1,
 						MinTime: 1,
 					},
+					ref: chunks.ChunkDiskMapperRef(1),
 				},
 			},
 		},
@@ -816,12 +820,14 @@ func TestSortByMinTimeAndMinRef(t *testing.T) {
 						Ref:     10,
 						MinTime: 0,
 					},
+					ref: chunks.ChunkDiskMapperRef(0),
 				},
 				{
 					meta: chunks.Meta{
 						Ref:     5,
 						MinTime: 0,
 					},
+					ref: chunks.ChunkDiskMapperRef(1),
 				},
 			},
 			exp: []chunkMetaAndChunkDiskMapperRef{
@@ -830,12 +836,14 @@ func TestSortByMinTimeAndMinRef(t *testing.T) {
 						Ref:     5,
 						MinTime: 0,
 					},
+					ref: chunks.ChunkDiskMapperRef(1),
 				},
 				{
 					meta: chunks.Meta{
 						Ref:     10,
 						MinTime: 0,
 					},
+					ref: chunks.ChunkDiskMapperRef(0),
 				},
 			},
 		},
