@@ -745,18 +745,13 @@ func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) 
 	if err := h.chunkDiskMapper.IterateAllChunks(func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, encoding chunkenc.Encoding) error {
 		secondLastRef = lastRef
 		lastRef = chunkRef
-		if encoding != chunkenc.EncOOOXOR && maxt < h.minValidTime.Load() {
-			return nil
-		}
-
-		// We ignore any chunk that doesnt have a valid encoding
-		if encoding != chunkenc.EncXOR {
+		if chunkenc.IsValidEncoding(encoding) && maxt < h.minValidTime.Load() {
 			return nil
 		}
 
 		ms, ok := refSeries[seriesRef]
 
-		if encoding == chunkenc.EncOOOXOR {
+		if chunkenc.IsOutOfOrderChunk(encoding) {
 			if !ok {
 				oooMmappedChunks[seriesRef] = append(oooMmappedChunks[seriesRef], &mmappedChunk{
 					ref:        chunkRef,

@@ -46,6 +46,10 @@ const (
 	EncOOOXOR      = EncXOR | OutOfOrderMask
 )
 
+func IsValidEncoding(e Encoding) bool {
+	return e == EncXOR || e == EncOOOXOR
+}
+
 func IsOutOfOrderChunk(e Encoding) bool {
 	return (e & OutOfOrderMask) != 0
 }

@@ -169,44 +169,6 @@ func TestChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
 	require.Equal(t, len(expectedData), idx)
 }
 
-func TestChunkDiskMapper_WriteUnsupportedChunk_Chunk_IterateChunks(t *testing.T) {
-	hrw := createChunkDiskMapper(t, "")
-	defer func() {
-		require.NoError(t, hrw.Close())
-	}()
-
-	ucSeriesRef, ucChkRef, ucMint, ucMaxt, uchunk := writeUnsupportedChunk(t, 0, hrw, nil)
-
-	// Checking on-disk bytes for the first file.
-	require.Equal(t, 1, len(hrw.mmappedChunkFiles), "expected 1 mmapped file, got %d", len(hrw.mmappedChunkFiles))
-	require.Equal(t, len(hrw.mmappedChunkFiles), len(hrw.closers))
-
-	// Testing IterateAllChunks method.
-	dir := hrw.dir.Name()
-	require.NoError(t, hrw.Close())
-	hrw = createChunkDiskMapper(t, dir)
-
-	require.NoError(t, hrw.IterateAllChunks(func(seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, encoding chunkenc.Encoding) error {
-		t.Helper()
-
-		require.Equal(t, ucSeriesRef, seriesRef)
-		require.Equal(t, ucChkRef, chunkRef)
-		require.Equal(t, ucMint, mint)
-		require.Equal(t, ucMaxt, maxt)
-		require.Equal(t, uchunk.Encoding(), encoding) // Asserts that the encoding is EncUnsupportedXOR
-
-		actChunk, err := hrw.Chunk(chunkRef)
-		// The chunk encoding is unknown so Chunk() should fail but us the caller
-		// are ok with that. Above we asserted that the encoding we expected was
-		// EncUnsupportedXOR
-		require.NotNil(t, err)
-		require.Contains(t, err.Error(), "invalid chunk encoding \"<unknown>\"")
-		require.Nil(t, actChunk)
-
-		return nil
-	}))
-}
-
 // TestChunkDiskMapper_Truncate tests
 // * If truncation is happening properly based on the time passed.
 // * The active file is not deleted even if the passed time makes it eligible to be deleted.
@@ -523,17 +485,6 @@ func randomChunk(t *testing.T) chunkenc.Chunk {
 	return chunk
 }
 
-func randomUnsupportedChunk(t *testing.T) chunkenc.Chunk {
-	chunk := newUnsupportedChunk()
-	len := rand.Int() % 120
-	app, err := chunk.Appender()
-	require.NoError(t, err)
-	for i := 0; i < len; i++ {
-		app.Append(rand.Int63(), rand.Float64())
-	}
-	return chunk
-}
-
 func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
 	var err error
 	seriesRef = HeadSeriesRef(rand.Int63())
@@ -550,44 +501,4 @@ func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSer
 	})
 	<-awaitCb
 	return
-}
-
-func writeUnsupportedChunk(t *testing.T, idx int, hrw *ChunkDiskMapper, hrwOld *OldChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
-	var err error
-	seriesRef = HeadSeriesRef(rand.Int63())
-	mint = int64((idx)*1000 + 1)
-	maxt = int64((idx + 1) * 1000)
-	chunk = randomUnsupportedChunk(t)
-	awaitCb := make(chan struct{})
-	if hrw != nil {
-		chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, func(cbErr error) {
-			require.NoError(t, err)
-			close(awaitCb)
-		})
-	} else {
-		chunkRef = hrwOld.WriteChunk(seriesRef, mint, maxt, chunk, func(cbErr error) {
-			require.NoError(t, err)
-		})
-		close(awaitCb)
-	}
-	<-awaitCb
-	return
-}
-
-const (
-	UnsupportedMask   = 0b11000000
-	EncUnsupportedXOR = chunkenc.EncXOR | UnsupportedMask
-)
-
-// unsupportedChunk holds a XORChunk and overrides the Encoding() method.
-type unsupportedChunk struct {
-	*chunkenc.XORChunk
-}
-
-func newUnsupportedChunk() *unsupportedChunk {
-	return &unsupportedChunk{chunkenc.NewXORChunk()}
-}
-
-func (c *unsupportedChunk) Encoding() chunkenc.Encoding {
-	return EncUnsupportedXOR
 }
