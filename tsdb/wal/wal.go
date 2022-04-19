@@ -472,31 +472,33 @@ func SegmentName(dir string, i int) string {
 }
 
 // NextSegment creates the next segment and closes the previous one.
-func (w *WAL) NextSegment() error {
+// It returns the file number of the new file.
+func (w *WAL) NextSegment() (int, error) {
 	w.mtx.Lock()
 	defer w.mtx.Unlock()
 	return w.nextSegment()
 }
 
 // nextSegment creates the next segment and closes the previous one.
-func (w *WAL) nextSegment() error {
+// It returns the file number of the new file.
+func (w *WAL) nextSegment() (int, error) {
 	if w.closed {
-		return errors.New("wal is closed")
+		return 0, errors.New("wal is closed")
 	}
 
 	// Only flush the current page if it actually holds data.
 	if w.page.alloc > 0 {
 		if err := w.flushPage(true); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	next, err := CreateSegment(w.Dir(), w.segment.Index()+1)
 	if err != nil {
-		return errors.Wrap(err, "create new segment file")
+		return 0, errors.Wrap(err, "create new segment file")
 	}
 	prev := w.segment
 	if err := w.setSegment(next); err != nil {
-		return err
+		return 0, err
 	}
 
 	// Don't block further writes by fsyncing the last segment.
@@ -508,7 +510,7 @@ func (w *WAL) nextSegment() error {
 			level.Error(w.logger).Log("msg", "close previous segment", "err", err)
 		}
 	}
-	return nil
+	return next.Index(), nil
 }
 
 func (w *WAL) setSegment(segment *Segment) error {
@@ -650,7 +652,7 @@ func (w *WAL) log(rec []byte, final bool) error {
 	left += (pageSize - recordHeaderSize) * (w.pagesPerSegment() - w.donePages - 1) // Free pages in the active segment.
 
 	if len(rec) > left {
-		if err := w.nextSegment(); err != nil {
+		if _, err := w.nextSegment(); err != nil {
 			return err
 		}
 	}

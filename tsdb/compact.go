@@ -75,6 +75,9 @@ type Compactor interface {
 	//  * The source dirs are marked Deletable.
 	//  * Returns empty ulid.ULID{}.
 	Compact(dest string, dirs []string, open []*Block) (ulid.ULID, error)
+
+	// TODO: write comments.
+	CompactOOO(dest string, oooHead *OOOCompactionHead) (result []ulid.ULID, err error)
 }
 
 // LeveledCompactor implements the Compactor interface.
@@ -550,6 +553,29 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 	}
 
 	return nil, errs.Err()
+}
+
+// CompactOOOWithSplitting splits the input OOO Head into shardCount number of output blocks
+//// per possible block range, and returns slice of block IDs. In result[i][j],
+// 'j' corresponds to the shard index while 'i' corresponds to a single time range of blocks.
+// If given output block has no series, corresponding block ID will be zero ULID value.
+func (c *LeveledCompactor) CompactOOOWithSplitting(dest string, oooHead *OOOCompactionHead, shardCount uint64) (result [][]ulid.ULID, _ error) {
+	return c.compactOOO(dest, oooHead, shardCount)
+}
+
+// CompactOOO creates a new block per possible block range in the compactor's directory from the OOO Head given.
+// Each ULID in the result corresponds to a block in a unique time range.
+func (c *LeveledCompactor) CompactOOO(dest string, oooHead *OOOCompactionHead) (result []ulid.ULID, err error) {
+	ulids, err := c.compactOOO(dest, oooHead, 1)
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range ulids {
+		if s[0].Compare(ulid.ULID{}) != 0 {
+			result = append(result, s[0])
+		}
+	}
+	return result, err
 }
 
 func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, shardCount uint64) (_ [][]ulid.ULID, err error) {

@@ -992,6 +992,11 @@ func (db *DB) Compact() (returnErr error) {
 			"block_range", db.head.chunkRange.Load(),
 		)
 	}
+
+	if err := db.compactOOOHead(); err != nil {
+		return errors.Wrap(err, "compact ooo head")
+	}
+
 	return db.compactBlocks()
 }
 
@@ -1007,6 +1012,36 @@ func (db *DB) CompactHead(head *RangeHead) error {
 	if err := db.head.truncateWAL(head.BlockMaxTime()); err != nil {
 		return errors.Wrap(err, "WAL truncation")
 	}
+	return nil
+}
+
+func (db *DB) compactOOOHead() error {
+	oooHead, err := NewOOOCompactionHead(db.head)
+	if err != nil {
+		return errors.Wrap(err, "get ooo compaction head")
+	}
+
+	ulids, err := db.compactor.CompactOOO(db.dir, oooHead)
+	if err != nil {
+		return errors.Wrap(err, "compact ooo head")
+	}
+	if err := db.reloadBlocks(); err != nil {
+		errs := tsdb_errors.NewMulti(err)
+		for _, uid := range ulids {
+			if errRemoveAll := os.RemoveAll(filepath.Join(db.dir, uid.String())); errRemoveAll != nil {
+				errs.Add(errRemoveAll)
+			}
+		}
+		return errors.Wrap(errs.Err(), "reloadBlocks blocks after failed compact ooo head")
+	}
+
+	lastWBLFile, minOOOMmapRef := oooHead.LastWBLFile(), oooHead.LastMmapRef()
+	if lastWBLFile != 0 || minOOOMmapRef != 0 {
+		if err := db.head.truncateOOO(lastWBLFile, minOOOMmapRef); err != nil {
+			return errors.Wrap(err, "truncate ooo wbl")
+		}
+	}
+
 	return nil
 }
 

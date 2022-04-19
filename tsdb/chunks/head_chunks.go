@@ -93,6 +93,12 @@ func (ref ChunkDiskMapperRef) GreaterThanOrEqualTo(r ChunkDiskMapperRef) bool {
 	return s1 > s2 || (s1 == s2 && o1 >= o2)
 }
 
+func (ref ChunkDiskMapperRef) GreaterThan(r ChunkDiskMapperRef) bool {
+	s1, o1 := ref.Unpack()
+	s2, o2 := r.Unpack()
+	return s1 > s2 || (s1 == s2 && o1 > o2)
+}
+
 // CorruptionErr is an error that's returned when corruption is encountered.
 type CorruptionErr struct {
 	Dir       string

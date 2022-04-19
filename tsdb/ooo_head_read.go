@@ -225,6 +225,7 @@ func (cr OOOHeadChunkReader) Close() error {
 type OOOCompactionHead struct {
 	oooIR       *OOOHeadIndexReader
 	lastMmapRef chunks.ChunkDiskMapperRef
+	lastWBLFile int
 	postings    []storage.SeriesRef
 	chunkRange  int64
 	mint, maxt  int64 // Among all the compactable chunks.
@@ -234,6 +235,7 @@ type OOOCompactionHead struct {
 // 1. M-maps all the in-memory ooo chunks.
 // 2. Compute the expected block ranges while iterating through all ooo series and store it.
 // 3. Store the list of postings having ooo series.
+// 4. Cuts a new WBL file for the OOO WBL.
 // All the above together have a bit of CPU and memory overhead, and can have a bit of impact
 // on the sample append latency. So call NewOOOCompactionHead only right before compaction.
 func NewOOOCompactionHead(head *Head) (*OOOCompactionHead, error) {
@@ -241,10 +243,16 @@ func NewOOOCompactionHead(head *Head) (*OOOCompactionHead, error) {
 	// 1. M-map all in-memory chunk.
 	// 2. Track the last m-map chunk.
 
+	newWBLFile, err := head.oooWbl.NextSegment()
+	if err != nil {
+		return nil, err
+	}
+
 	ch := &OOOCompactionHead{
-		chunkRange: head.chunkRange.Load(),
-		mint:       math.MaxInt64,
-		maxt:       math.MinInt64,
+		chunkRange:  head.chunkRange.Load(),
+		mint:        math.MaxInt64,
+		maxt:        math.MinInt64,
+		lastWBLFile: newWBLFile,
 	}
 
 	ch.oooIR = NewOOOHeadIndexReader(head, math.MinInt64, math.MaxInt64)
@@ -333,10 +341,12 @@ func (ch *OOOCompactionHead) CloneForTimeRange(mint, maxt int64) *OOOCompactionH
 	}
 }
 
-func (ch *OOOCompactionHead) Size() int64       { return 0 }
-func (ch *OOOCompactionHead) MinTime() int64    { return ch.mint }
-func (ch *OOOCompactionHead) MaxTime() int64    { return ch.maxt }
-func (ch *OOOCompactionHead) ChunkRange() int64 { return ch.chunkRange }
+func (ch *OOOCompactionHead) Size() int64                            { return 0 }
+func (ch *OOOCompactionHead) MinTime() int64                         { return ch.mint }
+func (ch *OOOCompactionHead) MaxTime() int64                         { return ch.maxt }
+func (ch *OOOCompactionHead) ChunkRange() int64                      { return ch.chunkRange }
+func (ch *OOOCompactionHead) LastMmapRef() chunks.ChunkDiskMapperRef { return ch.lastMmapRef }
+func (ch *OOOCompactionHead) LastWBLFile() int                       { return ch.lastWBLFile }
 
 type OOOCompactionHeadIndexReader struct {
 	ch *OOOCompactionHead

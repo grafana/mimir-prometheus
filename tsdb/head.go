@@ -83,6 +83,9 @@ type Head struct {
 	lastWALTruncationTime    atomic.Int64
 	lastMemoryTruncationTime atomic.Int64
 	lastSeriesID             atomic.Uint64
+	// All the ooo m-map chunks should be after this. This is used to truncate old ooo m-map chunks.
+	// This should be typecasted to chunks.ChunkDiskMapperRef after loading.
+	minOOOMmapRef atomic.Uint64
 
 	metrics         *headMetrics
 	opts            *HeadOptions
@@ -1069,7 +1072,7 @@ func (h *Head) truncateWAL(mint int64) error {
 	}
 	// Start a new segment, so low ingestion volume TSDB don't have more WAL than
 	// needed.
-	if err := h.wal.NextSegment(); err != nil {
+	if _, err := h.wal.NextSegment(); err != nil {
 		return errors.Wrap(err, "next segment")
 	}
 	last-- // Never consider last segment for checkpoint.
@@ -1133,6 +1136,41 @@ func (h *Head) truncateWAL(mint int64) error {
 		"first", first, "last", last, "duration", time.Since(start))
 
 	return nil
+}
+
+// truncateOOO
+// * truncates the OOO WBL files whose index is strictly less than lastWBLFile
+// * garbage collects all the m-map chunks from the memory that are less than or equal to minOOOMmapRef
+//   and then deletes the series that do not have any data anymore.
+func (h *Head) truncateOOO(lastWBLFile int, minOOOMmapRef chunks.ChunkDiskMapperRef) error {
+	curMinOOOMmapRef := chunks.ChunkDiskMapperRef(h.minOOOMmapRef.Load())
+	if minOOOMmapRef.GreaterThan(curMinOOOMmapRef) {
+		h.minOOOMmapRef.Store(uint64(minOOOMmapRef))
+		start := time.Now()
+		actualMint, minMmapFile := h.gc()
+		level.Info(h.logger).Log("msg", "Head GC completed in truncateOOO", "duration", time.Since(start))
+		h.metrics.gcDuration.Observe(time.Since(start).Seconds())
+		if actualMint > h.minTime.Load() {
+			// The actual mint of the Head is higher than the one asked to truncate.
+			appendableMinValidTime := h.appendableMinValidTime()
+			if actualMint < appendableMinValidTime {
+				h.minTime.Store(actualMint)
+				h.minValidTime.Store(actualMint)
+			} else {
+				// The actual min time is in the appendable window.
+				// So we set the mint to the appendableMinValidTime.
+				h.minTime.Store(appendableMinValidTime)
+				h.minValidTime.Store(appendableMinValidTime)
+			}
+		}
+
+		// Truncate the chunk m-mapper.
+		if err := h.chunkDiskMapper.Truncate(minMmapFile); err != nil {
+			return errors.Wrap(err, "truncate by file no chunks.HeadReadWriter in truncateOOO")
+		}
+	}
+
+	return h.oooWbl.Truncate(lastWBLFile)
 }
 
 type Stats struct {
@@ -1270,10 +1308,13 @@ func (h *Head) Delete(mint, maxt int64, ms ...*labels.Matcher) error {
 func (h *Head) gc() (int64, int) {
 	// Only data strictly lower than this timestamp must be deleted.
 	mint := h.MinTime()
+	// Only ooo m-map chunks strictly lower than or equal to this ref
+	// must be deleted.
+	minOOOMmapRef := chunks.ChunkDiskMapperRef(h.minOOOMmapRef.Load())
 
 	// Drop old chunks and remember series IDs and hashes if they can be
 	// deleted entirely.
-	deleted, chunksRemoved, actualMint, minMmapFile := h.series.gc(mint)
+	deleted, chunksRemoved, actualMint, minMmapFile := h.series.gc(mint, minOOOMmapRef)
 	seriesRemoved := len(deleted)
 
 	h.metrics.seriesRemoved.Add(float64(seriesRemoved))
@@ -1496,7 +1537,7 @@ func newStripeSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *st
 // but the returned map goes into postings.Delete() which expects a map[storage.SeriesRef]struct
 // and there's no easy way to cast maps.
 // minMmapFile is the min mmap file number seen in the series (in-order and out-of-order) after gc'ing the series.
-func (s *stripeSeries) gc(mint int64) (_ map[storage.SeriesRef]struct{}, _ int, _ int64, minMmapFile int) {
+func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (_ map[storage.SeriesRef]struct{}, _ int, _ int64, minMmapFile int) {
 	var (
 		deleted                  = map[storage.SeriesRef]struct{}{}
 		deletedForCallback       = []labels.Labels{}
@@ -1512,7 +1553,7 @@ func (s *stripeSeries) gc(mint int64) (_ map[storage.SeriesRef]struct{}, _ int, 
 		for hash, all := range s.hashes[i] {
 			for _, series := range all {
 				series.Lock()
-				rmChunks += series.truncateChunksBefore(mint)
+				rmChunks += series.truncateChunksBefore(mint, minOOOMmapRef)
 
 				if len(series.mmappedChunks) > 0 {
 					seq, _ := series.mmappedChunks[0].ref.Unpack()
@@ -1743,26 +1784,39 @@ func (s *memSeries) maxTime() int64 {
 // truncateChunksBefore removes all chunks from the series that
 // have no timestamp at or after mint.
 // Chunk IDs remain unchanged.
-func (s *memSeries) truncateChunksBefore(mint int64) (removed int) {
+func (s *memSeries) truncateChunksBefore(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (removed int) {
+	var removedInOrder int
 	if s.headChunk != nil && s.headChunk.maxTime < mint {
 		// If head chunk is truncated, we can truncate all mmapped chunks.
-		removed = 1 + len(s.mmappedChunks)
+		removedInOrder = 1 + len(s.mmappedChunks)
 		s.firstChunkID += chunks.HeadChunkID(removed)
 		s.headChunk = nil
 		s.mmappedChunks = nil
-		return removed
 	}
 	if len(s.mmappedChunks) > 0 {
 		for i, c := range s.mmappedChunks {
 			if c.maxTime >= mint {
 				break
 			}
-			removed = i + 1
+			removedInOrder = i + 1
 		}
 		s.mmappedChunks = append(s.mmappedChunks[:0], s.mmappedChunks[removed:]...)
-		s.firstChunkID += chunks.HeadChunkID(removed)
+		s.firstChunkID += chunks.HeadChunkID(removedInOrder)
 	}
-	return removed
+
+	var removedOOO int
+	if len(s.oooMmappedChunks) > 0 {
+		for i, c := range s.oooMmappedChunks {
+			if c.ref.GreaterThan(minOOOMmapRef) {
+				break
+			}
+			removedOOO = i + 1
+		}
+		s.oooMmappedChunks = append(s.oooMmappedChunks[:0], s.oooMmappedChunks[removed:]...)
+		s.firstOOOChunkID += chunks.HeadChunkID(removedOOO)
+	}
+
+	return removedInOrder + removedOOO
 }
 
 // cleanupAppendIDsBelow cleans up older appendIDs. Has to be called after
