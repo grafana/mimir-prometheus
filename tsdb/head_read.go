@@ -437,9 +437,31 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 	for _, c := range tmpChks {
 		if c.meta.Ref == meta.Ref || len(mc.chunks) > 0 && c.meta.MinTime <= mc.chunks[len(mc.chunks)-1].MaxTime {
 			if c.meta.Ref == oooHeadRef {
-				xor, err := s.oooHeadChunk.chunk.ToXor() // TODO(jesus.vazquez) (This is an optimization idea that has no priority and might not be that useful) See if we could use a copy of the underlying slice. That would leave the more expensive ToXor() function only for the usecase where Bytes() is called.
-				if err != nil {
-					return nil, errors.Wrap(err, "failed to convert ooo head chunk to xor chunk")
+				var xor *chunkenc.XORChunk
+				// If head chunk min and max time match the meta OOO markers
+				// that means that the chunk has not expanded so we can append
+				// it as it is.
+				if s.oooHeadChunk.minTime == meta.OOOLastMinTime && s.oooHeadChunk.maxTime == meta.OOOLastMaxTime {
+					xor, err = s.oooHeadChunk.chunk.ToXor() // TODO(jesus.vazquez) (This is an optimization idea that has no priority and might not be that useful) See if we could use a copy of the underlying slice. That would leave the more expensive ToXor() function only for the usecase where Bytes() is called.
+					if err != nil {
+						return nil, errors.Wrap(err, "failed to convert ooo head chunk to xor chunk")
+					}
+				} else {
+					// We need to remove samples that are outside of the markers
+					oooChunk := chunkenc.NewOOOChunk(s.oooHeadChunk.chunk.NumSamples())
+					for _, sample := range s.oooHeadChunk.chunk.Samples {
+						if sample.T < meta.OOOLastMinTime {
+							continue
+						}
+						if sample.T > meta.OOOLastMaxTime {
+							break
+						}
+						oooChunk.Insert(sample.T, sample.V)
+					}
+					xor, err = oooChunk.ToXor()
+					if err != nil {
+						return nil, errors.Wrap(err, "failed to convert oooChunk to xor chunk")
+					}
 				}
 				c.meta.Chunk = xor
 			} else {
