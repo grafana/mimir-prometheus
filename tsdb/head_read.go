@@ -371,6 +371,7 @@ func (s *memSeries) chunk(id chunks.HeadChunkID, cdm chunkDiskMapper) (chunk *me
 // reference from memory or by m-mapping it from the disk. The returned chunk
 // might be a merge of all the overlapping chunks, if any, amongst all the
 // chunks in the OOOHead.
+// This function is not thread safe unless the caller holds a lock.
 func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, maxt int64) (chunk *mergedOOOChunks, err error) {
 	_, cid := chunks.HeadChunkRef(meta.Ref).Unpack()
 
@@ -391,7 +392,7 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 
 	// We create a temporary slice of chunk metas to hold the information of all
 	// possible chunks that may overlap with the requested chunk.
-	tmpChks := make([]chunks.Meta, 0, len(s.oooMmappedChunks))
+	tmpChks := make([]chunkMetaAndChunkDiskMapperRef, 0, len(s.oooMmappedChunks))
 
 	oooHeadRef := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks))))
 	if s.oooHeadChunk != nil && s.oooHeadChunk.OverlapsClosedInterval(mint, maxt) {
@@ -399,10 +400,12 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 		// Series() was called. This brings consistency in case new data
 		// is added in between Series() and Chunk() calls
 		if oooHeadRef == meta.OOOLastRef {
-			tmpChks = append(tmpChks, chunks.Meta{
-				MinTime: meta.OOOLastMinTime, // we want to ignore samples that were added before last known min time
-				MaxTime: meta.OOOLastMaxTime, // we want to ignore samples that were added after last known max time
-				Ref:     oooHeadRef,
+			tmpChks = append(tmpChks, chunkMetaAndChunkDiskMapperRef{
+				meta: chunks.Meta{
+					MinTime: meta.OOOLastMinTime, // we want to ignore samples that were added before last known min time
+					MaxTime: meta.OOOLastMaxTime, // we want to ignore samples that were added after last known max time
+					Ref:     oooHeadRef,
+				},
 			})
 		}
 	}
@@ -415,10 +418,13 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 		}
 
 		if chunkRef == meta.OOOLastRef || c.OverlapsClosedInterval(mint, maxt) {
-			tmpChks = append(tmpChks, chunks.Meta{
-				MinTime: c.minTime,
-				MaxTime: c.maxTime,
-				Ref:     chunkRef,
+			tmpChks = append(tmpChks, chunkMetaAndChunkDiskMapperRef{
+				meta: chunks.Meta{
+					MinTime: c.minTime,
+					MaxTime: c.maxTime,
+					Ref:     chunkRef,
+				},
+				ref: c.ref,
 			})
 		}
 	}
@@ -427,42 +433,30 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 	// those that overlap and stop when we know the rest don't.
 	sort.Sort(byMinTimeAndMinRef(tmpChks))
 
-	oc := &mergedOOOChunks{}
+	mc := &mergedOOOChunks{}
 	for _, c := range tmpChks {
-		if c.Ref == meta.Ref || len(oc.chunks) > 0 && c.MinTime <= oc.chunks[len(oc.chunks)-1].MaxTime {
-
-			if c.Ref == oooHeadRef {
-				xor, err := s.oooHeadChunk.chunk.ToXor() // TODO(jesus.vazquez) See if we could use a copy of the underlying slice. That would leave the more expensive ToXor() function only for the usecase where Bytes() is called.
+		if c.meta.Ref == meta.Ref || len(mc.chunks) > 0 && c.meta.MinTime <= mc.chunks[len(mc.chunks)-1].MaxTime {
+			if c.meta.Ref == oooHeadRef {
+				xor, err := s.oooHeadChunk.chunk.ToXor() // TODO(jesus.vazquez) (This is an optimization idea that has no priority and might not be that useful) See if we could use a copy of the underlying slice. That would leave the more expensive ToXor() function only for the usecase where Bytes() is called.
 				if err != nil {
 					return nil, errors.Wrap(err, "failed to convert ooo head chunk to xor chunk")
 				}
-				c.Chunk = xor
+				c.meta.Chunk = xor
 			} else {
-				// TODO(jesus.vazquez) Get rid of this loop
-				id := 0
-				for i := range s.oooMmappedChunks {
-					chunkRef := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i)))
-					if chunkRef == c.Ref {
-						id = i
-						break
-					}
-				}
-
-				chk, err := cdm.Chunk(s.oooMmappedChunks[id].ref)
+				chk, err := cdm.Chunk(c.ref)
 				if err != nil {
 					if _, ok := err.(*chunks.CorruptionErr); ok {
 						return nil, errors.Wrap(err, "invalid ooo mmapped chunk")
 					}
 					return nil, err
 				}
-				c.Chunk = chk
+				c.meta.Chunk = chk
 			}
-			oc.chunks = append(oc.chunks, c)
-			continue
+			mc.chunks = append(mc.chunks, c.meta)
 		}
 	}
 
-	return oc, nil
+	return mc, nil
 }
 
 var _ chunkenc.Chunk = &mergedOOOChunks{}
