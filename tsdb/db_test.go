@@ -1391,6 +1391,7 @@ func (c *mockCompactorFailing) Write(dest string, b BlockReader, mint, maxt int6
 func (*mockCompactorFailing) Compact(string, []string, []*Block) (ulid.ULID, error) {
 	return ulid.ULID{}, nil
 }
+
 func (*mockCompactorFailing) CompactOOO(dest string, oooHead *OOOCompactionHead) (result []ulid.ULID, err error) {
 	return nil, nil
 }
@@ -3770,6 +3771,7 @@ func TestOOOCompaction(t *testing.T) {
 
 	// There is a 0th WBL file.
 	files, err := ioutil.ReadDir(db.head.oooWbl.Dir())
+	require.NoError(t, err)
 	require.Len(t, files, 1)
 	require.Equal(t, "00000000", files[0].Name())
 	require.Greater(t, files[0].Size(), int64(100))
@@ -3782,6 +3784,7 @@ func TestOOOCompaction(t *testing.T) {
 
 	// 0th WBL file will be deleted and 1st will be the only present.
 	files, err = ioutil.ReadDir(db.head.oooWbl.Dir())
+	require.NoError(t, err)
 	require.Len(t, files, 1)
 	require.Equal(t, "00000001", files[0].Name())
 	require.Equal(t, int64(0), files[0].Size())

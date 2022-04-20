@@ -354,7 +354,6 @@ type OOOCompactionHeadIndexReader struct {
 
 func NewOOOCompactionHeadIndexReader(ch *OOOCompactionHead) IndexReader {
 	return &OOOCompactionHeadIndexReader{ch: ch}
-
 }
 
 func (ir *OOOCompactionHeadIndexReader) Symbols() index.StringIter {
