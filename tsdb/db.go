@@ -993,8 +993,11 @@ func (db *DB) Compact() (returnErr error) {
 		)
 	}
 
-	if err := db.compactOOOHead(); err != nil {
-		return errors.Wrap(err, "compact ooo head")
+	if lastBlockMaxt != math.MinInt64 {
+		// The head was compacted, so we compact OOO head as well.
+		if err := db.compactOOOHead(); err != nil {
+			return errors.Wrap(err, "compact ooo head")
+		}
 	}
 
 	return db.compactBlocks()
@@ -1013,6 +1016,14 @@ func (db *DB) CompactHead(head *RangeHead) error {
 		return errors.Wrap(err, "WAL truncation")
 	}
 	return nil
+}
+
+// CompactOOOHead compacts the OOO Head.
+func (db *DB) CompactOOOHead() error {
+	db.cmtx.Lock()
+	defer db.cmtx.Unlock()
+
+	return db.compactOOOHead()
 }
 
 func (db *DB) compactOOOHead() error {

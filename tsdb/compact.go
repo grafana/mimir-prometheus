@@ -76,7 +76,8 @@ type Compactor interface {
 	//  * Returns empty ulid.ULID{}.
 	Compact(dest string, dirs []string, open []*Block) (ulid.ULID, error)
 
-	// TODO: write comments.
+	// CompactOOO creates a new block per possible block range in the compactor's directory from the OOO Head given.
+	// Each ULID in the result corresponds to a block in a unique time range.
 	CompactOOO(dest string, oooHead *OOOCompactionHead) (result []ulid.ULID, err error)
 }
 
@@ -475,17 +476,6 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 		uids = append(uids, b.meta.ULID.String())
 	}
 
-	// TODO: create outBlocks := [][]shardedBlock instead.
-	// That way, outBlocks[x] will still be label based sharding, while outBlocks[x][y] will be time based for out of order samples.
-	// For compactions that is not for out of order samples, len(outBlocks[x]) will always be 1.
-
-	// During ingestion of samples we can identify which ooo blocks will exists so that
-	// we dont have to prefill symbols and etc for the blocks that will be empty.
-	// With this, len(outBlocks[x]) will still be the same for all x so that we can pick blocks easily.
-	// Just that, only some of the outBlocks[x][y] will be valid and populated based on preexisting knowledge of
-	// which blocks to expect.
-	// In case we see a sample that is not present in the estimated block ranges, we will create them on flight.
-
 	outBlocks := make([]shardedBlock, shardCount)
 	outBlocksTime := ulid.Now() // Make all out blocks share the same timestamp in the ULID.
 	for ix := range outBlocks {
@@ -556,7 +546,7 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 }
 
 // CompactOOOWithSplitting splits the input OOO Head into shardCount number of output blocks
-//// per possible block range, and returns slice of block IDs. In result[i][j],
+// per possible block range, and returns slice of block IDs. In result[i][j],
 // 'j' corresponds to the shard index while 'i' corresponds to a single time range of blocks.
 // If given output block has no series, corresponding block ID will be zero ULID value.
 func (c *LeveledCompactor) CompactOOOWithSplitting(dest string, oooHead *OOOCompactionHead, shardCount uint64) (result [][]ulid.ULID, _ error) {
@@ -1096,20 +1086,6 @@ func (c *LeveledCompactor) populateBlock(blocks []BlockReader, minT, maxT int64,
 		}
 
 		debugOutOfOrderChunks(chks, c.logger)
-
-		// TODO(codesome):
-		// Split the chunks into different blocks.
-		// And then call blockWriters for them all.
-
-		//splitChunks := func(chks []chunks.Meta) []chunks.Meta {
-		//	// Splits chunks into pieces such that it does not cross block boundaries.
-		//  // Also merge smaller chunks of same block if possible.
-		//}
-		//chks = splitChunks(chks)
-
-		//selectBlock := func(lbls labels.Labels, chkMint, chkMaxt, blockMint, blockMaxt, blockRange int64) {
-		//	// Based on the chunk range and series labels, decide which block does the chunk belong to.
-		//}
 
 		obIx := uint64(0)
 		if len(outBlocks) > 1 {

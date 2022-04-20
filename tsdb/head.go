@@ -1812,7 +1812,7 @@ func (s *memSeries) truncateChunksBefore(mint int64, minOOOMmapRef chunks.ChunkD
 			}
 			removedOOO = i + 1
 		}
-		s.oooMmappedChunks = append(s.oooMmappedChunks[:0], s.oooMmappedChunks[removed:]...)
+		s.oooMmappedChunks = append(s.oooMmappedChunks[:0], s.oooMmappedChunks[removedOOO:]...)
 		s.firstOOOChunkID += chunks.HeadChunkID(removedOOO)
 	}
 
