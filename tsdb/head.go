@@ -610,7 +610,10 @@ func (h *Head) Init(minValidTime int64) error {
 
 		// If this fails, data will be recovered from WAL.
 		// Hence we wont lose any data (given WAL is not corrupt).
-		mmappedChunks, oooMmappedChunks, lastMmapRef = h.removeCorruptedMmappedChunks(err, refSeries)
+		mmappedChunks, oooMmappedChunks, lastMmapRef, err = h.removeCorruptedMmappedChunks(err, refSeries)
+		if err != nil {
+			return err
+		}
 	}
 
 	level.Info(h.logger).Log("msg", "On-disk memory mappable chunks replay completed", "duration", time.Since(mmapChunkReplayStart).String())
@@ -823,12 +826,19 @@ func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) 
 
 // removeCorruptedMmappedChunks attempts to delete the corrupted mmapped chunks and if it fails, it clears all the previously
 // loaded mmapped chunks.
-func (h *Head) removeCorruptedMmappedChunks(err error, refSeries map[chunks.HeadSeriesRef]*memSeries) (map[chunks.HeadSeriesRef][]*mmappedChunk, map[chunks.HeadSeriesRef][]*mmappedChunk, chunks.ChunkDiskMapperRef) {
+func (h *Head) removeCorruptedMmappedChunks(err error, refSeries map[chunks.HeadSeriesRef]*memSeries) (map[chunks.HeadSeriesRef][]*mmappedChunk, map[chunks.HeadSeriesRef][]*mmappedChunk, chunks.ChunkDiskMapperRef, error) {
+	// We never want to preserve the in-memory series from snapshots if we are repairing m-map chunks.
+	if err := h.resetInMemoryState(); err != nil {
+		return nil, nil, 0, err
+	}
 	level.Info(h.logger).Log("msg", "Deleting mmapped chunk files")
 
 	if err := h.chunkDiskMapper.DeleteCorrupted(err); err != nil {
 		level.Info(h.logger).Log("msg", "Deletion of mmap chunk files failed, discarding chunk files completely", "err", err)
-		return map[chunks.HeadSeriesRef][]*mmappedChunk{}, map[chunks.HeadSeriesRef][]*mmappedChunk{}, 0
+		if err := h.chunkDiskMapper.Truncate(math.MaxInt64); err != nil {
+			level.Error(h.logger).Log("msg", "Deletion of all mmap chunk files failed", "err", err)
+		}
+		return map[chunks.HeadSeriesRef][]*mmappedChunk{}, map[chunks.HeadSeriesRef][]*mmappedChunk{}, 0, nil
 	}
 
 	level.Info(h.logger).Log("msg", "Deletion of mmap chunk files successful, reattempting m-mapping the on-disk chunks")
@@ -841,7 +851,7 @@ func (h *Head) removeCorruptedMmappedChunks(err error, refSeries map[chunks.Head
 		mmappedChunks = map[chunks.HeadSeriesRef][]*mmappedChunk{}
 	}
 
-	return mmappedChunks, oooMmappedChunks, lastRef
+	return mmappedChunks, oooMmappedChunks, lastRef, nil
 }
 
 func (h *Head) ApplyConfig(cfg *config.Config) error {

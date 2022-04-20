@@ -3488,6 +3488,7 @@ func TestReplayAfterMmapReplayError(t *testing.T) {
 		opts.ChunkRange = DefaultBlockDuration
 		opts.ChunkDirRoot = dir
 		opts.EnableMemorySnapshotOnShutdown = true
+		opts.ChunkWriteQueueSize = 1
 		opts.MaxExemplars.Store(config.DefaultExemplarsConfig.MaxExemplars)
 
 		h, err = NewHead(nil, nil, wlog, nil, opts, nil)
