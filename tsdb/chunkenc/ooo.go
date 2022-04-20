@@ -4,9 +4,9 @@ import (
 	"sort"
 )
 
-type Sample struct {
-	T int64
-	V float64
+type sample struct {
+	t int64
+	v float64
 }
 
 // OOOChunk maintains Samples in time-ascending order.
@@ -14,39 +14,39 @@ type Sample struct {
 // Samples are stored uncompressed to allow easy sorting.
 // Perhaps we can be more efficient later.
 type OOOChunk struct {
-	Samples []Sample
+	samples []sample
 }
 
 func NewOOOChunk(capacity int) *OOOChunk {
-	return &OOOChunk{Samples: make([]Sample, 0, capacity)}
+	return &OOOChunk{samples: make([]sample, 0, capacity)}
 }
 
-// Insert inserts the Sample such that order is maintained.
+// Insert inserts the sample such that order is maintained.
 // Returns false if insert was not possible due to the same timestamp already existing.
 func (o *OOOChunk) Insert(t int64, v float64) bool {
-	// find index of Sample we should replace
-	i := sort.Search(len(o.Samples), func(i int) bool { return o.Samples[i].T >= t })
+	// find index of sample we should replace
+	i := sort.Search(len(o.samples), func(i int) bool { return o.samples[i].t >= t })
 
-	if i >= len(o.Samples) {
+	if i >= len(o.samples) {
 		// none found. append it at the end
-		o.Samples = append(o.Samples, Sample{t, v})
+		o.samples = append(o.samples, sample{t, v})
 		return true
 	}
 
-	if o.Samples[i].T == t {
+	if o.samples[i].t == t {
 		return false
 	}
 
-	// expand length by 1 to make room. use a zero Sample, we will overwrite it anyway
-	o.Samples = append(o.Samples, Sample{})
-	copy(o.Samples[i+1:], o.Samples[i:])
-	o.Samples[i] = Sample{t, v}
+	// expand length by 1 to make room. use a zero sample, we will overwrite it anyway
+	o.samples = append(o.samples, sample{})
+	copy(o.samples[i+1:], o.samples[i:])
+	o.samples[i] = sample{t, v}
 
 	return true
 }
 
 func (o *OOOChunk) NumSamples() int {
-	return len(o.Samples)
+	return len(o.samples)
 }
 
 func (o *OOOChunk) ToXor() (*XORChunk, error) {
@@ -55,19 +55,26 @@ func (o *OOOChunk) ToXor() (*XORChunk, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, s := range o.Samples {
-		app.Append(s.T, s.V)
+	for _, s := range o.samples {
+		app.Append(s.t, s.v)
 	}
 	return x, nil
 }
 
-// TODO: to support querying, implement Iterator
-
-// func (c *OOOChunk) Iterator(it Iterator) Iterator {
-// func (c *OOOChunk) NumSamples() int {
-// func (c *OOOChunk) Compact() {
-
-// func (it *oooIterator) Seek(T int64) bool {
-// func (it *oooIterator) At() (int64, float64) {
-// func (it *oooIterator) Err() error {
-// func (it *oooIterator) Next() bool {
+func (o *OOOChunk) ToXorBetweenTimestamps(mint, maxt int64) (*XORChunk, error) {
+	x := NewXORChunk()
+	app, err := x.Appender()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range o.samples {
+		if s.t < mint {
+			continue
+		}
+		if s.t > maxt {
+			break
+		}
+		app.Append(s.t, s.v)
+	}
+	return x, nil
+}

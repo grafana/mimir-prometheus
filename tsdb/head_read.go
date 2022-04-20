@@ -454,22 +454,12 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 				// it as it is.
 				if s.oooHeadChunk.minTime == meta.OOOLastMinTime && s.oooHeadChunk.maxTime == meta.OOOLastMaxTime {
 					xor, err = s.oooHeadChunk.chunk.ToXor() // TODO(jesus.vazquez) (This is an optimization idea that has no priority and might not be that useful) See if we could use a copy of the underlying slice. That would leave the more expensive ToXor() function only for the usecase where Bytes() is called.
-					if err != nil {
-						return nil, errors.Wrap(err, "failed to convert ooo head chunk to xor chunk")
-					}
 				} else {
 					// We need to remove samples that are outside of the markers
-					xor = chunkenc.NewXORChunk()
-					a, _ := xor.Appender()
-					for _, sample := range s.oooHeadChunk.chunk.Samples {
-						if sample.T < meta.OOOLastMinTime {
-							continue
-						}
-						if sample.T > meta.OOOLastMaxTime {
-							break
-						}
-						a.Append(sample.T, sample.V)
-					}
+					xor, err = s.oooHeadChunk.chunk.ToXorBetweenTimestamps(meta.OOOLastMinTime, meta.OOOLastMaxTime)
+				}
+				if err != nil {
+					return nil, errors.Wrap(err, "failed to convert ooo head chunk to xor chunk")
 				}
 				c.meta.Chunk = xor
 			} else {
@@ -562,7 +552,7 @@ type boundedChunk struct {
 }
 
 func (b boundedChunk) Bytes() []byte {
-	xor := chunkenc.XORChunk{}
+	xor := chunkenc.NewXORChunk()
 	a, _ := xor.Appender()
 	it := b.Iterator(nil)
 	for it.Next() {
@@ -582,9 +572,8 @@ func (b boundedChunk) Iterator(iterator chunkenc.Iterator) chunkenc.Iterator {
 
 var _ chunkenc.Iterator = &boundedIterator{}
 
-// boundedIterator is an implementation of Iterator that takes two timestamp
-// delimitators minT and maxT and only iterates through samples within
-// those timestamps
+// boundedIterator is an implementation of Iterator that only iterates through
+// samples which timestamps are >= minT and <= maxT
 type boundedIterator struct {
 	chunkenc.Iterator
 	minT int64
@@ -603,25 +592,27 @@ func (b boundedIterator) Next() bool {
 		} else if t > b.maxT {
 			return false
 		}
-		break
+		return true
 	}
-	return true
+	return false
 }
 
 func (b boundedIterator) Seek(t int64) bool {
-	if t < b.minT || t > b.maxT {
+	if t < b.minT {
+		// We must seek at least up to b.minT if it is asked for something before that.
+		ok := b.Iterator.Seek(b.minT)
+		if !ok {
+			return false
+		}
+		t, _ := b.Iterator.At()
+		return t <= b.maxT
+	}
+	if t > b.maxT {
+		// We seek anyway so that the subsequent Next() calls will also return false.
+		b.Iterator.Seek(t)
 		return false
 	}
 	return b.Iterator.Seek(t)
-}
-
-func (b boundedIterator) At() (int64, float64) {
-	return b.Iterator.At()
-}
-
-func (b boundedIterator) Err() error {
-	// TODO(jesus.vazquez) should this return an error if our Seek() method returned false for a sample outside bounds?
-	return b.Iterator.Err()
 }
 
 // safeChunk makes sure that the chunk can be accessed without a race condition

@@ -391,7 +391,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 		queryMinT            int64
 		queryMaxT            int64
 		firstInOrderSampleAt int64
-		dbOpts               *Options
 		inputSamples         tsdbutil.SampleSlice
 		expChunkError        bool
 		expChunksSamples     []tsdbutil.SampleSlice
@@ -401,7 +400,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			inputSamples: tsdbutil.SampleSlice{
 				sample{t: minutes(30), v: float64(0)},
 				sample{t: minutes(40), v: float64(0)},
@@ -423,7 +421,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			inputSamples: tsdbutil.SampleSlice{
 				// opts.OOOCapMax is 5 so these will be mmapped to the first mmapped chunk
 				sample{t: minutes(41), v: float64(0)},
@@ -459,7 +456,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			inputSamples: tsdbutil.SampleSlice{
 				// Chunk 0
 				sample{t: minutes(10), v: float64(0)},
@@ -518,7 +514,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			inputSamples: tsdbutil.SampleSlice{
 				// Chunk 0
 				sample{t: minutes(40), v: float64(0)},
@@ -577,7 +572,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			inputSamples: tsdbutil.SampleSlice{
 				// Chunk 0
 				sample{t: minutes(10), v: float64(0)},
@@ -642,7 +636,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			inputSamples: tsdbutil.SampleSlice{
 				// Chunk 0
 				sample{t: minutes(10), v: float64(0)},
@@ -686,7 +679,6 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			queryMinT:            minutes(12),
 			queryMaxT:            minutes(33),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			inputSamples: tsdbutil.SampleSlice{
 				// Chunk 0
 				sample{t: minutes(10), v: float64(0)},
@@ -729,7 +721,7 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
-			db := newTestDBWithOpts(t, tc.dbOpts)
+			db := newTestDBWithOpts(t, opts)
 
 			app := db.Appender(context.Background())
 			s1Ref := appendSample(app, s1, tc.firstInOrderSampleAt, float64(tc.firstInOrderSampleAt/1*time.Minute.Milliseconds()))
@@ -796,7 +788,6 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 		queryMinT              int64
 		queryMaxT              int64
 		firstInOrderSampleAt   int64
-		dbOpts                 *Options
 		initialSamples         tsdbutil.SampleSlice
 		samplesAfterSeriesCall tsdbutil.SampleSlice
 		expChunkError          bool
@@ -807,7 +798,6 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			initialSamples: tsdbutil.SampleSlice{
 				// Chunk 0
 				sample{t: minutes(20), v: float64(0)},
@@ -826,7 +816,7 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 			},
 			expChunkError: false,
 			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
-			// Query Interval                       [----------------------]
+			// Query Interval          [-----------------------------------]
 			// Chunk 0:                                  [--------] (5 samples)
 			// Chunk 1: Current Head                          [-------] (2 samples)
 			// New samples added after Series()
@@ -850,7 +840,6 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
-			dbOpts:               opts,
 			initialSamples: tsdbutil.SampleSlice{
 				// Chunk 0
 				sample{t: minutes(20), v: float64(0)},
@@ -872,7 +861,7 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 			},
 			expChunkError: false,
 			// ts (in minutes)         0       10       20       30       40       50       60       70       80       90       100
-			// Query Interval                       [----------------------]
+			// Query Interval          [-----------------------------------]
 			// Chunk 0:                                  [--------] (5 samples)
 			// Chunk 1: Current Head                          [-------] (2 samples)
 			// New samples added after Series()
@@ -896,7 +885,7 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
-			db := newTestDBWithOpts(t, tc.dbOpts)
+			db := newTestDBWithOpts(t, opts)
 
 			app := db.Appender(context.Background())
 			s1Ref := appendSample(app, s1, tc.firstInOrderSampleAt, float64(tc.firstInOrderSampleAt/1*time.Minute.Milliseconds()))
