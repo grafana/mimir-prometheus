@@ -572,7 +572,9 @@ func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunk
 			for _, rm := range markers {
 				seq, off := rm.MmapRef.Unpack()
 				if seq > lastSeq || (seq == lastSeq && off > lastOff) {
-					// This m-map chunk from markers was not present in the replay.
+					// This m-map chunk from markers was not present during
+					// the load of mmapped chunks that happened in the head
+					// initialization.
 					continue
 				}
 

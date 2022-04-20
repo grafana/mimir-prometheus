@@ -498,6 +498,9 @@ func (a *headAppender) Commit() (err error) {
 		}
 		// The m-map happens before adding a new sample. So we collect
 		// the m-map markers first, and then samples.
+		// WBL Graphically:
+		//   WBL Before this Commit(): [old samples before this commit for chunk 1]
+		//   WBL After this Commit():  [old samples before this commit for chunk 1][new samples in this commit for chunk 1]mmapmarker1[samples for chunk 2]mmapmarker2[samples for chunk 3]
 		if oooMmapMarkers != nil {
 			markers := make([]record.RefMmapMarker, 0, len(oooMmapMarkers))
 			for ref, mmapRef := range oooMmapMarkers {
@@ -535,7 +538,7 @@ func (a *headAppender) Commit() (err error) {
 				var mmapRef chunks.ChunkDiskMapperRef
 				ok, chunkCreated, mmapRef = series.insert(s.T, s.V, a.head.chunkDiskMapper)
 				if chunkCreated {
-					if oooMmapMarkers[series.ref] != 0 {
+					if oooMmapMarkers[series.ref] != 0 { // TODO(ganesh) Remove this condition. There could be a case where there are samples in the slice and no markers and we want to collect the samples.
 						// We have already m-mapped a chunk for this series in the same Commit().
 						// Hence, before we m-map again, we should add the samples and m-map markers
 						// seen till now to the WBL records.

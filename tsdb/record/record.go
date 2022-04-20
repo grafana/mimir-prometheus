@@ -357,10 +357,6 @@ func (e *Encoder) MmapMarkers(markers []RefMmapMarker, b []byte) []byte {
 	buf := encoding.Encbuf{B: b}
 	buf.PutByte(byte(MmapMarkers))
 
-	if len(markers) == 0 {
-		return buf.Get()
-	}
-
 	for _, s := range markers {
 		buf.PutBE64(uint64(s.Ref))
 		buf.PutBE64(uint64(s.MmapRef))
