@@ -1628,13 +1628,13 @@ func (db *DB) Querier(_ context.Context, mint, maxt int64) (storage.Querier, err
 			blocks = append(blocks, b)
 		}
 	}
-	var headQuerier storage.Querier
+	var inOrderHeadQuerier storage.Querier
 	if maxt >= db.head.MinTime() {
 		rh := NewRangeHead(db.head, mint, maxt)
 		var err error
-		headQuerier, err = NewBlockQuerier(rh, mint, maxt)
+		inOrderHeadQuerier, err = NewBlockQuerier(rh, mint, maxt)
 		if err != nil {
-			return nil, errors.Wrapf(err, "open querier for head %s", rh)
+			return nil, errors.Wrapf(err, "open block querier for head %s", rh)
 		}
 
 		// Getting the querier above registers itself in the queue that the truncation waits on.
@@ -1642,16 +1642,46 @@ func (db *DB) Querier(_ context.Context, mint, maxt int64) (storage.Querier, err
 		// won't run into a race later since any truncation that comes after will wait on this querier if it overlaps.
 		shouldClose, getNew, newMint := db.head.IsQuerierCollidingWithTruncation(mint, maxt)
 		if shouldClose {
-			if err := headQuerier.Close(); err != nil {
-				return nil, errors.Wrapf(err, "closing head querier %s", rh)
+			if err := inOrderHeadQuerier.Close(); err != nil {
+				return nil, errors.Wrapf(err, "closing head block querier %s", rh)
 			}
-			headQuerier = nil
+			inOrderHeadQuerier = nil
 		}
 		if getNew {
 			rh := NewRangeHead(db.head, newMint, maxt)
-			headQuerier, err = NewBlockQuerier(rh, newMint, maxt)
+			inOrderHeadQuerier, err = NewBlockQuerier(rh, newMint, maxt)
 			if err != nil {
-				return nil, errors.Wrapf(err, "open querier for head while getting new querier %s", rh)
+				return nil, errors.Wrapf(err, "open block querier for head while getting new querier %s", rh)
+			}
+		}
+	}
+
+	var outOfOrderHeadQuerier storage.Querier
+	db.head.MinTime()
+	if maxt >= db.head.minOOOTime.Load() {
+		rh := NewOOORangeHead(db.head, mint, maxt)
+		var err error
+		outOfOrderHeadQuerier, err = NewBlockQuerier(rh, mint, maxt)
+		if err != nil {
+			return nil, errors.Wrapf(err, "open block querier for ooo head %s", rh)
+		}
+
+		// TODO(jesus.vazquez) I am not sure the truncation process affects the ooo head. Let's review this.
+		// Getting the querier above registers itself in the queue that the truncation waits on.
+		// So if the querier is currently not colliding with any truncation, we can continue to use it and still
+		// won't run into a race later since any truncation that comes after will wait on this querier if it overlaps.
+		shouldClose, getNew, newMint := db.head.IsQuerierCollidingWithTruncation(mint, maxt)
+		if shouldClose {
+			if err := outOfOrderHeadQuerier.Close(); err != nil {
+				return nil, errors.Wrapf(err, "closing ooo head block querier %s", rh)
+			}
+			outOfOrderHeadQuerier = nil
+		}
+		if getNew {
+			rh := NewOOORangeHead(db.head, newMint, maxt)
+			outOfOrderHeadQuerier, err = NewBlockQuerier(rh, newMint, maxt)
+			if err != nil {
+				return nil, errors.Wrapf(err, "open block querier for ooo head while getting new querier %s", rh)
 			}
 		}
 	}
@@ -1670,8 +1700,11 @@ func (db *DB) Querier(_ context.Context, mint, maxt int64) (storage.Querier, err
 		}
 		return nil, errors.Wrapf(err, "open querier for block %s", b)
 	}
-	if headQuerier != nil {
-		blockQueriers = append(blockQueriers, headQuerier)
+	if inOrderHeadQuerier != nil {
+		blockQueriers = append(blockQueriers, inOrderHeadQuerier)
+	}
+	if outOfOrderHeadQuerier != nil {
+		blockQueriers = append(blockQueriers, outOfOrderHeadQuerier)
 	}
 	return storage.NewMergeQuerier(blockQueriers, nil, storage.ChainedSeriesMerge), nil
 }
