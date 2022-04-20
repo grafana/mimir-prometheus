@@ -935,8 +935,6 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 				it := c.Iterator(nil)
 				for it.Next() {
 					ts, v := it.At()
-					// t.Logf("Equivalence %d=%d", ts, ts/time.Minute.Milliseconds())
-					t.Logf("Got %d:%f", ts/time.Minute.Milliseconds(), v)
 					resultSamples = append(resultSamples, sample{t: ts, v: v})
 				}
 				require.Equal(t, tc.expChunksSamples[i], resultSamples)

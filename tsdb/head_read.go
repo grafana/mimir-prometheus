@@ -417,7 +417,18 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 			break
 		}
 
-		if chunkRef == meta.OOOLastRef || c.OverlapsClosedInterval(mint, maxt) {
+		if chunkRef == meta.OOOLastRef {
+			tmpChks = append(tmpChks, chunkMetaAndChunkDiskMapperRef{
+				meta: chunks.Meta{
+					MinTime: meta.OOOLastMinTime,
+					MaxTime: meta.OOOLastMaxTime,
+					Ref:     chunkRef,
+				},
+				ref:      c.ref,
+				origMinT: c.minTime,
+				origMaxT: c.maxTime,
+			})
+		} else if c.OverlapsClosedInterval(mint, maxt) {
 			tmpChks = append(tmpChks, chunkMetaAndChunkDiskMapperRef{
 				meta: chunks.Meta{
 					MinTime: c.minTime,
@@ -472,7 +483,16 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 					}
 					return nil, err
 				}
-				c.meta.Chunk = chk
+				if c.meta.Ref == meta.OOOLastRef &&
+					(c.origMinT != meta.OOOLastMinTime || c.origMaxT != meta.OOOLastMaxTime) {
+					// The head expanded and was memory mapped so now we need to
+					// wrap the chunk within a chunk that doesnt allows us to iterate
+					// through samples out of the OOOLastMinT and OOOLastMaxT
+					// markers.
+					c.meta.Chunk = boundedChunk{chk, meta.OOOLastMinTime, meta.OOOLastMaxTime}
+				} else {
+					c.meta.Chunk = chk
+				}
 			}
 			mc.chunks = append(mc.chunks, c.meta)
 		}
@@ -532,6 +552,80 @@ func (o mergedOOOChunks) NumSamples() int {
 
 // Compact TODO(jesus.vazquez) Clarify why this method wont be called
 func (o mergedOOOChunks) Compact() {}
+
+var _ chunkenc.Chunk = &boundedChunk{}
+
+// boundedChunk is an implementation of chunkenc.Chunk that uses a
+// boundedIterator that only iterates through samples which timestamps are
+// >= minT and <= maxT
+type boundedChunk struct {
+	chunkenc.Chunk
+	minT int64
+	maxT int64
+}
+
+func (b boundedChunk) Bytes() []byte {
+	xor := chunkenc.XORChunk{}
+	a, _ := xor.Appender()
+	it := b.Iterator(nil)
+	for it.Next() {
+		t, v := it.At()
+		a.Append(t, v)
+	}
+	return xor.Bytes()
+}
+
+func (b boundedChunk) Iterator(iterator chunkenc.Iterator) chunkenc.Iterator {
+	it := b.Chunk.Iterator(iterator)
+	if it == nil {
+		panic("iterator shouldn't be nil")
+	}
+	return boundedIterator{it, b.minT, b.maxT}
+}
+
+var _ chunkenc.Iterator = &boundedIterator{}
+
+// boundedIterator is an implementation of Iterator that takes two timestamp
+// delimitators minT and maxT and only iterates through samples within
+// those timestamps
+type boundedIterator struct {
+	chunkenc.Iterator
+	minT int64
+	maxT int64
+}
+
+// Next the first time its called it will advance as many positions as necessary
+// until its able to find a sample within the bounds minT and maxT.
+// If there are samples within bounds it will advance one by one amongst them.
+// If there are no samples within bounds it will return false.
+func (b boundedIterator) Next() bool {
+	for b.Iterator.Next() {
+		t, _ := b.Iterator.At()
+		if t < b.minT {
+			continue
+		} else if t > b.maxT {
+			return false
+		}
+		break
+	}
+	return true
+}
+
+func (b boundedIterator) Seek(t int64) bool {
+	if t < b.minT || t > b.maxT {
+		return false
+	}
+	return b.Iterator.Seek(t)
+}
+
+func (b boundedIterator) At() (int64, float64) {
+	return b.Iterator.At()
+}
+
+func (b boundedIterator) Err() error {
+	// TODO(jesus.vazquez) should this return an error if our Seek() method returned false for a sample outside bounds?
+	return b.Iterator.Err()
+}
 
 // safeChunk makes sure that the chunk can be accessed without a race condition
 type safeChunk struct {
