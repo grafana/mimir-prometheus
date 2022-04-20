@@ -1,6 +1,9 @@
 package tsdb
 
 import (
+	"fmt"
+
+	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
 )
 
@@ -33,17 +36,17 @@ func (oh *OOORangeHead) Chunks() (ChunkReader, error) {
 }
 
 func (oh *OOORangeHead) Tombstones() (tombstones.Reader, error) {
-	// TODO(jesus.vazquez) We still need to clarify what to do with tombstones
-	// here and in the design doc.
-	panic("implement me")
+	// As stated in the design doc https://docs.google.com/document/d/1Kppm7qL9C-BJB1j6yb6-9ObG3AbdZnFUBYPNNWwDBYM/edit?usp=sharing
+	// Tombstones are not supported for out of order metrics.
+	return noopTombstoneReader{}, nil
 }
 
 func (oh *OOORangeHead) Meta() BlockMeta {
 	var id [16]byte
 	copy(id[:], "____ooo_head____")
 	return BlockMeta{
-		MinTime: oh.head.MinTime(), // TODO(ganesh) We might want to track in the head whats the mint and maxt for out of order samples
-		MaxTime: oh.head.MaxTime(), // TODO(ganesh) We might want to track in the head whats the mint and maxt for out of order samples
+		MinTime: oh.head.MinOOOTime(),
+		MaxTime: oh.head.MaxOOOTime(),
 		ULID:    id,
 		Stats: BlockStats{
 			NumSeries: oh.head.NumSeries(),
@@ -56,4 +59,41 @@ func (oh *OOORangeHead) Meta() BlockMeta {
 func (oh *OOORangeHead) Size() int64 {
 	// TODO(jesus.vazquez) Find what's the appropriate value here
 	return 0
+}
+
+// String returns an human readable representation of the out of order range
+// head. It's important to keep this function in order to avoid the struct dump
+// when the head is stringified in errors or logs.
+func (oh *OOORangeHead) String() string {
+	return fmt.Sprintf("ooo range head (mint: %d, maxt: %d)", oh.MinTime(), oh.MaxTime())
+}
+
+func (oh *OOORangeHead) MinTime() int64 {
+	return oh.mint
+}
+
+func (oh *OOORangeHead) MaxTime() int64 {
+	return oh.maxt
+}
+
+var _ tombstones.Reader = &noopTombstoneReader{}
+
+// noopTombstoneReader is a no operation implementation of tombstone.Reader
+type noopTombstoneReader struct {
+}
+
+func (n noopTombstoneReader) Get(ref storage.SeriesRef) (tombstones.Intervals, error) {
+	return nil, nil
+}
+
+func (n noopTombstoneReader) Iter(f func(storage.SeriesRef, tombstones.Intervals) error) error {
+	return nil
+}
+
+func (n noopTombstoneReader) Total() uint64 {
+	return 0
+}
+
+func (n noopTombstoneReader) Close() error {
+	return nil
 }

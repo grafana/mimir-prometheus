@@ -74,11 +74,10 @@ type chunkDiskMapper interface {
 
 // Head handles reads and writes of time series data within a time window.
 type Head struct {
-	chunkRange atomic.Int64
-	numSeries  atomic.Uint64
-	// TODO(ganesh) Track mint and maxt for out of order samples. It can be useful when a query comes in and the query time range overlaps with them.
-	// minOOOTime, maxOOOTime   atomic.Int64
-	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head.
+	chunkRange               atomic.Int64
+	numSeries                atomic.Uint64
+	minOOOTime, maxOOOTime   atomic.Int64
+	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head. // TODO(jesus.vazquez) Ensure these are properly tracked.
 	minValidTime             atomic.Int64 // Mint allowed to be added to the head. It shouldn't be lower than the maxt of the last persisted block.
 	lastWALTruncationTime    atomic.Int64
 	lastMemoryTruncationTime atomic.Int64
@@ -315,6 +314,8 @@ func (h *Head) resetInMemoryState() error {
 	h.chunkRange.Store(h.opts.ChunkRange)
 	h.minTime.Store(math.MaxInt64)
 	h.maxTime.Store(math.MinInt64)
+	h.minOOOTime.Store(math.MaxInt64) // TODO(jesus.vazquez) Review this value
+	h.maxOOOTime.Store(math.MinInt64) // TODO(jesus.vazquez) Review this value
 	h.lastWALTruncationTime.Store(math.MinInt64)
 	h.lastMemoryTruncationTime.Store(math.MinInt64)
 	return nil
@@ -1410,6 +1411,18 @@ func (h *Head) MinTime() int64 {
 // MaxTime returns the highest timestamp seen in data of the head.
 func (h *Head) MaxTime() int64 {
 	return h.maxTime.Load()
+}
+
+// MinOOOTime returns the lowest time bound on visible data in the out of order
+// head.
+func (h *Head) MinOOOTime() int64 {
+	return h.minOOOTime.Load()
+}
+
+// MaxOOOTime returns the highest timestamp on visible data in the out of order
+// head.
+func (h *Head) MaxOOOTime() int64 {
+	return h.maxOOOTime.Load()
 }
 
 // compactable returns whether the head has a compactable range.
