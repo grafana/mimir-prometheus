@@ -459,7 +459,8 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 					}
 				} else {
 					// We need to remove samples that are outside of the markers
-					oooChunk := chunkenc.NewOOOChunk(s.oooHeadChunk.chunk.NumSamples())
+					xor = chunkenc.NewXORChunk()
+					a, _ := xor.Appender()
 					for _, sample := range s.oooHeadChunk.chunk.Samples {
 						if sample.T < meta.OOOLastMinTime {
 							continue
@@ -467,11 +468,7 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 						if sample.T > meta.OOOLastMaxTime {
 							break
 						}
-						oooChunk.Insert(sample.T, sample.V)
-					}
-					xor, err = oooChunk.ToXor()
-					if err != nil {
-						return nil, errors.Wrap(err, "failed to convert oooChunk to xor chunk")
+						a.Append(sample.T, sample.V)
 					}
 				}
 				c.meta.Chunk = xor
