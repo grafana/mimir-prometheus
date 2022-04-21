@@ -753,7 +753,7 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 	require.NotNil(t, chk)
 	require.NoError(t, err)
 
-	s.truncateChunksBefore(2000)
+	s.truncateChunksBefore(2000, 0)
 
 	require.Equal(t, int64(2000), s.mmappedChunks[0].minTime)
 	_, _, err = s.chunk(0, chunkDiskMapper)

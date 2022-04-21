@@ -1,6 +1,7 @@
 package tsdb
 
 import (
+	"errors"
 	"math"
 	"sort"
 
@@ -9,6 +10,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/index"
+	"github.com/prometheus/prometheus/tsdb/tombstones"
 )
 
 var _ IndexReader = &OOOHeadIndexReader{}
@@ -33,6 +35,13 @@ func NewOOOHeadIndexReader(head *Head, mint, maxt int64) *OOOHeadIndexReader {
 }
 
 func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels, chks *[]chunks.Meta) error {
+	return oh.series(ref, lbls, chks, 0)
+}
+
+// The passed lastMmapRef tells upto what max m-map chunk that we can consider.
+// If it is 0, it means all chunks need to be considered.
+// If it is non-0, then the oooHeadChunk must not be considered.
+func (oh *OOOHeadIndexReader) series(ref storage.SeriesRef, lbls *labels.Labels, chks *[]chunks.Meta, lastMmapRef chunks.ChunkDiskMapperRef) error {
 	s := oh.head.series.getByID(chunks.HeadSeriesRef(ref))
 
 	if s == nil {
@@ -83,14 +92,14 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 	// so we can set the correct markers.
 	if s.oooHeadChunk != nil {
 		c := s.oooHeadChunk
-		if c.OverlapsClosedInterval(oh.mint, oh.maxt) {
+		if c.OverlapsClosedInterval(oh.mint, oh.maxt) && lastMmapRef == 0 {
 			ref := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(len(s.oooMmappedChunks))))
 			addChunk(c.minTime, c.maxTime, ref)
 		}
 	}
 	for i := len(s.oooMmappedChunks) - 1; i >= 0; i-- {
 		c := s.oooMmappedChunks[i]
-		if c.OverlapsClosedInterval(oh.mint, oh.maxt) {
+		if c.OverlapsClosedInterval(oh.mint, oh.maxt) && (lastMmapRef == 0 || lastMmapRef.GreaterThanOrEqualTo(c.ref)) {
 			ref := chunks.ChunkRef(chunks.NewHeadChunkRef(s.ref, s.oooHeadChunkID(i)))
 			addChunk(c.minTime, c.maxTime, ref)
 		}
@@ -211,4 +220,187 @@ func (cr OOOHeadChunkReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
 
 func (cr OOOHeadChunkReader) Close() error {
 	return nil
+}
+
+type OOOCompactionHead struct {
+	oooIR       *OOOHeadIndexReader
+	lastMmapRef chunks.ChunkDiskMapperRef
+	lastWBLFile int
+	postings    []storage.SeriesRef
+	chunkRange  int64
+	mint, maxt  int64 // Among all the compactable chunks.
+}
+
+// NewOOOCompactionHead does the following:
+// 1. M-maps all the in-memory ooo chunks.
+// 2. Compute the expected block ranges while iterating through all ooo series and store it.
+// 3. Store the list of postings having ooo series.
+// 4. Cuts a new WBL file for the OOO WBL.
+// All the above together have a bit of CPU and memory overhead, and can have a bit of impact
+// on the sample append latency. So call NewOOOCompactionHead only right before compaction.
+func NewOOOCompactionHead(head *Head) (*OOOCompactionHead, error) {
+	newWBLFile, err := head.oooWbl.NextSegment()
+	if err != nil {
+		return nil, err
+	}
+
+	ch := &OOOCompactionHead{
+		chunkRange:  head.chunkRange.Load(),
+		mint:        math.MaxInt64,
+		maxt:        math.MinInt64,
+		lastWBLFile: newWBLFile,
+	}
+
+	ch.oooIR = NewOOOHeadIndexReader(head, math.MinInt64, math.MaxInt64)
+	n, v := index.AllPostingsKey()
+
+	// TODO: verify this gets only ooo samples.
+	p, err := ch.oooIR.Postings(n, v)
+	if err != nil {
+		return nil, err
+	}
+	p = ch.oooIR.SortedPostings(p)
+
+	var lastSeq, lastOff int
+	for p.Next() {
+		seriesRef := p.At()
+		ms := head.series.getByID(chunks.HeadSeriesRef(seriesRef))
+		if ms == nil {
+			continue
+		}
+
+		// M-map the in-memory chunk and keep track of the last one.
+		// Also build the block ranges -> series map.
+		// TODO: consider having a lock specifically for ooo data.
+		ms.Lock()
+
+		mmapRef := ms.mmapCurrentOOOHeadChunk(head.chunkDiskMapper)
+		seq, off := mmapRef.Unpack()
+		if seq > lastSeq || (seq == lastSeq && off > lastOff) {
+			ch.lastMmapRef, lastSeq, lastOff = mmapRef, seq, off
+		}
+
+		if len(ms.oooMmappedChunks) > 0 {
+			ch.postings = append(ch.postings, seriesRef)
+			for _, c := range ms.oooMmappedChunks {
+				if c.minTime < ch.mint {
+					ch.mint = c.minTime
+				}
+				if c.maxTime > ch.maxt {
+					ch.maxt = c.maxTime
+				}
+			}
+		}
+		ms.Unlock()
+	}
+
+	return ch, nil
+}
+
+func (ch *OOOCompactionHead) Index() (IndexReader, error) {
+	return NewOOOCompactionHeadIndexReader(ch), nil
+}
+
+func (ch *OOOCompactionHead) Chunks() (ChunkReader, error) {
+	return NewOOOHeadChunkReader(ch.oooIR.head, ch.oooIR.mint, ch.oooIR.maxt), nil
+}
+
+func (ch *OOOCompactionHead) Tombstones() (tombstones.Reader, error) {
+	return tombstones.NewMemTombstones(), nil
+}
+
+func (ch *OOOCompactionHead) Meta() BlockMeta {
+	var id [16]byte
+	copy(id[:], "copy(id[:], \"ooo_compact_head\")")
+	return BlockMeta{
+		MinTime: ch.mint,
+		MaxTime: ch.maxt,
+		ULID:    id,
+		Stats: BlockStats{
+			NumSeries: uint64(len(ch.postings)),
+		},
+	}
+}
+
+// CloneForTimeRange clones the OOOCompactionHead such that the IndexReader and ChunkReader
+// obtained from this only looks at the m-map chunks within the given time ranges while not looking
+// beyond the ch.lastMmapRef.
+// Only the method of BlockReader interface are valid for the cloned OOOCompactionHead.
+func (ch *OOOCompactionHead) CloneForTimeRange(mint, maxt int64) *OOOCompactionHead {
+	return &OOOCompactionHead{
+		oooIR:       NewOOOHeadIndexReader(ch.oooIR.head, mint, maxt),
+		lastMmapRef: ch.lastMmapRef,
+		postings:    ch.postings,
+		chunkRange:  ch.chunkRange,
+		mint:        ch.mint,
+		maxt:        ch.maxt,
+	}
+}
+
+func (ch *OOOCompactionHead) Size() int64                            { return 0 }
+func (ch *OOOCompactionHead) MinTime() int64                         { return ch.mint }
+func (ch *OOOCompactionHead) MaxTime() int64                         { return ch.maxt }
+func (ch *OOOCompactionHead) ChunkRange() int64                      { return ch.chunkRange }
+func (ch *OOOCompactionHead) LastMmapRef() chunks.ChunkDiskMapperRef { return ch.lastMmapRef }
+func (ch *OOOCompactionHead) LastWBLFile() int                       { return ch.lastWBLFile }
+
+type OOOCompactionHeadIndexReader struct {
+	ch *OOOCompactionHead
+}
+
+func NewOOOCompactionHeadIndexReader(ch *OOOCompactionHead) IndexReader {
+	return &OOOCompactionHeadIndexReader{ch: ch}
+}
+
+func (ir *OOOCompactionHeadIndexReader) Symbols() index.StringIter {
+	return ir.ch.oooIR.Symbols()
+}
+
+func (ir *OOOCompactionHeadIndexReader) Postings(name string, values ...string) (index.Postings, error) {
+	n, v := index.AllPostingsKey()
+	if name != n || len(values) != 1 || values[0] != v {
+		return nil, errors.New("only AllPostingsKey is supported")
+	}
+	return index.NewListPostings(ir.ch.postings), nil
+}
+
+func (ir *OOOCompactionHeadIndexReader) SortedPostings(p index.Postings) index.Postings {
+	// This will already be sorted from the Postings() call above.
+	return p
+}
+
+func (ir *OOOCompactionHeadIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
+	return ir.ch.oooIR.ShardedPostings(p, shardIndex, shardCount)
+}
+
+func (ir *OOOCompactionHeadIndexReader) Series(ref storage.SeriesRef, lset *labels.Labels, chks *[]chunks.Meta) error {
+	return ir.ch.oooIR.series(ref, lset, chks, ir.ch.lastMmapRef)
+}
+
+func (ir *OOOCompactionHeadIndexReader) SortedLabelValues(name string, matchers ...*labels.Matcher) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelValues(name string, matchers ...*labels.Matcher) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelValueFor(id storage.SeriesRef, label string) (string, error) {
+	return "", errors.New("not implemented")
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelNamesFor(ids ...storage.SeriesRef) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (ir *OOOCompactionHeadIndexReader) Close() error {
+	return ir.ch.oooIR.Close()
 }
