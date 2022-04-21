@@ -473,7 +473,7 @@ func (cdm *OldChunkDiskMapper) Chunk(ref ChunkDiskMapperRef) (chunkenc.Chunk, er
 // and runs the provided function with information about each chunk. It returns on the first error encountered.
 // NOTE: This method needs to be called at least once after creating ChunkDiskMapper
 // to set the maxt of all the file.
-func (cdm *OldChunkDiskMapper) IterateAllChunks(f func(seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, isOOO bool) error) (err error) {
+func (cdm *OldChunkDiskMapper) IterateAllChunks(f func(seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, encoding chunkenc.Encoding) error) (err error) {
 	cdm.writePathMtx.Lock()
 	defer cdm.writePathMtx.Unlock()
 
@@ -539,7 +539,6 @@ func (cdm *OldChunkDiskMapper) IterateAllChunks(f func(seriesRef HeadSeriesRef, 
 			// Encoding.
 			chkEnc := chunkenc.Encoding(mmapFile.byteSlice.Range(idx, idx+ChunkEncodingSize)[0])
 			idx += ChunkEncodingSize
-
 			dataLen, n := binary.Uvarint(mmapFile.byteSlice.Range(idx, idx+MaxChunkLengthFieldSize))
 			idx += n
 
@@ -574,7 +573,7 @@ func (cdm *OldChunkDiskMapper) IterateAllChunks(f func(seriesRef HeadSeriesRef, 
 				mmapFile.maxt = maxt
 			}
 
-			if err := f(seriesRef, chunkRef, mint, maxt, numSamples, chunkenc.IsOutOfOrderChunk(chkEnc)); err != nil {
+			if err := f(seriesRef, chunkRef, mint, maxt, numSamples, chkEnc); err != nil {
 				if cerr, ok := err.(*CorruptionErr); ok {
 					cerr.Dir = cdm.dir.Name()
 					cerr.FileIndex = segID
