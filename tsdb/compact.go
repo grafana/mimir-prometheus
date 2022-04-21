@@ -547,8 +547,9 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 
 // CompactOOOWithSplitting splits the input OOO Head into shardCount number of output blocks
 // per possible block range, and returns slice of block IDs. In result[i][j],
-// 'j' corresponds to the shard index while 'i' corresponds to a single time range of blocks.
+// 'i' corresponds to a single time range of blocks while 'j' corresponds to the shard index.
 // If given output block has no series, corresponding block ID will be zero ULID value.
+// TODO: write tests for this.
 func (c *LeveledCompactor) CompactOOOWithSplitting(dest string, oooHead *OOOCompactionHead, shardCount uint64) (result [][]ulid.ULID, _ error) {
 	return c.compactOOO(dest, oooHead, shardCount)
 }

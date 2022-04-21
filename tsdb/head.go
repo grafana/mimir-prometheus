@@ -981,7 +981,7 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 
 	// Truncate the chunk m-mapper.
 	if err := h.chunkDiskMapper.Truncate(minMmapFile); err != nil {
-		return errors.Wrap(err, "truncate by file no chunks.HeadReadWriter")
+		return errors.Wrap(err, "truncate chunks.HeadReadWriter by file number")
 	}
 	return nil
 }
@@ -1166,7 +1166,7 @@ func (h *Head) truncateOOO(lastWBLFile int, minOOOMmapRef chunks.ChunkDiskMapper
 
 		// Truncate the chunk m-mapper.
 		if err := h.chunkDiskMapper.Truncate(minMmapFile); err != nil {
-			return errors.Wrap(err, "truncate by file no chunks.HeadReadWriter in truncateOOO")
+			return errors.Wrap(err, "truncate chunks.HeadReadWriter by file number in truncateOOO")
 		}
 	}
 
@@ -1784,12 +1784,12 @@ func (s *memSeries) maxTime() int64 {
 // truncateChunksBefore removes all chunks from the series that
 // have no timestamp at or after mint.
 // Chunk IDs remain unchanged.
-func (s *memSeries) truncateChunksBefore(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (removed int) {
+func (s *memSeries) truncateChunksBefore(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) int {
 	var removedInOrder int
 	if s.headChunk != nil && s.headChunk.maxTime < mint {
 		// If head chunk is truncated, we can truncate all mmapped chunks.
 		removedInOrder = 1 + len(s.mmappedChunks)
-		s.firstChunkID += chunks.HeadChunkID(removed)
+		s.firstChunkID += chunks.HeadChunkID(removedInOrder)
 		s.headChunk = nil
 		s.mmappedChunks = nil
 	}
@@ -1800,7 +1800,7 @@ func (s *memSeries) truncateChunksBefore(mint int64, minOOOMmapRef chunks.ChunkD
 			}
 			removedInOrder = i + 1
 		}
-		s.mmappedChunks = append(s.mmappedChunks[:0], s.mmappedChunks[removed:]...)
+		s.mmappedChunks = append(s.mmappedChunks[:0], s.mmappedChunks[removedInOrder:]...)
 		s.firstChunkID += chunks.HeadChunkID(removedInOrder)
 	}
 
