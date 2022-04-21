@@ -789,6 +789,7 @@ func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) chu
 		minTime:    s.oooHeadChunk.minTime,
 		maxTime:    s.oooHeadChunk.maxTime,
 	})
+	s.oooHeadChunk = nil
 	return chunkRef
 }
 
