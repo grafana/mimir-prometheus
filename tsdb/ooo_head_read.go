@@ -126,11 +126,12 @@ func (oh *OOOHeadIndexReader) Series(ref storage.SeriesRef, lbls *labels.Labels,
 }
 
 type chunkMetaAndChunkDiskMapperRef struct {
-	meta chunks.Meta
-	ref  chunks.ChunkDiskMapperRef
+	meta     chunks.Meta
+	ref      chunks.ChunkDiskMapperRef
+	origMinT int64
+	origMaxT int64
 }
 
-// TODO See if we can reuse the sort implementation below
 type byMinTimeAndMinRef []chunkMetaAndChunkDiskMapperRef
 
 func (b byMinTimeAndMinRef) Len() int { return len(b) }

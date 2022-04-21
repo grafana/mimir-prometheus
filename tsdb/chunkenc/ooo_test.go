@@ -22,7 +22,7 @@ func makePre(n int) []sample {
 	return s
 }
 
-// TesttoooInsert tests the following cases:
+// TestOOOInsert tests the following cases:
 // number of pre-existing samples anywhere from 0 to testMaxSize-1
 // insert new sample before first pre-existing samples, after the last, and anywhere in between
 // with a chunk initial capacity of testMaxSize/8 and testMaxSize, which lets us test non-full and full chunks, and chunks that need to expand themselves.
@@ -60,7 +60,7 @@ func TestOOOInsert(t *testing.T) {
 	}
 }
 
-// TesttoooInsertDuplicate tests the correct behavior when inserting a sample that is a duplicate of any
+// TestOOOInsertDuplicate tests the correct behavior when inserting a sample that is a duplicate of any
 // pre-existing samples, with between 1 and testMaxSize pre-existing samples and
 // with a chunk initial capacity of testMaxSize/8 and testMaxSize, which lets us test non-full and full chunks, and chunks that need to expand themselves.
 func TestOOOInsertDuplicate(t *testing.T) {

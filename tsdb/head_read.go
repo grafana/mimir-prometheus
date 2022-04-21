@@ -417,7 +417,18 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 			break
 		}
 
-		if chunkRef == meta.OOOLastRef || c.OverlapsClosedInterval(mint, maxt) {
+		if chunkRef == meta.OOOLastRef {
+			tmpChks = append(tmpChks, chunkMetaAndChunkDiskMapperRef{
+				meta: chunks.Meta{
+					MinTime: meta.OOOLastMinTime,
+					MaxTime: meta.OOOLastMaxTime,
+					Ref:     chunkRef,
+				},
+				ref:      c.ref,
+				origMinT: c.minTime,
+				origMaxT: c.maxTime,
+			})
+		} else if c.OverlapsClosedInterval(mint, maxt) {
 			tmpChks = append(tmpChks, chunkMetaAndChunkDiskMapperRef{
 				meta: chunks.Meta{
 					MinTime: c.minTime,
@@ -437,7 +448,16 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 	for _, c := range tmpChks {
 		if c.meta.Ref == meta.Ref || len(mc.chunks) > 0 && c.meta.MinTime <= mc.chunks[len(mc.chunks)-1].MaxTime {
 			if c.meta.Ref == oooHeadRef {
-				xor, err := s.oooHeadChunk.chunk.ToXor() // TODO(jesus.vazquez) (This is an optimization idea that has no priority and might not be that useful) See if we could use a copy of the underlying slice. That would leave the more expensive ToXor() function only for the usecase where Bytes() is called.
+				var xor *chunkenc.XORChunk
+				// If head chunk min and max time match the meta OOO markers
+				// that means that the chunk has not expanded so we can append
+				// it as it is.
+				if s.oooHeadChunk.minTime == meta.OOOLastMinTime && s.oooHeadChunk.maxTime == meta.OOOLastMaxTime {
+					xor, err = s.oooHeadChunk.chunk.ToXor() // TODO(jesus.vazquez) (This is an optimization idea that has no priority and might not be that useful) See if we could use a copy of the underlying slice. That would leave the more expensive ToXor() function only for the usecase where Bytes() is called.
+				} else {
+					// We need to remove samples that are outside of the markers
+					xor, err = s.oooHeadChunk.chunk.ToXorBetweenTimestamps(meta.OOOLastMinTime, meta.OOOLastMaxTime)
+				}
 				if err != nil {
 					return nil, errors.Wrap(err, "failed to convert ooo head chunk to xor chunk")
 				}
@@ -450,7 +470,16 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 					}
 					return nil, err
 				}
-				c.meta.Chunk = chk
+				if c.meta.Ref == meta.OOOLastRef &&
+					(c.origMinT != meta.OOOLastMinTime || c.origMaxT != meta.OOOLastMaxTime) {
+					// The head expanded and was memory mapped so now we need to
+					// wrap the chunk within a chunk that doesnt allows us to iterate
+					// through samples out of the OOOLastMinT and OOOLastMaxT
+					// markers.
+					c.meta.Chunk = boundedChunk{chk, meta.OOOLastMinTime, meta.OOOLastMaxTime}
+				} else {
+					c.meta.Chunk = chk
+				}
 			}
 			mc.chunks = append(mc.chunks, c.meta)
 		}
@@ -510,6 +539,81 @@ func (o mergedOOOChunks) NumSamples() int {
 
 // Compact TODO(jesus.vazquez) Clarify why this method wont be called
 func (o mergedOOOChunks) Compact() {}
+
+var _ chunkenc.Chunk = &boundedChunk{}
+
+// boundedChunk is an implementation of chunkenc.Chunk that uses a
+// boundedIterator that only iterates through samples which timestamps are
+// >= minT and <= maxT
+type boundedChunk struct {
+	chunkenc.Chunk
+	minT int64
+	maxT int64
+}
+
+func (b boundedChunk) Bytes() []byte {
+	xor := chunkenc.NewXORChunk()
+	a, _ := xor.Appender()
+	it := b.Iterator(nil)
+	for it.Next() {
+		t, v := it.At()
+		a.Append(t, v)
+	}
+	return xor.Bytes()
+}
+
+func (b boundedChunk) Iterator(iterator chunkenc.Iterator) chunkenc.Iterator {
+	it := b.Chunk.Iterator(iterator)
+	if it == nil {
+		panic("iterator shouldn't be nil")
+	}
+	return boundedIterator{it, b.minT, b.maxT}
+}
+
+var _ chunkenc.Iterator = &boundedIterator{}
+
+// boundedIterator is an implementation of Iterator that only iterates through
+// samples which timestamps are >= minT and <= maxT
+type boundedIterator struct {
+	chunkenc.Iterator
+	minT int64
+	maxT int64
+}
+
+// Next the first time its called it will advance as many positions as necessary
+// until its able to find a sample within the bounds minT and maxT.
+// If there are samples within bounds it will advance one by one amongst them.
+// If there are no samples within bounds it will return false.
+func (b boundedIterator) Next() bool {
+	for b.Iterator.Next() {
+		t, _ := b.Iterator.At()
+		if t < b.minT {
+			continue
+		} else if t > b.maxT {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+func (b boundedIterator) Seek(t int64) bool {
+	if t < b.minT {
+		// We must seek at least up to b.minT if it is asked for something before that.
+		ok := b.Iterator.Seek(b.minT)
+		if !ok {
+			return false
+		}
+		t, _ := b.Iterator.At()
+		return t <= b.maxT
+	}
+	if t > b.maxT {
+		// We seek anyway so that the subsequent Next() calls will also return false.
+		b.Iterator.Seek(t)
+		return false
+	}
+	return b.Iterator.Seek(t)
+}
 
 // safeChunk makes sure that the chunk can be accessed without a race condition
 type safeChunk struct {

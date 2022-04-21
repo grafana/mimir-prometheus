@@ -125,7 +125,7 @@ type Meta struct {
 
 	// OOOLastRef, OOOLastMinTime and OOOLastMaxTime are kept as markers for
 	// overlapping chunks.
-	// These fields point to the last created out of order Chunk that existed
+	// These fields point to the last created out of order Chunk (the head) that existed
 	// when Series() was called and was overlapping.
 	// Series() and Chunk() method responses should be consistent for the same
 	// query even if new data is added in between the calls.

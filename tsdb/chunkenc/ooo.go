@@ -61,13 +61,20 @@ func (o *OOOChunk) ToXor() (*XORChunk, error) {
 	return x, nil
 }
 
-// TODO: to support querying, implement Iterator
-
-// func (c *OOOChunk) Iterator(it Iterator) Iterator {
-// func (c *OOOChunk) NumSamples() int {
-// func (c *OOOChunk) Compact() {
-
-// func (it *oooIterator) Seek(t int64) bool {
-// func (it *oooIterator) At() (int64, float64) {
-// func (it *oooIterator) Err() error {
-// func (it *oooIterator) Next() bool {
+func (o *OOOChunk) ToXorBetweenTimestamps(mint, maxt int64) (*XORChunk, error) {
+	x := NewXORChunk()
+	app, err := x.Appender()
+	if err != nil {
+		return nil, err
+	}
+	for _, s := range o.samples {
+		if s.t < mint {
+			continue
+		}
+		if s.t > maxt {
+			break
+		}
+		app.Append(s.t, s.v)
+	}
+	return x, nil
+}
