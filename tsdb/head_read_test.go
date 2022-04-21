@@ -9,47 +9,15 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 )
 
-func TestBoundedChunk_Bytes(t *testing.T) {
+func TestBoundedChunk(t *testing.T) {
 	tests := []struct {
-		name       string
-		inputChunk chunkenc.Chunk
-		inputMinT  int64
-		inputMaxT  int64
-		expBytes   []byte
-	}{
-		{
-			name:       "if there are no samples only expect first two bytes",
-			inputChunk: newTestChunk(0),
-			expBytes:   []byte{0x0, 0x0},
-		},
-		{
-			name:       "if there are no bounds only first sample is returned",
-			inputChunk: newTestChunk(10),
-			expBytes:   []byte{0x0, 0x1, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0},
-		},
-		{
-			name:       "if there are bounds only bytes from samples included are returned",
-			inputChunk: newTestChunk(10),
-			inputMinT:  1,
-			inputMaxT:  8,
-			expBytes:   []byte{0x0, 0x8, 0x2, 0x3f, 0xf0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x0, 0x1, 0xc2, 0x5f, 0xff, 0x6c, 0x6, 0xd6, 0x16, 0xda, 0xd, 0xb0, 0x2d, 0x2d, 0x42, 0x78},
-		},
-	}
-	for _, tc := range tests {
-		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
-			chunk := boundedChunk{tc.inputChunk, tc.inputMinT, tc.inputMaxT}
-			require.Equal(t, tc.expBytes, chunk.Bytes())
-		})
-	}
-}
-
-func TestBoundedChunk_Iterator(t *testing.T) {
-	tests := []struct {
-		name       string
-		inputChunk chunkenc.Chunk
-		inputMinT  int64
-		inputMaxT  int64
-		expSamples []sample
+		name           string
+		inputChunk     chunkenc.Chunk
+		inputMinT      int64
+		inputMaxT      int64
+		initialSeek    int64
+		seekIsASuccess bool
+		expSamples     []sample
 	}{
 		{
 			name:       "if there are no samples it returns nothing",
@@ -57,8 +25,8 @@ func TestBoundedChunk_Iterator(t *testing.T) {
 			expSamples: nil,
 		},
 		{
-			name:       "if there are no bounds set only sample at ts 0 is returned",
-			inputChunk: newTestChunk(1),
+			name:       "bounds represent a single sample",
+			inputChunk: newTestChunk(10),
 			expSamples: []sample{
 				{0, 0},
 			},
@@ -79,16 +47,109 @@ func TestBoundedChunk_Iterator(t *testing.T) {
 				{8, 8},
 			},
 		},
+		{
+			name:       "if bounds set and only maxt is less than actual maxt",
+			inputChunk: newTestChunk(10),
+			inputMinT:  0,
+			inputMaxT:  5,
+			expSamples: []sample{
+				{0, 0},
+				{1, 1},
+				{2, 2},
+				{3, 3},
+				{4, 4},
+				{5, 5},
+			},
+		},
+		{
+			name:       "if bounds set and only mint is more than actual mint",
+			inputChunk: newTestChunk(10),
+			inputMinT:  5,
+			inputMaxT:  9,
+			expSamples: []sample{
+				{5, 5},
+				{6, 6},
+				{7, 7},
+				{8, 8},
+				{9, 9},
+			},
+		},
+		{
+			name:           "if there are bounds set with seek before mint",
+			inputChunk:     newTestChunk(10),
+			inputMinT:      3,
+			inputMaxT:      7,
+			initialSeek:    1,
+			seekIsASuccess: true,
+			expSamples: []sample{
+				{3, 3},
+				{4, 4},
+				{5, 5},
+				{6, 6},
+				{7, 7},
+			},
+		},
+		{
+			name:           "if there are bounds set with seek between mint and maxt",
+			inputChunk:     newTestChunk(10),
+			inputMinT:      3,
+			inputMaxT:      7,
+			initialSeek:    5,
+			seekIsASuccess: true,
+			expSamples: []sample{
+				{5, 5},
+				{6, 6},
+				{7, 7},
+			},
+		},
+		{
+			name:           "if there are bounds set with seek after maxt",
+			inputChunk:     newTestChunk(10),
+			inputMinT:      3,
+			inputMaxT:      7,
+			initialSeek:    8,
+			seekIsASuccess: false,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			chunk := boundedChunk{tc.inputChunk, tc.inputMinT, tc.inputMaxT}
-			it := chunk.Iterator(nil)
+
+			// Testing Bytes()
+			expChunk := chunkenc.NewXORChunk()
+			if tc.inputChunk.NumSamples() > 0 {
+				app, err := expChunk.Appender()
+				require.NoError(t, err)
+				for ts := tc.inputMinT; ts <= tc.inputMaxT; ts++ {
+					app.Append(ts, float64(ts))
+				}
+			}
+			require.Equal(t, expChunk.Bytes(), chunk.Bytes())
+
 			var samples []sample
+			it := chunk.Iterator(nil)
+
+			if tc.initialSeek != 0 {
+				// Testing Seek()
+				ok := it.Seek(tc.initialSeek)
+				require.Equal(t, tc.seekIsASuccess, ok)
+				if ok {
+					t, v := it.At()
+					samples = append(samples, sample{t, v})
+				}
+			}
+
+			// Testing Next()
 			for it.Next() {
 				t, v := it.At()
 				samples = append(samples, sample{t, v})
 			}
+
+			// it.Next() should keep returning false.
+			for i := 0; i < 10; i++ {
+				require.False(t, it.Next())
+			}
+
 			require.Equal(t, tc.expSamples, samples)
 		})
 	}
