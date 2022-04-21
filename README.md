@@ -93,6 +93,23 @@ The Makefile provides several targets:
   * *vet*: check the source code for common errors
   * *assets*: build the new experimental React UI
 
+### Service discovery plugins
+
+Prometheus is bundled with many service discovery plugins.
+When building Prometheus from source, you can edit the [plugins.yml](./plugins.yml)
+file to disable some service discoveries. The file is a yaml-formated list of go
+import path that will be built into the Prometheus binary.
+
+After you have changed the file, you
+need to run `make build` again.
+
+If you are using another method to compile Prometheus, `make plugins` will
+generate the plugins file accordingly.
+
+If you add out-of-tree plugins, which we do not endorse at the moment,
+additional steps might be needed to adjust the `go.mod` and `go.sum` files. As
+always, be extra careful when loading third party code.
+
 ### Building the Docker image
 
 The `make docker` target is designed for use in our CI system.
@@ -104,6 +121,37 @@ You can build a docker image locally with the following commands:
     $ make common-docker-amd64
 
 *NB* if you are on a Mac, you will need [gnu-tar](https://formulae.brew.sh/formula/gnu-tar).
+
+## Using Prometheus as a Go Library
+
+### Remote Write
+
+We are publishing our Remote Write protobuf independently at
+[buf.build](https://buf.build/prometheus/prometheus/assets).
+
+You can use that as a library:
+
+```shell
+$ go get go.buf.build/protocolbuffers/go/prometheus/prometheus
+```
+
+This is experimental.
+
+### Prometheus code base
+
+In order to comply with [go mod](https://go.dev/ref/mod#versions) rules,
+Prometheus release number do not exactly match Go module releases. For the
+Prometheus v2.y.z releases, we are publishing equivalent v0.y.z tags.
+
+Therefore, a user that would want to use Prometheus v2.35.0 as a library could do:
+
+```
+$ go get github.com/prometheus/prometheus@v0.35.0
+```
+
+This solution makes it clear that we might break our internal Go APIs between
+minor user-facing releases, as [breaking changes are allowed in major version
+zero](https://semver.org/#spec-item-4).
 
 ## React UI Development
 

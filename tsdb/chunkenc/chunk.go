@@ -50,6 +50,10 @@ func IsOutOfOrderChunk(e Encoding) bool {
 	return (e & OutOfOrderMask) != 0
 }
 
+func IsValidEncoding(e Encoding) bool {
+	return e == EncXOR || e == EncOOOXOR
+}
+
 // Chunk holds a sequence of sample pairs that can be iterated over and appended to.
 type Chunk interface {
 	// Bytes returns the underlying byte slice of the chunk.
@@ -99,6 +103,36 @@ type Iterator interface {
 	// exhausted, that is `Next` or `Seek` returns false.
 	Err() error
 }
+
+// MockSeriesIterator returns an iterator for a mock series with custom timeStamps and values.
+func MockSeriesIterator(timestamps []int64, values []float64) Iterator {
+	return &mockSeriesIterator{
+		timeStamps: timestamps,
+		values:     values,
+		currIndex:  0,
+	}
+}
+
+type mockSeriesIterator struct {
+	timeStamps []int64
+	values     []float64
+	currIndex  int
+}
+
+func (it *mockSeriesIterator) Seek(int64) bool { return false }
+func (it *mockSeriesIterator) At() (int64, float64) {
+	return it.timeStamps[it.currIndex], it.values[it.currIndex]
+}
+
+func (it *mockSeriesIterator) Next() bool {
+	if it.currIndex < len(it.timeStamps)-1 {
+		it.currIndex++
+		return true
+	}
+
+	return false
+}
+func (it *mockSeriesIterator) Err() error { return nil }
 
 // NewNopIterator returns a new chunk iterator that does not hold any data.
 func NewNopIterator() Iterator {

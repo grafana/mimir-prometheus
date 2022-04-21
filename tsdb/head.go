@@ -62,7 +62,7 @@ var (
 // 0 size queue to queue based chunk disk mapper.
 type chunkDiskMapper interface {
 	CutNewFile() (returnErr error)
-	IterateAllChunks(f func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, isOOO bool) error) (err error)
+	IterateAllChunks(f func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, encoding chunkenc.Encoding) error) (err error)
 	Truncate(fileNo int) error
 	DeleteCorrupted(originalErr error) error
 	Size() (int64, error)
@@ -587,6 +587,8 @@ func (h *Head) Init(minValidTime int64) error {
 		snapIdx, snapOffset, refSeries, err = h.loadChunkSnapshot()
 		if err != nil {
 			snapIdx, snapOffset = -1, 0
+			refSeries = make(map[chunks.HeadSeriesRef]*memSeries)
+
 			h.metrics.snapshotReplayErrorTotal.Inc()
 			level.Error(h.logger).Log("msg", "Failed to load chunk snapshot", "err", err)
 			// We clear the partially loaded data to replay fresh from the WAL.
@@ -605,9 +607,16 @@ func (h *Head) Init(minValidTime int64) error {
 		if _, ok := errors.Cause(err).(*chunks.CorruptionErr); ok {
 			h.metrics.mmapChunkCorruptionTotal.Inc()
 		}
+
+		// Discard snapshot data since we need to replay the WAL for the missed m-map chunks data.
+		snapIdx, snapOffset = -1, 0
+
 		// If this fails, data will be recovered from WAL.
 		// Hence we wont lose any data (given WAL is not corrupt).
-		mmappedChunks, oooMmappedChunks, lastMmapRef = h.removeCorruptedMmappedChunks(err, refSeries)
+		mmappedChunks, oooMmappedChunks, lastMmapRef, err = h.removeCorruptedMmappedChunks(err)
+		if err != nil {
+			return err
+		}
 	}
 
 	level.Info(h.logger).Log("msg", "On-disk memory mappable chunks replay completed", "duration", time.Since(mmapChunkReplayStart).String())
@@ -739,12 +748,19 @@ func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) 
 	mmappedChunks := map[chunks.HeadSeriesRef][]*mmappedChunk{}
 	oooMmappedChunks := map[chunks.HeadSeriesRef][]*mmappedChunk{}
 	var lastRef, secondLastRef chunks.ChunkDiskMapperRef
-	if err := h.chunkDiskMapper.IterateAllChunks(func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, isOOO bool) error {
+	if err := h.chunkDiskMapper.IterateAllChunks(func(seriesRef chunks.HeadSeriesRef, chunkRef chunks.ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, encoding chunkenc.Encoding) error {
 		secondLastRef = lastRef
 		lastRef = chunkRef
+		isOOO := chunkenc.IsOutOfOrderChunk(encoding)
 		if !isOOO && maxt < h.minValidTime.Load() {
 			return nil
 		}
+
+		// We ignore any chunk that doesnt have a valid encoding
+		if !chunkenc.IsValidEncoding(encoding) {
+			return nil
+		}
+
 		ms, ok := refSeries[seriesRef]
 
 		if isOOO {
@@ -774,9 +790,9 @@ func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) 
 		if !ok {
 			slice := mmappedChunks[seriesRef]
 			if len(slice) > 0 && slice[len(slice)-1].maxTime >= mint {
-				return errors.Errorf("out of sequence m-mapped chunk for series ref %d", seriesRef)
+				return errors.Errorf("out of sequence m-mapped chunk for series ref %d, last chunk: [%d, %d], new: [%d, %d]",
+					seriesRef, slice[len(slice)-1].minTime, slice[len(slice)-1].maxTime, mint, maxt)
 			}
-
 			slice = append(slice, &mmappedChunk{
 				ref:        chunkRef,
 				minTime:    mint,
@@ -788,7 +804,9 @@ func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) 
 		}
 
 		if len(ms.mmappedChunks) > 0 && ms.mmappedChunks[len(ms.mmappedChunks)-1].maxTime >= mint {
-			return errors.Errorf("out of sequence m-mapped chunk for series ref %d", seriesRef)
+			return errors.Errorf("out of sequence m-mapped chunk for series ref %d, last chunk: [%d, %d], new: [%d, %d]",
+				seriesRef, ms.mmappedChunks[len(ms.mmappedChunks)-1].minTime, ms.mmappedChunks[len(ms.mmappedChunks)-1].maxTime,
+				mint, maxt)
 		}
 
 		h.metrics.chunks.Inc()
@@ -817,22 +835,34 @@ func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) 
 
 // removeCorruptedMmappedChunks attempts to delete the corrupted mmapped chunks and if it fails, it clears all the previously
 // loaded mmapped chunks.
-func (h *Head) removeCorruptedMmappedChunks(err error, refSeries map[chunks.HeadSeriesRef]*memSeries) (map[chunks.HeadSeriesRef][]*mmappedChunk, map[chunks.HeadSeriesRef][]*mmappedChunk, chunks.ChunkDiskMapperRef) {
+func (h *Head) removeCorruptedMmappedChunks(err error) (map[chunks.HeadSeriesRef][]*mmappedChunk, map[chunks.HeadSeriesRef][]*mmappedChunk, chunks.ChunkDiskMapperRef, error) {
+	level.Info(h.logger).Log("msg", "Deleting mmapped chunk files")
+	// We never want to preserve the in-memory series from snapshots if we are repairing m-map chunks.
+	if err := h.resetInMemoryState(); err != nil {
+		return map[chunks.HeadSeriesRef][]*mmappedChunk{}, map[chunks.HeadSeriesRef][]*mmappedChunk{}, 0, err
+	}
+
 	level.Info(h.logger).Log("msg", "Deleting mmapped chunk files")
 
 	if err := h.chunkDiskMapper.DeleteCorrupted(err); err != nil {
-		level.Info(h.logger).Log("msg", "Deletion of mmap chunk files failed, discarding chunk files completely", "err", err)
-		return map[chunks.HeadSeriesRef][]*mmappedChunk{}, map[chunks.HeadSeriesRef][]*mmappedChunk{}, 0
+		level.Info(h.logger).Log("msg", "Deletion of corrupted mmap chunk files failed, discarding chunk files completely", "err", err)
+		if err := h.chunkDiskMapper.Truncate(math.MaxInt64); err != nil {
+			level.Error(h.logger).Log("msg", "Deletion of all mmap chunk files failed", "err", err)
+		}
+		return map[chunks.HeadSeriesRef][]*mmappedChunk{}, map[chunks.HeadSeriesRef][]*mmappedChunk{}, 0, nil
 	}
 
 	level.Info(h.logger).Log("msg", "Deletion of mmap chunk files successful, reattempting m-mapping the on-disk chunks")
-	mmappedChunks, oooMmappedChunks, lastRef, err := h.loadMmappedChunks(refSeries)
+	mmappedChunks, oooMmappedChunks, lastRef, err := h.loadMmappedChunks(make(map[chunks.HeadSeriesRef]*memSeries))
 	if err != nil {
 		level.Error(h.logger).Log("msg", "Loading on-disk chunks failed, discarding chunk files completely", "err", err)
+		if err := h.chunkDiskMapper.Truncate(math.MaxInt64); err != nil {
+			level.Error(h.logger).Log("msg", "Deletion of all mmap chunk files failed after failed loading", "err", err)
+		}
 		mmappedChunks = map[chunks.HeadSeriesRef][]*mmappedChunk{}
 	}
 
-	return mmappedChunks, oooMmappedChunks, lastRef
+	return mmappedChunks, oooMmappedChunks, lastRef, nil
 }
 
 func (h *Head) ApplyConfig(cfg *config.Config) error {
