@@ -3812,6 +3812,7 @@ func TestOOOQuery(t *testing.T) {
 	opts.AllowOverlappingBlocks = true
 
 	db := openTestDB(t, opts, nil)
+	db.DisableCompactions()
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
@@ -3828,22 +3829,55 @@ func TestOOOQuery(t *testing.T) {
 		require.NoError(t, app.Commit())
 	}
 
-	// Add in-order samples.
-	addSample(minutes(100), minutes(200))
+	tests := []struct {
+		name        string
+		queryMinT   int64
+		queryMaxT   int64
+		inOrderMinT int64
+		inOrderMaxT int64
+		oooMinT     int64
+		oooMaxT     int64
+	}{
+		{
+			name:        "query interval covering ooomint and inordermaxt returns all ingested samples",
+			queryMinT:   minutes(0),
+			queryMaxT:   minutes(200),
+			inOrderMinT: minutes(100),
+			inOrderMaxT: minutes(200),
+			oooMinT:     minutes(0),
+			oooMaxT:     minutes(99),
+		},
+		{
+			name:        "partial query interval returns only samples within interval",
+			queryMinT:   minutes(20),
+			queryMaxT:   minutes(180),
+			inOrderMinT: minutes(100),
+			inOrderMaxT: minutes(200),
+			oooMinT:     minutes(0),
+			oooMaxT:     minutes(99),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			// Add in-order samples.
+			addSample(tc.inOrderMinT, tc.inOrderMaxT)
 
-	// Add out-of-order samples.
-	addSample(minutes(0), minutes(99))
+			// Add out-of-order samples.
+			addSample(tc.oooMinT, tc.oooMaxT)
 
-	querier, err := db.Querier(context.TODO(), minutes(0), minutes(200))
-	require.NoError(t, err)
-	defer querier.Close()
+			querier, err := db.Querier(context.TODO(), tc.queryMinT, tc.queryMaxT)
+			require.NoError(t, err)
+			defer querier.Close()
 
-	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
+			seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
 
-	require.NotNil(t, seriesSet[series1.String()])
-	for i, sample := range seriesSet[series1.String()] {
-		ts := int64(i) * time.Minute.Milliseconds()
-		require.Equal(t, ts, sample.T())
-		require.Equal(t, float64(ts), sample.V())
+			require.NotNil(t, seriesSet[series1.String()])
+			expT := tc.queryMinT
+			for _, sample := range seriesSet[series1.String()] {
+				require.Equal(t, expT, sample.T())
+				require.Equal(t, float64(expT), sample.V())
+				expT += minutes(1)
+			}
+		})
 	}
 }
