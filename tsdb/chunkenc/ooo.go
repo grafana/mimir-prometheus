@@ -9,7 +9,7 @@ type sample struct {
 	v float64
 }
 
-// OOOChunk maintains Samples in time-ascending order.
+// OOOChunk maintains samples in time-ascending order.
 // Inserts for timestamps already seen, are dropped.
 // Samples are stored uncompressed to allow easy sorting.
 // Perhaps we can be more efficient later.

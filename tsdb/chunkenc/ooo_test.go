@@ -22,7 +22,7 @@ func makePre(n int) []sample {
 	return s
 }
 
-// testtoooInsert tests the following cases:
+// TestOOOInsert tests the following cases:
 // number of pre-existing samples anywhere from 0 to testMaxSize-1
 // insert new sample before first pre-existing samples, after the last, and anywhere in between
 // with a chunk initial capacity of testMaxSize/8 and testMaxSize, which lets us test non-full and full chunks, and chunks that need to expand themselves.
@@ -42,25 +42,25 @@ func TestOOOInsert(t *testing.T) {
 				newSample := samplify(valNew(insertPos))
 				chunk.Insert(newSample.t, newSample.v)
 
-				var expsamples []sample
+				var expSamples []sample
 				// our expected new samples slice, will be first the original samples...
 				for i := 0; i < insertPos; i++ {
-					expsamples = append(expsamples, samplify(valPre(i)))
+					expSamples = append(expSamples, samplify(valPre(i)))
 				}
 				// ... then the new sample ...
-				expsamples = append(expsamples, newSample)
+				expSamples = append(expSamples, newSample)
 				// ... followed by any original samples that were pushed back by the new one
 				for i := insertPos; i < numPre; i++ {
-					expsamples = append(expsamples, samplify(valPre(i)))
+					expSamples = append(expSamples, samplify(valPre(i)))
 				}
 
-				require.Equal(t, expsamples, chunk.samples, "numPre %d, insertPos %d", numPre, insertPos)
+				require.Equal(t, expSamples, chunk.samples, "numPre %d, insertPos %d", numPre, insertPos)
 			}
 		}
 	}
 }
 
-// testtoooInsertDuplicate tests the correct behavior when inserting a sample that is a duplicate of any
+// TestOOOInsertDuplicate tests the correct behavior when inserting a sample that is a duplicate of any
 // pre-existing samples, with between 1 and testMaxSize pre-existing samples and
 // with a chunk initial capacity of testMaxSize/8 and testMaxSize, which lets us test non-full and full chunks, and chunks that need to expand themselves.
 func TestOOOInsertDuplicate(t *testing.T) {
@@ -75,9 +75,9 @@ func TestOOOInsertDuplicate(t *testing.T) {
 
 				ok := chunk.Insert(dupSample.t, dupSample.v)
 
-				expsamples := makePre(numPre) // we expect no change
+				expSamples := makePre(numPre) // we expect no change
 				require.False(t, ok)
-				require.Equal(t, expsamples, chunk.samples, "numPre %d, dupPos %d", numPre, dupPos)
+				require.Equal(t, expSamples, chunk.samples, "numPre %d, dupPos %d", numPre, dupPos)
 			}
 		}
 	}
