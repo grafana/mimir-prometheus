@@ -3803,3 +3803,47 @@ func TestOOOCompaction(t *testing.T) {
 	verifySamples(db.Blocks()[1], 120, 239)
 	verifySamples(db.Blocks()[2], 240, 350) // Merged block.
 }
+
+func TestOOOQuery(t *testing.T) {
+	opts := DefaultOptions()
+	opts.OOOCapMin = 2
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 24 * time.Hour.Milliseconds()
+	opts.AllowOverlappingBlocks = true
+
+	db := openTestDB(t, opts, nil)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	series1 := labels.FromStrings("foo", "bar1")
+
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+	addSample := func(fromMins, toMins int64) {
+		app := db.Appender(context.Background())
+		for min := fromMins; min <= toMins; min += time.Minute.Milliseconds() {
+			_, err := app.Append(0, series1, min, float64(min))
+			require.NoError(t, err)
+		}
+		require.NoError(t, app.Commit())
+	}
+
+	// Add in-order samples.
+	addSample(minutes(100), minutes(200))
+
+	// Add out-of-order samples.
+	addSample(minutes(0), minutes(99))
+
+	querier, err := db.Querier(context.TODO(), minutes(0), minutes(200))
+	require.NoError(t, err)
+	defer querier.Close()
+
+	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
+
+	require.NotNil(t, seriesSet[series1.String()])
+	for i, sample := range seriesSet[series1.String()] {
+		ts := int64(i) * time.Minute.Milliseconds()
+		require.Equal(t, ts, sample.T())
+		require.Equal(t, float64(ts), sample.V())
+	}
+}

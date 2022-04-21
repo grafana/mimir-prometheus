@@ -314,8 +314,8 @@ func (h *Head) resetInMemoryState() error {
 	h.chunkRange.Store(h.opts.ChunkRange)
 	h.minTime.Store(math.MaxInt64)
 	h.maxTime.Store(math.MinInt64)
-	h.minOOOTime.Store(math.MaxInt64) // TODO(jesus.vazquez) Review this value
-	h.maxOOOTime.Store(math.MinInt64) // TODO(jesus.vazquez) Review this value
+	h.minOOOTime.Store(math.MinInt64) // TODO(jesus.vazquez) Review this value
+	h.maxOOOTime.Store(math.MaxInt64) // TODO(jesus.vazquez) Review this value
 	h.lastWALTruncationTime.Store(math.MinInt64)
 	h.lastMemoryTruncationTime.Store(math.MinInt64)
 	return nil
