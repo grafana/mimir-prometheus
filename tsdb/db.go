@@ -1657,7 +1657,6 @@ func (db *DB) Querier(_ context.Context, mint, maxt int64) (storage.Querier, err
 	}
 
 	var outOfOrderHeadQuerier storage.Querier
-	db.head.MinTime()
 	if maxt >= db.head.minOOOTime.Load() {
 		rh := NewOOORangeHead(db.head, mint, maxt)
 		var err error

@@ -536,6 +536,7 @@ func (a *headAppender) Commit() (err error) {
 			if delta <= series.oooAllowance {
 				// ... and the delta is within the OOO tolerance
 				var mmapRef chunks.ChunkDiskMapperRef
+				// TODO (jesus.vazquez) Should we track here new values for head ooo mint and maxt?
 				ok, chunkCreated, mmapRef = series.insert(s.T, s.V, a.head.chunkDiskMapper)
 				if chunkCreated {
 					if oooMmapMarkers[series.ref] != 0 { // TODO(ganesh) Remove this condition. There could be a case where there are samples in the slice and no markers and we want to collect the samples.

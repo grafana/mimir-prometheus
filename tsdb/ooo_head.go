@@ -79,8 +79,7 @@ func (oh *OOORangeHead) MaxTime() int64 {
 var _ tombstones.Reader = &noopTombstoneReader{}
 
 // noopTombstoneReader is a no operation implementation of tombstone.Reader
-type noopTombstoneReader struct {
-}
+type noopTombstoneReader struct{}
 
 func (n noopTombstoneReader) Get(ref storage.SeriesRef) (tombstones.Intervals, error) {
 	return nil, nil
