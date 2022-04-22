@@ -1664,25 +1664,6 @@ func (db *DB) Querier(_ context.Context, mint, maxt int64) (storage.Querier, err
 		if err != nil {
 			return nil, errors.Wrapf(err, "open block querier for ooo head %s", rh)
 		}
-
-		// TODO(jesus.vazquez) I am not sure the truncation process affects the ooo head. Let's review this.
-		// Getting the querier above registers itself in the queue that the truncation waits on.
-		// So if the querier is currently not colliding with any truncation, we can continue to use it and still
-		// won't run into a race later since any truncation that comes after will wait on this querier if it overlaps.
-		shouldClose, getNew, newMint := db.head.IsQuerierCollidingWithTruncation(mint, maxt)
-		if shouldClose {
-			if err := outOfOrderHeadQuerier.Close(); err != nil {
-				return nil, errors.Wrapf(err, "closing ooo head block querier %s", rh)
-			}
-			outOfOrderHeadQuerier = nil
-		}
-		if getNew {
-			rh := NewOOORangeHead(db.head, newMint, maxt)
-			outOfOrderHeadQuerier, err = NewBlockQuerier(rh, newMint, maxt)
-			if err != nil {
-				return nil, errors.Wrapf(err, "open block querier for ooo head while getting new querier %s", rh)
-			}
-		}
 	}
 
 	blockQueriers := make([]storage.Querier, 0, len(blocks))

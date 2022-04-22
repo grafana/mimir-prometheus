@@ -3,7 +3,6 @@ package tsdb
 import (
 	"fmt"
 
-	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
 )
 
@@ -38,7 +37,7 @@ func (oh *OOORangeHead) Chunks() (ChunkReader, error) {
 func (oh *OOORangeHead) Tombstones() (tombstones.Reader, error) {
 	// As stated in the design doc https://docs.google.com/document/d/1Kppm7qL9C-BJB1j6yb6-9ObG3AbdZnFUBYPNNWwDBYM/edit?usp=sharing
 	// Tombstones are not supported for out of order metrics.
-	return noopTombstoneReader{}, nil
+	return tombstones.NewMemTombstones(), nil
 }
 
 func (oh *OOORangeHead) Meta() BlockMeta {
@@ -74,25 +73,4 @@ func (oh *OOORangeHead) MinTime() int64 {
 
 func (oh *OOORangeHead) MaxTime() int64 {
 	return oh.maxt
-}
-
-var _ tombstones.Reader = &noopTombstoneReader{}
-
-// noopTombstoneReader is a no operation implementation of tombstone.Reader
-type noopTombstoneReader struct{}
-
-func (n noopTombstoneReader) Get(ref storage.SeriesRef) (tombstones.Intervals, error) {
-	return nil, nil
-}
-
-func (n noopTombstoneReader) Iter(f func(storage.SeriesRef, tombstones.Intervals) error) error {
-	return nil
-}
-
-func (n noopTombstoneReader) Total() uint64 {
-	return 0
-}
-
-func (n noopTombstoneReader) Close() error {
-	return nil
 }
