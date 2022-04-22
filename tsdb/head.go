@@ -76,7 +76,7 @@ type chunkDiskMapper interface {
 type Head struct {
 	chunkRange               atomic.Int64
 	numSeries                atomic.Uint64
-	minOOOTime, maxOOOTime   atomic.Int64
+	minOOOTime, maxOOOTime   atomic.Int64 // TODO(jesus) These should be updated after garbage collection
 	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head. // TODO(jesus.vazquez) Ensure these are properly tracked.
 	minValidTime             atomic.Int64 // Mint allowed to be added to the head. It shouldn't be lower than the maxt of the last persisted block.
 	lastWALTruncationTime    atomic.Int64
@@ -314,8 +314,8 @@ func (h *Head) resetInMemoryState() error {
 	h.chunkRange.Store(h.opts.ChunkRange)
 	h.minTime.Store(math.MaxInt64)
 	h.maxTime.Store(math.MinInt64)
-	h.minOOOTime.Store(math.MinInt64) // TODO(jesus.vazquez) Review this value
-	h.maxOOOTime.Store(math.MaxInt64) // TODO(jesus.vazquez) Review this value
+	h.minOOOTime.Store(math.MaxInt64)
+	h.maxOOOTime.Store(math.MinInt64)
 	h.lastWALTruncationTime.Store(math.MinInt64)
 	h.lastMemoryTruncationTime.Store(math.MinInt64)
 	return nil
@@ -921,6 +921,27 @@ func (h *Head) updateMinMaxTime(mint, maxt int64) {
 			break
 		}
 		if h.maxTime.CAS(ht, maxt) {
+			break
+		}
+	}
+}
+
+func (h *Head) updateMinOOOMaxOOOTime(mint, maxt int64) {
+	for {
+		lt := h.MinOOOTime()
+		if mint >= lt {
+			break
+		}
+		if h.minOOOTime.CAS(lt, mint) {
+			break
+		}
+	}
+	for {
+		ht := h.MaxOOOTime()
+		if maxt <= ht {
+			break
+		}
+		if h.maxOOOTime.CAS(ht, maxt) {
 			break
 		}
 	}

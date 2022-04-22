@@ -1657,7 +1657,7 @@ func (db *DB) Querier(_ context.Context, mint, maxt int64) (storage.Querier, err
 	}
 
 	var outOfOrderHeadQuerier storage.Querier
-	if maxt >= db.head.minOOOTime.Load() {
+	if overlapsClosedInterval(mint, maxt, db.head.MinOOOTime(), db.head.MaxOOOTime()) {
 		rh := NewOOORangeHead(db.head, mint, maxt)
 		var err error
 		outOfOrderHeadQuerier, err = NewBlockQuerier(rh, mint, maxt)

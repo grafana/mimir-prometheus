@@ -477,7 +477,9 @@ func (a *headAppender) Commit() (err error) {
 
 	var (
 		total            = len(a.samples)
-		oob, ooo, tooOld int // out of bounds, out of order, too old
+		oob, ooo, tooOld int   // out of bounds, out of order, too old
+		ooomint          int64 = math.MaxInt64
+		ooomaxt          int64 = math.MinInt64
 		oooWblSamples    []record.RefSample
 		oooMmapMarkers   map[chunks.HeadSeriesRef]chunks.ChunkDiskMapperRef
 		oooRecords       [][]byte
@@ -536,7 +538,6 @@ func (a *headAppender) Commit() (err error) {
 			if delta <= series.oooAllowance {
 				// ... and the delta is within the OOO tolerance
 				var mmapRef chunks.ChunkDiskMapperRef
-				// TODO (jesus.vazquez) Should we track here new values for head ooo mint and maxt?
 				ok, chunkCreated, mmapRef = series.insert(s.T, s.V, a.head.chunkDiskMapper)
 				if chunkCreated {
 					if oooMmapMarkers[series.ref] != 0 { // TODO(ganesh) Remove this condition. There could be a case where there are samples in the slice and no markers and we want to collect the samples.
@@ -553,6 +554,12 @@ func (a *headAppender) Commit() (err error) {
 				}
 				if ok {
 					oooWblSamples = append(oooWblSamples, s)
+					if s.T < ooomint {
+						ooomint = s.T
+					}
+					if s.T > ooomaxt {
+						ooomaxt = s.T
+					}
 				} else {
 					// the sample was an attempted update.
 					// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
@@ -606,6 +613,7 @@ func (a *headAppender) Commit() (err error) {
 	a.head.metrics.tooOldSamples.Add(float64(tooOld))
 	a.head.metrics.samplesAppended.Add(float64(total))
 	a.head.updateMinMaxTime(a.mint, a.maxt)
+	a.head.updateMinOOOMaxOOOTime(ooomint, ooomaxt)
 
 	// TODO: currently WBL logging of ooo samples is best effort here since we cannot try logging
 	// until we have found what samples become OOO. We can try having a metric for this failure.

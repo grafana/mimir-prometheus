@@ -3811,16 +3811,10 @@ func TestOOOQuery(t *testing.T) {
 	opts.OOOAllowance = 24 * time.Hour.Milliseconds()
 	opts.AllowOverlappingBlocks = true
 
-	db := openTestDB(t, opts, nil)
-	db.DisableCompactions()
-	defer func() {
-		require.NoError(t, db.Close())
-	}()
-
 	series1 := labels.FromStrings("foo", "bar1")
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
-	addSample := func(fromMins, toMins int64) {
+	addSample := func(db *DB, fromMins, toMins int64) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min += time.Minute.Milliseconds() {
 			_, err := app.Append(0, series1, min, float64(min))
@@ -3859,11 +3853,16 @@ func TestOOOQuery(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			db := openTestDB(t, opts, nil)
+			db.DisableCompactions()
+			defer func() {
+				require.NoError(t, db.Close())
+			}()
 			// Add in-order samples.
-			addSample(tc.inOrderMinT, tc.inOrderMaxT)
+			addSample(db, tc.inOrderMinT, tc.inOrderMaxT)
 
 			// Add out-of-order samples.
-			addSample(tc.oooMinT, tc.oooMaxT)
+			addSample(db, tc.oooMinT, tc.oooMaxT)
 
 			querier, err := db.Querier(context.TODO(), tc.queryMinT, tc.queryMaxT)
 			require.NoError(t, err)
