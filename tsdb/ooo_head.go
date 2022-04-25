@@ -44,8 +44,8 @@ func (oh *OOORangeHead) Meta() BlockMeta {
 	var id [16]byte
 	copy(id[:], "____ooo_head____")
 	return BlockMeta{
-		MinTime: oh.head.MinOOOTime(),
-		MaxTime: oh.head.MaxOOOTime(),
+		MinTime: oh.mint,
+		MaxTime: oh.maxt,
 		ULID:    id,
 		Stats: BlockStats{
 			NumSeries: oh.head.NumSeries(),

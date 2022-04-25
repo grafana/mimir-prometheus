@@ -3814,13 +3814,18 @@ func TestOOOQuery(t *testing.T) {
 	series1 := labels.FromStrings("foo", "bar1")
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
-	addSample := func(db *DB, fromMins, toMins int64) {
+	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []tsdbutil.Sample) []tsdbutil.Sample {
 		app := db.Appender(context.Background())
+
 		for min := fromMins; min <= toMins; min += time.Minute.Milliseconds() {
 			_, err := app.Append(0, series1, min, float64(min))
+			if min >= queryMinT && min <= queryMaxT {
+				expSamples = appendSorted(expSamples, sample{t: min, v: float64(min)})
+			}
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
+		return expSamples
 	}
 
 	tests := []struct {
@@ -3858,11 +3863,14 @@ func TestOOOQuery(t *testing.T) {
 			defer func() {
 				require.NoError(t, db.Close())
 			}()
+
+			var expSamples []tsdbutil.Sample
+
 			// Add in-order samples.
-			addSample(db, tc.inOrderMinT, tc.inOrderMaxT)
+			expSamples = addSample(db, tc.inOrderMinT, tc.inOrderMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
 
 			// Add out-of-order samples.
-			addSample(db, tc.oooMinT, tc.oooMaxT)
+			expSamples = addSample(db, tc.oooMinT, tc.oooMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
 
 			querier, err := db.Querier(context.TODO(), tc.queryMinT, tc.queryMaxT)
 			require.NoError(t, err)
@@ -3871,12 +3879,15 @@ func TestOOOQuery(t *testing.T) {
 			seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
 
 			require.NotNil(t, seriesSet[series1.String()])
-			expT := tc.queryMinT
-			for _, sample := range seriesSet[series1.String()] {
-				require.Equal(t, expT, sample.T())
-				require.Equal(t, float64(expT), sample.V())
-				expT += minutes(1)
-			}
+			require.Equal(t, expSamples, seriesSet[series1.String()])
 		})
 	}
+}
+
+func appendSorted(samples []tsdbutil.Sample, s sample) []tsdbutil.Sample {
+	samples = append(samples, s)
+	sort.Slice(samples, func(i, j int) bool {
+		return samples[i].T() < samples[j].T()
+	})
+	return samples
 }
