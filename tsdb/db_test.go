@@ -3814,18 +3814,19 @@ func TestOOOQuery(t *testing.T) {
 	series1 := labels.FromStrings("foo", "bar1")
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
-	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []tsdbutil.Sample) []tsdbutil.Sample {
+	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []tsdbutil.Sample) ([]tsdbutil.Sample, int) {
 		app := db.Appender(context.Background())
-
+		totalAppended := 0
 		for min := fromMins; min <= toMins; min += time.Minute.Milliseconds() {
 			_, err := app.Append(0, series1, min, float64(min))
 			if min >= queryMinT && min <= queryMaxT {
 				expSamples = appendSorted(expSamples, sample{t: min, v: float64(min)})
 			}
 			require.NoError(t, err)
+			totalAppended++
 		}
 		require.NoError(t, app.Commit())
-		return expSamples
+		return expSamples, totalAppended
 	}
 
 	tests := []struct {
@@ -3867,10 +3868,10 @@ func TestOOOQuery(t *testing.T) {
 			var expSamples []tsdbutil.Sample
 
 			// Add in-order samples.
-			expSamples = addSample(db, tc.inOrderMinT, tc.inOrderMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
+			expSamples, _ = addSample(db, tc.inOrderMinT, tc.inOrderMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
 
 			// Add out-of-order samples.
-			expSamples = addSample(db, tc.oooMinT, tc.oooMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
+			expSamples, oooSamples := addSample(db, tc.oooMinT, tc.oooMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
 
 			querier, err := db.Querier(context.TODO(), tc.queryMinT, tc.queryMaxT)
 			require.NoError(t, err)
@@ -3880,6 +3881,7 @@ func TestOOOQuery(t *testing.T) {
 
 			require.NotNil(t, seriesSet[series1.String()])
 			require.Equal(t, expSamples, seriesSet[series1.String()])
+			require.GreaterOrEqual(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 		})
 	}
 }
