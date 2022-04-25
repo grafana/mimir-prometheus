@@ -477,7 +477,10 @@ func (a *headAppender) Commit() (err error) {
 
 	var (
 		total            = len(a.samples)
-		oob, ooo, tooOld int // out of bounds, out of order, too old
+		oooTotal         = 0
+		oob, ooo, tooOld int   // out of bounds, out of order, too old
+		ooomint          int64 = math.MaxInt64
+		ooomaxt          int64 = math.MinInt64
 		oooWblSamples    []record.RefSample
 		oooMmapMarkers   map[chunks.HeadSeriesRef]chunks.ChunkDiskMapperRef
 		oooRecords       [][]byte
@@ -552,6 +555,13 @@ func (a *headAppender) Commit() (err error) {
 				}
 				if ok {
 					oooWblSamples = append(oooWblSamples, s)
+					if s.T < ooomint {
+						ooomint = s.T
+					}
+					if s.T > ooomaxt {
+						ooomaxt = s.T
+					}
+					oooTotal++
 				} else {
 					// the sample was an attempted update.
 					// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
@@ -604,7 +614,9 @@ func (a *headAppender) Commit() (err error) {
 	a.head.metrics.outOfBoundSamples.Add(float64(oob))
 	a.head.metrics.tooOldSamples.Add(float64(tooOld))
 	a.head.metrics.samplesAppended.Add(float64(total))
+	a.head.metrics.outOfOrderSamplesAppended.Add(float64(oooTotal))
 	a.head.updateMinMaxTime(a.mint, a.maxt)
+	a.head.updateMinOOOMaxOOOTime(ooomint, ooomaxt)
 
 	// TODO: currently WBL logging of ooo samples is best effort here since we cannot try logging
 	// until we have found what samples become OOO. We can try having a metric for this failure.

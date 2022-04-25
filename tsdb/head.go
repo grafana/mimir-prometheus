@@ -74,11 +74,10 @@ type chunkDiskMapper interface {
 
 // Head handles reads and writes of time series data within a time window.
 type Head struct {
-	chunkRange atomic.Int64
-	numSeries  atomic.Uint64
-	// TODO(ganesh) Track mint and maxt for out of order samples. It can be useful when a query comes in and the query time range overlaps with them.
-	// minOOOTime, maxOOOTime   atomic.Int64
-	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head.
+	chunkRange               atomic.Int64
+	numSeries                atomic.Uint64
+	minOOOTime, maxOOOTime   atomic.Int64 // TODO(jesus) These should be updated after garbage collection
+	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head. // TODO(jesus.vazquez) Ensure these are properly tracked.
 	minValidTime             atomic.Int64 // Mint allowed to be added to the head. It shouldn't be lower than the maxt of the last persisted block.
 	lastWALTruncationTime    atomic.Int64
 	lastMemoryTruncationTime atomic.Int64
@@ -315,37 +314,40 @@ func (h *Head) resetInMemoryState() error {
 	h.chunkRange.Store(h.opts.ChunkRange)
 	h.minTime.Store(math.MaxInt64)
 	h.maxTime.Store(math.MinInt64)
+	h.minOOOTime.Store(math.MaxInt64)
+	h.maxOOOTime.Store(math.MinInt64)
 	h.lastWALTruncationTime.Store(math.MinInt64)
 	h.lastMemoryTruncationTime.Store(math.MinInt64)
 	return nil
 }
 
 type headMetrics struct {
-	activeAppenders          prometheus.Gauge
-	series                   prometheus.GaugeFunc
-	seriesCreated            prometheus.Counter
-	seriesRemoved            prometheus.Counter
-	seriesNotFound           prometheus.Counter
-	chunks                   prometheus.Gauge
-	chunksCreated            prometheus.Counter
-	chunksRemoved            prometheus.Counter
-	gcDuration               prometheus.Summary
-	samplesAppended          prometheus.Counter
-	outOfBoundSamples        prometheus.Counter
-	outOfOrderSamples        prometheus.Counter
-	tooOldSamples            prometheus.Counter
-	walTruncateDuration      prometheus.Summary
-	walCorruptionsTotal      prometheus.Counter
-	dataTotalReplayDuration  prometheus.Gauge
-	headTruncateFail         prometheus.Counter
-	headTruncateTotal        prometheus.Counter
-	checkpointDeleteFail     prometheus.Counter
-	checkpointDeleteTotal    prometheus.Counter
-	checkpointCreationFail   prometheus.Counter
-	checkpointCreationTotal  prometheus.Counter
-	mmapChunkCorruptionTotal prometheus.Counter
-	snapshotReplayErrorTotal prometheus.Counter // Will be either 0 or 1.
-	oooHistogram             prometheus.Histogram
+	activeAppenders           prometheus.Gauge
+	series                    prometheus.GaugeFunc
+	seriesCreated             prometheus.Counter
+	seriesRemoved             prometheus.Counter
+	seriesNotFound            prometheus.Counter
+	chunks                    prometheus.Gauge
+	chunksCreated             prometheus.Counter
+	chunksRemoved             prometheus.Counter
+	gcDuration                prometheus.Summary
+	samplesAppended           prometheus.Counter
+	outOfOrderSamplesAppended prometheus.Counter
+	outOfBoundSamples         prometheus.Counter
+	outOfOrderSamples         prometheus.Counter
+	tooOldSamples             prometheus.Counter
+	walTruncateDuration       prometheus.Summary
+	walCorruptionsTotal       prometheus.Counter
+	dataTotalReplayDuration   prometheus.Gauge
+	headTruncateFail          prometheus.Counter
+	headTruncateTotal         prometheus.Counter
+	checkpointDeleteFail      prometheus.Counter
+	checkpointDeleteTotal     prometheus.Counter
+	checkpointCreationFail    prometheus.Counter
+	checkpointCreationTotal   prometheus.Counter
+	mmapChunkCorruptionTotal  prometheus.Counter
+	snapshotReplayErrorTotal  prometheus.Counter // Will be either 0 or 1.
+	oooHistogram              prometheus.Histogram
 }
 
 func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
@@ -403,6 +405,10 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 		samplesAppended: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_samples_appended_total",
 			Help: "Total number of appended samples.",
+		}),
+		outOfOrderSamplesAppended: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_out_of_order_samples_appended_total",
+			Help: "Total number of appended out of order samples.",
 		}),
 		outOfBoundSamples: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_out_of_bound_samples_total",
@@ -479,6 +485,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.walCorruptionsTotal,
 			m.dataTotalReplayDuration,
 			m.samplesAppended,
+			m.outOfOrderSamplesAppended,
 			m.outOfBoundSamples,
 			m.outOfOrderSamples,
 			m.tooOldSamples,
@@ -920,6 +927,27 @@ func (h *Head) updateMinMaxTime(mint, maxt int64) {
 			break
 		}
 		if h.maxTime.CAS(ht, maxt) {
+			break
+		}
+	}
+}
+
+func (h *Head) updateMinOOOMaxOOOTime(mint, maxt int64) {
+	for {
+		lt := h.MinOOOTime()
+		if mint >= lt {
+			break
+		}
+		if h.minOOOTime.CAS(lt, mint) {
+			break
+		}
+	}
+	for {
+		ht := h.MaxOOOTime()
+		if maxt <= ht {
+			break
+		}
+		if h.maxOOOTime.CAS(ht, maxt) {
 			break
 		}
 	}
@@ -1410,6 +1438,18 @@ func (h *Head) MinTime() int64 {
 // MaxTime returns the highest timestamp seen in data of the head.
 func (h *Head) MaxTime() int64 {
 	return h.maxTime.Load()
+}
+
+// MinOOOTime returns the lowest time bound on visible data in the out of order
+// head.
+func (h *Head) MinOOOTime() int64 {
+	return h.minOOOTime.Load()
+}
+
+// MaxOOOTime returns the highest timestamp on visible data in the out of order
+// head.
+func (h *Head) MaxOOOTime() int64 {
+	return h.maxOOOTime.Load()
 }
 
 // compactable returns whether the head has a compactable range.
