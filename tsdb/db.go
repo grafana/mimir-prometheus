@@ -1735,7 +1735,7 @@ func (db *DB) ChunkQuerier(_ context.Context, mint, maxt int64) (storage.ChunkQu
 		var err error
 		outOfOrderHeadQuerier, err = NewBlockChunkQuerier(rh, mint, maxt)
 		if err != nil {
-			return nil, errors.Wrapf(err, "open block querier for ooo head %s", rh)
+			return nil, errors.Wrapf(err, "open block chunk querier for ooo head %s", rh)
 		}
 	}
 

@@ -3804,7 +3804,7 @@ func TestOOOCompaction(t *testing.T) {
 	verifySamples(db.Blocks()[2], 240, 350) // Merged block.
 }
 
-func TestOOOQuery(t *testing.T) {
+func Test_Querier_OOOQuery(t *testing.T) {
 	opts := DefaultOptions()
 	opts.OOOCapMin = 2
 	opts.OOOCapMax = 30
@@ -3820,7 +3820,7 @@ func TestOOOQuery(t *testing.T) {
 		for min := fromMins; min <= toMins; min += time.Minute.Milliseconds() {
 			_, err := app.Append(0, series1, min, float64(min))
 			if min >= queryMinT && min <= queryMaxT {
-				expSamples = appendSorted(expSamples, sample{t: min, v: float64(min)})
+				expSamples = append(expSamples, sample{t: min, v: float64(min)})
 			}
 			require.NoError(t, err)
 			totalAppended++
@@ -3873,23 +3873,113 @@ func TestOOOQuery(t *testing.T) {
 			// Add out-of-order samples.
 			expSamples, oooSamples := addSample(db, tc.oooMinT, tc.oooMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
 
+			sort.Slice(expSamples, func(i, j int) bool {
+				return expSamples[i].T() < expSamples[j].T()
+			})
+
 			querier, err := db.Querier(context.TODO(), tc.queryMinT, tc.queryMaxT)
 			require.NoError(t, err)
 			defer querier.Close()
 
 			seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
-
 			require.NotNil(t, seriesSet[series1.String()])
+			require.Equal(t, 1, len(seriesSet))
 			require.Equal(t, expSamples, seriesSet[series1.String()])
 			require.GreaterOrEqual(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 		})
 	}
 }
 
-func appendSorted(samples []tsdbutil.Sample, s sample) []tsdbutil.Sample {
-	samples = append(samples, s)
-	sort.Slice(samples, func(i, j int) bool {
-		return samples[i].T() < samples[j].T()
-	})
-	return samples
+func Test_ChunkQuerier_OOOQuery(t *testing.T) {
+	opts := DefaultOptions()
+	opts.OOOCapMin = 2
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 24 * time.Hour.Milliseconds()
+	opts.AllowOverlappingBlocks = true
+
+	series1 := labels.FromStrings("foo", "bar1")
+
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []tsdbutil.Sample) ([]tsdbutil.Sample, int) {
+		app := db.Appender(context.Background())
+		totalAppended := 0
+		for min := fromMins; min <= toMins; min += time.Minute.Milliseconds() {
+			_, err := app.Append(0, series1, min, float64(min))
+			if min >= queryMinT && min <= queryMaxT {
+				expSamples = append(expSamples, sample{t: min, v: float64(min)})
+			}
+			require.NoError(t, err)
+			totalAppended++
+		}
+		require.NoError(t, app.Commit())
+		return expSamples, totalAppended
+	}
+
+	tests := []struct {
+		name        string
+		queryMinT   int64
+		queryMaxT   int64
+		inOrderMinT int64
+		inOrderMaxT int64
+		oooMinT     int64
+		oooMaxT     int64
+	}{
+		{
+			name:        "query interval covering ooomint and inordermaxt returns all ingested samples",
+			queryMinT:   minutes(0),
+			queryMaxT:   minutes(200),
+			inOrderMinT: minutes(100),
+			inOrderMaxT: minutes(200),
+			oooMinT:     minutes(0),
+			oooMaxT:     minutes(99),
+		},
+		{
+			name:        "partial query interval returns only samples within interval",
+			queryMinT:   minutes(20),
+			queryMaxT:   minutes(180),
+			inOrderMinT: minutes(100),
+			inOrderMaxT: minutes(200),
+			oooMinT:     minutes(0),
+			oooMaxT:     minutes(99),
+		},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			db := openTestDB(t, opts, nil)
+			db.DisableCompactions()
+			defer func() {
+				require.NoError(t, db.Close())
+			}()
+
+			var expSamples []tsdbutil.Sample
+
+			// Add in-order samples.
+			expSamples, _ = addSample(db, tc.inOrderMinT, tc.inOrderMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
+
+			// Add out-of-order samples.
+			expSamples, oooSamples := addSample(db, tc.oooMinT, tc.oooMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
+
+			sort.Slice(expSamples, func(i, j int) bool {
+				return expSamples[i].T() < expSamples[j].T()
+			})
+
+			querier, err := db.ChunkQuerier(context.TODO(), tc.queryMinT, tc.queryMaxT)
+			require.NoError(t, err)
+			defer querier.Close()
+
+			chks := queryChunks(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
+			require.NotNil(t, chks[series1.String()])
+			require.Equal(t, 1, len(chks))
+			require.Equal(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+			var gotSamples []tsdbutil.Sample
+			for _, chunk := range chks[series1.String()] {
+				it := chunk.Chunk.Iterator(nil)
+				for it.Next() {
+					ts, v := it.At()
+					gotSamples = append(gotSamples, sample{t: ts, v: v})
+				}
+			}
+			require.Equal(t, expSamples, gotSamples)
+		})
+	}
 }
