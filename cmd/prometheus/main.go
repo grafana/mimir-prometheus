@@ -314,7 +314,7 @@ func main() {
 	serverOnlyFlag(a, "storage.tsdb.wal-compression", "Compress the tsdb WAL.").
 		Hidden().Default("true").BoolVar(&cfg.tsdb.WALCompression)
 
-	serverOnlyFlag(a, "storage.tsdb.ooo-allowance", "Allow upto this much out-of-order.  Supported units: h, m, s").
+	serverOnlyFlag(a, "storage.tsdb.ooo-allowance", "Allow samples to be this old for out-of-order.  Supported units: h, m, s. Also if the value is greater than AllowOverlappingBlocks's will be overrided and set to true since out-of-order head compaction can potentially create overlapping blocks.").
 		Hidden().Default("0s").SetValue(&cfg.tsdb.OOOAllowance)
 
 	serverOnlyFlag(a, "storage.tsdb.ooo-cap-min", "Minimum capacity for OOO chunks (in samples. between 0 and 255.)").
