@@ -3270,6 +3270,12 @@ func TestOOOWalReplay(t *testing.T) {
 	appendSample(59, true)
 	appendSample(31, true)
 
+	// Check that Head's time ranges are set properly.
+	require.Equal(t, 60*time.Minute.Milliseconds(), h.MinTime())
+	require.Equal(t, 60*time.Minute.Milliseconds(), h.MaxTime())
+	require.Equal(t, 31*time.Minute.Milliseconds(), h.MinOOOTime())
+	require.Equal(t, 59*time.Minute.Milliseconds(), h.MaxOOOTime())
+
 	// Restart head.
 	require.NoError(t, h.Close())
 	wlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)

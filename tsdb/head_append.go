@@ -479,6 +479,8 @@ func (a *headAppender) Commit() (err error) {
 		total            = len(a.samples)
 		oooTotal         = 0
 		oob, ooo, tooOld int   // out of bounds, out of order, too old
+		inOrderMint      int64 = math.MaxInt64
+		inOrderMaxt      int64 = math.MinInt64
 		ooomint          int64 = math.MaxInt64
 		ooomaxt          int64 = math.MinInt64
 		oooWblSamples    []record.RefSample
@@ -591,7 +593,14 @@ func (a *headAppender) Commit() (err error) {
 			// TODO: handle overwrite.
 			// this would be storage.ErrDuplicateSampleForTimestamp, it has no attached counter
 			// in case of identical timestamp and value, we should drop silently
-			if !ok {
+			if ok {
+				if s.T < inOrderMint {
+					inOrderMint = s.T
+				}
+				if s.T > inOrderMaxt {
+					inOrderMaxt = s.T
+				}
+			} else {
 				total--
 				ooo++
 			}
@@ -615,7 +624,7 @@ func (a *headAppender) Commit() (err error) {
 	a.head.metrics.tooOldSamples.Add(float64(tooOld))
 	a.head.metrics.samplesAppended.Add(float64(total))
 	a.head.metrics.outOfOrderSamplesAppended.Add(float64(oooTotal))
-	a.head.updateMinMaxTime(a.mint, a.maxt)
+	a.head.updateMinMaxTime(inOrderMint, inOrderMaxt)
 	a.head.updateMinOOOMaxOOOTime(ooomint, ooomaxt)
 
 	// TODO: currently WBL logging of ooo samples is best effort here since we cannot try logging
