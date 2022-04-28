@@ -858,6 +858,7 @@ func TestHeadDeleteSimple(t *testing.T) {
 		t.Run(fmt.Sprintf("compress=%t", compress), func(t *testing.T) {
 			for _, c := range cases {
 				head, w := newTestHead(t, 1000, compress)
+				require.NoError(t, head.Init(0))
 
 				app := head.Appender(context.Background())
 				for _, smpl := range smplsAll {
@@ -3270,6 +3271,12 @@ func TestOOOWalReplay(t *testing.T) {
 	appendSample(59, true)
 	appendSample(31, true)
 
+	// Check that Head's time ranges are set properly.
+	require.Equal(t, 60*time.Minute.Milliseconds(), h.MinTime())
+	require.Equal(t, 60*time.Minute.Milliseconds(), h.MaxTime())
+	require.Equal(t, 31*time.Minute.Milliseconds(), h.MinOOOTime())
+	require.Equal(t, 59*time.Minute.Milliseconds(), h.MaxOOOTime())
+
 	// Restart head.
 	require.NoError(t, h.Close())
 	wlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
@@ -3597,4 +3604,85 @@ func TestReplayAfterMmapReplayError(t *testing.T) {
 	require.Equal(t, map[string][]tsdbutil.Sample{lbls.String(): expSamples}, res)
 
 	require.NoError(t, h.Close())
+}
+
+func TestOOOAppendWithNoSeries(t *testing.T) {
+	dir := t.TempDir()
+	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
+	require.NoError(t, err)
+	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
+	require.NoError(t, err)
+
+	opts := DefaultHeadOptions()
+	opts.ChunkDirRoot = dir
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 120 * time.Minute.Milliseconds()
+
+	h, err := NewHead(nil, nil, wlog, oooWlog, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, h.Close())
+	})
+	require.NoError(t, h.Init(0))
+
+	appendSample := func(lbls labels.Labels, ts int64) {
+		app := h.Appender(context.Background())
+		_, err := app.Append(0, lbls, ts*time.Minute.Milliseconds(), float64(ts))
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+	}
+
+	verifyOOOSamples := func(lbls labels.Labels, expSamples int) {
+		ms, created, err := h.getOrCreate(lbls.Hash(), lbls)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.NotNil(t, ms)
+
+		require.Nil(t, ms.headChunk)
+		require.NotNil(t, ms.oooHeadChunk)
+		require.Equal(t, expSamples, ms.oooHeadChunk.chunk.NumSamples())
+	}
+
+	verifyInOrderSamples := func(lbls labels.Labels, expSamples int) {
+		ms, created, err := h.getOrCreate(lbls.Hash(), lbls)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.NotNil(t, ms)
+
+		require.Nil(t, ms.oooHeadChunk)
+		require.NotNil(t, ms.headChunk)
+		require.Equal(t, expSamples, ms.headChunk.chunk.NumSamples())
+	}
+
+	newLabels := func(idx int) labels.Labels { return labels.FromStrings("foo", fmt.Sprintf("%d", idx)) }
+
+	s1 := newLabels(1)
+	appendSample(s1, 300) // At 300m.
+	verifyInOrderSamples(s1, 1)
+
+	// At 239m, the sample cannot be appended to in-order chunk since it is
+	// beyond the minValidTime. So it should go in OOO chunk.
+	// Series does not exist for s2 yet.
+	s2 := newLabels(2)
+	appendSample(s2, 239) // OOO sample.
+	verifyOOOSamples(s2, 1)
+
+	// Similar for 180m.
+	s3 := newLabels(3)
+	appendSample(s3, 180) // OOO sample.
+	verifyOOOSamples(s3, 1)
+
+	// Now 179m is too old.
+	s4 := newLabels(4)
+	app := h.Appender(context.Background())
+	_, err = app.Append(0, s4, 179*time.Minute.Milliseconds(), float64(179))
+	require.Equal(t, storage.ErrTooOldSample, err)
+	require.NoError(t, app.Rollback())
+	verifyOOOSamples(s3, 1)
+
+	// Samples still go into in-order chunk for samples within
+	// appendable minValidTime.
+	s5 := newLabels(5)
+	appendSample(s5, 240)
+	verifyInOrderSamples(s5, 1)
 }

@@ -3473,6 +3473,8 @@ func TestOOOWALWrite(t *testing.T) {
 	app = db.Appender(context.Background())
 	appendSample(app, s2, 45)
 	appendSample(app, s1, 35)
+	appendSample(app, s1, 36) // m-maps.
+	appendSample(app, s1, 37)
 	require.NoError(t, app.Commit())
 
 	// OOO for s1 but not for s2 in the same commit.
@@ -3510,9 +3512,16 @@ func TestOOOWALWrite(t *testing.T) {
 			{Ref: 2, T: minutes(45), V: 45},
 			{Ref: 1, T: minutes(35), V: 35},
 		},
-
 		[]record.RefMmapMarker{ // 3rd sample, hence m-mapped.
 			{Ref: 1, MmapRef: 4294967304},
+		},
+		[]record.RefSample{
+			{Ref: 1, T: minutes(36), V: 36},
+			{Ref: 1, T: minutes(37), V: 37},
+		},
+
+		[]record.RefMmapMarker{ // 3rd sample, hence m-mapped.
+			{Ref: 1, MmapRef: 4294967354},
 		},
 		[]record.RefSample{ // Does not contain the in-order sample here.
 			{Ref: 1, T: minutes(50), V: 50},
@@ -3520,14 +3529,14 @@ func TestOOOWALWrite(t *testing.T) {
 
 		// Single commit but multiple OOO records.
 		[]record.RefMmapMarker{
-			{Ref: 2, MmapRef: 4294967354},
+			{Ref: 2, MmapRef: 4294967403},
 		},
 		[]record.RefSample{
 			{Ref: 2, T: minutes(50), V: 50},
 			{Ref: 2, T: minutes(51), V: 51},
 		},
 		[]record.RefMmapMarker{
-			{Ref: 2, MmapRef: 4294967403},
+			{Ref: 2, MmapRef: 4294967452},
 		},
 		[]record.RefSample{
 			{Ref: 2, T: minutes(52), V: 52},
@@ -3553,6 +3562,8 @@ func TestOOOWALWrite(t *testing.T) {
 		[]record.RefSample{
 			{Ref: 2, T: minutes(45), V: 45},
 			{Ref: 1, T: minutes(35), V: 35},
+			{Ref: 1, T: minutes(36), V: 36},
+			{Ref: 1, T: minutes(37), V: 37},
 		},
 		[]record.RefSample{ // Contains both in-order and ooo sample.
 			{Ref: 1, T: minutes(50), V: 50},
