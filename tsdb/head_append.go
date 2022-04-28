@@ -573,8 +573,12 @@ func (a *headAppender) Commit() (err error) {
 			var mmapRef chunks.ChunkDiskMapperRef
 			ok, chunkCreated, mmapRef = series.insert(s.T, s.V, a.head.chunkDiskMapper)
 			if chunkCreated {
-				if oooMmapMarkers[series.ref] != 0 { // TODO(ganesh) Remove this condition. There could be a case where there are samples in the slice and no markers and we want to collect the samples.
-					// We have already m-mapped a chunk for this series in the same Commit().
+				r, ok := oooMmapMarkers[series.ref]
+				if !ok || r != 0 {
+					// !ok means there are no markers collected for these samples yet. So we first flush the samples
+					// before setting this m-map marker.
+
+					// r != 0 means we have already m-mapped a chunk for this series in the same Commit().
 					// Hence, before we m-map again, we should add the samples and m-map markers
 					// seen till now to the WBL records.
 					collectOOORecords()
