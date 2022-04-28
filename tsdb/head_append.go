@@ -319,7 +319,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 
 // appendable checks whether the given sample is valid for appending to the series.
 // If the returned boolean is true, then the sample belongs to the out of order chunk.
-func (s *memSeries) appendable(t int64, v float64, headMaxt, minValidTime int64) (bool, int64, error) {
+func (s *memSeries) appendable(t int64, v float64, headMaxt, minValidTime int64) (isOutOfOrder bool, delta int64, err error) {
 	msMaxt := s.maxTime()
 	if msMaxt == math.MinInt64 {
 		// The series has no sample and was freshly created.
