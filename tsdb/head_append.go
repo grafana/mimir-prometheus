@@ -365,6 +365,8 @@ func (s *memSeries) appendable(t int64, v float64, headMaxt, minValidTime int64)
 	if math.Float64bits(s.sampleBuf[3].v) != math.Float64bits(v) {
 		return false, 0, storage.ErrDuplicateSampleForTimestamp
 	}
+
+	// sample is identical (ts + value) with most current (highest ts) sample in sampleBuf
 	return false, 0, nil
 }
 
@@ -606,6 +608,7 @@ func (a *headAppender) Commit() (err error) {
 				}
 				oooAccepted++
 			} else {
+				// exact duplicate of last sample.
 				// the sample was an attempted update.
 				// note that we can only detect updates if they clash with a sample in the OOOHeadChunk,
 				// not with samples in already flushed OOO chunks.
@@ -613,20 +616,26 @@ func (a *headAppender) Commit() (err error) {
 				samplesAppended--
 			}
 		} else if err == nil {
+			// if we're here, either of these is true:
+			// - the sample.t is beyond any previously ingested timestamp
+			// - the sample is an exact duplicate of the 'head sample'
+
 			delta, ok, chunkCreated = series.append(s.T, s.V, a.appendID, a.head.chunkDiskMapper)
+
 			// TODO: handle overwrite.
 			// this would be storage.ErrDuplicateSampleForTimestamp, it has no attached counter
 			// in case of identical timestamp and value, we should drop silently
 			if ok {
-				if s.T < inOrderMint {
+				// sample timestamp is beyond any previously ingested timestamp
+				if s.T < inOrderMint { // TODO(ganesh): dieter thinks this never applies and can be removed because we know we're in order.
 					inOrderMint = s.T
 				}
 				if s.T > inOrderMaxt {
 					inOrderMaxt = s.T
 				}
 			} else {
+				// ... therefore, in this case, we know the sample is an exact duplicate, and should be silently dropped.
 				samplesAppended--
-				oooRejected++
 			}
 		}
 
