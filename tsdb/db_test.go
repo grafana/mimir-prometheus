@@ -3690,7 +3690,8 @@ func TestOOOCompaction(t *testing.T) {
 	opts.OOOCapMin = 2
 	opts.OOOCapMax = 30
 	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
-	opts.AllowOverlappingBlocks = true
+	opts.AllowOverlappingQueries = true
+	opts.AllowOverlappingCompaction = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -3820,7 +3821,8 @@ func Test_Querier_OOOQuery(t *testing.T) {
 	opts.OOOCapMin = 2
 	opts.OOOCapMax = 30
 	opts.OOOAllowance = 24 * time.Hour.Milliseconds()
-	opts.AllowOverlappingBlocks = true
+	opts.AllowOverlappingQueries = true
+	opts.AllowOverlappingCompaction = false
 
 	series1 := labels.FromStrings("foo", "bar1")
 
@@ -3906,7 +3908,8 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 	opts.OOOCapMin = 2
 	opts.OOOCapMax = 30
 	opts.OOOAllowance = 24 * time.Hour.Milliseconds()
-	opts.AllowOverlappingBlocks = true
+	opts.AllowOverlappingQueries = true
+	opts.AllowOverlappingCompaction = false
 
 	series1 := labels.FromStrings("foo", "bar1")
 
