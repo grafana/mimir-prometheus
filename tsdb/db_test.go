@@ -4071,5 +4071,71 @@ func TestOOOAppendAndQuery(t *testing.T) {
 		expSamples[k] = v
 	}
 	require.Equal(t, expSamples, seriesSet)
-	require.GreaterOrEqual(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+}
+
+func TestOOODisabled(t *testing.T) {
+	opts := DefaultOptions()
+	opts.OOOAllowance = 0
+	db := openTestDB(t, opts, nil)
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	s1 := labels.FromStrings("foo", "bar1")
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+	expSamples := make(map[string][]tsdbutil.Sample)
+	totalSamples := 0
+	failedSamples := 0
+	addSample := func(lbls labels.Labels, fromMins, toMins int64, faceError bool) {
+		app := db.Appender(context.Background())
+		key := lbls.String()
+		from, to := minutes(fromMins), minutes(toMins)
+		for min := from; min <= to; min += time.Minute.Milliseconds() {
+			val := rand.Float64()
+			_, err := app.Append(0, lbls, min, val)
+			if faceError {
+				require.Error(t, err)
+				failedSamples++
+			} else {
+				require.NoError(t, err)
+				expSamples[key] = append(expSamples[key], sample{t: min, v: val})
+				totalSamples++
+			}
+		}
+		if faceError {
+			require.NoError(t, app.Rollback())
+		} else {
+			require.NoError(t, app.Commit())
+		}
+	}
+
+	addSample(s1, 300, 300, false) // In-order samples.
+	addSample(s1, 250, 260, true)  // Some ooo samples.
+	addSample(s1, 59, 59, true)    // Out of allowance.
+	addSample(s1, 60, 65, true)    // At the edge of allowance, also it would be "out of bound" without the ooo support.
+	addSample(s1, 59, 59, true)    // Out of allowance again.
+	addSample(s1, 301, 310, false) // More in-order samples.
+
+	querier, err := db.Querier(context.TODO(), math.MinInt64, math.MaxInt64)
+	require.NoError(t, err)
+
+	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
+	require.Equal(t, expSamples, seriesSet)
+	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	require.Equal(t, float64(failedSamples),
+		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples)+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples),
+		"number of ooo/oob samples mismatch")
+
+	// Verifying that no OOO artifacts were generated.
+	_, err = ioutil.ReadDir(path.Join(db.Dir(), wal.OOOWblDirName))
+	require.True(t, os.IsNotExist(err))
+
+	ms, created, err := db.head.getOrCreate(s1.Hash(), s1)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.NotNil(t, ms)
+	require.Nil(t, ms.oooHeadChunk)
+	require.Len(t, ms.oooMmappedChunks, 0)
 }

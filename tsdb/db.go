@@ -748,9 +748,11 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		if err != nil {
 			return nil, err
 		}
-		oooWlog, err = wal.NewSize(l, r, oooWalDir, segmentSize, opts.WALCompression)
-		if err != nil {
-			return nil, err
+		if opts.OOOAllowance > 0 {
+			oooWlog, err = wal.NewSize(l, r, oooWalDir, segmentSize, opts.WALCompression)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -1042,6 +1044,9 @@ func (db *DB) CompactOOOHead() error {
 }
 
 func (db *DB) compactOOOHead() error {
+	if db.opts.OOOAllowance <= 0 {
+		return nil
+	}
 	oooHead, err := NewOOOCompactionHead(db.head)
 	if err != nil {
 		return errors.Wrap(err, "get ooo compaction head")
