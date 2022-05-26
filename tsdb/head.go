@@ -163,6 +163,10 @@ type HeadOptions struct {
 	EnableMemorySnapshotOnShutdown bool
 
 	IsolationDisabled bool
+
+	// Temporary flag which we use to select whether to use the new (used in upstream
+	// Prometheus) or the old (legacy) chunk disk mapper.
+	NewChunkDiskMapper bool
 }
 
 func DefaultHeadOptions() *HeadOptions {
@@ -179,6 +183,7 @@ func DefaultHeadOptions() *HeadOptions {
 		OOOAllowance:         0,
 		OOOCapMin:            4,
 		OOOCapMax:            32,
+		NewChunkDiskMapper:   false,
 	}
 }
 
@@ -264,7 +269,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, oooWal *wal.WAL, opts *
 		opts.ChunkPool = chunkenc.NewPool()
 	}
 
-	if opts.ChunkWriteQueueSize > 0 {
+	if opts.NewChunkDiskMapper {
 		h.chunkDiskMapper, err = chunks.NewChunkDiskMapper(
 			r,
 			mmappedChunksDir(opts.ChunkDirRoot),
