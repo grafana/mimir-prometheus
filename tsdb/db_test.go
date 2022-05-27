@@ -4039,39 +4039,55 @@ func TestOOOAppendAndQuery(t *testing.T) {
 		}
 	}
 
+	testQuery := func() {
+		querier, err := db.Querier(context.TODO(), math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
+
+		for k, v := range expSamples {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].T() < v[j].T()
+			})
+			expSamples[k] = v
+		}
+		require.Equal(t, expSamples, seriesSet)
+		require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	}
+
 	// In-order samples.
 	addSample(s1, 300, 300, false)
 	addSample(s2, 290, 290, false)
+	require.Equal(t, float64(2), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
+	testQuery()
 
 	// Some ooo samples.
 	addSample(s1, 250, 260, false)
 	addSample(s2, 255, 265, false)
+	testQuery()
 
 	// Out of allowance.
 	addSample(s1, 59, 59, true)
 	addSample(s2, 49, 49, true)
+	testQuery()
 
 	// At the edge of allowance, also it would be "out of bound" without the ooo support.
 	addSample(s1, 60, 65, false)
 	addSample(s2, 50, 55, false)
+	testQuery()
 
 	// Out of allowance again.
 	addSample(s1, 59, 59, true)
 	addSample(s2, 49, 49, true)
+	testQuery()
 
-	querier, err := db.Querier(context.TODO(), math.MinInt64, math.MaxInt64)
-	require.NoError(t, err)
-
-	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
-
-	for k, v := range expSamples {
-		sort.Slice(v, func(i, j int) bool {
-			return v[i].T() < v[j].T()
-		})
-		expSamples[k] = v
-	}
-	require.Equal(t, expSamples, seriesSet)
-	require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	// Generating some m-map chunks. The m-map chunks here are in such a way
+	// that when sorted w.r.t. mint, the last chunk's maxt is not the overall maxt
+	// of the merged chunk. This tests a bug fixed in https://github.com/grafana/mimir-prometheus/pull/238/.
+	require.Equal(t, float64(4), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
+	addSample(s1, 180, 249, false)
+	require.Equal(t, float64(6), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
+	testQuery()
 }
 
 func TestOOODisabled(t *testing.T) {
