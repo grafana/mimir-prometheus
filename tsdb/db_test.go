@@ -4155,3 +4155,175 @@ func TestOOODisabled(t *testing.T) {
 	require.Nil(t, ms.oooHeadChunk)
 	require.Len(t, ms.oooMmappedChunks, 0)
 }
+
+func TestOOOWALAndMmapReplay(t *testing.T) {
+	opts := DefaultOptions()
+	opts.OOOCapMin = 2
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 4 * time.Hour.Milliseconds()
+	opts.AllowOverlappingQueries = true
+
+	db := openTestDB(t, opts, nil)
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	s1 := labels.FromStrings("foo", "bar1")
+
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+	expSamples := make(map[string][]tsdbutil.Sample)
+	totalSamples := 0
+	addSample := func(lbls labels.Labels, fromMins, toMins int64) {
+		app := db.Appender(context.Background())
+		key := lbls.String()
+		from, to := minutes(fromMins), minutes(toMins)
+		for min := from; min <= to; min += time.Minute.Milliseconds() {
+			val := rand.Float64()
+			_, err := app.Append(0, lbls, min, val)
+			require.NoError(t, err)
+			expSamples[key] = append(expSamples[key], sample{t: min, v: val})
+			totalSamples++
+		}
+		require.NoError(t, app.Commit())
+	}
+
+	testQuery := func(exp map[string][]tsdbutil.Sample) {
+		querier, err := db.Querier(context.TODO(), math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
+
+		for k, v := range exp {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].T() < v[j].T()
+			})
+			exp[k] = v
+		}
+		require.Equal(t, exp, seriesSet)
+	}
+
+	// In-order samples.
+	addSample(s1, 300, 300)
+	require.Equal(t, float64(1), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
+
+	// Some ooo samples.
+	addSample(s1, 250, 260)
+	addSample(s1, 195, 249) // This created some m-map chunks.
+	require.Equal(t, float64(4), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
+	testQuery(expSamples)
+
+	// Collect the samples only present in the ooo m-map chunks.
+	ms, created, err := db.head.getOrCreate(s1.Hash(), s1)
+	require.False(t, created)
+	require.NoError(t, err)
+	var s1MmapSamples []tsdbutil.Sample
+	for _, mc := range ms.oooMmappedChunks {
+		chk, err := db.head.chunkDiskMapper.Chunk(mc.ref)
+		require.NoError(t, err)
+		it := chk.Iterator(nil)
+		for it.Next() {
+			ts, val := it.At()
+			s1MmapSamples = append(s1MmapSamples, sample{t: ts, v: val})
+		}
+	}
+	require.Greater(t, len(s1MmapSamples), 0)
+
+	require.NoError(t, db.Close())
+
+	// Making a copy of original state of WBL and Mmap files to use it later.
+	mmapDir := mmappedChunksDir(db.head.opts.ChunkDirRoot)
+	wblDir := db.head.oooWbl.Dir()
+	originalWblDir := filepath.Join(t.TempDir(), "original_wbl")
+	originalMmapDir := filepath.Join(t.TempDir(), "original_mmap")
+	require.NoError(t, fileutil.CopyDirs(wblDir, originalWblDir))
+	require.NoError(t, fileutil.CopyDirs(mmapDir, originalMmapDir))
+	resetWBLToOriginal := func() {
+		require.NoError(t, os.RemoveAll(wblDir))
+		require.NoError(t, fileutil.CopyDirs(originalWblDir, wblDir))
+	}
+	resetMmapToOriginal := func() {
+		require.NoError(t, os.RemoveAll(mmapDir))
+		require.NoError(t, fileutil.CopyDirs(originalMmapDir, mmapDir))
+	}
+	{ // 1. Restart DB with both WBL and M-map files for ooo data.
+		db, err = Open(db.dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		testQuery(expSamples)
+	}
+	{ // 2. Restart DB with only WBL for ooo data.
+		require.NoError(t, db.Close())
+
+		require.NoError(t, os.RemoveAll(mmapDir))
+
+		db, err = Open(db.dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		testQuery(expSamples)
+	}
+	{ // 3. Restart DB with only M-map files for ooo data.
+		require.NoError(t, db.Close())
+
+		require.NoError(t, os.RemoveAll(wblDir))
+		resetMmapToOriginal()
+
+		db, err = Open(db.dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		inOrderSample := expSamples[s1.String()][len(expSamples[s1.String()])-1]
+		testQuery(map[string][]tsdbutil.Sample{
+			s1.String(): append(s1MmapSamples, inOrderSample),
+		})
+	}
+	{ // 4. Restart DB with WBL+Mmap while increasing the OOOCapMax.
+		require.NoError(t, db.Close())
+
+		resetWBLToOriginal()
+		resetMmapToOriginal()
+
+		opts.OOOCapMax = 60
+		db, err = Open(db.dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		testQuery(expSamples)
+	}
+	{ // 5. Restart DB with WBL+Mmap while decreasing the OOOCapMax.
+		require.NoError(t, db.Close())
+
+		resetMmapToOriginal() // We need to reset because new duplicate chunks can be written.
+
+		opts.OOOCapMax = 10
+		db, err = Open(db.dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		testQuery(expSamples)
+	}
+	{ // 6. Restart DB with WBL+Mmap while having no m-map markers in WBL.
+		require.NoError(t, db.Close())
+
+		resetMmapToOriginal() // We neet to reset because new duplicate chunks can be written.
+
+		// Removing m-map markers in WBL by rewriting it.
+		newWbl, err := wal.New(log.NewNopLogger(), nil, filepath.Join(t.TempDir(), "new_wbl"), false)
+		require.NoError(t, err)
+		sr, err := wal.NewSegmentsReader(originalWblDir)
+		require.NoError(t, err)
+		var dec record.Decoder
+		r, markers, addedRecs := wal.NewReader(sr), 0, 0
+		for r.Next() {
+			rec := r.Record()
+			if dec.Type(rec) == record.MmapMarkers {
+				markers++
+				continue
+			}
+			addedRecs++
+			require.NoError(t, newWbl.Log(rec))
+		}
+		require.Greater(t, markers, 0)
+		require.Greater(t, addedRecs, 0)
+		require.NoError(t, newWbl.Close())
+		require.NoError(t, os.RemoveAll(wblDir))
+		require.NoError(t, os.Rename(newWbl.Dir(), wblDir))
+
+		opts.OOOCapMax = 30
+		db, err = Open(db.dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		testQuery(expSamples)
+	}
+}
