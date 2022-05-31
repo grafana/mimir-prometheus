@@ -401,9 +401,13 @@ func (db *DBReadOnly) FlushWAL(dir string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	ooow, err := wal.Open(db.logger, filepath.Join(db.dir, wal.OOOWblDirName))
-	if err != nil {
-		return err
+	var ooow *wal.WAL
+	oooWblDir := filepath.Join(db.dir, wal.OOOWblDirName)
+	if _, err := os.Stat(oooWblDir); !os.IsNotExist(err) {
+		ooow, err = wal.Open(db.logger, oooWblDir)
+		if err != nil {
+			return err
+		}
 	}
 	opts := DefaultHeadOptions()
 	opts.ChunkDirRoot = db.dir
@@ -482,9 +486,13 @@ func (db *DBReadOnly) loadDataAsQueryable(maxt int64) (storage.SampleAndChunkQue
 		if err != nil {
 			return nil, err
 		}
-		ooow, err := wal.Open(db.logger, filepath.Join(db.dir, wal.OOOWblDirName))
-		if err != nil {
-			return nil, err
+		var ooow *wal.WAL
+		oooWblDir := filepath.Join(db.dir, wal.OOOWblDirName)
+		if _, err := os.Stat(oooWblDir); !os.IsNotExist(err) {
+			ooow, err = wal.Open(db.logger, oooWblDir)
+			if err != nil {
+				return nil, err
+			}
 		}
 		opts := DefaultHeadOptions()
 		opts.ChunkDirRoot = db.dir
@@ -751,9 +759,11 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		if err != nil {
 			return nil, err
 		}
-		oooWlog, err = wal.NewSize(l, r, oooWalDir, segmentSize, opts.WALCompression)
-		if err != nil {
-			return nil, err
+		if opts.OOOAllowance > 0 {
+			oooWlog, err = wal.NewSize(l, r, oooWalDir, segmentSize, opts.WALCompression)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -1045,6 +1055,9 @@ func (db *DB) CompactOOOHead() error {
 }
 
 func (db *DB) compactOOOHead() error {
+	if db.opts.OOOAllowance <= 0 {
+		return nil
+	}
 	oooHead, err := NewOOOCompactionHead(db.head)
 	if err != nil {
 		return errors.Wrap(err, "get ooo compaction head")

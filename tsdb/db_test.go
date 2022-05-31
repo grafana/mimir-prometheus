@@ -3997,3 +3997,161 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 		})
 	}
 }
+
+func TestOOOAppendAndQuery(t *testing.T) {
+	opts := DefaultOptions()
+	opts.OOOCapMin = 2
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 4 * time.Hour.Milliseconds()
+	opts.AllowOverlappingQueries = true
+
+	db := openTestDB(t, opts, nil)
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	s1 := labels.FromStrings("foo", "bar1")
+	s2 := labels.FromStrings("foo", "bar2")
+
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+	expSamples := make(map[string][]tsdbutil.Sample)
+	totalSamples := 0
+	addSample := func(lbls labels.Labels, fromMins, toMins int64, faceError bool) {
+		app := db.Appender(context.Background())
+		key := lbls.String()
+		from, to := minutes(fromMins), minutes(toMins)
+		for min := from; min <= to; min += time.Minute.Milliseconds() {
+			val := rand.Float64()
+			_, err := app.Append(0, lbls, min, val)
+			if faceError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+				expSamples[key] = append(expSamples[key], sample{t: min, v: val})
+				totalSamples++
+			}
+		}
+		if faceError {
+			require.NoError(t, app.Rollback())
+		} else {
+			require.NoError(t, app.Commit())
+		}
+	}
+
+	testQuery := func() {
+		querier, err := db.Querier(context.TODO(), math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
+
+		for k, v := range expSamples {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].T() < v[j].T()
+			})
+			expSamples[k] = v
+		}
+		require.Equal(t, expSamples, seriesSet)
+		require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	}
+
+	// In-order samples.
+	addSample(s1, 300, 300, false)
+	addSample(s2, 290, 290, false)
+	require.Equal(t, float64(2), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
+	testQuery()
+
+	// Some ooo samples.
+	addSample(s1, 250, 260, false)
+	addSample(s2, 255, 265, false)
+	testQuery()
+
+	// Out of allowance.
+	addSample(s1, 59, 59, true)
+	addSample(s2, 49, 49, true)
+	testQuery()
+
+	// At the edge of allowance, also it would be "out of bound" without the ooo support.
+	addSample(s1, 60, 65, false)
+	addSample(s2, 50, 55, false)
+	testQuery()
+
+	// Out of allowance again.
+	addSample(s1, 59, 59, true)
+	addSample(s2, 49, 49, true)
+	testQuery()
+
+	// Generating some m-map chunks. The m-map chunks here are in such a way
+	// that when sorted w.r.t. mint, the last chunk's maxt is not the overall maxt
+	// of the merged chunk. This tests a bug fixed in https://github.com/grafana/mimir-prometheus/pull/238/.
+	require.Equal(t, float64(4), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
+	addSample(s1, 180, 249, false)
+	require.Equal(t, float64(6), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
+	testQuery()
+}
+
+func TestOOODisabled(t *testing.T) {
+	opts := DefaultOptions()
+	opts.OOOAllowance = 0
+	db := openTestDB(t, opts, nil)
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	s1 := labels.FromStrings("foo", "bar1")
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+	expSamples := make(map[string][]tsdbutil.Sample)
+	totalSamples := 0
+	failedSamples := 0
+	addSample := func(lbls labels.Labels, fromMins, toMins int64, faceError bool) {
+		app := db.Appender(context.Background())
+		key := lbls.String()
+		from, to := minutes(fromMins), minutes(toMins)
+		for min := from; min <= to; min += time.Minute.Milliseconds() {
+			val := rand.Float64()
+			_, err := app.Append(0, lbls, min, val)
+			if faceError {
+				require.Error(t, err)
+				failedSamples++
+			} else {
+				require.NoError(t, err)
+				expSamples[key] = append(expSamples[key], sample{t: min, v: val})
+				totalSamples++
+			}
+		}
+		if faceError {
+			require.NoError(t, app.Rollback())
+		} else {
+			require.NoError(t, app.Commit())
+		}
+	}
+
+	addSample(s1, 300, 300, false) // In-order samples.
+	addSample(s1, 250, 260, true)  // Some ooo samples.
+	addSample(s1, 59, 59, true)    // Out of allowance.
+	addSample(s1, 60, 65, true)    // At the edge of allowance, also it would be "out of bound" without the ooo support.
+	addSample(s1, 59, 59, true)    // Out of allowance again.
+	addSample(s1, 301, 310, false) // More in-order samples.
+
+	querier, err := db.Querier(context.TODO(), math.MinInt64, math.MaxInt64)
+	require.NoError(t, err)
+
+	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
+	require.Equal(t, expSamples, seriesSet)
+	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	require.Equal(t, float64(failedSamples),
+		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples)+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples),
+		"number of ooo/oob samples mismatch")
+
+	// Verifying that no OOO artifacts were generated.
+	_, err = ioutil.ReadDir(path.Join(db.Dir(), wal.OOOWblDirName))
+	require.True(t, os.IsNotExist(err))
+
+	ms, created, err := db.head.getOrCreate(s1.Hash(), s1)
+	require.NoError(t, err)
+	require.False(t, created)
+	require.NotNil(t, ms)
+	require.Nil(t, ms.oooHeadChunk)
+	require.Len(t, ms.oooMmappedChunks, 0)
+}
