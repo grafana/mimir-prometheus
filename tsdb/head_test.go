@@ -3236,6 +3236,7 @@ func TestChunkSnapshotTakenAfterIncompleteSnapshot(t *testing.T) {
 	require.Greater(t, offset, 0)
 }
 
+// TestOOOWalReplay checks the replay at a low level.
 // TODO(codesome): Needs test for ooo WAL repair.
 func TestOOOWalReplay(t *testing.T) {
 	dir := t.TempDir()
@@ -3320,6 +3321,7 @@ func TestOOOWalReplay(t *testing.T) {
 	require.NoError(t, h.Close())
 }
 
+// TestOOOMmapReplay checks the replay at a low level.
 func TestOOOMmapReplay(t *testing.T) {
 	dir := t.TempDir()
 	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
