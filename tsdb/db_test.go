@@ -4209,7 +4209,7 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 
 	// Some ooo samples.
 	addSample(s1, 250, 260)
-	addSample(s1, 195, 249) // This created some m-map chunks.
+	addSample(s1, 195, 249) // This creates some m-map chunks.
 	require.Equal(t, float64(4), prom_testutil.ToFloat64(db.head.metrics.chunksCreated))
 	testQuery(expSamples)
 
@@ -4246,23 +4246,24 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 		require.NoError(t, os.RemoveAll(mmapDir))
 		require.NoError(t, fileutil.CopyDirs(originalMmapDir, mmapDir))
 	}
-	{ // 1. Restart DB with both WBL and M-map files for ooo data.
+
+	t.Run("Restart DB with both WBL and M-map files for ooo data", func(t *testing.T) {
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
-	}
-	{ // 2. Restart DB with only WBL for ooo data.
 		require.NoError(t, db.Close())
+	})
 
+	t.Run("Restart DB with only WBL for ooo data", func(t *testing.T) {
 		require.NoError(t, os.RemoveAll(mmapDir))
 
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
-	}
-	{ // 3. Restart DB with only M-map files for ooo data.
 		require.NoError(t, db.Close())
+	})
 
+	t.Run("Restart DB with only M-map files for ooo data", func(t *testing.T) {
 		require.NoError(t, os.RemoveAll(wblDir))
 		resetMmapToOriginal()
 
@@ -4272,10 +4273,10 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 		testQuery(map[string][]tsdbutil.Sample{
 			s1.String(): append(s1MmapSamples, inOrderSample),
 		})
-	}
-	{ // 4. Restart DB with WBL+Mmap while increasing the OOOCapMax.
 		require.NoError(t, db.Close())
+	})
 
+	t.Run("Restart DB with WBL+Mmap while increasing the OOOCapMax", func(t *testing.T) {
 		resetWBLToOriginal()
 		resetMmapToOriginal()
 
@@ -4283,21 +4284,21 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
-	}
-	{ // 5. Restart DB with WBL+Mmap while decreasing the OOOCapMax.
 		require.NoError(t, db.Close())
+	})
 
-		resetMmapToOriginal() // We need to reset because new duplicate chunks can be written.
+	t.Run("Restart DB with WBL+Mmap while decreasing the OOOCapMax", func(t *testing.T) {
+		resetMmapToOriginal() // We need to reset because new duplicate chunks can be written above.
 
 		opts.OOOCapMax = 10
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
-	}
-	{ // 6. Restart DB with WBL+Mmap while having no m-map markers in WBL.
 		require.NoError(t, db.Close())
+	})
 
-		resetMmapToOriginal() // We neet to reset because new duplicate chunks can be written.
+	t.Run("Restart DB with WBL+Mmap while having no m-map markers in WBL", func(t *testing.T) {
+		resetMmapToOriginal() // We neet to reset because new duplicate chunks can be written above.
 
 		// Removing m-map markers in WBL by rewriting it.
 		newWbl, err := wal.New(log.NewNopLogger(), nil, filepath.Join(t.TempDir(), "new_wbl"), false)
@@ -4325,5 +4326,5 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
-	}
+	})
 }
