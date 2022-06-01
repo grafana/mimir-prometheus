@@ -3679,10 +3679,8 @@ func TestDBPanicOnMmappingHeadChunk(t *testing.T) {
 	require.NoError(t, db.Close())
 }
 
-// TODO(codesome): Add more tests for the following cases
-// * More samples incoming once compaction has started. To verify new samples after the start
+// TODO(codesome): test more samples incoming once compaction has started. To verify new samples after the start
 //   are not included in this compaction.
-// * OOO compaction is done after the normal head's compaction in db.Compact().
 func TestOOOCompaction(t *testing.T) {
 	dir := t.TempDir()
 
@@ -3737,6 +3735,30 @@ func TestOOOCompaction(t *testing.T) {
 	// chunks will have different time ranges than the previous chunks.
 	addSample(90, 310)
 
+	verifyDBSamples := func() {
+		var series1Samples, series2Samples []tsdbutil.Sample
+		for _, r := range [][2]int64{{90, 119}, {120, 239}, {240, 350}} {
+			fromMins, toMins := r[0], r[1]
+			for min := fromMins; min <= toMins; min++ {
+				ts := min * time.Minute.Milliseconds()
+				series1Samples = append(series1Samples, sample{ts, float64(ts)})
+				series2Samples = append(series2Samples, sample{ts, float64(2 * ts)})
+			}
+		}
+		expRes := map[string][]tsdbutil.Sample{
+			series1.String(): series1Samples,
+			series2.String(): series2Samples,
+		}
+
+		q, err := db.Querier(context.Background(), math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		require.Equal(t, expRes, actRes)
+	}
+
+	verifyDBSamples() // Before any compaction.
+
 	// Verify that the in-memory ooo chunk is not empty.
 	checkNonEmptyOOOChunk := func(lbls labels.Labels) {
 		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls)
@@ -3763,6 +3785,8 @@ func TestOOOCompaction(t *testing.T) {
 
 	// 3 blocks exist now. [0, 120), [120, 240), [240, 360)
 	require.Equal(t, len(db.Blocks()), 3)
+
+	verifyDBSamples() // Blocks created out of OOO head now.
 
 	// 0th WBL file will be deleted and 1st will be the only present.
 	files, err = ioutil.ReadDir(db.head.oooWbl.Dir())
@@ -3800,12 +3824,28 @@ func TestOOOCompaction(t *testing.T) {
 	verifySamples(db.Blocks()[1], 120, 239)
 	verifySamples(db.Blocks()[2], 240, 310)
 
+	// Because of OOO compaction, we already have 2 m-map files.
+	// All the chunks are only in the first file.
+	mmapDir := mmappedChunksDir(db.head.opts.ChunkDirRoot)
+	files, err = ioutil.ReadDir(mmapDir)
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+
 	// Compact the in-order head and expect another block.
 	// Since this is a forced compaction, this block is not aligned with 2h.
 	err = db.CompactHead(NewRangeHead(db.head, 250*time.Minute.Milliseconds(), 350*time.Minute.Milliseconds()))
 	require.NoError(t, err)
 	require.Equal(t, len(db.Blocks()), 4) // [0, 120), [120, 240), [240, 360), [250, 351)
 	verifySamples(db.Blocks()[3], 250, 350)
+
+	verifyDBSamples() // Blocks created out of normal and OOO head now. But not merged.
+
+	// The compaction also clears out the old m-map files. Including
+	// the file that has ooo chunks.
+	files, err = ioutil.ReadDir(mmapDir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, "000002", files[0].Name())
 
 	// This will merge overlapping block.
 	require.NoError(t, db.Compact())
@@ -3814,6 +3854,110 @@ func TestOOOCompaction(t *testing.T) {
 	verifySamples(db.Blocks()[0], 90, 119)
 	verifySamples(db.Blocks()[1], 120, 239)
 	verifySamples(db.Blocks()[2], 240, 350) // Merged block.
+
+	verifyDBSamples() // Final state. Blocks from normal and OOO head are merged.
+}
+
+// TestOOOCompactionWithNormalCompaction tests if OOO compaction is performed
+// when the normal head's compaction is done.
+func TestOOOCompactionWithNormalCompaction(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.OOOCapMin = 2
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
+	opts.AllowOverlappingQueries = true
+	opts.AllowOverlappingCompaction = true
+
+	db, err := Open(dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	db.DisableCompactions() // We want to manually call it.
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	series1 := labels.FromStrings("foo", "bar1")
+	series2 := labels.FromStrings("foo", "bar2")
+
+	addSamples := func(fromMins, toMins int64) {
+		app := db.Appender(context.Background())
+		for min := fromMins; min <= toMins; min++ {
+			ts := min * time.Minute.Milliseconds()
+			_, err := app.Append(0, series1, ts, float64(ts))
+			require.NoError(t, err)
+			_, err = app.Append(0, series2, ts, float64(2*ts))
+			require.NoError(t, err)
+		}
+		require.NoError(t, app.Commit())
+	}
+
+	// Add an in-order samples.
+	addSamples(250, 350)
+
+	// Add ooo samples that will result into a single block.
+	addSamples(90, 110)
+
+	// Checking that ooo chunk is not empty.
+	for _, lbls := range []labels.Labels{series1, series2} {
+		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.Greater(t, ms.oooHeadChunk.chunk.NumSamples(), 0)
+	}
+
+	// If the normal Head is not compacted, the OOO head compaction does not take place.
+	require.NoError(t, db.Compact())
+	require.Equal(t, len(db.Blocks()), 0)
+
+	// Add more in-order samples in future that would trigger the compaction.
+	addSamples(400, 450)
+
+	// No blocks before compaction.
+	require.Equal(t, len(db.Blocks()), 0)
+
+	// Compacts normal and OOO head.
+	require.NoError(t, db.Compact())
+
+	// 2 blocks exist now. [0, 120), [250, 360)
+	require.Equal(t, len(db.Blocks()), 2)
+	require.Equal(t, int64(0), db.Blocks()[0].MinTime())
+	require.Equal(t, 120*time.Minute.Milliseconds(), db.Blocks()[0].MaxTime())
+	require.Equal(t, 250*time.Minute.Milliseconds(), db.Blocks()[1].MinTime())
+	require.Equal(t, 360*time.Minute.Milliseconds(), db.Blocks()[1].MaxTime())
+
+	// Checking that ooo chunk is empty.
+	for _, lbls := range []labels.Labels{series1, series2} {
+		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.Nil(t, ms.oooHeadChunk)
+		require.Equal(t, 0, len(ms.oooMmappedChunks))
+	}
+
+	verifySamples := func(block *Block, fromMins, toMins int64) {
+		series1Samples := make([]tsdbutil.Sample, 0, toMins-fromMins+1)
+		series2Samples := make([]tsdbutil.Sample, 0, toMins-fromMins+1)
+		for min := fromMins; min <= toMins; min++ {
+			ts := min * time.Minute.Milliseconds()
+			series1Samples = append(series1Samples, sample{ts, float64(ts)})
+			series2Samples = append(series2Samples, sample{ts, float64(2 * ts)})
+		}
+		expRes := map[string][]tsdbutil.Sample{
+			series1.String(): series1Samples,
+			series2.String(): series2Samples,
+		}
+
+		q, err := NewBlockQuerier(block, math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		require.Equal(t, expRes, actRes)
+	}
+
+	// Checking for expected data in the blocks.
+	verifySamples(db.Blocks()[0], 90, 110)
+	verifySamples(db.Blocks()[1], 250, 350)
 }
 
 func Test_Querier_OOOQuery(t *testing.T) {
