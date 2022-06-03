@@ -4747,3 +4747,127 @@ func TestOOOWBLCorruption(t *testing.T) {
 	require.Equal(t, 0.0, prom_testutil.ToFloat64(db.head.metrics.walCorruptionsTotal))
 	verifySamples(expAfterRestart)
 }
+
+func TestOOOMmapCorruption(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.OOOCapMin = 2
+	opts.OOOCapMax = 10
+	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
+	opts.AllowOverlappingQueries = true
+	opts.AllowOverlappingCompaction = true
+
+	db, err := Open(dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	series1 := labels.FromStrings("foo", "bar1")
+	var allSamples, expInMmapChunks []tsdbutil.Sample
+	addSamples := func(fromMins, toMins int64, inMmapAfterCorruption bool) {
+		app := db.Appender(context.Background())
+		for min := fromMins; min <= toMins; min++ {
+			ts := min * time.Minute.Milliseconds()
+			_, err := app.Append(0, series1, ts, float64(ts))
+			require.NoError(t, err)
+			allSamples = append(allSamples, sample{t: ts, v: float64(ts)})
+			if inMmapAfterCorruption {
+				expInMmapChunks = append(expInMmapChunks, sample{t: ts, v: float64(ts)})
+			}
+		}
+		require.NoError(t, app.Commit())
+	}
+
+	// Add an in-order samples.
+	addSamples(340, 350, true)
+
+	// OOO samples.
+	addSamples(90, 99, true)
+	addSamples(100, 109, true)
+	// This sample m-maps a chunk. But 120 goes into a new chunk.
+	addSamples(120, 120, false)
+
+	// Second m-map file. We will corrupt this file. Sample 120 goes into this new file.
+	require.NoError(t, db.head.chunkDiskMapper.CutNewFile())
+
+	// More OOO samples.
+	addSamples(200, 230, false)
+	addSamples(240, 255, false)
+
+	require.NoError(t, db.head.chunkDiskMapper.CutNewFile())
+	addSamples(260, 290, false)
+
+	verifySamples := func(expSamples []tsdbutil.Sample) {
+		sort.Slice(expSamples, func(i, j int) bool {
+			return expSamples[i].T() < expSamples[j].T()
+		})
+
+		expRes := map[string][]tsdbutil.Sample{
+			series1.String(): expSamples,
+		}
+
+		q, err := db.Querier(context.Background(), math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		require.Equal(t, expRes, actRes)
+	}
+
+	verifySamples(allSamples)
+
+	// Verifying existing files.
+	mmapDir := mmappedChunksDir(db.head.opts.ChunkDirRoot)
+	files, err := ioutil.ReadDir(mmapDir)
+	require.NoError(t, err)
+	require.Len(t, files, 3)
+
+	// Corrupting the 2nd file.
+	f, err := os.OpenFile(path.Join(mmapDir, files[1].Name()), os.O_RDWR, 0o666)
+	require.NoError(t, err)
+	_, err = f.WriteAt([]byte{99, 9, 99, 9, 99}, 20)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	firstFileName := files[0].Name()
+
+	require.NoError(t, db.Close())
+
+	// Moving OOO WBL to use it later.
+	wblDir := db.head.oooWbl.Dir()
+	wblDirTmp := path.Join(t.TempDir(), "ooo_wbl_tmp")
+	require.NoError(t, os.Rename(wblDir, wblDirTmp))
+
+	// Restart does the replay and repair of m-map files.
+	db, err = Open(db.dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1.0, prom_testutil.ToFloat64(db.head.metrics.mmapChunkCorruptionTotal))
+	require.Less(t, len(expInMmapChunks), len(allSamples))
+
+	// Since there is no WBL, only samples from m-map chunks comes in the query.
+	verifySamples(expInMmapChunks)
+
+	// Verify that it did the repair on disk. All files from the point of corruption
+	// should be deleted.
+	files, err = ioutil.ReadDir(mmapDir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Greater(t, files[0].Size(), int64(100))
+	require.Equal(t, firstFileName, files[0].Name())
+
+	// Another restart, everything normal with no repair.
+	require.NoError(t, db.Close())
+	db, err = Open(db.dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	require.Equal(t, 0.0, prom_testutil.ToFloat64(db.head.metrics.mmapChunkCorruptionTotal))
+	verifySamples(expInMmapChunks)
+
+	// Restart again with the WBL, all samples should be present now.
+	require.NoError(t, db.Close())
+	require.NoError(t, os.RemoveAll(wblDir))
+	require.NoError(t, os.Rename(wblDirTmp, wblDir))
+	db, err = Open(db.dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	verifySamples(allSamples)
+}
