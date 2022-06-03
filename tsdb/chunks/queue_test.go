@@ -1,0 +1,237 @@
+package chunks
+
+import (
+	"math/rand"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
+)
+
+func (q *writeJobQueue) assertInvariants(t *testing.T) {
+	q.mtx.Lock()
+	defer q.mtx.Unlock()
+
+	totalSize := 0
+	for s := q.first; s != nil; s = s.next {
+		totalSize += len(s.queue)
+
+		require.True(t, s.queue != nil)
+
+		// First segment's capacity <= segmentSize (we're reading from it), other segments capacities == segmentSize (nothing was read from them yet)
+		if s == q.first {
+			require.True(t, cap(s.queue) <= q.segmentSize)
+		} else {
+			require.True(t, cap(s.queue) == q.segmentSize)
+		}
+
+		// If first shard is empty (everything was read from it already), it must have extra capacity for
+		// additional elements, otherwise it would have been removed.
+		if s == q.first && len(s.queue) == 0 {
+			require.True(t, cap(s.queue) > 0)
+		}
+
+		// Shards in the middle are full.
+		if s != q.first && s != q.last {
+			require.True(t, len(s.queue) == cap(s.queue))
+		}
+		// Last shard must have at least one element
+		require.True(t, len(s.queue) > 0)
+	}
+
+	require.Equal(t, q.size, totalSize)
+}
+
+func TestQueuePushPopSingleGoroutine(t *testing.T) {
+	seed := time.Now().UnixNano()
+	t.Log("seed:", seed)
+	r := rand.New(rand.NewSource(seed))
+
+	const maxSize = 500
+	const maxIters = 50
+
+	for max := 1; max < maxSize; max++ {
+		queue := newWriteJobQueue(max, 1+(r.Int()%max))
+
+		elements := 0 // total elements in the queue
+		lastWriteID := 0
+		lastReadID := 0
+
+		for iter := 0; iter < maxIters; iter++ {
+			if elements < max {
+				toWrite := r.Int() % (max - elements)
+				if toWrite == 0 {
+					toWrite = 1
+				}
+
+				for i := 0; i < toWrite; i++ {
+					lastWriteID++
+					require.True(t, queue.push(chunkWriteJob{seriesRef: HeadSeriesRef(lastWriteID)}))
+
+					elements++
+				}
+			}
+
+			if elements > 0 {
+				toRead := r.Int() % elements
+
+				for i := 0; i < toRead; i++ {
+					lastReadID++
+
+					j, b := queue.pop()
+					require.True(t, b)
+					require.Equal(t, HeadSeriesRef(lastReadID), j.seriesRef)
+
+					elements--
+				}
+			}
+
+			require.Equal(t, elements, queue.length())
+			queue.assertInvariants(t)
+		}
+	}
+}
+
+func TestPushBlocksOnFullQueue(t *testing.T) {
+	queue := newWriteJobQueue(5, 1)
+
+	pushTime := make(chan time.Time)
+	go func() {
+		require.True(t, queue.push(chunkWriteJob{seriesRef: 1}))
+		require.True(t, queue.push(chunkWriteJob{seriesRef: 2}))
+		require.True(t, queue.push(chunkWriteJob{seriesRef: 3}))
+		require.True(t, queue.push(chunkWriteJob{seriesRef: 4}))
+		require.True(t, queue.push(chunkWriteJob{seriesRef: 5}))
+		// This will block
+		pushTime <- time.Now()
+		require.True(t, queue.push(chunkWriteJob{seriesRef: 6}))
+		pushTime <- time.Now()
+	}()
+
+	before := <-pushTime
+
+	delay := 100 * time.Millisecond
+	select {
+	case <-time.After(delay):
+		// ok
+	case <-pushTime:
+		require.Fail(t, "didn't expect another push to proceed")
+	}
+
+	popTime := time.Now()
+	j, b := queue.pop()
+	require.True(t, b)
+	require.Equal(t, HeadSeriesRef(1), j.seriesRef)
+
+	after := <-pushTime
+
+	require.True(t, after.After(popTime))
+	require.True(t, after.Sub(before) > delay)
+}
+
+func TestPopBlocksOnEmptyQueue(t *testing.T) {
+	queue := newWriteJobQueue(5, 1)
+
+	popTime := make(chan time.Time)
+	go func() {
+		j, b := queue.pop()
+		require.True(t, b)
+		require.Equal(t, HeadSeriesRef(1), j.seriesRef)
+
+		popTime <- time.Now()
+
+		// This will block
+		j, b = queue.pop()
+		require.True(t, b)
+		require.Equal(t, HeadSeriesRef(2), j.seriesRef)
+
+		popTime <- time.Now()
+	}()
+
+	queue.push(chunkWriteJob{seriesRef: 1})
+
+	before := <-popTime
+
+	delay := 100 * time.Millisecond
+	select {
+	case <-time.After(delay):
+		// ok
+	case <-popTime:
+		require.Fail(t, "didn't expect another pop to proceed")
+	}
+
+	pushTime := time.Now()
+	require.True(t, queue.push(chunkWriteJob{seriesRef: 2}))
+
+	after := <-popTime
+
+	require.True(t, after.After(pushTime))
+	require.True(t, after.Sub(before) > delay)
+}
+
+func TestQueuePushPopManyGoroutines(t *testing.T) {
+	const readGoroutines = 5
+	const writeGoroutines = 10
+	const writes = 500
+
+	queue := newWriteJobQueue(1024, 64)
+
+	// Reading goroutine
+	refsMx := sync.Mutex{}
+	refs := map[HeadSeriesRef]bool{}
+
+	readersWG := sync.WaitGroup{}
+	for i := 0; i < readGoroutines; i++ {
+		readersWG.Add(1)
+
+		go func() {
+			defer readersWG.Done()
+
+			for j, ok := queue.pop(); ok; j, ok = queue.pop() {
+				refsMx.Lock()
+				refs[j.seriesRef] = true
+				refsMx.Unlock()
+			}
+		}()
+	}
+
+	id := atomic.Uint64{}
+
+	writersWG := sync.WaitGroup{}
+	for i := 0; i < writeGoroutines; i++ {
+		writersWG.Add(1)
+
+		go func() {
+			defer writersWG.Done()
+
+			for i := 0; i < writes; i++ {
+				ref := id.Inc()
+
+				require.True(t, queue.push(chunkWriteJob{seriesRef: HeadSeriesRef(ref)}))
+			}
+		}()
+	}
+
+	// Wait until all writes are done.
+	writersWG.Wait()
+
+	// Close the queue and wait for reading to be done.
+	queue.close()
+	readersWG.Wait()
+
+	// Check if we have all expected values
+	require.Equal(t, writeGoroutines*writes, len(refs))
+}
+
+func TestQueueSegmentIsKeptEvenIfEmpty(t *testing.T) {
+	queue := newWriteJobQueue(1024, 64)
+
+	require.True(t, queue.push(chunkWriteJob{seriesRef: 1}))
+	_, b := queue.pop()
+	require.True(t, b)
+
+	require.NotNil(t, queue.first)
+	require.Equal(t, queue.segmentSize-1, cap(queue.first.queue))
+}
