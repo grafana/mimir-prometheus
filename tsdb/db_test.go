@@ -4611,3 +4611,139 @@ func TestOOOCompactionFailure(t *testing.T) {
 	// the file that has ooo chunks.
 	verifyMmapFiles("000002")
 }
+
+func TestOOOWBLCorruption(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.OOOCapMin = 2
+	opts.OOOCapMax = 30
+	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
+	opts.AllowOverlappingQueries = true
+	opts.AllowOverlappingCompaction = true
+
+	db, err := Open(dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	series1 := labels.FromStrings("foo", "bar1")
+	var allSamples, expAfterRestart []tsdbutil.Sample
+	addSamples := func(fromMins, toMins int64, afterRestart bool) {
+		app := db.Appender(context.Background())
+		for min := fromMins; min <= toMins; min++ {
+			ts := min * time.Minute.Milliseconds()
+			_, err := app.Append(0, series1, ts, float64(ts))
+			require.NoError(t, err)
+			allSamples = append(allSamples, sample{t: ts, v: float64(ts)})
+			if afterRestart {
+				expAfterRestart = append(expAfterRestart, sample{t: ts, v: float64(ts)})
+			}
+		}
+		require.NoError(t, app.Commit())
+	}
+
+	// Add an in-order samples.
+	addSamples(340, 350, true)
+
+	// OOO samples.
+	addSamples(90, 99, true)
+	addSamples(100, 119, true)
+	addSamples(120, 130, true)
+
+	// Moving onto the second file.
+	_, err = db.head.oooWbl.NextSegment()
+	require.NoError(t, err)
+
+	// More OOO samples.
+	addSamples(200, 230, true)
+	addSamples(240, 255, true)
+
+	// We corrupt WBL after the sample at 255. So everything added later
+	// should be deleted after replay.
+
+	// Checking where we corrupt it.
+	files, err := ioutil.ReadDir(db.head.oooWbl.Dir())
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+
+	corruptIndex := files[1].Size()
+	corruptFilePath := path.Join(db.head.oooWbl.Dir(), files[1].Name())
+
+	// Corrupt the WBL by adding a malformed record.
+	require.NoError(t, db.head.oooWbl.Log([]byte{byte(record.Samples), 99, 9, 99, 9, 99, 9, 99}))
+
+	// More samples after the corruption point.
+	addSamples(260, 280, false)
+	addSamples(290, 300, false)
+
+	// Another file.
+	_, err = db.head.oooWbl.NextSegment()
+	require.NoError(t, err)
+
+	addSamples(310, 320, false)
+
+	// Verifying that we have data after corruption point.
+	files, err = ioutil.ReadDir(db.head.oooWbl.Dir())
+	require.NoError(t, err)
+	require.Len(t, files, 3)
+	require.Greater(t, files[1].Size(), corruptIndex)
+	require.Greater(t, files[0].Size(), int64(100))
+	require.Greater(t, files[2].Size(), int64(100))
+
+	verifySamples := func(expSamples []tsdbutil.Sample) {
+		sort.Slice(expSamples, func(i, j int) bool {
+			return expSamples[i].T() < expSamples[j].T()
+		})
+
+		expRes := map[string][]tsdbutil.Sample{
+			series1.String(): expSamples,
+		}
+
+		q, err := db.Querier(context.Background(), math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		require.Equal(t, expRes, actRes)
+	}
+
+	verifySamples(allSamples)
+
+	require.NoError(t, db.Close())
+
+	// We want everything to be replayed from the WBL. So we delete the m-map files.
+	require.NoError(t, os.RemoveAll(mmappedChunksDir(db.head.opts.ChunkDirRoot)))
+
+	// Restart does the replay and repair.
+	db, err = Open(db.dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	require.Equal(t, 1.0, prom_testutil.ToFloat64(db.head.metrics.walCorruptionsTotal))
+	require.Less(t, len(expAfterRestart), len(allSamples))
+	verifySamples(expAfterRestart)
+
+	// Verify that it did the repair on disk.
+	files, err = ioutil.ReadDir(db.head.oooWbl.Dir())
+	require.NoError(t, err)
+	require.Len(t, files, 3)
+	require.Greater(t, files[0].Size(), int64(100))
+	require.Equal(t, int64(0), files[2].Size())
+	require.Equal(t, corruptFilePath, path.Join(db.head.oooWbl.Dir(), files[1].Name()))
+
+	// Verifying that everything after the corruption point is set to 0.
+	b, err := ioutil.ReadFile(corruptFilePath)
+	require.NoError(t, err)
+	sum := 0
+	for _, val := range b[corruptIndex:] {
+		sum += int(val)
+	}
+	require.Equal(t, 0, sum)
+
+	// Another restart, everything normal with no repair.
+	require.NoError(t, db.Close())
+	db, err = Open(db.dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	require.Equal(t, 0.0, prom_testutil.ToFloat64(db.head.metrics.walCorruptionsTotal))
+	verifySamples(expAfterRestart)
+}
