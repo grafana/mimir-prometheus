@@ -18,8 +18,9 @@ type writeJobQueue struct {
 }
 
 type writeJobQueueSegment struct {
-	queue []chunkWriteJob
-	next  *writeJobQueueSegment
+	segment []chunkWriteJob
+	nr, nw  int                   // index of next read and next write in this segment.
+	next    *writeJobQueueSegment // next segment, if any
 }
 
 func newWriteJobQueue(maxSize, segmentSize int) *writeJobQueue {
@@ -63,11 +64,11 @@ func (q *writeJobQueue) push(job chunkWriteJob) bool {
 		return false
 	}
 
-	// cap(q.last.queue)-len(q.last.queue) is free space remaining in the q.last.queue.
-	if q.last == nil || cap(q.last.queue)-len(q.last.queue) == 0 {
+	// Check if this segment has more space for writing, and create new one if not.
+	if q.last == nil || q.last.nw >= len(q.last.segment) {
 		prevLast := q.last
 		q.last = &writeJobQueueSegment{
-			queue: make([]chunkWriteJob, 0, q.segmentSize),
+			segment: make([]chunkWriteJob, q.segmentSize),
 		}
 
 		if prevLast != nil {
@@ -78,7 +79,8 @@ func (q *writeJobQueue) push(job chunkWriteJob) bool {
 		}
 	}
 
-	q.last.queue = append(q.last.queue, job)
+	q.last.segment[q.last.nw] = job
+	q.last.nw++
 	q.size++
 	q.pushed.Signal()
 	return true
@@ -100,13 +102,12 @@ func (q *writeJobQueue) pop() (chunkWriteJob, bool) {
 		q.pushed.Wait()
 	}
 
-	res := q.first.queue[0]
+	res := q.first.segment[q.first.nr]
+	q.first.nr++
 	q.size--
-	q.first.queue = q.first.queue[1:]
 
-	// We don't want to check len(q.first.queue) == 0. It just means that q.first.queue is empty, but maybe
-	// there is more free capacity in it, and we can still use it (len=1, cap=3 means we can write 2 more elements to it).
-	if cap(q.first.queue) == 0 {
+	// If we have read all possible elements from first segment, we can drop it.
+	if q.first.nr >= len(q.first.segment) {
 		q.first = q.first.next
 		if q.first == nil {
 			q.last = nil
