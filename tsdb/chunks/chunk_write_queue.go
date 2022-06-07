@@ -30,8 +30,9 @@ const (
 	// Minimum interval between shrinking of chunkWriteQueue.chunkRefMap.
 	chunkRefMapMinShrinkInterval = 10 * time.Minute
 
-	// With chunkWriteJob being 64 bytes, this will use ~512 KiB for empty queue.
-	chunkQueueSegmentSize = 8192
+	// Maximum size of segment used by job queue (number of elements). With chunkWriteJob being 64 bytes,
+	// this will use ~512 KiB for empty queue.
+	maxChunkQueueSegmentSize = 8192
 )
 
 type chunkWriteJob struct {
@@ -86,8 +87,13 @@ func newChunkWriteQueue(reg prometheus.Registerer, size int, writeChunk writeChu
 		[]string{"operation"},
 	)
 
+	segmentSize := size
+	if segmentSize > maxChunkQueueSegmentSize {
+		segmentSize = maxChunkQueueSegmentSize
+	}
+
 	q := &chunkWriteQueue{
-		jobs:                  newWriteJobQueue(size, chunkQueueSegmentSize),
+		jobs:                  newWriteJobQueue(size, segmentSize),
 		chunkRefMap:           make(map[ChunkDiskMapperRef]chunkenc.Chunk),
 		chunkRefMapLastShrink: time.Now(),
 		writeChunk:            writeChunk,
