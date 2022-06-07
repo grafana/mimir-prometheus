@@ -103,6 +103,7 @@ func (q *writeJobQueue) pop() (chunkWriteJob, bool) {
 	}
 
 	res := q.first.segment[q.first.nextRead]
+	q.first.segment[q.first.nextRead] = chunkWriteJob{} // clear just-read element
 	q.first.nextRead++
 	q.size--
 

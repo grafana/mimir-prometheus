@@ -101,8 +101,8 @@ func TestQueuePushPopSingleGoroutine(t *testing.T) {
 	}
 }
 
-func TestPushBlocksOnFullQueue(t *testing.T) {
-	queue := newWriteJobQueue(5, 1)
+func TestQueuePushBlocksOnFullQueue(t *testing.T) {
+	queue := newWriteJobQueue(5, 5)
 
 	pushTime := make(chan time.Time)
 	go func() {
@@ -138,8 +138,8 @@ func TestPushBlocksOnFullQueue(t *testing.T) {
 	require.True(t, after.Sub(before) > delay)
 }
 
-func TestPopBlocksOnEmptyQueue(t *testing.T) {
-	queue := newWriteJobQueue(5, 1)
+func TestQueuePopBlocksOnEmptyQueue(t *testing.T) {
+	queue := newWriteJobQueue(5, 5)
 
 	popTime := make(chan time.Time)
 	go func() {
@@ -176,6 +176,71 @@ func TestPopBlocksOnEmptyQueue(t *testing.T) {
 
 	require.True(t, after.After(pushTime))
 	require.True(t, after.Sub(before) > delay)
+}
+
+func TestQueuePopUnblocksOnClose(t *testing.T) {
+	queue := newWriteJobQueue(5, 5)
+
+	popTime := make(chan time.Time)
+	go func() {
+		j, b := queue.pop()
+		require.True(t, b)
+		require.Equal(t, HeadSeriesRef(1), j.seriesRef)
+
+		popTime <- time.Now()
+
+		// This will block until queue is closed.
+		j, b = queue.pop()
+		require.False(t, b)
+
+		popTime <- time.Now()
+	}()
+
+	queue.push(chunkWriteJob{seriesRef: 1})
+
+	before := <-popTime
+
+	delay := 100 * time.Millisecond
+	select {
+	case <-time.After(delay):
+		// ok
+	case <-popTime:
+		require.Fail(t, "didn't expect another pop to proceed")
+	}
+
+	closeTime := time.Now()
+	queue.close()
+
+	after := <-popTime
+
+	require.True(t, after.After(closeTime))
+	require.True(t, after.Sub(before) > delay)
+}
+
+func TestQueuePopAfterCloseReturnsAllElements(t *testing.T) {
+	const count = 10
+
+	queue := newWriteJobQueue(count, count)
+
+	for i := 0; i < count; i++ {
+		require.True(t, queue.push(chunkWriteJob{seriesRef: HeadSeriesRef(i)}))
+	}
+
+	// close the queue before popping all elements.
+	queue.close()
+
+	// No more pushing allowed after close.
+	require.False(t, queue.push(chunkWriteJob{seriesRef: HeadSeriesRef(11111)}))
+
+	// Verify that we can still read all pushed elements.
+	for i := 0; i < count; i++ {
+		j, b := queue.pop()
+		require.True(t, b)
+		require.Equal(t, HeadSeriesRef(i), j.seriesRef)
+	}
+
+	_, b := queue.pop()
+	require.False(t, b)
 }
 
 func TestQueuePushPopManyGoroutines(t *testing.T) {
