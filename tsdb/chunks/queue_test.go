@@ -80,6 +80,9 @@ func TestQueuePushPopSingleGoroutine(t *testing.T) {
 
 			if elements > 0 {
 				toRead := r.Int() % elements
+				if toRead == 0 {
+					toRead = 1
+				}
 
 				for i := 0; i < toRead; i++ {
 					lastReadID++
