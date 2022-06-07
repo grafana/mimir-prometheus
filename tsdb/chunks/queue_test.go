@@ -15,34 +15,34 @@ func (q *writeJobQueue) assertInvariants(t *testing.T) {
 	defer q.mtx.Unlock()
 
 	totalSize := 0
-	for s := q.first; s != nil; s = s.next {
+	for s := q.first; s != nil; s = s.nextSegment {
 		require.True(t, s.segment != nil)
 
 		// Next read index is lower or equal than next write index (we cannot past written jobs)
-		require.True(t, s.nr <= s.nw)
+		require.True(t, s.nextRead <= s.nextWrite)
 
 		// Number of unread elements in this segment.
-		totalSize += s.nw - s.nr
+		totalSize += s.nextWrite - s.nextRead
 
 		// First segment can be partially read, other segments were not read yet.
 		if s == q.first {
-			require.True(t, s.nr >= 0)
+			require.True(t, s.nextRead >= 0)
 		} else {
-			require.True(t, s.nr == 0)
+			require.True(t, s.nextRead == 0)
 		}
 
 		// If first shard is empty (everything was read from it already), it must have extra capacity for
 		// additional elements, otherwise it would have been removed.
-		if s == q.first && s.nr == s.nw {
-			require.True(t, s.nw < len(s.segment))
+		if s == q.first && s.nextRead == s.nextWrite {
+			require.True(t, s.nextWrite < len(s.segment))
 		}
 
 		// Segments in the middle are full.
 		if s != q.first && s != q.last {
-			require.True(t, s.nw == len(s.segment))
+			require.True(t, s.nextWrite == len(s.segment))
 		}
 		// Last segment must have at least one element, or we wouldn't have created it.
-		require.True(t, s.nw > 0)
+		require.True(t, s.nextWrite > 0)
 	}
 
 	require.Equal(t, q.size, totalSize)
@@ -237,6 +237,6 @@ func TestQueueSegmentIsKeptEvenIfEmpty(t *testing.T) {
 	require.True(t, b)
 
 	require.NotNil(t, queue.first)
-	require.Equal(t, 1, queue.first.nr)
-	require.Equal(t, 1, queue.first.nw)
+	require.Equal(t, 1, queue.first.nextRead)
+	require.Equal(t, 1, queue.first.nextWrite)
 }
