@@ -16,8 +16,10 @@ package labels
 import (
 	"bytes"
 	"encoding/json"
+	"reflect"
 	"sort"
 	"strconv"
+	"unsafe"
 
 	"github.com/cespare/xxhash/v2"
 )
@@ -28,8 +30,6 @@ const (
 	AlertName    = "alertname"
 	BucketLabel  = "le"
 	InstanceName = "instance"
-
-	labelSep = '\xfe'
 )
 
 var seps = []byte{'\xff'}
@@ -39,47 +39,70 @@ type Label struct {
 	Name, Value string
 }
 
-// Labels is a sorted set of labels. Order has to be guaranteed upon
-// instantiation.
+// Labels is implemented by a single flat string holding name/value pairs.
+// Each name and value is preceded by its length in varint encoding.
+// Names are in order.
 type Labels struct {
-	lbls []Label
+	data string
 }
 
-func (ls Labels) Len() int           { return len(ls.lbls) }
-func (ls Labels) Swap(i, j int)      { ls.lbls[i], ls.lbls[j] = ls.lbls[j], ls.lbls[i] }
-func (ls Labels) Less(i, j int) bool { return ls.lbls[i].Name < ls.lbls[j].Name }
+type labelSlice []Label
+
+func (ls labelSlice) Len() int           { return len(ls) }
+func (ls labelSlice) Swap(i, j int)      { ls[i], ls[j] = ls[j], ls[i] }
+func (ls labelSlice) Less(i, j int) bool { return ls[i].Name < ls[j].Name }
+
+func decodeSize(data string, index int) (int, int) {
+	var size int
+	for shift := uint(0); ; shift += 7 {
+		// Just panic if we go of the end of data, since all Labels strings are constructed internally and
+		// malformed data indicates a bug, or memory corruption.
+		b := data[index]
+		index++
+		size |= int(b&0x7F) << shift
+		if b < 0x80 {
+			break
+		}
+	}
+	return size, index
+}
+
+func decodeString(data string, index int) (string, int) {
+	var size int
+	size, index = decodeSize(data, index)
+	return data[index : index+size], index + size
+}
 
 func (ls Labels) String() string {
 	var b bytes.Buffer
 
 	b.WriteByte('{')
-	for i, l := range ls.lbls {
+	for i := 0; i < len(ls.data); {
 		if i > 0 {
 			b.WriteByte(',')
 			b.WriteByte(' ')
 		}
-		b.WriteString(l.Name)
+		var name, value string
+		name, i = decodeString(ls.data, i)
+		value, i = decodeString(ls.data, i)
+		b.WriteString(name)
 		b.WriteByte('=')
-		b.WriteString(strconv.Quote(l.Value))
+		b.WriteString(strconv.Quote(value))
 	}
 	b.WriteByte('}')
 	return b.String()
 }
 
 // Bytes returns ls as a byte slice.
-// It uses an byte invalid character as a separator and so should not be used for printing.
+// It uses non-printing characters and so should not be used for printing.
 func (ls Labels) Bytes(buf []byte) []byte {
-	b := bytes.NewBuffer(buf[:0])
-	b.WriteByte(labelSep)
-	for i, l := range ls.lbls {
-		if i > 0 {
-			b.WriteByte(seps[0])
-		}
-		b.WriteString(l.Name)
-		b.WriteByte(seps[0])
-		b.WriteString(l.Value)
+	if cap(buf) < len(ls.data) {
+		buf = make([]byte, len(ls.data))
+	} else {
+		buf = buf[:len(ls.data)]
 	}
-	return b.Bytes()
+	copy(buf, ls.data)
+	return buf
 }
 
 // MarshalJSON implements json.Marshaler.
@@ -106,7 +129,7 @@ func (ls Labels) MarshalYAML() (interface{}, error) {
 
 // IsZero implements yaml.IsZeroer - if we don't have this then 'omitempty' fields are always omitted.
 func (ls Labels) IsZero() bool {
-	return len(ls.lbls) == 0
+	return len(ls.data) == 0
 }
 
 // UnmarshalYAML implements yaml.Unmarshaler.
@@ -123,68 +146,46 @@ func (ls *Labels) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 // MatchLabels returns a subset of Labels that matches/does not match with the provided label names based on the 'on' boolean.
 // If on is set to true, it returns the subset of labels that match with the provided label names and its inverse when 'on' is set to false.
+// TODO: This is only used in printing an error message
 func (ls Labels) MatchLabels(on bool, names ...string) Labels {
-	matchedLabels := Labels{}
-
-	nameSet := make(map[string]struct{}, len(names))
-	for _, n := range names {
-		nameSet[n] = struct{}{}
+	b := NewBuilder(ls)
+	if on {
+		b.Keep(names...)
+	} else {
+		b.Del(MetricName)
+		b.Del(names...)
 	}
-
-	for _, v := range ls.lbls {
-		if _, ok := nameSet[v.Name]; on == ok && (on || v.Name != MetricName) {
-			matchedLabels.lbls = append(matchedLabels.lbls, v)
-		}
-	}
-
-	return matchedLabels
+	return b.Labels(EmptyLabels())
 }
 
 // Hash returns a hash value for the label set.
 func (ls Labels) Hash() uint64 {
-	// Use xxhash.Sum64(b) for fast path as it's faster.
-	b := make([]byte, 0, 1024)
-	for i, v := range ls.lbls {
-		if len(b)+len(v.Name)+len(v.Value)+2 >= cap(b) {
-			// If labels entry is 1KB+ do not allocate whole entry.
-			h := xxhash.New()
-			_, _ = h.Write(b)
-			for _, v := range ls.lbls[i:] {
-				_, _ = h.WriteString(v.Name)
-				_, _ = h.Write(seps)
-				_, _ = h.WriteString(v.Value)
-				_, _ = h.Write(seps)
-			}
-			return h.Sum64()
-		}
-
-		b = append(b, v.Name...)
-		b = append(b, seps[0])
-		b = append(b, v.Value...)
-		b = append(b, seps[0])
-	}
-	return xxhash.Sum64(b)
+	return xxhash.Sum64(yoloBytes(ls.data))
 }
 
 // HashForLabels returns a hash value for the labels matching the provided names.
 // 'names' have to be sorted in ascending order.
 func (ls Labels) HashForLabels(b []byte, names ...string) (uint64, []byte) {
 	b = b[:0]
-	i, j := 0, 0
-	for i < len(ls.lbls) && j < len(names) {
-		if names[j] < ls.lbls[i].Name {
-			j++
-		} else if ls.lbls[i].Name < names[j] {
-			i++
-		} else {
-			b = append(b, ls.lbls[i].Name...)
-			b = append(b, seps[0])
-			b = append(b, ls.lbls[i].Value...)
-			b = append(b, seps[0])
-			i++
+	j := 0
+	for i := 0; i < len(ls.data); {
+		var name, value string
+		name, i = decodeString(ls.data, i)
+		value, i = decodeString(ls.data, i)
+		for j < len(names) && names[j] < name {
 			j++
 		}
+		if j == len(names) {
+			break
+		}
+		if name == names[j] {
+			b = append(b, name...)
+			b = append(b, seps[0])
+			b = append(b, value...)
+			b = append(b, seps[0])
+		}
 	}
+
 	return xxhash.Sum64(b), b
 }
 
@@ -194,16 +195,19 @@ func (ls Labels) HashForLabels(b []byte, names ...string) (uint64, []byte) {
 func (ls Labels) HashWithoutLabels(b []byte, names ...string) (uint64, []byte) {
 	b = b[:0]
 	j := 0
-	for i := range ls.lbls {
-		for j < len(names) && names[j] < ls.lbls[i].Name {
+	for i := 0; i < len(ls.data); {
+		var name, value string
+		name, i = decodeString(ls.data, i)
+		value, i = decodeString(ls.data, i)
+		for j < len(names) && names[j] < name {
 			j++
 		}
-		if ls.lbls[i].Name == MetricName || (j < len(names) && ls.lbls[i].Name == names[j]) {
+		if name == MetricName || (j < len(names) && name == names[j]) {
 			continue
 		}
-		b = append(b, ls.lbls[i].Name...)
+		b = append(b, name...)
 		b = append(b, seps[0])
-		b = append(b, ls.lbls[i].Value...)
+		b = append(b, value...)
 		b = append(b, seps[0])
 	}
 	return xxhash.Sum64(b), b
@@ -212,64 +216,59 @@ func (ls Labels) HashWithoutLabels(b []byte, names ...string) (uint64, []byte) {
 // BytesWithLabels is just as Bytes(), but only for labels matching names.
 // 'names' have to be sorted in ascending order.
 func (ls Labels) BytesWithLabels(buf []byte, names ...string) []byte {
-	b := bytes.NewBuffer(buf[:0])
-	b.WriteByte(labelSep)
-	i, j := 0, 0
-	for i < len(ls.lbls) && j < len(names) {
-		if names[j] < ls.lbls[i].Name {
-			j++
-		} else if ls.lbls[i].Name < names[j] {
-			i++
-		} else {
-			if b.Len() > 1 {
-				b.WriteByte(seps[0])
-			}
-			b.WriteString(ls.lbls[i].Name)
-			b.WriteByte(seps[0])
-			b.WriteString(ls.lbls[i].Value)
-			i++
+	b := buf[:0]
+	j := 0
+	for pos := 0; pos < len(ls.data); {
+		lName, newPos := decodeString(ls.data, pos)
+		_, newPos = decodeString(ls.data, newPos)
+		for j < len(names) && names[j] < lName {
 			j++
 		}
+		if j == len(names) {
+			break
+		}
+		if lName == names[j] {
+			b = append(b, ls.data[pos:newPos]...)
+		}
+		pos = newPos
 	}
-	return b.Bytes()
+	return b
 }
 
 // BytesWithoutLabels is just as Bytes(), but only for labels not matching names.
 // 'names' have to be sorted in ascending order.
 func (ls Labels) BytesWithoutLabels(buf []byte, names ...string) []byte {
-	b := bytes.NewBuffer(buf[:0])
-	b.WriteByte(labelSep)
+	b := buf[:0]
 	j := 0
-	for i := range ls.lbls {
-		for j < len(names) && names[j] < ls.lbls[i].Name {
+	for pos := 0; pos < len(ls.data); {
+		lName, newPos := decodeString(ls.data, pos)
+		_, newPos = decodeString(ls.data, newPos)
+		for j < len(names) && names[j] < lName {
 			j++
 		}
-		if j < len(names) && ls.lbls[i].Name == names[j] {
-			continue
+		if j == len(names) || lName != names[j] {
+			b = append(b, ls.data[pos:newPos]...)
 		}
-		if b.Len() > 1 {
-			b.WriteByte(seps[0])
-		}
-		b.WriteString(ls.lbls[i].Name)
-		b.WriteByte(seps[0])
-		b.WriteString(ls.lbls[i].Value)
+		pos = newPos
 	}
-	return b.Bytes()
+	return b
 }
 
 // Copy returns a copy of the labels.
 func (ls Labels) Copy() Labels {
-	res := Labels{lbls: make([]Label, len(ls.lbls))}
-	copy(res.lbls, ls.lbls)
-	return res
+	buf := append([]byte{}, ls.data...)
+	return Labels{data: yoloString(buf)}
 }
 
 // Get returns the value for the label with the given name.
 // Returns an empty string if the label doesn't exist.
 func (ls Labels) Get(name string) string {
-	for _, l := range ls.lbls {
-		if l.Name == name {
-			return l.Value
+	for i := 0; i < len(ls.data); {
+		var lName, lValue string
+		lName, i = decodeString(ls.data, i)
+		lValue, i = decodeString(ls.data, i)
+		if lName == name {
+			return lValue
 		}
 	}
 	return ""
@@ -277,8 +276,11 @@ func (ls Labels) Get(name string) string {
 
 // Has returns true if the label with the given name is present.
 func (ls Labels) Has(name string) bool {
-	for _, l := range ls.lbls {
-		if l.Name == name {
+	for i := 0; i < len(ls.data); {
+		var lName string
+		lName, i = decodeString(ls.data, i)
+		_, i = decodeString(ls.data, i)
+		if lName == name {
 			return true
 		}
 	}
@@ -288,13 +290,14 @@ func (ls Labels) Has(name string) bool {
 // HasDuplicateLabelNames returns whether ls has duplicate label names.
 // It assumes that the labelset is sorted.
 func (ls Labels) HasDuplicateLabelNames() (string, bool) {
-	for i, l := range ls.lbls {
-		if i == 0 {
-			continue
+	var lName, prevName string
+	for i := 0; i < len(ls.data); {
+		lName, i = decodeString(ls.data, i)
+		_, i = decodeString(ls.data, i)
+		if lName == prevName {
+			return lName, true
 		}
-		if l.Name == ls.lbls[i-1].Name {
-			return l.Name, true
-		}
+		prevName = lName
 	}
 	return "", false
 }
@@ -302,40 +305,46 @@ func (ls Labels) HasDuplicateLabelNames() (string, bool) {
 // WithoutEmpty returns the labelset without empty labels.
 // May return the same labelset.
 func (ls Labels) WithoutEmpty() Labels {
-	for _, v := range ls.lbls {
-		if v.Value != "" {
+	for pos := 0; pos < len(ls.data); {
+		_, newPos := decodeString(ls.data, pos)
+		lValue, newPos := decodeString(ls.data, newPos)
+		if lValue != "" {
+			pos = newPos
 			continue
 		}
 		// Do not copy the slice until it's necessary.
-		els := Labels{lbls: make([]Label, 0, len(ls.lbls)-1)}
-		for _, v := range ls.lbls {
-			if v.Value != "" {
-				els.lbls = append(els.lbls, v)
+		// TODO: could optimise the case where all blanks are at the end.
+		// Note: we size the new buffer on the assumption there is exactly one blank value.
+		buf := make([]byte, pos, pos+(len(ls.data)-newPos))
+		copy(buf, ls.data[:pos]) // copy the initial non-blank labels
+		pos = newPos             // move past the first blank value
+		for pos < len(ls.data) {
+			var newPos int
+			_, newPos = decodeString(ls.data, pos)
+			lValue, newPos = decodeString(ls.data, newPos)
+			if lValue != "" {
+				buf = append(buf, ls.data[pos:newPos]...)
 			}
+			pos = newPos
 		}
-		return els
+		return Labels{data: yoloString(buf)}
 	}
 	return ls
 }
 
 // Equal returns whether the two label sets are equal.
 func Equal(ls, o Labels) bool {
-	if len(ls.lbls) != len(o.lbls) {
-		return false
-	}
-	for i, l := range ls.lbls {
-		if l != o.lbls[i] {
-			return false
-		}
-	}
-	return true
+	return ls.data == o.data
 }
 
 // Map returns a string map of the labels.
 func (ls Labels) Map() map[string]string {
-	m := make(map[string]string, len(ls.lbls))
-	for _, l := range ls.lbls {
-		m[l.Name] = l.Value
+	m := make(map[string]string, len(ls.data)/10)
+	for i := 0; i < len(ls.data); {
+		var lName, lValue string
+		lName, i = decodeString(ls.data, i)
+		lValue, i = decodeString(ls.data, i)
+		m[lName] = lValue
 	}
 	return m
 }
@@ -345,14 +354,24 @@ func EmptyLabels() Labels {
 	return Labels{}
 }
 
+func yoloString(b []byte) string {
+	return *((*string)(unsafe.Pointer(&b)))
+}
+
+func yoloBytes(s string) (b []byte) {
+	*(*string)(unsafe.Pointer(&b)) = s
+	(*reflect.SliceHeader)(unsafe.Pointer(&b)).Cap = len(s)
+	return
+}
+
 // New returns a sorted Labels from the given labels.
 // The caller has to guarantee that all label names are unique.
 func New(ls ...Label) Labels {
-	set := Labels{lbls: make([]Label, 0, len(ls))}
-	set.lbls = append(set.lbls, ls...)
-	sort.Sort(set)
-
-	return set
+	sort.Sort(labelSlice(ls))
+	size := labelsSize(ls)
+	buf := make([]byte, size)
+	marshalLabelsToSizedBuffer(ls, buf)
+	return Labels{data: yoloString(buf)}
 }
 
 // FromMap returns new sorted Labels from the given map.
@@ -369,62 +388,91 @@ func FromStrings(ss ...string) Labels {
 	if len(ss)%2 != 0 {
 		panic("invalid number of strings")
 	}
-	res := Labels{lbls: make([]Label, 0, len(ss)/2)}
+	ls := make([]Label, 0, len(ss)/2)
 	for i := 0; i < len(ss); i += 2 {
-		res.lbls = append(res.lbls, Label{Name: ss[i], Value: ss[i+1]})
+		ls = append(ls, Label{Name: ss[i], Value: ss[i+1]})
 	}
 
-	sort.Sort(res)
-	return res
+	sort.Sort(labelSlice(ls))
+	return New(ls...)
 }
 
 // Compare compares the two label sets.
 // The result will be 0 if a==b, <0 if a < b, and >0 if a > b.
+// TODO: replace with Less function - Compare is never needed.
+// TODO: just compare the underlying strings when we don't need alphanumeric sorting.
 func Compare(a, b Labels) int {
-	l := len(a.lbls)
-	if len(b.lbls) < l {
-		l = len(b.lbls)
+	l := len(a.data)
+	if len(b.data) < l {
+		l = len(b.data)
 	}
 
-	for i := 0; i < l; i++ {
-		if a.lbls[i].Name != b.lbls[i].Name {
-			if a.lbls[i].Name < b.lbls[i].Name {
+	ia, ib := 0, 0
+	for ia < l {
+		var aName, bName string
+		aName, ia = decodeString(a.data, ia)
+		bName, ib = decodeString(b.data, ib)
+		if aName != bName {
+			if aName < bName {
 				return -1
 			}
 			return 1
 		}
-		if a.lbls[i].Value != b.lbls[i].Value {
-			if a.lbls[i].Value < b.lbls[i].Value {
+		var aValue, bValue string
+		aValue, ia = decodeString(a.data, ia)
+		bValue, ib = decodeString(b.data, ib)
+		if aValue != bValue {
+			if aValue < bValue {
 				return -1
 			}
 			return 1
 		}
 	}
 	// If all labels so far were in common, the set with fewer labels comes first.
-	return len(a.lbls) - len(b.lbls)
+	return len(a.data) - len(b.data)
 }
 
 // Copy labels from b on top of whatever was in ls previously, reusing memory or expanding if needed.
 func (ls *Labels) CopyFrom(b Labels) {
-	ls.lbls = append(ls.lbls[:0], b.lbls...)
+	ls.data = b.data // strings are immutable
 }
 
 // IsEmpty returns true if ls represents an empty set of labels.
 func (ls Labels) IsEmpty() bool {
-	return len(ls.lbls) == 0
+	return len(ls.data) == 0
+}
+
+// Len returns the number of labels; it is relatively slow.
+func (ls Labels) Len() int {
+	count := 0
+	for i := 0; i < len(ls.data); {
+		var size int
+		size, i = decodeSize(ls.data, i)
+		i += size
+		size, i = decodeSize(ls.data, i)
+		i += size
+		count++
+	}
+	return count
 }
 
 // Call f on each label.
 func (ls Labels) Range(f func(l Label)) {
-	for _, l := range ls.lbls {
-		f(l)
+	for i := 0; i < len(ls.data); {
+		var lName, lValue string
+		lName, i = decodeString(ls.data, i)
+		lValue, i = decodeString(ls.data, i)
+		f(Label{Name: lName, Value: lValue})
 	}
 }
 
 // Call f on each label; if f returns non-nil then return that error.
 func (ls Labels) RangeToError(f func(l Label) error) error {
-	for _, l := range ls.lbls {
-		err := f(l)
+	for i := 0; i < len(ls.data); {
+		var lName, lValue string
+		lName, i = decodeString(ls.data, i)
+		lValue, i = decodeString(ls.data, i)
+		err := f(Label{Name: lName, Value: lValue})
 		if err != nil {
 			return err
 		}
@@ -434,58 +482,85 @@ func (ls Labels) RangeToError(f func(l Label) error) error {
 
 // InternStrings calls intern on every string value inside ls, replacing them with what it returns.
 func (ls *Labels) InternStrings(intern func(string) string) {
-	for i, l := range ls.lbls {
-		ls.lbls[i].Name = intern(l.Name)
-		ls.lbls[i].Value = intern(l.Value)
-	}
+	ls.data = intern(ls.data)
 }
 
 // InternStrings calls release on every string value inside ls.
 func (ls Labels) ReleaseStrings(release func(string)) {
-	for _, l := range ls.lbls {
-		release(l.Name)
-		release(l.Value)
-	}
+	release(ls.data)
 }
 
 // Call f on each label; return a new Labels of those where f returns true.
 func (ls Labels) Filter(f func(l Label) bool) Labels {
-	var ret Labels
-	ret.lbls = make([]Label, 0, len(ls.lbls))
-	for _, l := range ls.lbls {
-		ok := f(l)
+	// Note: we size the new buffer on the assumption nothing will be filtered out.
+	buf := make([]byte, 0, len(ls.data))
+
+	for pos := 0; pos < len(ls.data); {
+		oldPos := pos
+		var lName, lValue string
+		lName, pos = decodeString(ls.data, pos)
+		lValue, pos = decodeString(ls.data, pos)
+		ok := f(Label{Name: lName, Value: lValue})
 		if ok {
-			ret.lbls = append(ret.lbls, l)
+			buf = append(buf, ls.data[oldPos:pos]...)
 		}
 	}
-	return ret
+	return Labels{data: yoloString(buf)}
 }
 
 // Merge externalLabels into ls. If ls contains
 // a label in externalLabels, the value in ls wins.
 func (ls Labels) Merge(externalLabels Labels) Labels {
-	i, j, result := 0, 0, make([]Label, 0, ls.Len()+externalLabels.Len())
-	for i < len(ls.lbls) && j < len(externalLabels.lbls) {
-		if ls.lbls[i].Name < externalLabels.lbls[j].Name {
-			result = append(result, Label{
-				Name:  ls.lbls[i].Name,
-				Value: ls.lbls[i].Value,
-			})
-			i++
-		} else if ls.lbls[i].Name > externalLabels.lbls[j].Name {
-			result = append(result, externalLabels.lbls[j])
-			j++
-		} else {
-			result = append(result, Label{
-				Name:  ls.lbls[i].Name,
-				Value: ls.lbls[i].Value,
-			})
-			i++
-			j++
-		}
+	if externalLabels.IsEmpty() {
+		return ls
+	} else if ls.IsEmpty() {
+		return externalLabels
 	}
 
-	return Labels{lbls: append(append(result, ls.lbls[i:]...), externalLabels.lbls[j:]...)}
+	buf := make([]byte, 0, len(ls.data)+len(externalLabels.data))
+
+	ePos, ePrev := 0, 0
+	eName, ePos := decodeString(externalLabels.data, ePos)
+	_, ePos = decodeString(externalLabels.data, ePos)
+	pos, prev := 0, 0
+	lName, pos := decodeString(ls.data, pos)
+	_, pos = decodeString(ls.data, pos)
+
+	for {
+		if lName < eName {
+			buf = append(buf, ls.data[prev:pos]...)
+			prev = pos
+			if pos >= len(ls.data) {
+				break
+			}
+			lName, pos = decodeString(ls.data, pos)
+			_, pos = decodeString(ls.data, pos)
+		} else if lName > eName {
+			buf = append(buf, externalLabels.data[ePrev:ePos]...)
+			ePrev = ePos
+			if ePos >= len(externalLabels.data) {
+				break
+			}
+			eName, ePos = decodeString(externalLabels.data, ePos)
+			_, ePos = decodeString(externalLabels.data, ePos)
+		} else {
+			buf = append(buf, ls.data[prev:pos]...)
+			prev = pos
+			ePrev = ePos
+			if pos >= len(ls.data) {
+				break
+			}
+			lName, pos = decodeString(ls.data, pos)
+			_, pos = decodeString(ls.data, pos)
+			if ePos >= len(externalLabels.data) {
+				break
+			}
+			eName, ePos = decodeString(externalLabels.data, ePos)
+			_, ePos = decodeString(externalLabels.data, ePos)
+		}
+	}
+	buf = append(append(buf, ls.data[prev:]...), externalLabels.data[ePrev:]...)
+	return Labels{data: yoloString(buf)}
 }
 
 // Builder allows modifying Labels.
@@ -510,9 +585,12 @@ func (b *Builder) Reset(base Labels) {
 	b.base = base
 	b.del = b.del[:0]
 	b.add = b.add[:0]
-	for _, l := range b.base.lbls {
-		if l.Value == "" {
-			b.del = append(b.del, l.Name)
+	for i := 0; i < len(base.data); {
+		var lName, lValue string
+		lName, i = decodeString(base.data, i)
+		lValue, i = decodeString(base.data, i)
+		if lValue == "" {
+			b.del = append(b.del, lName)
 		}
 	}
 }
@@ -533,13 +611,16 @@ func (b *Builder) Del(ns ...string) *Builder {
 // Keep removes all labels from the base except those with the given names.
 func (b *Builder) Keep(ns ...string) *Builder {
 Outer:
-	for _, l := range b.base.lbls {
+	for i := 0; i < len(b.base.data); {
+		var lName string
+		lName, i = decodeString(b.base.data, i)
+		_, i = decodeString(b.base.data, i)
 		for _, n := range ns {
-			if l.Name == n {
+			if lName == n {
 				continue Outer
 			}
 		}
-		b.del = append(b.del, l.Name)
+		b.del = append(b.del, lName)
 	}
 	return b
 }
@@ -574,66 +655,178 @@ func (b *Builder) Labels(res Labels) Labels {
 		return b.base
 	}
 
-	if res.lbls == nil {
-		// In the general case, labels are removed, modified or moved
-		// rather than added.
-		res.lbls = make([]Label, 0, len(b.base.lbls))
+	sort.Sort(labelSlice(b.add))
+	sort.Strings(b.del)
+	a, d := 0, 0
+
+	buf := make([]byte, 0, len(b.base.data)) // TODO: see if we can re-use the buffer from res.
+	for pos := 0; pos < len(b.base.data); {
+		oldPos := pos
+		var lName string
+		lName, pos = decodeString(b.base.data, pos)
+		_, pos = decodeString(b.base.data, pos)
+		for d < len(b.del) && b.del[d] < lName {
+			d++
+		}
+		if d < len(b.del) && b.del[d] == lName {
+			continue // This label has been deleted.
+		}
+		for ; a < len(b.add) && b.add[a].Name < lName; a++ {
+			buf = appendLabelTo(buf, &b.add[a]) // Insert label that was not in the base set.
+		}
+		if a < len(b.add) && b.add[a].Name == lName {
+			buf = appendLabelTo(buf, &b.add[a])
+			a++
+			continue // This label has been replaced.
+		}
+		buf = append(buf, b.base.data[oldPos:pos]...)
+	}
+	// We have come to the end of the base set; add any remaining labels.
+	for ; a < len(b.add); a++ {
+		buf = appendLabelTo(buf, &b.add[a])
+	}
+	return Labels{data: yoloString(buf)}
+}
+
+func marshalLabelsToSizedBuffer(lbls []Label, data []byte) int {
+	i := len(data)
+	for index := len(lbls) - 1; index >= 0; index-- {
+		size := marshalLabelToSizedBuffer(&lbls[index], data[:i])
+		i -= size
+	}
+	return len(data) - i
+}
+
+func marshalLabelToSizedBuffer(m *Label, data []byte) int {
+	i := len(data)
+	i -= len(m.Value)
+	copy(data[i:], m.Value)
+	i = encodeSize(data, i, len(m.Value))
+	i -= len(m.Name)
+	copy(data[i:], m.Name)
+	i = encodeSize(data, i, len(m.Name))
+	return len(data) - i
+}
+
+func sizeVarint(x uint64) (n int) {
+	// Most common case first
+	if x < 1<<7 {
+		return 1
+	}
+	if x >= 1<<56 {
+		return 9
+	}
+	if x >= 1<<28 {
+		x >>= 28
+		n = 4
+	}
+	if x >= 1<<14 {
+		x >>= 14
+		n += 2
+	}
+	if x >= 1<<7 {
+		n++
+	}
+	return n + 1
+}
+
+func encodeVarint(data []byte, offset int, v uint64) int {
+	offset -= sizeVarint(v)
+	base := offset
+	for v >= 1<<7 {
+		data[offset] = uint8(v&0x7f | 0x80)
+		v >>= 7
+		offset++
+	}
+	data[offset] = uint8(v)
+	return base
+}
+
+// Special code for the common case that a size is less than 128
+func encodeSize(data []byte, offset, v int) int {
+	if v < 1<<7 {
+		offset--
+		data[offset] = uint8(v)
+		return offset
+	}
+	return encodeVarint(data, offset, uint64(v))
+}
+
+func labelsSize(lbls []Label) (n int) {
+	// we just encode name/value/name/value, without any extra tags or length bytes
+	for _, e := range lbls {
+		n += labelSize(&e)
+	}
+	return n
+}
+
+func labelSize(m *Label) (n int) {
+	// strings are encoded as length followed by contents.
+	l := len(m.Name)
+	n += l + sizeVarint(uint64(l))
+	l = len(m.Value)
+	n += l + sizeVarint(uint64(l))
+	return n
+}
+
+func appendLabelTo(buf []byte, m *Label) []byte {
+	size := labelSize(m)
+	sizeRequired := len(buf) + size
+	if cap(buf) >= sizeRequired {
+		buf = buf[:sizeRequired]
 	} else {
-		res.lbls = res.lbls[:0]
-	}
-Outer:
-	// Justification that res can be the same slice as base: in this loop
-	// we move forward through base, and either skip an element or assign
-	// it to res at its current position or an earlier position.
-	for _, l := range b.base.lbls {
-		for _, n := range b.del {
-			if l.Name == n {
-				continue Outer
-			}
+		bufSize := cap(buf)
+		// Double size of buffer each time it needs to grow, to amortise copying cost.
+		for bufSize < sizeRequired {
+			bufSize = bufSize*2 + 1
 		}
-		for _, la := range b.add {
-			if l.Name == la.Name {
-				continue Outer
-			}
-		}
-		res.lbls = append(res.lbls, l)
+		newBuf := make([]byte, sizeRequired, bufSize)
+		copy(newBuf, buf)
+		buf = newBuf
 	}
-	if len(b.add) > 0 { // Base is already in order, so we only need to sort if we add to it.
-		res.lbls = append(res.lbls, b.add...)
-		sort.Sort(res)
-	}
-	return res
+	marshalLabelToSizedBuffer(m, buf)
+	return buf
 }
 
 // SimpleBuilder allows efficient construction of a Labels from scratch.
 type SimpleBuilder struct {
-	add Labels
+	add []Label
 }
 
 func (b *SimpleBuilder) Reset() {
-	b.add.lbls = b.add.lbls[:0]
+	b.add = b.add[:0]
 }
 
 // Add a name/value pair.
 // Note if you Add the same name twice you will get a duplicate label, which is invalid.
 func (b *SimpleBuilder) Add(name, value string) {
-	b.add.lbls = append(b.add.lbls, Label{Name: name, Value: value})
+	b.add = append(b.add, Label{Name: name, Value: value})
 }
 
 // Sort the labels added so far by name.
 func (b *SimpleBuilder) Sort() {
-	sort.Sort(b.add)
+	sort.Sort(labelSlice(b.add))
 }
 
 // Return the name/value pairs added so far as a Labels object.
 // Note: if you want them sorted, call Sort() first.
 func (b *SimpleBuilder) Labels() Labels {
-	// Copy the slice, so the next use of SimpleBuilder doesn't overwrite.
-	return Labels{lbls: append([]Label{}, b.add.lbls...)}
+	size := labelsSize(b.add)
+	buf := make([]byte, size)
+	marshalLabelsToSizedBuffer(b.add, buf)
+	return Labels{data: yoloString(buf)}
 }
 
 // Write the newly-built Labels out to ls, reusing its buffer if long enough.
 // Callers must ensure that there are no other references to ls.
 func (b *SimpleBuilder) Overwrite(ls *Labels) {
-	ls.lbls = append(ls.lbls[:0], b.add.lbls...)
+	size := labelsSize(b.add)
+	var buf []byte
+	if size <= len(ls.data) {
+		buf = yoloBytes(ls.data)[:size]
+	} else {
+		buf = make([]byte, size)
+	}
+	marshalLabelsToSizedBuffer(b.add, buf)
+	ls.data = yoloString(buf)
 }
