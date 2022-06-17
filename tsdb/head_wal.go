@@ -713,13 +713,14 @@ func (wp *oooWalSubsetProcessor) waitUntilIdle() {
 	default:
 	}
 	wp.input <- []record.RefSample{}
+	ticker := time.NewTicker(10 * time.Microsecond)
 	for len(wp.input) != 0 {
-		time.Sleep(10 * time.Microsecond)
 		select {
 		case <-wp.output: // Allow output side to drain to avoid deadlock.
-		default:
+		case <-ticker.C:
 		}
 	}
+	ticker.Stop()
 }
 
 const (
