@@ -4312,7 +4312,7 @@ func TestOOODisabled(t *testing.T) {
 	require.Len(t, ms.oooMmappedChunks, 0)
 }
 
-func TestOOOWALAndMmapReplay(t *testing.T) {
+func TestWBLAndMmapReplay(t *testing.T) {
 	opts := DefaultOptions()
 	opts.OOOCapMin = 2
 	opts.OOOCapMax = 30
@@ -4398,6 +4398,11 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 		require.NoError(t, os.RemoveAll(wblDir))
 		require.NoError(t, fileutil.CopyDirs(originalWblDir, wblDir))
 	}
+	// TODO(jesus.vazquez) Remove this function and the test below using it, only necessary until all ooo_wbl dirs in prod have been replaced with wbl
+	resetWBLToOldDir := func() {
+		require.NoError(t, os.RemoveAll(wblDir))
+		require.NoError(t, fileutil.CopyDirs(originalWblDir, filepath.Join(db.dir, "ooo_wbl")))
+	}
 	resetMmapToOriginal := func() {
 		require.NoError(t, os.RemoveAll(mmapDir))
 		require.NoError(t, fileutil.CopyDirs(originalMmapDir, mmapDir))
@@ -4479,6 +4484,16 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 		require.NoError(t, os.Rename(newWbl.Dir(), wblDir))
 
 		opts.OOOCapMax = 30
+		db, err = Open(db.dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		testQuery(expSamples)
+		require.NoError(t, db.Close())
+	})
+
+	t.Run("Restart DB with Old WBL Dir", func(t *testing.T) {
+		resetWBLToOldDir()
+		resetMmapToOriginal()
+
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
@@ -4627,7 +4642,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 	verifyMmapFiles("000002")
 }
 
-func TestOOOWBLCorruption(t *testing.T) {
+func TestWBLCorruption(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
@@ -4862,7 +4877,7 @@ func TestOOOMmapCorruption(t *testing.T) {
 
 	// Moving OOO WBL to use it later.
 	wblDir := db.head.wbl.Dir()
-	wblDirTmp := path.Join(t.TempDir(), "ooo_wbl_tmp")
+	wblDirTmp := path.Join(t.TempDir(), "wbl_tmp")
 	require.NoError(t, os.Rename(wblDir, wblDirTmp))
 
 	// Restart does the replay and repair of m-map files.
