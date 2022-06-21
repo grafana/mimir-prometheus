@@ -3625,7 +3625,7 @@ func TestOOOWALWrite(t *testing.T) {
 	require.Equal(t, inOrderRecords, actRecs)
 
 	// The OOO WAL.
-	actRecs = getRecords(path.Join(dir, wal.OOOWblDirName))
+	actRecs = getRecords(path.Join(dir, wal.WblDirName))
 	require.Equal(t, oooRecords, actRecs)
 }
 
@@ -3782,7 +3782,7 @@ func TestOOOCompaction(t *testing.T) {
 	require.Equal(t, len(db.Blocks()), 0)
 
 	// There is a 0th WBL file.
-	files, err := os.ReadDir(db.head.oooWbl.Dir())
+	files, err := os.ReadDir(db.head.wbl.Dir())
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	require.Equal(t, "00000000", files[0].Name())
@@ -3799,7 +3799,7 @@ func TestOOOCompaction(t *testing.T) {
 	verifyDBSamples() // Blocks created out of OOO head now.
 
 	// 0th WBL file will be deleted and 1st will be the only present.
-	files, err = os.ReadDir(db.head.oooWbl.Dir())
+	files, err = os.ReadDir(db.head.wbl.Dir())
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	require.Equal(t, "00000001", files[0].Name())
@@ -4301,7 +4301,7 @@ func TestOOODisabled(t *testing.T) {
 		"number of ooo/oob samples mismatch")
 
 	// Verifying that no OOO artifacts were generated.
-	_, err = os.ReadDir(path.Join(db.Dir(), wal.OOOWblDirName))
+	_, err = os.ReadDir(path.Join(db.Dir(), wal.WblDirName))
 	require.True(t, os.IsNotExist(err))
 
 	ms, created, err := db.head.getOrCreate(s1.Hash(), s1)
@@ -4312,7 +4312,7 @@ func TestOOODisabled(t *testing.T) {
 	require.Len(t, ms.oooMmappedChunks, 0)
 }
 
-func TestOOOWALAndMmapReplay(t *testing.T) {
+func TestWBLAndMmapReplay(t *testing.T) {
 	opts := DefaultOptions()
 	opts.OOOCapMin = 2
 	opts.OOOCapMax = 30
@@ -4389,7 +4389,7 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 
 	// Making a copy of original state of WBL and Mmap files to use it later.
 	mmapDir := mmappedChunksDir(db.head.opts.ChunkDirRoot)
-	wblDir := db.head.oooWbl.Dir()
+	wblDir := db.head.wbl.Dir()
 	originalWblDir := filepath.Join(t.TempDir(), "original_wbl")
 	originalMmapDir := filepath.Join(t.TempDir(), "original_mmap")
 	require.NoError(t, fileutil.CopyDirs(wblDir, originalWblDir))
@@ -4397,6 +4397,11 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 	resetWBLToOriginal := func() {
 		require.NoError(t, os.RemoveAll(wblDir))
 		require.NoError(t, fileutil.CopyDirs(originalWblDir, wblDir))
+	}
+	// TODO(jesus.vazquez) Remove this function and the test below using it, only necessary until all ooo_wbl dirs in prod have been replaced with wbl
+	resetWBLToOldDir := func() {
+		require.NoError(t, os.RemoveAll(wblDir))
+		require.NoError(t, fileutil.CopyDirs(originalWblDir, filepath.Join(db.dir, "ooo_wbl")))
 	}
 	resetMmapToOriginal := func() {
 		require.NoError(t, os.RemoveAll(mmapDir))
@@ -4482,6 +4487,16 @@ func TestOOOWALAndMmapReplay(t *testing.T) {
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
+		require.NoError(t, db.Close())
+	})
+
+	t.Run("Restart DB with Old WBL Dir", func(t *testing.T) {
+		resetWBLToOldDir()
+		resetMmapToOriginal()
+
+		db, err = Open(db.dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		testQuery(expSamples)
 	})
 }
 
@@ -4525,7 +4540,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 
 	// There is a 0th WBL file.
 	verifyFirstWBLFileIs0 := func(count int) {
-		files, err := os.ReadDir(db.head.oooWbl.Dir())
+		files, err := os.ReadDir(db.head.wbl.Dir())
 		require.NoError(t, err)
 		require.Len(t, files, count)
 		require.Equal(t, "00000000", files[0].Name())
@@ -4585,7 +4600,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 
 	// All but last WBL file will be deleted.
 	// 8 files in total (starting at 0) because of 7 compaction calls.
-	files, err := os.ReadDir(db.head.oooWbl.Dir())
+	files, err := os.ReadDir(db.head.wbl.Dir())
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	require.Equal(t, "00000007", files[0].Name())
@@ -4627,7 +4642,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 	verifyMmapFiles("000002")
 }
 
-func TestOOOWBLCorruption(t *testing.T) {
+func TestWBLCorruption(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
@@ -4669,7 +4684,7 @@ func TestOOOWBLCorruption(t *testing.T) {
 	addSamples(120, 130, true)
 
 	// Moving onto the second file.
-	_, err = db.head.oooWbl.NextSegment()
+	_, err = db.head.wbl.NextSegment()
 	require.NoError(t, err)
 
 	// More OOO samples.
@@ -4680,29 +4695,29 @@ func TestOOOWBLCorruption(t *testing.T) {
 	// should be deleted after replay.
 
 	// Checking where we corrupt it.
-	files, err := os.ReadDir(db.head.oooWbl.Dir())
+	files, err := os.ReadDir(db.head.wbl.Dir())
 	require.NoError(t, err)
 	require.Len(t, files, 2)
 	f1, err := files[1].Info()
 	require.NoError(t, err)
 	corruptIndex := f1.Size()
-	corruptFilePath := path.Join(db.head.oooWbl.Dir(), files[1].Name())
+	corruptFilePath := path.Join(db.head.wbl.Dir(), files[1].Name())
 
 	// Corrupt the WBL by adding a malformed record.
-	require.NoError(t, db.head.oooWbl.Log([]byte{byte(record.Samples), 99, 9, 99, 9, 99, 9, 99}))
+	require.NoError(t, db.head.wbl.Log([]byte{byte(record.Samples), 99, 9, 99, 9, 99, 9, 99}))
 
 	// More samples after the corruption point.
 	addSamples(260, 280, false)
 	addSamples(290, 300, false)
 
 	// Another file.
-	_, err = db.head.oooWbl.NextSegment()
+	_, err = db.head.wbl.NextSegment()
 	require.NoError(t, err)
 
 	addSamples(310, 320, false)
 
 	// Verifying that we have data after corruption point.
-	files, err = os.ReadDir(db.head.oooWbl.Dir())
+	files, err = os.ReadDir(db.head.wbl.Dir())
 	require.NoError(t, err)
 	require.Len(t, files, 3)
 	f1, err = files[1].Info()
@@ -4746,7 +4761,7 @@ func TestOOOWBLCorruption(t *testing.T) {
 	verifySamples(expAfterRestart)
 
 	// Verify that it did the repair on disk.
-	files, err = os.ReadDir(db.head.oooWbl.Dir())
+	files, err = os.ReadDir(db.head.wbl.Dir())
 	require.NoError(t, err)
 	require.Len(t, files, 3)
 	f0, err = files[0].Info()
@@ -4755,7 +4770,7 @@ func TestOOOWBLCorruption(t *testing.T) {
 	f2, err = files[2].Info()
 	require.NoError(t, err)
 	require.Equal(t, int64(0), f2.Size())
-	require.Equal(t, corruptFilePath, path.Join(db.head.oooWbl.Dir(), files[1].Name()))
+	require.Equal(t, corruptFilePath, path.Join(db.head.wbl.Dir(), files[1].Name()))
 
 	// Verifying that everything after the corruption point is set to 0.
 	b, err := os.ReadFile(corruptFilePath)
@@ -4861,8 +4876,8 @@ func TestOOOMmapCorruption(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	// Moving OOO WBL to use it later.
-	wblDir := db.head.oooWbl.Dir()
-	wblDirTmp := path.Join(t.TempDir(), "ooo_wbl_tmp")
+	wblDir := db.head.wbl.Dir()
+	wblDirTmp := path.Join(t.TempDir(), "wbl_tmp")
 	require.NoError(t, os.Rename(wblDir, wblDirTmp))
 
 	// Restart does the replay and repair of m-map files.

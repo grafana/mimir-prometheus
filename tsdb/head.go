@@ -88,7 +88,7 @@ type Head struct {
 
 	metrics         *headMetrics
 	opts            *HeadOptions
-	wal, oooWbl     *wal.WAL
+	wal, wbl        *wal.WAL
 	exemplarMetrics *ExemplarMetrics
 	exemplars       ExemplarStorage
 	logger          log.Logger
@@ -203,7 +203,7 @@ type SeriesLifecycleCallback interface {
 }
 
 // NewHead opens the head block in dir.
-func NewHead(r prometheus.Registerer, l log.Logger, wal, oooWal *wal.WAL, opts *HeadOptions, stats *HeadStats) (*Head, error) {
+func NewHead(r prometheus.Registerer, l log.Logger, wal, wbl *wal.WAL, opts *HeadOptions, stats *HeadStats) (*Head, error) {
 	var err error
 	if l == nil {
 		l = log.NewNopLogger()
@@ -247,7 +247,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, oooWal *wal.WAL, opts *
 
 	h := &Head{
 		wal:    wal,
-		oooWbl: oooWal,
+		wbl:    wbl,
 		logger: l,
 		opts:   opts,
 		memChunkPool: sync.Pool{
@@ -713,35 +713,35 @@ func (h *Head) Init(minValidTime int64) error {
 	}
 	walReplayDuration := time.Since(walReplayStart)
 
-	oooWalReplayStart := time.Now()
-	if h.oooWbl != nil {
+	wblReplayStart := time.Now()
+	if h.wbl != nil {
 		// Replay OOO WAL.
-		startFrom, endAt, e = wal.Segments(h.oooWbl.Dir())
+		startFrom, endAt, e = wal.Segments(h.wbl.Dir())
 		if e != nil {
 			return errors.Wrap(e, "finding OOO WAL segments")
 		}
 		h.startWALReplayStatus(startFrom, endAt)
 
 		for i := startFrom; i <= endAt; i++ {
-			s, err := wal.OpenReadSegment(wal.SegmentName(h.oooWbl.Dir(), i))
+			s, err := wal.OpenReadSegment(wal.SegmentName(h.wbl.Dir(), i))
 			if err != nil {
-				return errors.Wrap(err, fmt.Sprintf("open OOO WAL segment: %d", i))
+				return errors.Wrap(err, fmt.Sprintf("open WBL segment: %d", i))
 			}
 
 			sr := wal.NewSegmentBufReader(s)
-			err = h.loadOOOWal(wal.NewReader(sr), multiRef, lastMmapRef)
+			err = h.loadWbl(wal.NewReader(sr), multiRef, lastMmapRef)
 			if err := sr.Close(); err != nil {
-				level.Warn(h.logger).Log("msg", "Error while closing the ooo wal segments reader", "err", err)
+				level.Warn(h.logger).Log("msg", "Error while closing the wbl segments reader", "err", err)
 			}
 			if err != nil {
 				return err
 			}
-			level.Info(h.logger).Log("msg", "OOO WAL segment loaded", "segment", i, "maxSegment", endAt)
+			level.Info(h.logger).Log("msg", "WBL segment loaded", "segment", i, "maxSegment", endAt)
 			h.updateWALReplayStatusRead(i)
 		}
 	}
 
-	oooWalReplayDuration := time.Since(oooWalReplayStart)
+	wblReplayDuration := time.Since(wblReplayStart)
 
 	totalReplayDuration := time.Since(start)
 	h.metrics.dataTotalReplayDuration.Set(totalReplayDuration.Seconds())
@@ -749,7 +749,7 @@ func (h *Head) Init(minValidTime int64) error {
 		"msg", "WAL replay completed",
 		"checkpoint_replay_duration", checkpointReplayDuration.String(),
 		"wal_replay_duration", walReplayDuration.String(),
-		"ooo_wbl_replay_duration", oooWalReplayDuration.String(),
+		"wbl_replay_duration", wblReplayDuration.String(),
 		"total_replay_duration", totalReplayDuration.String(),
 	)
 
@@ -1233,7 +1233,7 @@ func (h *Head) truncateOOO(lastWBLFile int, minOOOMmapRef chunks.ChunkDiskMapper
 		}
 	}
 
-	return h.oooWbl.Truncate(lastWBLFile)
+	return h.wbl.Truncate(lastWBLFile)
 }
 
 type Stats struct {
@@ -1474,8 +1474,8 @@ func (h *Head) Close() error {
 	if h.wal != nil {
 		errs.Add(h.wal.Close())
 	}
-	if h.oooWbl != nil {
-		errs.Add(h.oooWbl.Close())
+	if h.wbl != nil {
+		errs.Add(h.wbl.Close())
 	}
 	if errs.Err() == nil && h.opts.EnableMemorySnapshotOnShutdown {
 		errs.Add(h.performChunkSnapshot())

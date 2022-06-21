@@ -401,17 +401,17 @@ func (db *DBReadOnly) FlushWAL(dir string) (returnErr error) {
 	if err != nil {
 		return err
 	}
-	var ooow *wal.WAL
-	oooWblDir := filepath.Join(db.dir, wal.OOOWblDirName)
-	if _, err := os.Stat(oooWblDir); !os.IsNotExist(err) {
-		ooow, err = wal.Open(db.logger, oooWblDir)
+	var wbl *wal.WAL
+	wblDir := filepath.Join(db.dir, wal.WblDirName)
+	if _, err := os.Stat(wblDir); !os.IsNotExist(err) {
+		wbl, err = wal.Open(db.logger, wblDir)
 		if err != nil {
 			return err
 		}
 	}
 	opts := DefaultHeadOptions()
 	opts.ChunkDirRoot = db.dir
-	head, err := NewHead(nil, db.logger, w, ooow, opts, NewHeadStats())
+	head, err := NewHead(nil, db.logger, w, wbl, opts, NewHeadStats())
 	if err != nil {
 		return err
 	}
@@ -486,17 +486,17 @@ func (db *DBReadOnly) loadDataAsQueryable(maxt int64) (storage.SampleAndChunkQue
 		if err != nil {
 			return nil, err
 		}
-		var ooow *wal.WAL
-		oooWblDir := filepath.Join(db.dir, wal.OOOWblDirName)
-		if _, err := os.Stat(oooWblDir); !os.IsNotExist(err) {
-			ooow, err = wal.Open(db.logger, oooWblDir)
+		var wbl *wal.WAL
+		wblDir := filepath.Join(db.dir, wal.WblDirName)
+		if _, err := os.Stat(wblDir); !os.IsNotExist(err) {
+			wbl, err = wal.Open(db.logger, wblDir)
 			if err != nil {
 				return nil, err
 			}
 		}
 		opts := DefaultHeadOptions()
 		opts.ChunkDirRoot = db.dir
-		head, err = NewHead(nil, db.logger, w, ooow, opts, NewHeadStats())
+		head, err = NewHead(nil, db.logger, w, wbl, opts, NewHeadStats())
 		if err != nil {
 			return nil, err
 		}
@@ -686,7 +686,15 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	}
 
 	walDir := filepath.Join(dir, "wal")
-	oooWalDir := filepath.Join(dir, wal.OOOWblDirName)
+	wblDir := filepath.Join(dir, wal.WblDirName)
+	// TODO(jesus.vazquez) Remove the block of code below, only necessary until all ooo_wbl dirs in prod have been replaced with wbl
+	oldWblDir := filepath.Join(dir, "ooo_wbl")
+	if _, err := os.Stat(oldWblDir); err == nil {
+		err = fileutil.Rename(oldWblDir, wblDir)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to move old wbl dir to new wbl dir")
+		}
+	}
 
 	// Migrate old WAL if one exists.
 	if err := MigrateWAL(l, walDir); err != nil {
@@ -747,7 +755,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	}
 	db.compactCancel = cancel
 
-	var wlog, oooWlog *wal.WAL
+	var wlog, wblog *wal.WAL
 	segmentSize := wal.DefaultSegmentSize
 	// Wal is enabled.
 	if opts.WALSegmentSize >= 0 {
@@ -760,7 +768,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 			return nil, err
 		}
 		if opts.OOOAllowance > 0 {
-			oooWlog, err = wal.NewSize(l, r, oooWalDir, segmentSize, opts.WALCompression)
+			wblog, err = wal.NewSize(l, r, wblDir, segmentSize, opts.WALCompression)
 			if err != nil {
 				return nil, err
 			}
@@ -787,7 +795,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		// We only override this flag if isolation is disabled at DB level. We use the default otherwise.
 		headOpts.IsolationDisabled = opts.IsolationDisabled
 	}
-	db.head, err = NewHead(r, l, wlog, oooWlog, headOpts, stats.Head)
+	db.head, err = NewHead(r, l, wlog, wblog, headOpts, stats.Head)
 	if err != nil {
 		return nil, err
 	}
@@ -816,7 +824,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		isOOOErr := isErrLoadOOOWal(initErr)
 		if isOOOErr {
 			level.Warn(db.logger).Log("msg", "Encountered OOO WAL read error, attempting repair", "err", initErr)
-			if err := oooWlog.Repair(initErr); err != nil {
+			if err := wblog.Repair(initErr); err != nil {
 				return nil, errors.Wrap(err, "repair corrupted OOO WAL")
 			}
 		} else {

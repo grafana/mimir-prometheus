@@ -3243,7 +3243,7 @@ func TestOOOWalReplay(t *testing.T) {
 	dir := t.TempDir()
 	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
+	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.WblDirName), 32768, true)
 	require.NoError(t, err)
 
 	opts := DefaultHeadOptions()
@@ -3290,7 +3290,7 @@ func TestOOOWalReplay(t *testing.T) {
 	require.NoError(t, h.Close())
 	wlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
+	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, wal.WblDirName), 32768, true)
 	require.NoError(t, err)
 	h, err = NewHead(nil, nil, wlog, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -3327,7 +3327,7 @@ func TestOOOMmapReplay(t *testing.T) {
 	dir := t.TempDir()
 	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
+	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.WblDirName), 32768, true)
 	require.NoError(t, err)
 
 	opts := DefaultHeadOptions()
@@ -3378,7 +3378,7 @@ func TestOOOMmapReplay(t *testing.T) {
 
 	wlog, err = wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
+	oooWlog, err = wal.NewSize(nil, nil, filepath.Join(dir, wal.WblDirName), 32768, true)
 	require.NoError(t, err)
 	h, err = NewHead(nil, nil, wlog, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -3620,7 +3620,7 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 	dir := t.TempDir()
 	wlog, err := wal.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, true)
 	require.NoError(t, err)
-	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.OOOWblDirName), 32768, true)
+	oooWlog, err := wal.NewSize(nil, nil, filepath.Join(dir, wal.WblDirName), 32768, true)
 	require.NoError(t, err)
 
 	opts := DefaultHeadOptions()
