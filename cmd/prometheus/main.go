@@ -314,14 +314,14 @@ func main() {
 	serverOnlyFlag(a, "storage.tsdb.wal-compression", "Compress the tsdb WAL.").
 		Hidden().Default("true").BoolVar(&cfg.tsdb.WALCompression)
 
-	serverOnlyFlag(a, "storage.tsdb.ooo-allowance", "Allow samples to be this old for out-of-order.  Supported units: h, m, s. If the value is non-zero, then storage.tsdb.allow-overlapping-blocks will be set to true since out-of-order data can potentially overlap with other data.").
-		Hidden().Default("0s").SetValue(&cfg.tsdb.OOOAllowance)
+	serverOnlyFlag(a, "storage.tsdb.out-of-order-allowance", "Allow samples to be this old for out-of-order.  Supported units: h, m, s. If the value is non-zero, then overlapping queries will be enabled (but not overlapping compaction) since out-of-order data can potentially overlap with other data.").
+		Default("0s").SetValue(&cfg.tsdb.OutOfOrderAllowance)
 
-	serverOnlyFlag(a, "storage.tsdb.ooo-cap-min", "Minimum capacity for OOO chunks (in samples. between 0 and 255.)").
-		Hidden().Default("4").IntVar(&cfg.tsdb.OOOCapMin)
+	serverOnlyFlag(a, "storage.tsdb.out-of-order-cap-min", "Minimum capacity for out of order chunks (in samples. between 0 and 255.)").
+		Hidden().Default("4").IntVar(&cfg.tsdb.OutOfOrderCapMin)
 
-	serverOnlyFlag(a, "storage.tsdb.ooo-cap-max", "Maximum capacity for OOO chunks (in samples. between 1 and 255.)").
-		Hidden().Default("32").IntVar(&cfg.tsdb.OOOCapMax)
+	serverOnlyFlag(a, "storage.tsdb.out-of-order-cap-max", "Maximum capacity for out of order chunks (in samples. between 1 and 255.)").
+		Hidden().Default("32").IntVar(&cfg.tsdb.OutOfOrderCapMax)
 
 	serverOnlyFlag(a, "storage.tsdb.head-chunks-write-queue-size", "Size of the queue through which head chunks are written to the disk to be m-mapped, 0 disables the queue completely. Experimental.").
 		Default("0").IntVar(&cfg.tsdb.HeadChunksWriteQueueSize)
@@ -1535,9 +1535,9 @@ type tsdbOptions struct {
 	StripeSize                     int
 	MinBlockDuration               model.Duration
 	MaxBlockDuration               model.Duration
-	OOOAllowance                   model.Duration
-	OOOCapMin                      int
-	OOOCapMax                      int
+	OutOfOrderAllowance            model.Duration
+	OutOfOrderCapMin               int
+	OutOfOrderCapMax               int
 	EnableExemplarStorage          bool
 	MaxExemplars                   int64
 	EnableMemorySnapshotOnShutdown bool
@@ -1560,9 +1560,9 @@ func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
 		EnableExemplarStorage:          opts.EnableExemplarStorage,
 		MaxExemplars:                   opts.MaxExemplars,
 		EnableMemorySnapshotOnShutdown: opts.EnableMemorySnapshotOnShutdown,
-		OOOAllowance:                   int64(time.Duration(opts.OOOAllowance) / time.Millisecond),
-		OOOCapMin:                      int64(opts.OOOCapMin),
-		OOOCapMax:                      int64(opts.OOOCapMax),
+		OutOfOrderAllowance:            int64(time.Duration(opts.OutOfOrderAllowance) / time.Millisecond),
+		OutOfOrderCapMin:               int64(opts.OutOfOrderCapMin),
+		OutOfOrderCapMax:               int64(opts.OutOfOrderCapMax),
 	}
 }
 

@@ -3442,9 +3442,9 @@ func TestOOOWALWrite(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 2
-	opts.OOOAllowance = 30 * time.Minute.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 2
+	opts.OutOfOrderAllowance = 30 * time.Minute.Milliseconds()
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -3693,9 +3693,9 @@ func TestOOOCompaction(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 30
-	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderAllowance = 300 * time.Minute.Milliseconds()
 	opts.AllowOverlappingQueries = true
 	opts.AllowOverlappingCompaction = true
 
@@ -3876,9 +3876,9 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 30
-	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderAllowance = 300 * time.Minute.Milliseconds()
 	opts.AllowOverlappingQueries = true
 	opts.AllowOverlappingCompaction = true
 
@@ -3974,9 +3974,9 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 
 func Test_Querier_OOOQuery(t *testing.T) {
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 30
-	opts.OOOAllowance = 24 * time.Hour.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderAllowance = 24 * time.Hour.Milliseconds()
 	opts.AllowOverlappingQueries = true
 	opts.AllowOverlappingCompaction = false
 
@@ -4061,9 +4061,9 @@ func Test_Querier_OOOQuery(t *testing.T) {
 
 func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 30
-	opts.OOOAllowance = 24 * time.Hour.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderAllowance = 24 * time.Hour.Milliseconds()
 	opts.AllowOverlappingQueries = true
 	opts.AllowOverlappingCompaction = false
 
@@ -4156,9 +4156,9 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 
 func TestOOOAppendAndQuery(t *testing.T) {
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 30
-	opts.OOOAllowance = 4 * time.Hour.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderAllowance = 4 * time.Hour.Milliseconds()
 	opts.AllowOverlappingQueries = true
 
 	db := openTestDB(t, opts, nil)
@@ -4248,7 +4248,7 @@ func TestOOOAppendAndQuery(t *testing.T) {
 
 func TestOOODisabled(t *testing.T) {
 	opts := DefaultOptions()
-	opts.OOOAllowance = 0
+	opts.OutOfOrderAllowance = 0
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
 	t.Cleanup(func() {
@@ -4314,9 +4314,9 @@ func TestOOODisabled(t *testing.T) {
 
 func TestWBLAndMmapReplay(t *testing.T) {
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 30
-	opts.OOOAllowance = 4 * time.Hour.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderAllowance = 4 * time.Hour.Milliseconds()
 	opts.AllowOverlappingQueries = true
 
 	db := openTestDB(t, opts, nil)
@@ -4441,7 +4441,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		resetWBLToOriginal()
 		resetMmapToOriginal()
 
-		opts.OOOCapMax = 60
+		opts.OutOfOrderCapMax = 60
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
@@ -4451,7 +4451,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 	t.Run("Restart DB with WBL+Mmap while decreasing the OOOCapMax", func(t *testing.T) {
 		resetMmapToOriginal() // We need to reset because new duplicate chunks can be written above.
 
-		opts.OOOCapMax = 10
+		opts.OutOfOrderCapMax = 10
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
@@ -4483,7 +4483,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		require.NoError(t, os.RemoveAll(wblDir))
 		require.NoError(t, os.Rename(newWbl.Dir(), wblDir))
 
-		opts.OOOCapMax = 30
+		opts.OutOfOrderCapMax = 30
 		db, err = Open(db.dir, nil, nil, opts, nil)
 		require.NoError(t, err)
 		testQuery(expSamples)
@@ -4504,9 +4504,9 @@ func TestOOOCompactionFailure(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 30
-	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderAllowance = 300 * time.Minute.Milliseconds()
 	opts.AllowOverlappingQueries = true
 	opts.AllowOverlappingCompaction = true
 
@@ -4646,9 +4646,9 @@ func TestWBLCorruption(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 30
-	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderAllowance = 300 * time.Minute.Milliseconds()
 	opts.AllowOverlappingQueries = true
 	opts.AllowOverlappingCompaction = true
 
@@ -4793,9 +4793,9 @@ func TestOOOMmapCorruption(t *testing.T) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
-	opts.OOOCapMin = 2
-	opts.OOOCapMax = 10
-	opts.OOOAllowance = 300 * time.Minute.Milliseconds()
+	opts.OutOfOrderCapMin = 2
+	opts.OutOfOrderCapMax = 10
+	opts.OutOfOrderAllowance = 300 * time.Minute.Milliseconds()
 	opts.AllowOverlappingQueries = true
 	opts.AllowOverlappingCompaction = true
 
@@ -4913,4 +4913,213 @@ func TestOOOMmapCorruption(t *testing.T) {
 	db, err = Open(db.dir, nil, nil, opts, nil)
 	require.NoError(t, err)
 	verifySamples(allSamples)
+}
+
+func TestOutOfOrderRuntimeConfig(t *testing.T) {
+	getDB := func(oooAllowance int64) *DB {
+		dir := t.TempDir()
+
+		opts := DefaultOptions()
+		opts.OutOfOrderAllowance = oooAllowance
+
+		db, err := Open(dir, nil, nil, opts, nil)
+		require.NoError(t, err)
+		db.DisableCompactions()
+		t.Cleanup(func() {
+			require.NoError(t, db.Close())
+		})
+
+		return db
+	}
+
+	series1 := labels.FromStrings("foo", "bar1")
+	addSamples := func(t *testing.T, db *DB, fromMins, toMins int64, success bool, allSamples []tsdbutil.Sample) []tsdbutil.Sample {
+		app := db.Appender(context.Background())
+		for min := fromMins; min <= toMins; min++ {
+			ts := min * time.Minute.Milliseconds()
+			_, err := app.Append(0, series1, ts, float64(ts))
+			if success {
+				require.NoError(t, err)
+				allSamples = append(allSamples, sample{t: ts, v: float64(ts)})
+			} else {
+				require.Error(t, err)
+			}
+		}
+		require.NoError(t, app.Commit())
+		return allSamples
+	}
+
+	verifySamples := func(t *testing.T, db *DB, expSamples []tsdbutil.Sample) {
+		sort.Slice(expSamples, func(i, j int) bool {
+			return expSamples[i].T() < expSamples[j].T()
+		})
+
+		expRes := map[string][]tsdbutil.Sample{
+			series1.String(): expSamples,
+		}
+
+		q, err := db.Querier(context.Background(), math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		require.Equal(t, expRes, actRes)
+	}
+
+	doOOOCompaction := func(t *testing.T, db *DB) {
+		// WBL is not empty.
+		size, err := db.head.oooWbl.Size()
+		require.NoError(t, err)
+		require.Greater(t, size, int64(0))
+
+		require.Len(t, db.Blocks(), 0)
+		require.NoError(t, db.compactOOOHead())
+		require.Greater(t, len(db.Blocks()), 0)
+
+		// WBL is empty.
+		size, err = db.head.oooWbl.Size()
+		require.NoError(t, err)
+		require.Equal(t, int64(0), size)
+	}
+
+	t.Run("increase allowance", func(t *testing.T) {
+		var allSamples []tsdbutil.Sample
+		db := getDB(30 * time.Minute.Milliseconds())
+
+		// In-order.
+		allSamples = addSamples(t, db, 300, 310, true, allSamples)
+
+		// OOO upto 30m old is success.
+		allSamples = addSamples(t, db, 281, 290, true, allSamples)
+
+		// OOO of 59m old fails.
+		s := addSamples(t, db, 251, 260, false, nil)
+		require.Len(t, s, 0)
+		verifySamples(t, db, allSamples)
+
+		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+
+		// Increase allowance and try adding again.
+		err := db.SetOutOfOrderAllowance(60 * time.Minute.Milliseconds())
+		require.NoError(t, err)
+		allSamples = addSamples(t, db, 251, 260, true, allSamples)
+
+		// WBL does not change.
+		newWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		require.Equal(t, oldWblPtr, newWblPtr)
+
+		doOOOCompaction(t, db)
+		verifySamples(t, db, allSamples)
+	})
+
+	t.Run("decrease allowance", func(t *testing.T) {
+		var allSamples []tsdbutil.Sample
+		db := getDB(60 * time.Minute.Milliseconds())
+
+		// In-order.
+		allSamples = addSamples(t, db, 300, 310, true, allSamples)
+
+		// OOO upto 59m old is success.
+		allSamples = addSamples(t, db, 251, 260, true, allSamples)
+
+		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		// Decrease allowance.
+		err := db.SetOutOfOrderAllowance(30 * time.Minute.Milliseconds())
+		require.NoError(t, err)
+
+		// OOO of 49m old fails.
+		s := addSamples(t, db, 261, 270, false, nil)
+		require.Len(t, s, 0)
+
+		// WBL does not change.
+		newWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		require.Equal(t, oldWblPtr, newWblPtr)
+
+		verifySamples(t, db, allSamples)
+
+		doOOOCompaction(t, db)
+		verifySamples(t, db, allSamples)
+	})
+
+	t.Run("disabled to enabled", func(t *testing.T) {
+		var allSamples []tsdbutil.Sample
+		db := getDB(0)
+
+		// In-order.
+		allSamples = addSamples(t, db, 300, 310, true, allSamples)
+
+		// OOO fails.
+		s := addSamples(t, db, 251, 260, false, nil)
+		require.Len(t, s, 0)
+		verifySamples(t, db, allSamples)
+
+		require.Nil(t, db.head.oooWbl)
+
+		// Increase allowance and try adding again.
+		err := db.SetOutOfOrderAllowance(60 * time.Minute.Milliseconds())
+		require.NoError(t, err)
+		allSamples = addSamples(t, db, 251, 260, true, allSamples)
+
+		// WBL gets created.
+		require.NotNil(t, db.head.oooWbl)
+
+		verifySamples(t, db, allSamples)
+
+		// OOO compaction works now.
+		doOOOCompaction(t, db)
+		verifySamples(t, db, allSamples)
+	})
+
+	t.Run("enabled to disabled", func(t *testing.T) {
+		var allSamples []tsdbutil.Sample
+		db := getDB(60 * time.Minute.Milliseconds())
+
+		// In-order.
+		allSamples = addSamples(t, db, 300, 310, true, allSamples)
+
+		// OOO upto 59m old is success.
+		allSamples = addSamples(t, db, 251, 260, true, allSamples)
+
+		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		// Allowance to 0, hence disabled.
+		err := db.SetOutOfOrderAllowance(0)
+		require.NoError(t, err)
+
+		// OOO within old allowance fails.
+		s := addSamples(t, db, 290, 309, false, nil)
+		require.Len(t, s, 0)
+
+		// WBL does not change and is not removed.
+		newWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		require.Equal(t, oldWblPtr, newWblPtr)
+
+		verifySamples(t, db, allSamples)
+
+		// Compaction still works after disabling with WBL cleanup.
+		doOOOCompaction(t, db)
+		verifySamples(t, db, allSamples)
+	})
+
+	t.Run("disabled to disabled", func(t *testing.T) {
+		var allSamples []tsdbutil.Sample
+		db := getDB(0)
+
+		// In-order.
+		allSamples = addSamples(t, db, 300, 310, true, allSamples)
+
+		// OOO fails.
+		s := addSamples(t, db, 290, 309, false, nil)
+		require.Len(t, s, 0)
+		verifySamples(t, db, allSamples)
+		require.Nil(t, db.head.oooWbl)
+
+		// Allowance to 0.
+		err := db.SetOutOfOrderAllowance(0)
+		require.NoError(t, err)
+
+		// OOO still fails.
+		s = addSamples(t, db, 290, 309, false, nil)
+		require.Len(t, s, 0)
+		verifySamples(t, db, allSamples)
+		require.Nil(t, db.head.oooWbl)
+	})
 }

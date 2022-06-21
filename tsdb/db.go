@@ -33,6 +33,7 @@ import (
 	"github.com/oklog/ulid"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/atomic"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/prometheus/prometheus/config"
@@ -85,6 +86,8 @@ func DefaultOptions() *Options {
 		IsolationDisabled:          defaultIsolationDisabled,
 		HeadChunksEndTimeVariance:  0,
 		HeadChunksWriteQueueSize:   chunks.DefaultWriteQueueSize,
+		OutOfOrderCapMin:           DefaultOutOfOrderCapMin,
+		OutOfOrderCapMax:           DefaultOutOfOrderCapMax,
 	}
 }
 
@@ -119,6 +122,7 @@ type Options struct {
 	// Querying on overlapping blocks are allowed if AllowOverlappingQueries is true.
 	// Since querying is a required operation for TSDB, if there are going to be
 	// overlapping blocks, then this should be set to true.
+	// NOTE: Do not use this directly in DB. Use it via DB.AllowOverlappingQueries().
 	AllowOverlappingQueries bool
 
 	// Compaction of overlapping blocks are allowed if AllowOverlappingCompaction is true.
@@ -178,14 +182,18 @@ type Options struct {
 	// If nil, the cache won't be used.
 	SeriesHashCache *hashcache.SeriesHashCache
 
-	// how much out of order is allowed, if any.
-	OOOAllowance int64
+	// OutOfOrderAllowance specifies how much out of order is allowed, if any.
+	// This can change during run-time, so this value from here should only be used
+	// while initialising.
+	OutOfOrderAllowance int64
 
-	// minimum capacity for OOO chunks (in samples)
-	OOOCapMin int64
+	// OutOfOrderCapMin minimum capacity for OOO chunks (in samples).
+	// If it is <=0, the default value is assumed.
+	OutOfOrderCapMin int64
 
-	// maximum capacity for OOO chunks (in samples)
-	OOOCapMax int64
+	// OutOfOrderCapMax is maximum capacity for OOO chunks (in samples).
+	// If it is <=0, the default value is assumed.
+	OutOfOrderCapMax int64
 
 	// Temporary flag which we use to select whether we want to use the new or the old chunk disk mapper.
 	NewChunkDiskMapper bool
@@ -226,6 +234,13 @@ type DB struct {
 
 	// Cancel a running compaction when a shutdown is initiated.
 	compactCancel context.CancelFunc
+
+	// oooWasEnabled is true if out of order support was enabled at least one time
+	// during the time TSDB was up. In which case we need to keep supporting
+	// out-of-order compaction and vertical queries.
+	oooWasEnabled atomic.Bool
+
+	registerer prometheus.Registerer
 }
 
 type dbMetrics struct {
@@ -647,8 +662,14 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	if opts.MinBlockDuration > opts.MaxBlockDuration {
 		opts.MaxBlockDuration = opts.MinBlockDuration
 	}
-	if opts.OOOAllowance > 0 {
+	if opts.OutOfOrderAllowance > 0 {
 		opts.AllowOverlappingQueries = true
+	}
+	if opts.OutOfOrderCapMin <= 0 {
+		opts.OutOfOrderCapMin = DefaultOutOfOrderCapMin
+	}
+	if opts.OutOfOrderCapMax <= 0 {
+		opts.OutOfOrderCapMax = DefaultOutOfOrderCapMax
 	}
 
 	if len(rngs) == 0 {
@@ -717,6 +738,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		autoCompact:    true,
 		chunkPool:      chunkenc.NewPool(),
 		blocksToDelete: opts.BlocksToDelete,
+		registerer:     r,
 	}
 	defer func() {
 		// Close files if startup fails somewhere.
@@ -767,14 +789,14 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		if err != nil {
 			return nil, err
 		}
-		if opts.OOOAllowance > 0 {
+		if opts.OutOfOrderAllowance > 0 {
 			wblog, err = wal.NewSize(l, r, wblDir, segmentSize, opts.WALCompression)
 			if err != nil {
 				return nil, err
 			}
 		}
 	}
-
+	db.oooWasEnabled.Store(opts.OutOfOrderAllowance > 0)
 	headOpts := DefaultHeadOptions()
 	headOpts.ChunkRange = rngs[0]
 	headOpts.ChunkDirRoot = dir
@@ -787,9 +809,9 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	headOpts.EnableExemplarStorage = opts.EnableExemplarStorage
 	headOpts.MaxExemplars.Store(opts.MaxExemplars)
 	headOpts.EnableMemorySnapshotOnShutdown = opts.EnableMemorySnapshotOnShutdown
-	headOpts.OOOAllowance = opts.OOOAllowance
-	headOpts.OOOCapMin = opts.OOOCapMin
-	headOpts.OOOCapMax = opts.OOOCapMax
+	headOpts.OutOfOrderAllowance.Store(opts.OutOfOrderAllowance)
+	headOpts.OutOfOrderCapMin.Store(opts.OutOfOrderCapMin)
+	headOpts.OutOfOrderCapMax.Store(opts.OutOfOrderCapMax)
 	headOpts.NewChunkDiskMapper = opts.NewChunkDiskMapper
 	if opts.IsolationDisabled {
 		// We only override this flag if isolation is disabled at DB level. We use the default otherwise.
@@ -858,6 +880,48 @@ func removeBestEffortTmpDirs(l log.Logger, dir string) error {
 			level.Info(l).Log("msg", "Found and deleted tmp block dir", "dir", filepath.Join(dir, f.Name()))
 		}
 	}
+	return nil
+}
+
+// SetOutOfOrderAllowance updates the out-of-order allowance for the DB.
+// This method must not be called concurrently.
+// OOO enabled = oooAllowance > 0. OOO disabled = oooAllowance is 0.
+// 1) Before: OOO disabled, Now: OOO enabled =>
+//    * A new WBL is created for the head block.
+//    * OOO compaction is enabled.
+//    * Overlapping queries are enabled.
+// 2) Before: OOO enabled, Now: OOO enabled =>
+//    * Only the allowance is updated.
+// 3) Before: OOO enabled, Now: OOO disabled =>
+//    * Allowance set to 0. So no new OOO samples will be allowed.
+//    * OOO WBL will stay and follow the usual cleanup until a restart.
+//    * OOO Compaction and overlapping queries will remain enabled until a restart.
+// 4) Before: OOO disabled, Now: OOO disabled => no-op.
+func (db *DB) SetOutOfOrderAllowance(oooAllowance int64) (err error) {
+	if oooAllowance < 0 {
+		return errors.Errorf("OOOAllowance invalid %d . must be >= 0", oooAllowance)
+	}
+
+	// Create WBL if it was not present and if OOO is enabled with WAL enabled.
+	var oooWlog *wal.WAL
+	if !db.oooWasEnabled.Load() && oooAllowance > 0 && db.opts.WALSegmentSize >= 0 {
+		segmentSize := wal.DefaultSegmentSize
+		// Wal is set to a custom size.
+		if db.opts.WALSegmentSize > 0 {
+			segmentSize = db.opts.WALSegmentSize
+		}
+		oooWalDir := filepath.Join(db.dir, wal.OOOWblDirName)
+		oooWlog, err = wal.NewSize(db.logger, db.registerer, oooWalDir, segmentSize, db.opts.WALCompression)
+		if err != nil {
+			return err
+		}
+	}
+
+	if !db.oooWasEnabled.Load() {
+		db.oooWasEnabled.Store(oooAllowance > 0)
+	}
+
+	db.head.SetOutOfOrderAllowance(oooAllowance, oooWlog)
 	return nil
 }
 
@@ -1063,7 +1127,7 @@ func (db *DB) CompactOOOHead() error {
 }
 
 func (db *DB) compactOOOHead() error {
-	if db.opts.OOOAllowance <= 0 {
+	if !db.oooWasEnabled.Load() {
 		return nil
 	}
 	oooHead, err := NewOOOCompactionHead(db.head)
@@ -1252,7 +1316,7 @@ func (db *DB) reloadBlocks() (err error) {
 	sort.Slice(toLoad, func(i, j int) bool {
 		return toLoad[i].Meta().MinTime < toLoad[j].Meta().MinTime
 	})
-	if !db.opts.AllowOverlappingQueries {
+	if !db.AllowOverlappingQueries() {
 		if err := validateBlockSequence(toLoad); err != nil {
 			return errors.Wrap(err, "invalid block sequence")
 		}
@@ -1280,6 +1344,10 @@ func (db *DB) reloadBlocks() (err error) {
 		return errors.Wrapf(err, "delete %v blocks", len(deletable))
 	}
 	return nil
+}
+
+func (db *DB) AllowOverlappingQueries() bool {
+	return db.opts.AllowOverlappingQueries || db.oooWasEnabled.Load()
 }
 
 func openBlocks(l log.Logger, dir string, loaded []*Block, chunkPool chunkenc.Pool, cache *hashcache.SeriesHashCache) (blocks []*Block, corrupted map[ulid.ULID]error, err error) {

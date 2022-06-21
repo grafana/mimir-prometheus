@@ -150,9 +150,9 @@ type HeadOptions struct {
 	ChunkWriteBufferSize int
 	ChunkEndTimeVariance float64
 	ChunkWriteQueueSize  int
-	OOOAllowance         int64
-	OOOCapMin            int64
-	OOOCapMax            int64
+	OutOfOrderAllowance  atomic.Int64
+	OutOfOrderCapMin     atomic.Int64
+	OutOfOrderCapMax     atomic.Int64
 
 	// StripeSize sets the number of entries in the hash map, it must be a power of 2.
 	// A larger StripeSize will allocate more memory up-front, but will increase performance when handling a large number of series.
@@ -169,8 +169,13 @@ type HeadOptions struct {
 	NewChunkDiskMapper bool
 }
 
+const (
+	DefaultOutOfOrderCapMin int64 = 4
+	DefaultOutOfOrderCapMax int64 = 32
+)
+
 func DefaultHeadOptions() *HeadOptions {
-	return &HeadOptions{
+	ho := &HeadOptions{
 		ChunkRange:           DefaultBlockDuration,
 		ChunkDirRoot:         "",
 		ChunkPool:            chunkenc.NewPool(),
@@ -180,11 +185,11 @@ func DefaultHeadOptions() *HeadOptions {
 		StripeSize:           DefaultStripeSize,
 		SeriesCallback:       &noopSeriesLifecycleCallback{},
 		IsolationDisabled:    defaultIsolationDisabled,
-		OOOAllowance:         0,
-		OOOCapMin:            4,
-		OOOCapMax:            32,
 		NewChunkDiskMapper:   false,
 	}
+	ho.OutOfOrderCapMin.Store(DefaultOutOfOrderCapMin)
+	ho.OutOfOrderCapMax.Store(DefaultOutOfOrderCapMax)
+	return ho
 }
 
 // SeriesLifecycleCallback specifies a list of callbacks that will be called during a lifecycle of a series.
@@ -209,25 +214,24 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, wbl *wal.WAL, opts *Hea
 		l = log.NewNopLogger()
 	}
 
-	if opts.OOOAllowance < 0 {
-		return nil, errors.Errorf("OOOAllowance invalid %d . must be >= 0", opts.OOOAllowance)
+	if opts.OutOfOrderAllowance.Load() < 0 {
+		return nil, errors.Errorf("OOOAllowance invalid %d . must be >= 0", opts.OutOfOrderAllowance.Load())
 	}
 
-	if opts.OOOAllowance > 0 {
-		if opts.OOOCapMin > 255 {
-			return nil, errors.Errorf("OOOCapMin invalid %d. must be <= 255", opts.OOOCapMin)
-		}
-		if opts.OOOCapMax > 255 {
-			return nil, errors.Errorf("OOOCapMax invalid %d. must be <= 255", opts.OOOCapMin)
-		}
-
-		if opts.OOOCapMin < 0 {
-			return nil, errors.Errorf("OOOCapMin invalid %d. must be >= 0", opts.OOOCapMin)
-		}
-
-		if opts.OOOCapMax <= 0 || opts.OOOCapMax < opts.OOOCapMin {
-			return nil, errors.Errorf("OOOCapMax invalid %d. must be > 0 and >= OOOCapMin", opts.OOOCapMax)
-		}
+	// Allowance can be set on runtime. So the capMin and capMax should be valid
+	// even if ooo is not enabled yet.
+	capMin, capMax := opts.OutOfOrderCapMin.Load(), opts.OutOfOrderCapMax.Load()
+	if capMin > 255 {
+		return nil, errors.Errorf("OOOCapMin invalid %d. must be <= 255", capMin)
+	}
+	if capMax > 255 {
+		return nil, errors.Errorf("OOOCapMax invalid %d. must be <= 255", capMin)
+	}
+	if capMin < 0 {
+		return nil, errors.Errorf("OOOCapMin invalid %d. must be >= 0", capMin)
+	}
+	if capMax <= 0 || capMax < capMin {
+		return nil, errors.Errorf("OOOCapMax invalid %d. must be > 0 and >= OOOCapMin", capMax)
 	}
 
 	if opts.ChunkRange < 1 {
@@ -324,6 +328,17 @@ func (h *Head) resetInMemoryState() error {
 	h.lastWALTruncationTime.Store(math.MinInt64)
 	h.lastMemoryTruncationTime.Store(math.MinInt64)
 	return nil
+}
+
+// SetOutOfOrderAllowance updates the out of order related parameters.
+// If the Head already has a WBL set, then the oooWbl will be ignored.
+func (h *Head) SetOutOfOrderAllowance(oooAllowance int64, oooWbl *wal.WAL) {
+	if oooAllowance > 0 && h.oooWbl == nil {
+		// TODO(codesome): check if there will be a race.
+		h.oooWbl = oooWbl
+	}
+
+	h.opts.OutOfOrderAllowance.Store(oooAllowance)
 }
 
 type headMetrics struct {
@@ -1507,7 +1522,9 @@ func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool, e
 
 func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
 	s, created, err := h.series.getOrSet(hash, lset, func() *memSeries {
-		return newMemSeries(lset, id, hash, h.chunkRange.Load(), h.opts.OOOAllowance, h.opts.OOOCapMin, h.opts.OOOCapMax, h.opts.ChunkEndTimeVariance, &h.memChunkPool, h.opts.IsolationDisabled)
+		return newMemSeries(lset, id, hash, h.chunkRange.Load(),
+			h.opts.OutOfOrderCapMin.Load(), h.opts.OutOfOrderCapMax.Load(),
+			h.opts.ChunkEndTimeVariance, &h.memChunkPool, h.opts.IsolationDisabled)
 	})
 	if err != nil {
 		return nil, false, err
@@ -1786,11 +1803,10 @@ type memSeries struct {
 	oooHeadChunk     *oooHeadChunk      // Most recent chunk for ooo samples in memory that's still being built.
 	firstOOOChunkID  chunks.HeadChunkID // HeadOOOChunkID for oooMmappedChunks[0]
 
-	mmMaxTime    int64 // Max time of any mmapped chunk, only used during WAL replay.
-	chunkRange   int64
-	oooAllowance int64
-	oooCapMin    uint8
-	oooCapMax    uint8
+	mmMaxTime  int64 // Max time of any mmapped chunk, only used during WAL replay.
+	chunkRange int64
+	oooCapMin  uint8
+	oooCapMax  uint8
 
 	// chunkEndTimeVariance is how much variance (between 0 and 1) should be applied to the chunk end time,
 	// to spread chunks writing across time. Doesn't apply to the last chunk of the chunk range. 0 to disable variance.
@@ -1815,7 +1831,7 @@ type memSeries struct {
 	txs *txRing
 }
 
-func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chunkRange, oooAllowance, oooCapMin, oooCapMax int64, chunkEndTimeVariance float64, memChunkPool *sync.Pool, isolationDisabled bool) *memSeries {
+func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chunkRange, oooCapMin, oooCapMax int64, chunkEndTimeVariance float64, memChunkPool *sync.Pool, isolationDisabled bool) *memSeries {
 	s := &memSeries{
 		lset:                 lset,
 		hash:                 hash,
@@ -1824,7 +1840,6 @@ func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, hash uint64, chun
 		chunkEndTimeVariance: chunkEndTimeVariance,
 		nextAt:               math.MinInt64,
 		memChunkPool:         memChunkPool,
-		oooAllowance:         oooAllowance,
 		oooCapMin:            uint8(oooCapMin),
 		oooCapMax:            uint8(oooCapMax),
 	}
