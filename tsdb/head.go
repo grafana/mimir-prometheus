@@ -722,7 +722,12 @@ func (h *Head) Init(minValidTime int64) error {
 		}
 		h.startWALReplayStatus(startFrom, endAt)
 
+		replayStart := time.Now()
+		segmentCount := 0
 		for i := startFrom; i <= endAt; i++ {
+			fmt.Printf("Segment #%d\n", segmentCount)
+			segmentCount++
+			segmentReplayStart := time.Now()
 			s, err := wal.OpenReadSegment(wal.SegmentName(h.oooWbl.Dir(), i))
 			if err != nil {
 				return errors.Wrap(err, fmt.Sprintf("open OOO WAL segment: %d", i))
@@ -738,7 +743,11 @@ func (h *Head) Init(minValidTime int64) error {
 			}
 			level.Info(h.logger).Log("msg", "OOO WAL segment loaded", "segment", i, "maxSegment", endAt)
 			h.updateWALReplayStatusRead(i)
+
+			fmt.Printf("Segment replay time:  %s\n", time.Since(segmentReplayStart))
 		}
+
+		fmt.Printf("Total replay time %s\n", time.Since(replayStart))
 	}
 
 	oooWalReplayDuration := time.Since(oooWalReplayStart)

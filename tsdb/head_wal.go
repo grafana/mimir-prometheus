@@ -539,9 +539,12 @@ func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunk
 	}()
 
 	// The records are always replayed from the oldest to the newest.
+	countSamples := 0
+	countMarkers := 0
 	for d := range decoded {
 		switch v := d.(type) {
 		case []record.RefSample:
+			countSamples++
 			samples := v
 			// We split up the samples into parts of 5000 samples or less.
 			// With O(300 * #cores) in-flight sample batches, large scrapes could otherwise
@@ -570,6 +573,7 @@ func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunk
 			//nolint:staticcheck // Ignore SA6002 relax staticcheck verification.
 			samplesPool.Put(d)
 		case []record.RefMmapMarker:
+			countMarkers++
 			markers := v
 			for _, rm := range markers {
 				seq, off := rm.MmapRef.Unpack()
@@ -607,6 +611,8 @@ func (h *Head) loadOOOWal(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunk
 			panic(fmt.Errorf("unexpected decoded type: %T", d))
 		}
 	}
+
+	fmt.Printf("Segment decoded samples: %d, decoded markers: %d\n", countSamples, countMarkers)
 
 	if decodeErr != nil {
 		return decodeErr
@@ -714,10 +720,9 @@ func (wp *oooWalSubsetProcessor) waitUntilIdle() {
 	}
 	wp.input <- []record.RefSample{}
 	for len(wp.input) != 0 {
-		time.Sleep(10 * time.Microsecond)
 		select {
 		case <-wp.output: // Allow output side to drain to avoid deadlock.
-		default:
+		case <-time.After(10 * time.Microsecond):
 		}
 	}
 }
