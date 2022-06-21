@@ -989,7 +989,7 @@ func (db *DB) ApplyConfig(conf *config.Config) error {
 		if db.opts.WALSegmentSize > 0 {
 			segmentSize = db.opts.WALSegmentSize
 		}
-		oooWalDir := filepath.Join(db.dir, wal.OOOWblDirName)
+		oooWalDir := filepath.Join(db.dir, wal.WblDirName)
 		wblog, err = wal.NewSize(db.logger, db.registerer, oooWalDir, segmentSize, db.opts.WALCompression)
 		if err != nil {
 			return err

@@ -511,7 +511,7 @@ func (a *headAppender) Commit() (err error) {
 		inOrderMaxt     int64 = math.MinInt64
 		ooomint         int64 = math.MaxInt64
 		ooomaxt         int64 = math.MinInt64
-		oooWblSamples   []record.RefSample
+		wblSamples      []record.RefSample
 		oooMmapMarkers  map[chunks.HeadSeriesRef]chunks.ChunkDiskMapperRef
 		oooRecords      [][]byte
 		series          *memSeries
@@ -525,7 +525,7 @@ func (a *headAppender) Commit() (err error) {
 	collectOOORecords := func() {
 		if a.head.wbl == nil {
 			// WBL is not enabled. So no need to collect.
-			oooWblSamples = nil
+			wblSamples = nil
 			oooMmapMarkers = nil
 			return
 		}
@@ -546,12 +546,12 @@ func (a *headAppender) Commit() (err error) {
 			oooRecords = append(oooRecords, r)
 		}
 
-		if len(oooWblSamples) > 0 {
-			r := enc.Samples(oooWblSamples, a.head.getBytesBuffer())
+		if len(wblSamples) > 0 {
+			r := enc.Samples(wblSamples, a.head.getBytesBuffer())
 			oooRecords = append(oooRecords, r)
 		}
 
-		oooWblSamples = nil
+		wblSamples = nil
 		oooMmapMarkers = nil
 	}
 	oooAllowance := a.head.opts.OutOfOrderAllowance.Load()
@@ -601,7 +601,7 @@ func (a *headAppender) Commit() (err error) {
 				oooMmapMarkers[series.ref] = mmapRef
 			}
 			if ok {
-				oooWblSamples = append(oooWblSamples, s)
+				wblSamples = append(wblSamples, s)
 				if s.T < ooomint {
 					ooomint = s.T
 				}

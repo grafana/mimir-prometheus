@@ -913,14 +913,13 @@ func (h *Head) ApplyConfig(cfg *config.Config, wbl *wal.WAL) {
 
 	migrated := h.exemplars.(*CircularExemplarStorage).Resize(newSize)
 	level.Info(h.logger).Log("msg", "Exemplar storage resized", "from", prevSize, "to", newSize, "migrated", migrated)
-	return
 }
 
 // SetOutOfOrderAllowance updates the out of order related parameters.
-// If the Head already has a WBL set, then the oooWbl will be ignored.
-func (h *Head) SetOutOfOrderAllowance(oooAllowance int64, oooWbl *wal.WAL) {
-	if oooAllowance > 0 && h.oooWbl == nil {
-		h.oooWbl = oooWbl
+// If the Head already has a WBL set, then the wbl will be ignored.
+func (h *Head) SetOutOfOrderAllowance(oooAllowance int64, wbl *wal.WAL) {
+	if oooAllowance > 0 && h.wbl == nil {
+		h.wbl = wbl
 	}
 
 	h.opts.OutOfOrderAllowance.Store(oooAllowance)

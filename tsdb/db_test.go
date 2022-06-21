@@ -4979,7 +4979,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 
 	doOOOCompaction := func(t *testing.T, db *DB) {
 		// WBL is not empty.
-		size, err := db.head.oooWbl.Size()
+		size, err := db.head.wbl.Size()
 		require.NoError(t, err)
 		require.Greater(t, size, int64(0))
 
@@ -4988,7 +4988,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.Greater(t, len(db.Blocks()), 0)
 
 		// WBL is empty.
-		size, err = db.head.oooWbl.Size()
+		size, err = db.head.wbl.Size()
 		require.NoError(t, err)
 		require.Equal(t, int64(0), size)
 	}
@@ -5008,7 +5008,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.Len(t, s, 0)
 		verifySamples(t, db, allSamples)
 
-		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		oldWblPtr := fmt.Sprintf("%p", db.head.wbl)
 
 		// Increase allowance and try adding again.
 		err := db.ApplyConfig(makeConfig(60))
@@ -5016,7 +5016,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		allSamples = addSamples(t, db, 251, 260, true, allSamples)
 
 		// WBL does not change.
-		newWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		newWblPtr := fmt.Sprintf("%p", db.head.wbl)
 		require.Equal(t, oldWblPtr, newWblPtr)
 
 		doOOOCompaction(t, db)
@@ -5033,7 +5033,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		// OOO upto 59m old is success.
 		allSamples = addSamples(t, db, 251, 260, true, allSamples)
 
-		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		oldWblPtr := fmt.Sprintf("%p", db.head.wbl)
 		// Decrease allowance.
 		err := db.ApplyConfig(makeConfig(30))
 		require.NoError(t, err)
@@ -5043,7 +5043,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.Len(t, s, 0)
 
 		// WBL does not change.
-		newWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		newWblPtr := fmt.Sprintf("%p", db.head.wbl)
 		require.Equal(t, oldWblPtr, newWblPtr)
 
 		verifySamples(t, db, allSamples)
@@ -5064,7 +5064,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.Len(t, s, 0)
 		verifySamples(t, db, allSamples)
 
-		require.Nil(t, db.head.oooWbl)
+		require.Nil(t, db.head.wbl)
 
 		// Increase allowance and try adding again.
 		err := db.ApplyConfig(makeConfig(60))
@@ -5072,7 +5072,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		allSamples = addSamples(t, db, 251, 260, true, allSamples)
 
 		// WBL gets created.
-		require.NotNil(t, db.head.oooWbl)
+		require.NotNil(t, db.head.wbl)
 
 		verifySamples(t, db, allSamples)
 
@@ -5091,7 +5091,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		// OOO upto 59m old is success.
 		allSamples = addSamples(t, db, 251, 260, true, allSamples)
 
-		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		oldWblPtr := fmt.Sprintf("%p", db.head.wbl)
 		// Allowance to 0, hence disabled.
 		err := db.ApplyConfig(makeConfig(0))
 		require.NoError(t, err)
@@ -5101,7 +5101,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.Len(t, s, 0)
 
 		// WBL does not change and is not removed.
-		newWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
+		newWblPtr := fmt.Sprintf("%p", db.head.wbl)
 		require.Equal(t, oldWblPtr, newWblPtr)
 
 		verifySamples(t, db, allSamples)
@@ -5122,7 +5122,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		s := addSamples(t, db, 290, 309, false, nil)
 		require.Len(t, s, 0)
 		verifySamples(t, db, allSamples)
-		require.Nil(t, db.head.oooWbl)
+		require.Nil(t, db.head.wbl)
 
 		// Allowance to 0.
 		err := db.ApplyConfig(makeConfig(0))
@@ -5132,6 +5132,6 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		s = addSamples(t, db, 290, 309, false, nil)
 		require.Len(t, s, 0)
 		verifySamples(t, db, allSamples)
-		require.Nil(t, db.head.oooWbl)
+		require.Nil(t, db.head.wbl)
 	})
 }
