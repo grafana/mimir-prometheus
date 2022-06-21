@@ -522,7 +522,7 @@ func (a *headAppender) Commit() (err error) {
 		}
 	}()
 	collectOOORecords := func() {
-		if a.head.oooWbl == nil {
+		if a.head.wbl == nil {
 			// WBL is not enabled. So no need to collect.
 			oooWblSamples = nil
 			oooMmapMarkers = nil
@@ -665,8 +665,8 @@ func (a *headAppender) Commit() (err error) {
 	// Returning the error here is not correct because we have already put the samples into the memory,
 	// hence the append/insert was a success.
 	collectOOORecords()
-	if a.head.oooWbl != nil {
-		if err := a.head.oooWbl.Log(oooRecords...); err != nil {
+	if a.head.wbl != nil {
+		if err := a.head.wbl.Log(oooRecords...); err != nil {
 			level.Error(a.head.logger).Log("msg", "Failed to log out of order samples into the WAL", "err", err)
 		}
 	}
