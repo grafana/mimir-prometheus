@@ -883,48 +883,6 @@ func removeBestEffortTmpDirs(l log.Logger, dir string) error {
 	return nil
 }
 
-// SetOutOfOrderAllowance updates the out-of-order allowance for the DB.
-// This method must not be called concurrently.
-// OOO enabled = oooAllowance > 0. OOO disabled = oooAllowance is 0.
-// 1) Before: OOO disabled, Now: OOO enabled =>
-//    * A new WBL is created for the head block.
-//    * OOO compaction is enabled.
-//    * Overlapping queries are enabled.
-// 2) Before: OOO enabled, Now: OOO enabled =>
-//    * Only the allowance is updated.
-// 3) Before: OOO enabled, Now: OOO disabled =>
-//    * Allowance set to 0. So no new OOO samples will be allowed.
-//    * OOO WBL will stay and follow the usual cleanup until a restart.
-//    * OOO Compaction and overlapping queries will remain enabled until a restart.
-// 4) Before: OOO disabled, Now: OOO disabled => no-op.
-func (db *DB) SetOutOfOrderAllowance(oooAllowance int64) (err error) {
-	if oooAllowance < 0 {
-		return errors.Errorf("OOOAllowance invalid %d . must be >= 0", oooAllowance)
-	}
-
-	// Create WBL if it was not present and if OOO is enabled with WAL enabled.
-	var oooWlog *wal.WAL
-	if !db.oooWasEnabled.Load() && oooAllowance > 0 && db.opts.WALSegmentSize >= 0 {
-		segmentSize := wal.DefaultSegmentSize
-		// Wal is set to a custom size.
-		if db.opts.WALSegmentSize > 0 {
-			segmentSize = db.opts.WALSegmentSize
-		}
-		oooWalDir := filepath.Join(db.dir, wal.OOOWblDirName)
-		oooWlog, err = wal.NewSize(db.logger, db.registerer, oooWalDir, segmentSize, db.opts.WALCompression)
-		if err != nil {
-			return err
-		}
-	}
-
-	if !db.oooWasEnabled.Load() {
-		db.oooWasEnabled.Store(oooAllowance > 0)
-	}
-
-	db.head.SetOutOfOrderAllowance(oooAllowance, oooWlog)
-	return nil
-}
-
 // StartTime implements the Storage interface.
 func (db *DB) StartTime() (int64, error) {
 	db.mtx.RLock()
@@ -991,8 +949,59 @@ func (db *DB) Appender(ctx context.Context) storage.Appender {
 	return dbAppender{db: db, Appender: db.head.Appender(ctx)}
 }
 
+// ApplyConfig applies a new config to the DB.
+// Behaviour of 'OutOfOrderAllowance' is as follows:
+// OOO enabled = oooAllowance > 0. OOO disabled = oooAllowance is 0.
+// 1) Before: OOO disabled, Now: OOO enabled =>
+//    * A new WBL is created for the head block.
+//    * OOO compaction is enabled.
+//    * Overlapping queries are enabled.
+// 2) Before: OOO enabled, Now: OOO enabled =>
+//    * Only the allowance is updated.
+// 3) Before: OOO enabled, Now: OOO disabled =>
+//    * Allowance set to 0. So no new OOO samples will be allowed.
+//    * OOO WBL will stay and follow the usual cleanup until a restart.
+//    * OOO Compaction and overlapping queries will remain enabled until a restart.
+// 4) Before: OOO disabled, Now: OOO disabled => no-op.
 func (db *DB) ApplyConfig(conf *config.Config) error {
-	return db.head.ApplyConfig(conf)
+	oooAllowance := int64(0)
+	if conf.StorageConfig.TSDBConfig != nil {
+		// OutOfOrderAllowance is a Duration only for convenience. TSDB will use OutOfOrderAllowance.Milliseconds()
+		// as the final value for the allowance. If you use milliseconds as the unit of time, then you can use
+		// the duration as an actual duration. But if you use some other unit for time, then you have to choose
+		// the duration whose .Milliseconds() will give you the desired value.
+		// For example, if your unit was in milliseconds, then setting this to '1s' does mean 1 second allowance.
+		// But if your time unit was in seconds, then setting this to '1s' means 1000 seconds allowance. So to get 1s
+		// allowance you will have to set it to '1ms' in this case.
+		oooAllowance = time.Duration(conf.StorageConfig.TSDBConfig.OutOfOrderAllowance).Milliseconds()
+	}
+
+	if oooAllowance < 0 {
+		return errors.Errorf("OOOAllowance invalid %d . must be >= 0", oooAllowance)
+	}
+
+	// Create WBL if it was not present and if OOO is enabled with WAL enabled.
+	var wblog *wal.WAL
+	var err error
+	if !db.oooWasEnabled.Load() && oooAllowance > 0 && db.opts.WALSegmentSize >= 0 {
+		segmentSize := wal.DefaultSegmentSize
+		// Wal is set to a custom size.
+		if db.opts.WALSegmentSize > 0 {
+			segmentSize = db.opts.WALSegmentSize
+		}
+		oooWalDir := filepath.Join(db.dir, wal.OOOWblDirName)
+		wblog, err = wal.NewSize(db.logger, db.registerer, oooWalDir, segmentSize, db.opts.WALCompression)
+		if err != nil {
+			return err
+		}
+	}
+
+	db.head.ApplyConfig(conf, wblog)
+
+	if !db.oooWasEnabled.Load() {
+		db.oooWasEnabled.Store(oooAllowance > 0)
+	}
+	return nil
 }
 
 // dbAppender wraps the DB's head appender and triggers compactions on commit

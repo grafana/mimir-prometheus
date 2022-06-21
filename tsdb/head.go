@@ -330,17 +330,6 @@ func (h *Head) resetInMemoryState() error {
 	return nil
 }
 
-// SetOutOfOrderAllowance updates the out of order related parameters.
-// If the Head already has a WBL set, then the oooWbl will be ignored.
-func (h *Head) SetOutOfOrderAllowance(oooAllowance int64, oooWbl *wal.WAL) {
-	if oooAllowance > 0 && h.oooWbl == nil {
-		// TODO(codesome): check if there will be a race.
-		h.oooWbl = oooWbl
-	}
-
-	h.opts.OutOfOrderAllowance.Store(oooAllowance)
-}
-
 type headMetrics struct {
 	activeAppenders           prometheus.Gauge
 	series                    prometheus.GaugeFunc
@@ -892,9 +881,23 @@ func (h *Head) removeCorruptedMmappedChunks(err error) (map[chunks.HeadSeriesRef
 	return mmappedChunks, oooMmappedChunks, lastRef, nil
 }
 
-func (h *Head) ApplyConfig(cfg *config.Config) error {
+func (h *Head) ApplyConfig(cfg *config.Config, wbl *wal.WAL) {
+	oooAllowance := int64(0)
+	if cfg.StorageConfig.TSDBConfig != nil {
+		// OutOfOrderAllowance is a Duration only for convenience. TSDB will use OutOfOrderAllowance.Milliseconds()
+		// as the final value for the allowance. If you use milliseconds as the unit of time, then you can use
+		// the duration as an actual duration. But if you use some other unit for time, then you have to choose
+		// the duration whose .Milliseconds() will give you the desired value.
+		// For example, if your unit was in milliseconds, then setting this to '1s' does mean 1 second allowance.
+		// But if your time unit was in seconds, then setting this to '1s' means 1000 seconds allowance. So to get 1s
+		// allowance you will have to set it to '1ms' in this case.
+		oooAllowance = time.Duration(cfg.StorageConfig.TSDBConfig.OutOfOrderAllowance).Milliseconds()
+	}
+
+	h.SetOutOfOrderAllowance(oooAllowance, wbl)
+
 	if !h.opts.EnableExemplarStorage {
-		return nil
+		return
 	}
 
 	// Head uses opts.MaxExemplars in combination with opts.EnableExemplarStorage
@@ -905,12 +908,22 @@ func (h *Head) ApplyConfig(cfg *config.Config) error {
 	newSize := h.opts.MaxExemplars.Load()
 
 	if prevSize == newSize {
-		return nil
+		return
 	}
 
 	migrated := h.exemplars.(*CircularExemplarStorage).Resize(newSize)
 	level.Info(h.logger).Log("msg", "Exemplar storage resized", "from", prevSize, "to", newSize, "migrated", migrated)
-	return nil
+	return
+}
+
+// SetOutOfOrderAllowance updates the out of order related parameters.
+// If the Head already has a WBL set, then the oooWbl will be ignored.
+func (h *Head) SetOutOfOrderAllowance(oooAllowance int64, oooWbl *wal.WAL) {
+	if oooAllowance > 0 && h.oooWbl == nil {
+		h.oooWbl = oooWbl
+	}
+
+	h.opts.OutOfOrderAllowance.Store(oooAllowance)
 }
 
 // PostingsCardinalityStats returns top 10 highest cardinality stats By label and value names.

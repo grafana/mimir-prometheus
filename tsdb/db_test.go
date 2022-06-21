@@ -37,9 +37,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 
+	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
@@ -4932,6 +4934,16 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		return db
 	}
 
+	makeConfig := func(oooAllowanceMins int) *config.Config {
+		return &config.Config{
+			StorageConfig: config.StorageConfig{
+				TSDBConfig: &config.TSDBConfig{
+					OutOfOrderAllowance: model.Duration(time.Duration(oooAllowanceMins) * time.Minute),
+				},
+			},
+		}
+	}
+
 	series1 := labels.FromStrings("foo", "bar1")
 	addSamples := func(t *testing.T, db *DB, fromMins, toMins int64, success bool, allSamples []tsdbutil.Sample) []tsdbutil.Sample {
 		app := db.Appender(context.Background())
@@ -4999,7 +5011,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
 
 		// Increase allowance and try adding again.
-		err := db.SetOutOfOrderAllowance(60 * time.Minute.Milliseconds())
+		err := db.ApplyConfig(makeConfig(60))
 		require.NoError(t, err)
 		allSamples = addSamples(t, db, 251, 260, true, allSamples)
 
@@ -5023,7 +5035,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 
 		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
 		// Decrease allowance.
-		err := db.SetOutOfOrderAllowance(30 * time.Minute.Milliseconds())
+		err := db.ApplyConfig(makeConfig(30))
 		require.NoError(t, err)
 
 		// OOO of 49m old fails.
@@ -5055,7 +5067,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.Nil(t, db.head.oooWbl)
 
 		// Increase allowance and try adding again.
-		err := db.SetOutOfOrderAllowance(60 * time.Minute.Milliseconds())
+		err := db.ApplyConfig(makeConfig(60))
 		require.NoError(t, err)
 		allSamples = addSamples(t, db, 251, 260, true, allSamples)
 
@@ -5081,7 +5093,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 
 		oldWblPtr := fmt.Sprintf("%p", db.head.oooWbl)
 		// Allowance to 0, hence disabled.
-		err := db.SetOutOfOrderAllowance(0)
+		err := db.ApplyConfig(makeConfig(0))
 		require.NoError(t, err)
 
 		// OOO within old allowance fails.
@@ -5113,7 +5125,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.Nil(t, db.head.oooWbl)
 
 		// Allowance to 0.
-		err := db.SetOutOfOrderAllowance(0)
+		err := db.ApplyConfig(makeConfig(0))
 		require.NoError(t, err)
 
 		// OOO still fails.

@@ -314,9 +314,6 @@ func main() {
 	serverOnlyFlag(a, "storage.tsdb.wal-compression", "Compress the tsdb WAL.").
 		Hidden().Default("true").BoolVar(&cfg.tsdb.WALCompression)
 
-	serverOnlyFlag(a, "storage.tsdb.out-of-order-allowance", "Allow samples to be this old for out-of-order.  Supported units: h, m, s. If the value is non-zero, then overlapping queries will be enabled (but not overlapping compaction) since out-of-order data can potentially overlap with other data.").
-		Default("0s").SetValue(&cfg.tsdb.OutOfOrderAllowance)
-
 	serverOnlyFlag(a, "storage.tsdb.out-of-order-cap-min", "Minimum capacity for out of order chunks (in samples. between 0 and 255.)").
 		Hidden().Default("4").IntVar(&cfg.tsdb.OutOfOrderCapMin)
 
@@ -464,6 +461,9 @@ func main() {
 			cfgFile.StorageConfig.ExemplarsConfig = &config.DefaultExemplarsConfig
 		}
 		cfg.tsdb.MaxExemplars = int64(cfgFile.StorageConfig.ExemplarsConfig.MaxExemplars)
+	}
+	if cfgFile.StorageConfig.TSDBConfig != nil {
+		cfg.tsdb.OutOfOrderAllowance = cfgFile.StorageConfig.TSDBConfig.OutOfOrderAllowance
 	}
 
 	// Now that the validity of the config is established, set the config
