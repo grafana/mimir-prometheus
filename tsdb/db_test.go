@@ -1409,7 +1409,9 @@ func TestTimeRetention(t *testing.T) {
 }
 
 func TestSizeRetention(t *testing.T) {
-	db := openTestDB(t, nil, []int64{100})
+	opts := DefaultOptions()
+	opts.OutOfOrderAllowance = 100
+	db := openTestDB(t, opts, []int64{100})
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
@@ -1432,9 +1434,11 @@ func TestSizeRetention(t *testing.T) {
 
 	// Add some data to the WAL.
 	headApp := db.Head().Appender(context.Background())
+	var aSeries labels.Labels
 	for _, m := range headBlocks {
 		series := genSeries(100, 10, m.MinTime, m.MaxTime+1)
 		for _, s := range series {
+			aSeries = s.Labels()
 			it := s.Iterator()
 			for it.Next() {
 				tim, v := it.At()
@@ -1492,6 +1496,26 @@ func TestSizeRetention(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
 
+	// Add some out of order samples to check the size of WBL.
+	headApp = db.Head().Appender(context.Background())
+	for ts := int64(750); ts < 800; ts++ {
+		_, err := headApp.Append(0, aSeries, ts, float64(ts))
+		require.NoError(t, err)
+	}
+	require.NoError(t, headApp.Commit())
+
+	walSize, err = db.Head().wal.Size()
+	require.NoError(t, err)
+	wblSize, err := db.Head().wbl.Size()
+	require.NoError(t, err)
+	require.NotZero(t, wblSize)
+	cdmSize, err = db.Head().chunkDiskMapper.Size()
+	require.NoError(t, err)
+	expSize = blockSize + walSize + wblSize + cdmSize
+	actSize, err = fileutil.DirSize(db.Dir())
+	require.NoError(t, err)
+	require.Equal(t, expSize, actSize, "registered size doesn't match actual disk size")
+
 	// Decrease the max bytes limit so that a delete is triggered.
 	// Check total size, total count and check that the oldest block was deleted.
 	firstBlockSize := db.Blocks()[0].Size()
@@ -1507,8 +1531,8 @@ func TestSizeRetention(t *testing.T) {
 	cdmSize, err = db.Head().chunkDiskMapper.Size()
 	require.NoError(t, err)
 	require.NotZero(t, cdmSize)
-	// Expected size should take into account block size + WAL size
-	expSize = blockSize + walSize + cdmSize
+	// Expected size should take into account block size + WAL size + WBL size
+	expSize = blockSize + walSize + wblSize + cdmSize
 	actRetentionCount := int(prom_testutil.ToFloat64(db.metrics.sizeRetentionCount))
 	actSize, err = fileutil.DirSize(db.Dir())
 	require.NoError(t, err)
