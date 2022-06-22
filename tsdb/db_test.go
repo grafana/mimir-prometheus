@@ -5023,7 +5023,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		verifySamples(t, db, allSamples)
 	})
 
-	t.Run("decrease allowance", func(t *testing.T) {
+	t.Run("decrease allowance and increase again", func(t *testing.T) {
 		var allSamples []tsdbutil.Sample
 		db := getDB(60 * time.Minute.Milliseconds())
 
@@ -5047,6 +5047,16 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.Equal(t, oldWblPtr, newWblPtr)
 
 		verifySamples(t, db, allSamples)
+
+		// Increase allowance again and check
+		err = db.ApplyConfig(makeConfig(60))
+		require.NoError(t, err)
+		allSamples = addSamples(t, db, 261, 270, true, allSamples)
+		verifySamples(t, db, allSamples)
+
+		// WBL does not change.
+		newWblPtr = fmt.Sprintf("%p", db.head.wbl)
+		require.Equal(t, oldWblPtr, newWblPtr)
 
 		doOOOCompaction(t, db)
 		verifySamples(t, db, allSamples)
