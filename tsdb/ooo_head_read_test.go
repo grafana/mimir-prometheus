@@ -362,9 +362,9 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 // an OOOHeadChunkReader to read chunks from it.
 func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 	opts := DefaultOptions()
-	opts.OOOCapMin = 1
-	opts.OOOCapMax = 5
-	opts.OOOAllowance = 120 * time.Minute.Milliseconds()
+	opts.OutOfOrderCapMin = 1
+	opts.OutOfOrderCapMax = 5
+	opts.OutOfOrderAllowance = 120 * time.Minute.Milliseconds()
 
 	s1 := labels.FromStrings("l", "v1")
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
@@ -770,9 +770,9 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 // - A == B
 func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(t *testing.T) {
 	opts := DefaultOptions()
-	opts.OOOCapMin = 1
-	opts.OOOCapMax = 5
-	opts.OOOAllowance = 120 * time.Minute.Milliseconds()
+	opts.OutOfOrderCapMin = 1
+	opts.OutOfOrderCapMax = 5
+	opts.OutOfOrderAllowance = 120 * time.Minute.Milliseconds()
 
 	s1 := labels.FromStrings("l", "v1")
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
