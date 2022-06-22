@@ -671,6 +671,9 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	if opts.OutOfOrderCapMax <= 0 {
 		opts.OutOfOrderCapMax = DefaultOutOfOrderCapMax
 	}
+	if opts.OutOfOrderAllowance < 0 {
+		opts.OutOfOrderAllowance = 0
+	}
 
 	if len(rngs) == 0 {
 		// Start with smallest block duration and create exponential buckets until the exceed the
@@ -977,7 +980,7 @@ func (db *DB) ApplyConfig(conf *config.Config) error {
 	}
 
 	if oooAllowance < 0 {
-		return errors.Errorf("OOOAllowance invalid %d . must be >= 0", oooAllowance)
+		oooAllowance = 0
 	}
 
 	// Create WBL if it was not present and if OOO is enabled with WAL enabled.

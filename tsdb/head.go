@@ -215,7 +215,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, wbl *wal.WAL, opts *Hea
 	}
 
 	if opts.OutOfOrderAllowance.Load() < 0 {
-		return nil, errors.Errorf("OOOAllowance invalid %d . must be >= 0", opts.OutOfOrderAllowance.Load())
+		opts.OutOfOrderAllowance.Store(0)
 	}
 
 	// Allowance can be set on runtime. So the capMin and capMax should be valid
@@ -892,6 +892,9 @@ func (h *Head) ApplyConfig(cfg *config.Config, wbl *wal.WAL) {
 		// But if your time unit was in seconds, then setting this to '1s' means 1000 seconds allowance. So to get 1s
 		// allowance you will have to set it to '1ms' in this case.
 		oooAllowance = time.Duration(cfg.StorageConfig.TSDBConfig.OutOfOrderAllowance).Milliseconds()
+	}
+	if oooAllowance < 0 {
+		oooAllowance = 0
 	}
 
 	h.SetOutOfOrderAllowance(oooAllowance, wbl)
