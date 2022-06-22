@@ -1535,7 +1535,7 @@ type tsdbOptions struct {
 	StripeSize                     int
 	MinBlockDuration               model.Duration
 	MaxBlockDuration               model.Duration
-	OutOfOrderAllowance            model.Duration
+	OutOfOrderAllowance            int64
 	OutOfOrderCapMin               int
 	OutOfOrderCapMax               int
 	EnableExemplarStorage          bool
@@ -1560,7 +1560,7 @@ func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
 		EnableExemplarStorage:          opts.EnableExemplarStorage,
 		MaxExemplars:                   opts.MaxExemplars,
 		EnableMemorySnapshotOnShutdown: opts.EnableMemorySnapshotOnShutdown,
-		OutOfOrderAllowance:            int64(time.Duration(opts.OutOfOrderAllowance) / time.Millisecond),
+		OutOfOrderAllowance:            opts.OutOfOrderAllowance,
 		OutOfOrderCapMin:               int64(opts.OutOfOrderCapMin),
 		OutOfOrderCapMax:               int64(opts.OutOfOrderCapMax),
 	}

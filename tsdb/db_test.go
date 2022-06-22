@@ -37,7 +37,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
 
@@ -4938,7 +4937,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		return &config.Config{
 			StorageConfig: config.StorageConfig{
 				TSDBConfig: &config.TSDBConfig{
-					OutOfOrderAllowance: model.Duration(time.Duration(oooAllowanceMins) * time.Minute),
+					OutOfOrderAllowance: int64(oooAllowanceMins) * time.Minute.Milliseconds(),
 				},
 			},
 		}
