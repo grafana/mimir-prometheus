@@ -993,6 +993,7 @@ func (db *DB) ApplyConfig(conf *config.Config) error {
 		}
 	}
 
+	db.opts.OutOfOrderTimeWindow = oooTimeWindow
 	db.head.ApplyConfig(conf, wblog)
 
 	if !db.oooWasEnabled.Load() {
