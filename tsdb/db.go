@@ -1652,7 +1652,7 @@ func (db *DB) inOrderBlocksMaxTime() (maxt int64, ok bool) {
 			maxt = b.meta.MaxTime
 		}
 	}
-	if !hasOOO && db.opts.OutOfOrderTimeWindow > 0 {
+	if !hasOOO && ok && db.opts.OutOfOrderTimeWindow > 0 {
 		// Temporary patch. To be removed by mid July 2022.
 		// Before this patch, blocks did not have "out_of_order" in their meta, so we cannot
 		// say which block has the out_of_order data. In that case the out-of-order block can be
