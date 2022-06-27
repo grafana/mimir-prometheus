@@ -842,7 +842,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	// We do not consider blocks created from out-of-order samples for Head's minValidTime
 	// since minValidTime is only for the in-order data and we do not want to discard unnecessary
 	// samples from the Head.
-	inOrderMaxTime, ok := db.inOrderBlocksMaxTime(opts.MinBlockDuration)
+	inOrderMaxTime, ok := db.inOrderBlocksMaxTime()
 	if ok {
 		minValidTime = inOrderMaxTime
 	}
@@ -1239,7 +1239,7 @@ func (db *DB) reload() error {
 	if err := db.reloadBlocks(); err != nil {
 		return errors.Wrap(err, "reloadBlocks")
 	}
-	maxt, ok := db.inOrderBlocksMaxTime(db.opts.MinBlockDuration)
+	maxt, ok := db.inOrderBlocksMaxTime()
 	if !ok {
 		return nil
 	}
@@ -1642,7 +1642,7 @@ func (db *DB) Blocks() []*Block {
 // inOrderBlocksMaxTime returns the max time among the blocks that were not totally created
 // out of out-of-order data. If the returned boolean is true, it means there is at least
 // one such block.
-func (db *DB) inOrderBlocksMaxTime(minBlockDuration int64) (maxt int64, ok bool) {
+func (db *DB) inOrderBlocksMaxTime() (maxt int64, ok bool) {
 	maxt, ok, hasOOO := int64(math.MinInt64), false, false
 	// If blocks are overlapping, last block might not have the max time. So check all blocks.
 	for _, b := range db.Blocks() {
@@ -1652,13 +1652,13 @@ func (db *DB) inOrderBlocksMaxTime(minBlockDuration int64) (maxt int64, ok bool)
 			maxt = b.meta.MaxTime
 		}
 	}
-	if !hasOOO {
+	if !hasOOO && db.opts.OutOfOrderTimeWindow > 0 {
 		// Temporary patch. To be removed by mid July 2022.
 		// Before this patch, blocks did not have "out_of_order" in their meta, so we cannot
 		// say which block has the out_of_order data. In that case the out-of-order block can be
 		// up to 2 block ranges ahead of the latest in-order block.
 		// Note: if hasOOO was true, it means the latest block has the new meta and is taken care in inOrderBlocksMaxTime().
-		maxt -= 2 * minBlockDuration
+		maxt -= 2 * db.opts.MinBlockDuration
 	}
 	return maxt, ok
 }
