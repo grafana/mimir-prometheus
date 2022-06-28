@@ -77,7 +77,9 @@ type RefMmapMarker struct {
 
 // Decoder decodes series, sample, and tombstone records.
 // The zero value is ready to use.
-type Decoder struct{}
+type Decoder struct {
+	builder labels.SimpleBuilder
+}
 
 // Type returns the type of the record.
 // Returns RecordUnknown if no valid record type is found.
@@ -115,6 +117,19 @@ func (d *Decoder) Series(rec []byte, series []RefSeries) ([]RefSeries, error) {
 		return nil, errors.Errorf("unexpected %d bytes left in entry", len(dec.B))
 	}
 	return series, nil
+}
+
+// DecodeLabels decodes one set of labels from buf.
+func (d *Decoder) DecodeLabels(dec *encoding.Decbuf) labels.Labels {
+	// TODO: reconsider if this function could be pushed down into labels.Labels to be more efficient.
+	d.builder.Reset()
+	nLabels := dec.Uvarint()
+	for i := 0; i < nLabels; i++ {
+		lName := dec.UvarintStr()
+		lValue := dec.UvarintStr()
+		d.builder.Add(lName, lValue)
+	}
+	return d.builder.Labels()
 }
 
 // Samples appends samples in rec to the given slice.
@@ -259,6 +274,17 @@ func (e *Encoder) Series(series []RefSeries, b []byte) []byte {
 		EncodeLabels(&buf, s.Labels)
 	}
 	return buf.Get()
+}
+
+// EncodeLabels encodes the contents of labels into buf.
+func EncodeLabels(buf *encoding.Encbuf, lbls labels.Labels) {
+	// TODO: reconsider if this function could be pushed down into labels.Labels to be more efficient.
+	buf.PutUvarint(lbls.Len())
+
+	lbls.Range(func(l labels.Label) {
+		buf.PutUvarintStr(l.Name)
+		buf.PutUvarintStr(l.Value)
+	})
 }
 
 // Samples appends the encoded samples to b and returns the resulting slice.
