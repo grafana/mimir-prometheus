@@ -1307,7 +1307,7 @@ func (m mockIndex) ShardedPostings(p index.Postings, shardIndex, shardCount uint
 	return index.NewListPostings(out)
 }
 
-func (m mockIndex) Series(ref storage.SeriesRef, lset *labels.Labels, chks *[]chunks.Meta) error {
+func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.SimpleBuilder, lset *labels.Labels, chks *[]chunks.Meta) error {
 	s, ok := m.series[ref]
 	if !ok {
 		return storage.ErrNotFound
@@ -1857,9 +1857,10 @@ func TestPostingsForMatchers(t *testing.T) {
 		p, err := PostingsForMatchers(ir, c.matchers...)
 		require.NoError(t, err)
 
+		var builder labels.SimpleBuilder
 		for p.Next() {
 			lbls := labels.Labels{}
-			require.NoError(t, ir.Series(p.At(), &lbls, &[]chunks.Meta{}))
+			require.NoError(t, ir.Series(p.At(), &builder, &lbls, &[]chunks.Meta{}))
 			if _, ok := exp[lbls.String()]; !ok {
 				t.Errorf("Evaluating %v, unexpected result %s", c.matchers, lbls.String())
 			} else {
@@ -2077,7 +2078,7 @@ func (m mockMatcherIndex) ShardedPostings(ps index.Postings, shardIndex, shardCo
 	return ps
 }
 
-func (m mockMatcherIndex) Series(ref storage.SeriesRef, lset *labels.Labels, chks *[]chunks.Meta) error {
+func (m mockMatcherIndex) Series(ref storage.SeriesRef, builder *labels.SimpleBuilder, lset *labels.Labels, chks *[]chunks.Meta) error {
 	return nil
 }
 
