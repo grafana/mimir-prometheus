@@ -22,7 +22,9 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/prometheus/prometheus/model/exemplar"
+	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
@@ -63,6 +65,16 @@ func (a *initAppender) AppendExemplar(ref storage.SeriesRef, l labels.Labels, e 
 	a.app = a.head.appender()
 
 	return a.app.AppendExemplar(ref, l, e)
+}
+
+func (a *initAppender) AppendHistogram(ref storage.SeriesRef, l labels.Labels, t int64, h *histogram.Histogram) (storage.SeriesRef, error) {
+	if a.app != nil {
+		return a.app.AppendHistogram(ref, l, t, h)
+	}
+	a.head.initTime(t)
+	a.app = a.head.appender()
+
+	return a.app.AppendHistogram(ref, l, t, h)
 }
 
 // initTime initializes a head with the first timestamp. This only needs to be called
@@ -241,10 +253,12 @@ type headAppender struct {
 	mint, maxt   int64
 	headMaxt     int64 // We track it here to not take the lock for every sample appended.
 
-	series       []record.RefSeries      // New series held by this appender.
-	samples      []record.RefSample      // New samples held by this appender.
-	exemplars    []exemplarWithSeriesRef // New exemplars held by this appender.
-	sampleSeries []*memSeries            // Series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	series          []record.RefSeries      // New series held by this appender.
+	samples         []record.RefSample      // New float samples held by this appender.
+	exemplars       []exemplarWithSeriesRef // New exemplars held by this appender.
+	sampleSeries    []*memSeries            // Float series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	histograms      []record.RefHistogram   // New histogram samples held by this appender.
+	histogramSeries []*memSeries            // Histogram series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
 
 	appendID, cleanupAppendIDsBelow uint64
 	closed                          bool
@@ -283,6 +297,10 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 				Labels: lset,
 			})
 		}
+	}
+
+	if value.IsStaleNaN(v) && s.isHistogramSeries {
+		return a.AppendHistogram(ref, lset, t, &histogram.Histogram{Sum: v})
 	}
 
 	s.Lock()
@@ -364,6 +382,28 @@ func (s *memSeries) appendable(t int64, v float64, headMaxt, minValidTime, oooTi
 	return false, headMaxt - t, storage.ErrOutOfOrderSample
 }
 
+// appendableHistogram checks whether the given sample is valid for appending to the series.
+func (s *memSeries) appendableHistogram(t int64, h *histogram.Histogram) error {
+	c := s.head()
+	if c == nil {
+		return nil
+	}
+
+	if t > c.maxTime {
+		return nil
+	}
+	if t < c.maxTime {
+		return storage.ErrOutOfOrderSample
+	}
+	// TODO(beorn7): do it for histogram.
+	// We are allowing exact duplicates as we can encounter them in valid cases
+	// like federation and erroring out at that time would be extremely noisy.
+	//if math.Float64bits(s.sampleBuf[3].v) != math.Float64bits(v) {
+	//	return storage.ErrDuplicateSampleForTimestamp
+	//}
+	return nil
+}
+
 // AppendExemplar for headAppender assumes the series ref already exists, and so it doesn't
 // use getOrCreate or make any of the lset sanity checks that Append does.
 func (a *headAppender) AppendExemplar(ref storage.SeriesRef, lset labels.Labels, e exemplar.Exemplar) (storage.SeriesRef, error) {
@@ -398,6 +438,66 @@ func (a *headAppender) AppendExemplar(ref storage.SeriesRef, lset labels.Labels,
 
 	a.exemplars = append(a.exemplars, exemplarWithSeriesRef{ref, e})
 
+	return storage.SeriesRef(s.ref), nil
+}
+
+func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels, t int64, h *histogram.Histogram) (storage.SeriesRef, error) {
+	if t < a.minValidTime {
+		a.head.metrics.outOfBoundSamples.Inc()
+		return 0, storage.ErrOutOfBounds
+	}
+
+	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
+	if s == nil {
+		// Ensure no empty labels have gotten through.
+		lset = lset.WithoutEmpty()
+		if len(lset) == 0 {
+			return 0, errors.Wrap(ErrInvalidSample, "empty labelset")
+		}
+
+		if l, dup := lset.HasDuplicateLabelNames(); dup {
+			return 0, errors.Wrap(ErrInvalidSample, fmt.Sprintf(`label name "%s" is not unique`, l))
+		}
+
+		var created bool
+		var err error
+		s, created, err = a.head.getOrCreate(lset.Hash(), lset)
+		if err != nil {
+			return 0, err
+		}
+		s.isHistogramSeries = true
+		if created {
+			a.series = append(a.series, record.RefSeries{
+				Ref:    s.ref,
+				Labels: lset,
+			})
+		}
+	}
+
+	s.Lock()
+	if err := s.appendableHistogram(t, h); err != nil {
+		s.Unlock()
+		if err == storage.ErrOutOfOrderSample {
+			a.head.metrics.outOfOrderSamples.Inc()
+		}
+		return 0, err
+	}
+	s.pendingCommit = true
+	s.Unlock()
+
+	if t < a.mint {
+		a.mint = t
+	}
+	if t > a.maxt {
+		a.maxt = t
+	}
+
+	a.histograms = append(a.histograms, record.RefHistogram{
+		Ref: s.ref,
+		T:   t,
+		H:   h,
+	})
+	a.histogramSeries = append(a.histogramSeries, s)
 	return storage.SeriesRef(s.ref), nil
 }
 
@@ -446,6 +546,13 @@ func (a *headAppender) log() error {
 
 		if err := a.head.wal.Log(rec); err != nil {
 			return errors.Wrap(err, "log exemplars")
+		}
+	}
+	if len(a.histograms) > 0 {
+		rec = enc.Histograms(a.histograms, buf)
+		buf = rec[:0]
+		if err := a.head.wal.Log(rec); err != nil {
+			return errors.Wrap(err, "log histograms")
 		}
 	}
 	return nil
@@ -647,6 +754,27 @@ func (a *headAppender) Commit() (err error) {
 		series.Unlock()
 	}
 
+	total += len(a.histograms) // TODO: different metric?
+	for i, s := range a.histograms {
+		series = a.histogramSeries[i]
+		series.Lock()
+		ok, chunkCreated := series.appendHistogram(s.T, s.H, a.appendID, a.head.chunkDiskMapper)
+		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.pendingCommit = false
+		series.Unlock()
+
+		if ok {
+			a.head.metrics.histogramSamplesTotal.Inc()
+		} else {
+			total--
+			a.head.metrics.outOfOrderSamples.Inc()
+		}
+		if chunkCreated {
+			a.head.metrics.chunks.Inc()
+			a.head.metrics.chunksCreated.Inc()
+		}
+	}
+
 	a.head.metrics.outOfOrderSamples.Add(float64(oooRejected))
 	a.head.metrics.outOfBoundSamples.Add(float64(oobRejected))
 	a.head.metrics.tooOldSamples.Add(float64(tooOldRejected))
@@ -689,11 +817,11 @@ func (s *memSeries) insert(t int64, v float64, chunkDiskMapper chunkDiskMapper) 
 	return ok, chunkCreated, mmapRef
 }
 
-// append adds the sample (t, v) to the series. The caller also has to provide
+// append adds the sample (t, v) to the series. The caller also has to
 // the appendID for isolation. (The appendID can be zero, which results in no
 // isolation for this append.)
 // It is unsafe to call this concurrently with s.iterator(...) without holding the series lock.
-func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper chunkDiskMapper) (delta int64, sampleInOrder, chunkCreated bool) {
+func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper *chunks.ChunkDiskMapper) (delta int64, sampleInOrder, chunkCreated bool) {
 	// Based on Gorilla white papers this offers near-optimal compression ratio
 	// so anything bigger that this has diminishing returns and increases
 	// the time range within which we have to decompress all samples.
@@ -759,6 +887,78 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, chunkDiskMapper 
 	return 0, true, chunkCreated
 }
 
+// appendHistogram adds the histogram.
+// It is unsafe to call this concurrently with s.iterator(...) without holding the series lock.
+func (s *memSeries) appendHistogram(t int64, h *histogram.Histogram, appendID uint64, chunkDiskMapper *chunks.ChunkDiskMapper) (sampleInOrder, chunkCreated bool) {
+	// Head controls the execution of recoding, so that we own the proper
+	// chunk reference afterwards.  We check for Appendable before
+	// appendPreprocessor because in case it ends up creating a new chunk,
+	// we need to know if there was also a counter reset or not to set the
+	// meta properly.
+	app, _ := s.app.(*chunkenc.HistogramAppender)
+	var (
+		positiveInterjections, negativeInterjections []chunkenc.Interjection
+		okToAppend, counterReset                     bool
+	)
+	c, sampleInOrder, chunkCreated := s.appendPreprocessor(t, chunkenc.EncHistogram, chunkDiskMapper)
+	if !sampleInOrder {
+		return sampleInOrder, chunkCreated
+	}
+
+	if app != nil {
+		positiveInterjections, negativeInterjections, okToAppend, counterReset = app.Appendable(h)
+	}
+
+	if !chunkCreated {
+		// We have 3 cases here
+		// - !okToAppend -> We need to cut a new chunk.
+		// - okToAppend but we have interjections → Existing chunk needs
+		//   recoding before we can append our histogram.
+		// - okToAppend and no interjections → Chunk is ready to support our histogram.
+		if !okToAppend || counterReset {
+			c = s.cutNewHeadChunk(t, chunkenc.EncHistogram, chunkDiskMapper)
+			chunkCreated = true
+		} else if len(positiveInterjections) > 0 || len(negativeInterjections) > 0 {
+			// New buckets have appeared. We need to recode all
+			// prior histogram samples within the chunk before we
+			// can process this one.
+			chunk, app := app.Recode(
+				positiveInterjections, negativeInterjections,
+				h.PositiveSpans, h.NegativeSpans,
+			)
+			c.chunk = chunk
+			s.app = app
+		}
+	}
+
+	if chunkCreated {
+		hc := s.headChunk.chunk.(*chunkenc.HistogramChunk)
+		header := chunkenc.UnknownCounterReset
+		if counterReset {
+			header = chunkenc.CounterReset
+		} else if okToAppend {
+			header = chunkenc.NotCounterReset
+		}
+		hc.SetCounterResetHeader(header)
+	}
+
+	s.app.AppendHistogram(t, h)
+	s.isHistogramSeries = true
+
+	c.maxTime = t
+
+	s.sampleBuf[0] = s.sampleBuf[1]
+	s.sampleBuf[1] = s.sampleBuf[2]
+	s.sampleBuf[2] = s.sampleBuf[3]
+	s.sampleBuf[3] = sample{t: t, h: h}
+
+	if appendID > 0 {
+		s.txs.add(appendID)
+	}
+
+	return true, chunkCreated
+}
+
 // computeChunkEndTime estimates the end timestamp based the beginning of a
 // chunk, its current timestamp and the upper bound up to which we insert data.
 // It assumes that the time range is 1/4 full.
@@ -796,13 +996,22 @@ func addJitterToChunkEndTime(seriesHash uint64, chunkMinTime, nextAt, maxNextAt 
 	return min(maxNextAt, nextAt+chunkDurationVariance-(chunkDurationMaxVariance/2))
 }
 
-func (s *memSeries) cutNewHeadChunk(mint int64, chunkDiskMapper chunkDiskMapper) *memChunk {
+func (s *memSeries) cutNewHeadChunk(mint int64, e chunkenc.Encoding, chunkDiskMapper *chunks.ChunkDiskMapper) *memChunk {
 	s.mmapCurrentHeadChunk(chunkDiskMapper)
 
 	s.headChunk = &memChunk{
-		chunk:   chunkenc.NewXORChunk(),
 		minTime: mint,
 		maxTime: math.MinInt64,
+	}
+
+	if chunkenc.IsValidEncoding(e) {
+		var err error
+		s.headChunk.chunk, err = chunkenc.NewEmptyChunk(e)
+		if err != nil {
+			panic(err) // This should never happen.
+		}
+	} else {
+		s.headChunk.chunk = chunkenc.NewXORChunk()
 	}
 
 	// Set upper bound on when the next chunk must be started. An earlier timestamp
@@ -847,7 +1056,7 @@ func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) chu
 	return chunkRef
 }
 
-func (s *memSeries) mmapCurrentHeadChunk(chunkDiskMapper chunkDiskMapper) {
+func (s *memSeries) mmapCurrentHeadChunk(chunkDiskMapper *chunks.ChunkDiskMapper) {
 	if s.headChunk == nil {
 		// There is no head chunk, so nothing to m-map here.
 		return

@@ -21,6 +21,7 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/pkg/errors"
 
+	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
@@ -747,32 +748,46 @@ type memSafeIterator struct {
 	buf   [4]sample
 }
 
-func (it *memSafeIterator) Seek(t int64) bool {
+func (it *memSafeIterator) Seek(t int64) chunkenc.ValueType {
 	if it.Err() != nil {
-		return false
+		return chunkenc.ValNone
 	}
 
-	ts, _ := it.At()
+	var valueType chunkenc.ValueType
+	var ts int64 = math.MinInt64
+
+	if it.i > -1 {
+		ts = it.AtT()
+	}
+
+	if t <= ts {
+		// We are already at the right sample, but we have to find out
+		// its ValueType.
+		if it.total-it.i > 4 {
+			return it.Iterator.Seek(ts)
+		}
+		return it.buf[4-(it.total-it.i)].Type()
+	}
 
 	for t > ts || it.i == -1 {
-		if !it.Next() {
-			return false
+		if valueType = it.Next(); valueType == chunkenc.ValNone {
+			return chunkenc.ValNone
 		}
-		ts, _ = it.At()
+		ts = it.AtT()
 	}
 
-	return true
+	return valueType
 }
 
-func (it *memSafeIterator) Next() bool {
+func (it *memSafeIterator) Next() chunkenc.ValueType {
 	if it.i+1 >= it.stopAfter {
-		return false
+		return chunkenc.ValNone
 	}
 	it.i++
 	if it.total-it.i > 4 {
 		return it.Iterator.Next()
 	}
-	return true
+	return it.buf[4-(it.total-it.i)].Type()
 }
 
 func (it *memSafeIterator) At() (int64, float64) {
@@ -783,6 +798,33 @@ func (it *memSafeIterator) At() (int64, float64) {
 	return s.t, s.v
 }
 
+func (it *memSafeIterator) AtHistogram() (int64, *histogram.Histogram) {
+	if it.total-it.i > 4 {
+		return it.Iterator.AtHistogram()
+	}
+	s := it.buf[4-(it.total-it.i)]
+	return s.t, s.h
+}
+
+func (it *memSafeIterator) AtFloatHistogram() (int64, *histogram.FloatHistogram) {
+	if it.total-it.i > 4 {
+		return it.Iterator.AtFloatHistogram()
+	}
+	s := it.buf[4-(it.total-it.i)]
+	if s.fh != nil {
+		return s.t, s.fh
+	}
+	return s.t, s.h.ToFloat()
+}
+
+func (it *memSafeIterator) AtT() int64 {
+	if it.total-it.i > 4 {
+		return it.Iterator.AtT()
+	}
+	s := it.buf[4-(it.total-it.i)]
+	return s.t
+}
+
 // stopIterator wraps an Iterator, but only returns the first
 // stopAfter values, if initialized with i=-1.
 type stopIterator struct {
@@ -791,9 +833,9 @@ type stopIterator struct {
 	i, stopAfter int
 }
 
-func (it *stopIterator) Next() bool {
+func (it *stopIterator) Next() chunkenc.ValueType {
 	if it.i+1 >= it.stopAfter {
-		return false
+		return chunkenc.ValNone
 	}
 	it.i++
 	return it.Iterator.Next()

@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	"github.com/prometheus/prometheus/model/exemplar"
+	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 )
@@ -39,6 +40,10 @@ func (a nopAppender) Append(storage.SeriesRef, labels.Labels, int64, float64) (s
 func (a nopAppender) AppendExemplar(storage.SeriesRef, labels.Labels, exemplar.Exemplar) (storage.SeriesRef, error) {
 	return 0, nil
 }
+
+func (a nopAppender) AppendHistogram(storage.SeriesRef, labels.Labels, int64, *histogram.Histogram) (storage.SeriesRef, error) {
+	return 0, nil
+}
 func (a nopAppender) Commit() error   { return nil }
 func (a nopAppender) Rollback() error { return nil }
 
@@ -48,15 +53,23 @@ type sample struct {
 	v      float64
 }
 
+type histogramSample struct {
+	t int64
+	h *histogram.Histogram
+}
+
 // collectResultAppender records all samples that were added through the appender.
 // It can be used as its zero value or be backed by another appender it writes samples through.
 type collectResultAppender struct {
-	next             storage.Appender
-	result           []sample
-	pendingResult    []sample
-	rolledbackResult []sample
-	pendingExemplars []exemplar.Exemplar
-	resultExemplars  []exemplar.Exemplar
+	next                 storage.Appender
+	result               []sample
+	pendingResult        []sample
+	rolledbackResult     []sample
+	pendingExemplars     []exemplar.Exemplar
+	resultExemplars      []exemplar.Exemplar
+	resultHistograms     []histogramSample
+	pendingHistograms    []histogramSample
+	rolledbackHistograms []histogramSample
 }
 
 func (a *collectResultAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
@@ -89,11 +102,22 @@ func (a *collectResultAppender) AppendExemplar(ref storage.SeriesRef, l labels.L
 	return a.next.AppendExemplar(ref, l, e)
 }
 
+func (a *collectResultAppender) AppendHistogram(ref storage.SeriesRef, l labels.Labels, t int64, h *histogram.Histogram) (storage.SeriesRef, error) {
+	a.pendingHistograms = append(a.pendingHistograms, histogramSample{h: h, t: t})
+	if a.next == nil {
+		return 0, nil
+	}
+
+	return a.next.AppendHistogram(ref, l, t, h)
+}
+
 func (a *collectResultAppender) Commit() error {
 	a.result = append(a.result, a.pendingResult...)
 	a.resultExemplars = append(a.resultExemplars, a.pendingExemplars...)
+	a.resultHistograms = append(a.resultHistograms, a.pendingHistograms...)
 	a.pendingResult = nil
 	a.pendingExemplars = nil
+	a.pendingHistograms = nil
 	if a.next == nil {
 		return nil
 	}
@@ -102,7 +126,9 @@ func (a *collectResultAppender) Commit() error {
 
 func (a *collectResultAppender) Rollback() error {
 	a.rolledbackResult = a.pendingResult
+	a.rolledbackHistograms = a.pendingHistograms
 	a.pendingResult = nil
+	a.pendingHistograms = nil
 	if a.next == nil {
 		return nil
 	}
