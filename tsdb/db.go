@@ -787,16 +787,12 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		if err != nil {
 			return nil, err
 		}
-		initWbl := opts.OutOfOrderTimeWindow > 0
-		if !initWbl {
-			// Check if there is a WBL on disk, in which case we should replay that data.
-			wblSize, err := fileutil.DirSize(wblDir)
-			if err != nil && !os.IsNotExist(err) {
-				return nil, err
-			}
-			initWbl = wblSize > 0
+		// Check if there is a WBL on disk, in which case we should replay that data.
+		wblSize, err := fileutil.DirSize(wblDir)
+		if err != nil && !os.IsNotExist(err) {
+			return nil, err
 		}
-		if initWbl {
+		if opts.OutOfOrderTimeWindow > 0 || wblSize > 0 {
 			wblog, err = wal.NewSize(l, r, wblDir, segmentSize, opts.WALCompression)
 			if err != nil {
 				return nil, err
