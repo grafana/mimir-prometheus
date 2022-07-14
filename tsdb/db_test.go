@@ -3775,8 +3775,8 @@ func TestOOOCompaction(t *testing.T) {
 			fromMins, toMins := r[0], r[1]
 			for min := fromMins; min <= toMins; min++ {
 				ts := min * time.Minute.Milliseconds()
-				series1Samples = append(series1Samples, sample{ts, float64(ts)})
-				series2Samples = append(series2Samples, sample{ts, float64(2 * ts)})
+				series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
+				series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
 			}
 		}
 		expRes := map[string][]tsdbutil.Sample{
@@ -3842,8 +3842,8 @@ func TestOOOCompaction(t *testing.T) {
 		series2Samples := make([]tsdbutil.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts)})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts)})
+			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
+			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
 		}
 		expRes := map[string][]tsdbutil.Sample{
 			series1.String(): series1Samples,
@@ -3978,8 +3978,8 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 		series2Samples := make([]tsdbutil.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts)})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts)})
+			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
+			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
 		}
 		expRes := map[string][]tsdbutil.Sample{
 			series1.String(): series1Samples,
@@ -4170,7 +4170,7 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 			var gotSamples []tsdbutil.Sample
 			for _, chunk := range chks[series1.String()] {
 				it := chunk.Chunk.Iterator(nil)
-				for it.Next() {
+				for it.Next() == chunkenc.ValFloat {
 					ts, v := it.At()
 					gotSamples = append(gotSamples, sample{t: ts, v: v})
 				}
@@ -4424,7 +4424,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		chk, err := db.head.chunkDiskMapper.Chunk(mc.ref)
 		require.NoError(t, err)
 		it := chk.Iterator(nil)
-		for it.Next() {
+		for it.Next() == chunkenc.ValFloat {
 			ts, val := it.At()
 			s1MmapSamples = append(s1MmapSamples, sample{t: ts, v: val})
 		}
@@ -4655,7 +4655,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 		series1Samples := make([]tsdbutil.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts)})
+			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
 		}
 		expRes := map[string][]tsdbutil.Sample{
 			series1.String(): series1Samples,

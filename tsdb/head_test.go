@@ -1324,7 +1324,8 @@ func TestMemSeries_appendHistogram(t *testing.T) {
 		require.NoError(t, chunkDiskMapper.Close())
 	}()
 
-	s := newMemSeries(labels.Labels{}, 1, 500, nil, defaultIsolationDisabled)
+	lbls := labels.Labels{}
+	s := newMemSeries(lbls, 1, lbls.Hash(), 500, 0, 0, 0, nil, defaultIsolationDisabled)
 
 	histograms := GenerateTestHistograms(4)
 	histogramWithOneMoreBucket := histograms[3].Copy()
@@ -2957,7 +2958,7 @@ func TestHistogramInWAL(t *testing.T) {
 	require.NoError(t, head.Close())
 	w, err := wal.NewSize(nil, nil, head.wal.Dir(), 32768, false)
 	require.NoError(t, err)
-	head, err = NewHead(nil, nil, w, head.opts, nil)
+	head, err = NewHead(nil, nil, w, nil, head.opts, nil)
 	require.NoError(t, err)
 	require.NoError(t, head.Init(0))
 
@@ -3309,7 +3310,7 @@ func TestHistogramMetrics(t *testing.T) {
 	require.NoError(t, head.Close())
 	w, err := wal.NewSize(nil, nil, head.wal.Dir(), 32768, false)
 	require.NoError(t, err)
-	head, err = NewHead(nil, nil, w, head.opts, nil)
+	head, err = NewHead(nil, nil, w, nil, head.opts, nil)
 	require.NoError(t, err)
 	require.NoError(t, head.Init(0))
 
@@ -3821,7 +3822,7 @@ func TestOOOWalReplay(t *testing.T) {
 
 	it := xor.Iterator(nil)
 	actOOOSamples := make([]sample, 0, len(expOOOSamples))
-	for it.Next() {
+	for it.Next() == chunkenc.ValFloat {
 		ts, v := it.At()
 		actOOOSamples = append(actOOOSamples, sample{t: ts, v: v})
 	}

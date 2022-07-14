@@ -47,7 +47,7 @@ func (e Encoding) String() string {
 // IsValidEncoding returns true for supported encodings.
 func IsValidEncoding(e Encoding) bool {
 	switch e {
-	case EncXOR, EncHistogram:
+	case EncXOR, EncOOOXOR, EncHistogram:
 		return true
 	}
 	return false
@@ -62,10 +62,6 @@ const (
 
 func IsOutOfOrderChunk(e Encoding) bool {
 	return (e & OutOfOrderMask) != 0
-}
-
-func IsValidEncoding(e Encoding) bool {
-	return e == EncXOR || e == EncOOOXOR
 }
 
 // Chunk holds a sequence of sample pairs that can be iterated over and appended to.

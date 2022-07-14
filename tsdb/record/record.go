@@ -46,7 +46,7 @@ const (
 	// MmapMarkers is used to match OOO WBL records of type MmapMarkers.
 	MmapMarkers Type = 5
 	// Histograms is used to match WAL records of type Histograms.
-	Histograms Type = 6
+	Histograms Type = 7
 )
 
 // ErrNotFound is returned if a looked up resource was not found. Duplicate ErrNotFound from head.go.
