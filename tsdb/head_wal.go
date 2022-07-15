@@ -502,6 +502,9 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head) (unknownRefs, unknownHi
 				if s.T > maxt {
 					maxt = s.T
 				}
+				if s.T < mint {
+					mint = s.T
+				}
 			}
 			wp.output <- samples
 		case []record.RefHistogram:
