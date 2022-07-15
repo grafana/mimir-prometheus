@@ -765,6 +765,12 @@ func (a *headAppender) Commit() (err error) {
 
 		if ok {
 			a.head.metrics.histogramSamplesTotal.Inc()
+			if s.T < inOrderMint {
+				inOrderMint = s.T
+			}
+			if s.T > inOrderMaxt {
+				inOrderMaxt = s.T
+			}
 		} else {
 			samplesAppended--
 			a.head.metrics.outOfOrderSamples.Inc()
