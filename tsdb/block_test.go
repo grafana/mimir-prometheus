@@ -532,7 +532,7 @@ func createHeadWithOOOSamples(tb testing.TB, w *wal.WAL, series []storage.Series
 		lset := s.Labels()
 		os := tsdbutil.SampleSlice{}
 		count := 0
-		for it.Next() {
+		for it.Next() == chunkenc.ValFloat {
 			totalSamples++
 			count++
 			t, v := it.At()
