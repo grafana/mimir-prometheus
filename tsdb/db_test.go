@@ -92,7 +92,8 @@ func query(t testing.TB, q storage.Querier, matchers ...*labels.Matcher) map[str
 
 		samples := []tsdbutil.Sample{}
 		it := series.Iterator()
-		for it.Next() {
+		for it.Next() == chunkenc.ValFloat {
+			// TODO(beorn7): Also handle histograms.
 			t, v := it.At()
 			samples = append(samples, sample{t: t, v: v})
 		}
@@ -419,7 +420,7 @@ Outer:
 
 		expSamples := make([]tsdbutil.Sample, 0, len(c.remaint))
 		for _, ts := range c.remaint {
-			expSamples = append(expSamples, sample{ts, smpls[ts]})
+			expSamples = append(expSamples, sample{ts, smpls[ts], nil, nil})
 		}
 
 		expss := newMockSeriesSet([]storage.Series{
@@ -535,7 +536,7 @@ func TestSkippingInvalidValuesInSameTxn(t *testing.T) {
 	ssMap := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
 
 	require.Equal(t, map[string][]tsdbutil.Sample{
-		labels.New(labels.Label{Name: "a", Value: "b"}).String(): {sample{0, 1}},
+		labels.New(labels.Label{Name: "a", Value: "b"}).String(): {sample{0, 1, nil, nil}},
 	}, ssMap)
 
 	// Append Out of Order Value.
@@ -552,7 +553,7 @@ func TestSkippingInvalidValuesInSameTxn(t *testing.T) {
 	ssMap = query(t, q, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
 
 	require.Equal(t, map[string][]tsdbutil.Sample{
-		labels.New(labels.Label{Name: "a", Value: "b"}).String(): {sample{0, 1}, sample{10, 3}},
+		labels.New(labels.Label{Name: "a", Value: "b"}).String(): {sample{0, 1, nil, nil}, sample{10, 3, nil, nil}},
 	}, ssMap)
 }
 
@@ -588,7 +589,7 @@ func TestDB_Snapshot(t *testing.T) {
 	sum := 0.0
 	for seriesSet.Next() {
 		series := seriesSet.At().Iterator()
-		for series.Next() {
+		for series.Next() == chunkenc.ValFloat {
 			_, v := series.At()
 			sum += v
 		}
@@ -636,7 +637,7 @@ func TestDB_Snapshot_ChunksOutsideOfCompactedRange(t *testing.T) {
 	sum := 0.0
 	for seriesSet.Next() {
 		series := seriesSet.At().Iterator()
-		for series.Next() {
+		for series.Next() == chunkenc.ValFloat {
 			_, v := series.At()
 			sum += v
 		}
@@ -702,7 +703,7 @@ Outer:
 
 		expSamples := make([]tsdbutil.Sample, 0, len(c.remaint))
 		for _, ts := range c.remaint {
-			expSamples = append(expSamples, sample{ts, smpls[ts]})
+			expSamples = append(expSamples, sample{ts, smpls[ts], nil, nil})
 		}
 
 		expss := newMockSeriesSet([]storage.Series{
@@ -807,7 +808,7 @@ func TestDB_e2e(t *testing.T) {
 		for i := 0; i < numDatapoints; i++ {
 			v := rand.Float64()
 
-			series = append(series, sample{ts, v})
+			series = append(series, sample{ts, v, nil, nil})
 
 			_, err := app.Append(0, lset, ts, v)
 			require.NoError(t, err)
@@ -1137,7 +1138,7 @@ func TestTombstoneClean(t *testing.T) {
 
 		expSamples := make([]tsdbutil.Sample, 0, len(c.remaint))
 		for _, ts := range c.remaint {
-			expSamples = append(expSamples, sample{ts, smpls[ts]})
+			expSamples = append(expSamples, sample{ts, smpls[ts], nil, nil})
 		}
 
 		expss := newMockSeriesSet([]storage.Series{
@@ -1440,7 +1441,7 @@ func TestSizeRetention(t *testing.T) {
 		for _, s := range series {
 			aSeries = s.Labels()
 			it := s.Iterator()
-			for it.Next() {
+			for it.Next() == chunkenc.ValFloat {
 				tim, v := it.At()
 				_, err := headApp.Append(0, s.Labels(), tim, v)
 				require.NoError(t, err)
@@ -1651,7 +1652,7 @@ func expandSeriesSet(ss storage.SeriesSet) ([]labels.Labels, map[string][]sample
 		series := ss.At()
 		samples := []sample{}
 		it := series.Iterator()
-		for it.Next() {
+		for it.Next() == chunkenc.ValFloat {
 			t, v := it.At()
 			samples = append(samples, sample{t: t, v: v})
 		}
@@ -2457,7 +2458,7 @@ func TestDBReadOnly_FlushWAL(t *testing.T) {
 	sum := 0.0
 	for seriesSet.Next() {
 		series := seriesSet.At().Iterator()
-		for series.Next() {
+		for series.Next() == chunkenc.ValFloat {
 			_, v := series.At()
 			sum += v
 		}
@@ -2609,11 +2610,11 @@ func TestDBQueryDoesntSeeAppendsAfterCreation(t *testing.T) {
 // TestChunkWriter_ReadAfterWrite ensures that chunk segment are cut at the set segment size and
 // that the resulted segments includes the expected chunks data.
 func TestChunkWriter_ReadAfterWrite(t *testing.T) {
-	chk1 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 1}})
-	chk2 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 2}})
-	chk3 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 3}})
-	chk4 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 4}})
-	chk5 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 5}})
+	chk1 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 1, nil, nil}})
+	chk2 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 2, nil, nil}})
+	chk3 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 3, nil, nil}})
+	chk4 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 4, nil, nil}})
+	chk5 := tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 5, nil, nil}})
 	chunkSize := len(chk1.Chunk.Bytes()) + chunks.MaxChunkLengthFieldSize + chunks.ChunkEncodingSize + crc32.Size
 
 	tests := []struct {
@@ -2813,11 +2814,11 @@ func TestRangeForTimestamp(t *testing.T) {
 // Regression test for https://github.com/prometheus/prometheus/pull/6514.
 func TestChunkReader_ConcurrentReads(t *testing.T) {
 	chks := []chunks.Meta{
-		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 1}}),
-		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 2}}),
-		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 3}}),
-		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 4}}),
-		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 5}}),
+		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 1, nil, nil}}),
+		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 2, nil, nil}}),
+		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 3, nil, nil}}),
+		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 4, nil, nil}}),
+		tsdbutil.ChunkFromSamples([]tsdbutil.Sample{sample{1, 5, nil, nil}}),
 	}
 
 	tempDir := t.TempDir()
@@ -2878,7 +2879,7 @@ func TestCompactHead(t *testing.T) {
 		val := rand.Float64()
 		_, err := app.Append(0, labels.FromStrings("a", "b"), int64(i), val)
 		require.NoError(t, err)
-		expSamples = append(expSamples, sample{int64(i), val})
+		expSamples = append(expSamples, sample{int64(i), val, nil, nil})
 	}
 	require.NoError(t, app.Commit())
 
@@ -2903,9 +2904,9 @@ func TestCompactHead(t *testing.T) {
 
 	for seriesSet.Next() {
 		series := seriesSet.At().Iterator()
-		for series.Next() {
+		for series.Next() == chunkenc.ValFloat {
 			time, val := series.At()
-			actSamples = append(actSamples, sample{int64(time), val})
+			actSamples = append(actSamples, sample{int64(time), val, nil, nil})
 		}
 		require.NoError(t, series.Err())
 	}
@@ -3313,7 +3314,7 @@ func testQuerierShouldNotPanicIfHeadChunkIsTruncatedWhileReadingQueriedChunks(t 
 	var sum float64
 	var firstErr error
 	for _, it := range iterators {
-		for it.Next() {
+		for it.Next() == chunkenc.ValFloat {
 			_, v := it.At()
 			sum += v
 		}
@@ -3774,8 +3775,8 @@ func TestOOOCompaction(t *testing.T) {
 			fromMins, toMins := r[0], r[1]
 			for min := fromMins; min <= toMins; min++ {
 				ts := min * time.Minute.Milliseconds()
-				series1Samples = append(series1Samples, sample{ts, float64(ts)})
-				series2Samples = append(series2Samples, sample{ts, float64(2 * ts)})
+				series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
+				series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
 			}
 		}
 		expRes := map[string][]tsdbutil.Sample{
@@ -3841,8 +3842,8 @@ func TestOOOCompaction(t *testing.T) {
 		series2Samples := make([]tsdbutil.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts)})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts)})
+			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
+			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
 		}
 		expRes := map[string][]tsdbutil.Sample{
 			series1.String(): series1Samples,
@@ -3977,8 +3978,8 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 		series2Samples := make([]tsdbutil.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts)})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts)})
+			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
+			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
 		}
 		expRes := map[string][]tsdbutil.Sample{
 			series1.String(): series1Samples,
@@ -4169,7 +4170,7 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 			var gotSamples []tsdbutil.Sample
 			for _, chunk := range chks[series1.String()] {
 				it := chunk.Chunk.Iterator(nil)
-				for it.Next() {
+				for it.Next() == chunkenc.ValFloat {
 					ts, v := it.At()
 					gotSamples = append(gotSamples, sample{t: ts, v: v})
 				}
@@ -4423,7 +4424,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		chk, err := db.head.chunkDiskMapper.Chunk(mc.ref)
 		require.NoError(t, err)
 		it := chk.Iterator(nil)
-		for it.Next() {
+		for it.Next() == chunkenc.ValFloat {
 			ts, val := it.At()
 			s1MmapSamples = append(s1MmapSamples, sample{t: ts, v: val})
 		}
@@ -4654,7 +4655,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 		series1Samples := make([]tsdbutil.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts)})
+			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
 		}
 		expRes := map[string][]tsdbutil.Sample{
 			series1.String(): series1Samples,

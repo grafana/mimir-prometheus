@@ -96,7 +96,7 @@ func TestAlertingRuleLabelsUpdate(t *testing.T) {
 
 	results := []promql.Vector{
 		{
-			{
+			promql.Sample{
 				Metric: labels.FromStrings(
 					"__name__", "ALERTS",
 					"alertname", "HTTPRequestRateLow",
@@ -109,7 +109,7 @@ func TestAlertingRuleLabelsUpdate(t *testing.T) {
 			},
 		},
 		{
-			{
+			promql.Sample{
 				Metric: labels.FromStrings(
 					"__name__", "ALERTS",
 					"alertname", "HTTPRequestRateLow",
@@ -122,7 +122,7 @@ func TestAlertingRuleLabelsUpdate(t *testing.T) {
 			},
 		},
 		{
-			{
+			promql.Sample{
 				Metric: labels.FromStrings(
 					"__name__", "ALERTS",
 					"alertname", "HTTPRequestRateLow",
@@ -135,7 +135,7 @@ func TestAlertingRuleLabelsUpdate(t *testing.T) {
 			},
 		},
 		{
-			{
+			promql.Sample{
 				Metric: labels.FromStrings(
 					"__name__", "ALERTS",
 					"alertname", "HTTPRequestRateLow",
@@ -206,7 +206,7 @@ func TestAlertingRuleExternalLabelsInTemplate(t *testing.T) {
 		true, log.NewNopLogger(),
 	)
 	result := promql.Vector{
-		{
+		promql.Sample{
 			Metric: labels.FromStrings(
 				"__name__", "ALERTS",
 				"alertname", "ExternalLabelDoesNotExist",
@@ -217,7 +217,7 @@ func TestAlertingRuleExternalLabelsInTemplate(t *testing.T) {
 			),
 			Point: promql.Point{V: 1},
 		},
-		{
+		promql.Sample{
 			Metric: labels.FromStrings(
 				"__name__", "ALERTS",
 				"alertname", "ExternalLabelExists",
@@ -300,7 +300,7 @@ func TestAlertingRuleExternalURLInTemplate(t *testing.T) {
 		true, log.NewNopLogger(),
 	)
 	result := promql.Vector{
-		{
+		promql.Sample{
 			Metric: labels.FromStrings(
 				"__name__", "ALERTS",
 				"alertname", "ExternalURLDoesNotExist",
@@ -311,7 +311,7 @@ func TestAlertingRuleExternalURLInTemplate(t *testing.T) {
 			),
 			Point: promql.Point{V: 1},
 		},
-		{
+		promql.Sample{
 			Metric: labels.FromStrings(
 				"__name__", "ALERTS",
 				"alertname", "ExternalURLExists",
@@ -384,7 +384,7 @@ func TestAlertingRuleEmptyLabelFromTemplate(t *testing.T) {
 		true, log.NewNopLogger(),
 	)
 	result := promql.Vector{
-		{
+		promql.Sample{
 			Metric: labels.FromStrings(
 				"__name__", "ALERTS",
 				"alertname", "EmptyLabel",

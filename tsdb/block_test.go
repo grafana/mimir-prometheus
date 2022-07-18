@@ -32,6 +32,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
@@ -163,7 +164,7 @@ func TestCorruptedChunk(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpdir := t.TempDir()
 
-			series := storage.NewListSeries(labels.FromStrings("a", "b"), []tsdbutil.Sample{sample{1, 1}})
+			series := storage.NewListSeries(labels.FromStrings("a", "b"), []tsdbutil.Sample{sample{1, 1, nil, nil}})
 			blockDir := createBlock(t, tmpdir, []storage.Series{series})
 			files, err := sequenceFiles(chunkDir(blockDir))
 			require.NoError(t, err)
@@ -192,7 +193,7 @@ func TestCorruptedChunk(t *testing.T) {
 			// Check chunk errors during iter time.
 			require.True(t, set.Next())
 			it := set.At().Iterator()
-			require.Equal(t, false, it.Next())
+			require.Equal(t, chunkenc.ValNone, it.Next())
 			require.Equal(t, tc.iterErr.Error(), it.Err().Error())
 		})
 	}
@@ -206,7 +207,7 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 		seriesEntries = append(seriesEntries, storage.NewListSeries(labels.Labels{
 			{Name: "tens", Value: fmt.Sprintf("value%d", i/10)},
 			{Name: "unique", Value: fmt.Sprintf("value%d", i)},
-		}, []tsdbutil.Sample{sample{100, 0}}))
+		}, []tsdbutil.Sample{sample{100, 0, nil, nil}}))
 	}
 
 	blockDir := createBlock(t, tmpdir, seriesEntries)
@@ -367,7 +368,7 @@ func BenchmarkLabelValuesWithMatchers(b *testing.B) {
 			{Name: "a_unique", Value: fmt.Sprintf("value%d", i)},
 			{Name: "b_tens", Value: fmt.Sprintf("value%d", i/(metricCount/10))},
 			{Name: "c_ninety", Value: fmt.Sprintf("value%d", i/(metricCount/10)/9)}, // "0" for the first 90%, then "1"
-		}, []tsdbutil.Sample{sample{100, 0}}))
+		}, []tsdbutil.Sample{sample{100, 0, nil, nil}}))
 	}
 
 	blockDir := createBlock(b, tmpdir, seriesEntries)
@@ -403,13 +404,13 @@ func TestLabelNamesWithMatchers(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		seriesEntries = append(seriesEntries, storage.NewListSeries(labels.Labels{
 			{Name: "unique", Value: fmt.Sprintf("value%d", i)},
-		}, []tsdbutil.Sample{sample{100, 0}}))
+		}, []tsdbutil.Sample{sample{100, 0, nil, nil}}))
 
 		if i%10 == 0 {
 			seriesEntries = append(seriesEntries, storage.NewListSeries(labels.Labels{
 				{Name: "tens", Value: fmt.Sprintf("value%d", i/10)},
 				{Name: "unique", Value: fmt.Sprintf("value%d", i)},
-			}, []tsdbutil.Sample{sample{100, 0}}))
+			}, []tsdbutil.Sample{sample{100, 0, nil, nil}}))
 		}
 
 		if i%20 == 0 {
@@ -417,7 +418,7 @@ func TestLabelNamesWithMatchers(t *testing.T) {
 				{Name: "tens", Value: fmt.Sprintf("value%d", i/10)},
 				{Name: "twenties", Value: fmt.Sprintf("value%d", i/20)},
 				{Name: "unique", Value: fmt.Sprintf("value%d", i)},
-			}, []tsdbutil.Sample{sample{100, 0}}))
+			}, []tsdbutil.Sample{sample{100, 0, nil, nil}}))
 		}
 
 	}
@@ -501,7 +502,8 @@ func createHead(tb testing.TB, w *wal.WAL, series []storage.Series, chunkDir str
 		ref := storage.SeriesRef(0)
 		it := s.Iterator()
 		lset := s.Labels()
-		for it.Next() {
+		for it.Next() == chunkenc.ValFloat {
+			// TODO(beorn7): Also treat histograms.
 			t, v := it.At()
 			ref, err = app.Append(ref, lset, t, v)
 			require.NoError(tb, err)
@@ -530,7 +532,7 @@ func createHeadWithOOOSamples(tb testing.TB, w *wal.WAL, series []storage.Series
 		lset := s.Labels()
 		os := tsdbutil.SampleSlice{}
 		count := 0
-		for it.Next() {
+		for it.Next() == chunkenc.ValFloat {
 			totalSamples++
 			count++
 			t, v := it.At()

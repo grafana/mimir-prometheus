@@ -152,7 +152,34 @@ Special cases are:
 `floor(v instant-vector)` rounds the sample values of all elements in `v` down
 to the nearest integer.
 
+## `histogram_count()` and `histogram_sum()`
+
+`histogram_count(v instant-vector)` returns the count of observations stored in
+a native Histogram. Samples that are not native Histograms are ignored and do
+not show up in the returned vector.
+
+Similarly, `histogram_sum(v instant-vector)` returns the sum of observations
+stored in a native Histogram.
+
+Use `histogram_count` in the following way to calculate a rate of observations
+(in this case corresponding to “requests per second”) from a native Histogram:
+
+    histogram_count(rate(http_request_duration_seconds[10m]))
+
+The additional use of `histogram_sum` enables the calculation of the average of
+observed values (in this case corresponding to “average request duration”):
+
+      histogram_sum(rate(http_request_duration_seconds[10m]))
+	/
+      histogram_count(rate(http_request_duration_seconds[10m]))
+
+## `histogram_fraction()`
+
+TODO(beorn7): Add documentation.
+
 ## `histogram_quantile()`
+
+TODO(beorn7): This needs a lot of updates for Histograms as sample value types.
 
 `histogram_quantile(φ scalar, b instant-vector)` calculates the φ-quantile (0 ≤ φ
 ≤ 1) from the buckets `b` of a

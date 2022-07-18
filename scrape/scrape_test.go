@@ -44,6 +44,7 @@ import (
 	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/util/teststorage"
 	"github.com/prometheus/prometheus/util/testutil"
 )
@@ -2159,8 +2160,8 @@ func TestTargetScraperScrapeOK(t *testing.T) {
 	server := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			accept := r.Header.Get("Accept")
-			if !strings.HasPrefix(accept, "application/openmetrics-text;") {
-				t.Errorf("Expected Accept header to prefer application/openmetrics-text, got %q", accept)
+			if !strings.HasPrefix(accept, "application/vnd.google.protobuf;") {
+				t.Errorf("Expected Accept header to prefer application/vnd.google.protobuf, got %q", accept)
 			}
 
 			timeout := r.Header.Get("X-Prometheus-Scrape-Timeout-Seconds")
@@ -2928,7 +2929,7 @@ func TestScrapeReportSingleAppender(t *testing.T) {
 		c := 0
 		for series.Next() {
 			i := series.At().Iterator()
-			for i.Next() {
+			for i.Next() != chunkenc.ValNone {
 				c++
 			}
 		}
@@ -3001,7 +3002,7 @@ func TestScrapeReportLimit(t *testing.T) {
 	var found bool
 	for series.Next() {
 		i := series.At().Iterator()
-		for i.Next() {
+		for i.Next() == chunkenc.ValFloat {
 			_, v := i.At()
 			require.Equal(t, 1.0, v)
 			found = true
