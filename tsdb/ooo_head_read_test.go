@@ -344,12 +344,13 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 
 					var chks []chunks.Meta
 					var respLset labels.Labels
-					err := ir.Series(storage.SeriesRef(s1ID), &respLset, &chks)
+					var builder labels.SimpleBuilder
+					err := ir.Series(storage.SeriesRef(s1ID), &builder, &respLset, &chks)
 					require.NoError(t, err)
 					require.Equal(t, s1Lset, respLset)
 					require.Equal(t, expChunks, chks)
 
-					err = ir.Series(storage.SeriesRef(s1ID+1), &respLset, &chks)
+					err = ir.Series(storage.SeriesRef(s1ID+1), &builder, &respLset, &chks)
 					require.Equal(t, storage.ErrNotFound, err)
 				})
 			}
@@ -739,7 +740,8 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 			ir := NewOOOHeadIndexReader(db.head, tc.queryMinT, tc.queryMaxT)
 			var chks []chunks.Meta
 			var respLset labels.Labels
-			err := ir.Series(s1Ref, &respLset, &chks)
+			var builder labels.SimpleBuilder
+			err := ir.Series(s1Ref, &builder, &respLset, &chks)
 			require.NoError(t, err)
 			require.Equal(t, len(tc.expChunksSamples), len(chks))
 
@@ -903,7 +905,8 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 			ir := NewOOOHeadIndexReader(db.head, tc.queryMinT, tc.queryMaxT)
 			var chks []chunks.Meta
 			var respLset labels.Labels
-			err := ir.Series(s1Ref, &respLset, &chks)
+			var builder labels.SimpleBuilder
+			err := ir.Series(s1Ref, &builder, &respLset, &chks)
 			require.NoError(t, err)
 			require.Equal(t, len(tc.expChunksSamples), len(chks))
 
