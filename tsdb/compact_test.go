@@ -591,7 +591,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 						require.Equal(t, uint64(shardIndex), lbls.Hash()%shardCount)
 
 						// Collect all symbols used by series.
-						lbls.Range(func(l labels.Label) {
+						lbls.Copy().Range(func(l labels.Label) {
 							seriesSymbols[l.Name] = struct{}{}
 							seriesSymbols[l.Value] = struct{}{}
 						})
