@@ -210,7 +210,7 @@ func TestForStateAddSamples(t *testing.T) {
 				expr,
 				time.Minute,
 				labels.FromStrings("severity", "{{\"c\"}}ritical"),
-				nil, nil, "", true, nil,
+				labels.EmptyLabels(), labels.EmptyLabels(), "", true, nil,
 			)
 			result := promql.Vector{
 				{
@@ -1549,7 +1549,7 @@ groups:
 		},
 	})
 	m.start()
-	err = m.Update(time.Second, []string{fname}, nil, "", nil)
+	err = m.Update(time.Second, []string{fname}, labels.EmptyLabels(), "", nil)
 	require.NoError(t, err)
 
 	rgs := m.RuleGroups()
