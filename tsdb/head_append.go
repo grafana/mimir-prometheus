@@ -143,6 +143,7 @@ func (h *Head) appender() *headAppender {
 		samples:               h.getAppendBuffer(),
 		sampleSeries:          h.getSeriesBuffer(),
 		exemplars:             exemplarsBuf,
+		histograms:            h.getHistogramBuffer(),
 		appendID:              appendID,
 		cleanupAppendIDsBelow: cleanupAppendIDsBelow,
 	}
@@ -214,6 +215,19 @@ func (h *Head) putExemplarBuffer(b []exemplarWithSeriesRef) {
 
 	//nolint:staticcheck // Ignore SA6002 safe to ignore and actually fixing it has some performance penalty.
 	h.exemplarsPool.Put(b[:0])
+}
+
+func (h *Head) getHistogramBuffer() []record.RefHistogram {
+	b := h.histogramsPool.Get()
+	if b == nil {
+		return make([]record.RefHistogram, 0, 512)
+	}
+	return b.([]record.RefHistogram)
+}
+
+func (h *Head) putHistogramBuffer(b []record.RefHistogram) {
+	//nolint:staticcheck // Ignore SA6002 safe to ignore and actually fixing it has some performance penalty.
+	h.histogramsPool.Put(b[:0])
 }
 
 func (h *Head) getSeriesBuffer() []*memSeries {
@@ -447,6 +461,10 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 		return 0, storage.ErrOutOfBounds
 	}
 
+	if err := ValidateHistogram(h); err != nil {
+		return 0, err
+	}
+
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
 	if s == nil {
 		// Ensure no empty labels have gotten through.
@@ -499,6 +517,76 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 	})
 	a.histogramSeries = append(a.histogramSeries, s)
 	return storage.SeriesRef(s.ref), nil
+}
+
+func ValidateHistogram(h *histogram.Histogram) error {
+	if err := checkHistogramSpans(h.NegativeSpans, len(h.NegativeBuckets)); err != nil {
+		return errors.Wrap(err, "negative side")
+	}
+	if err := checkHistogramSpans(h.PositiveSpans, len(h.PositiveBuckets)); err != nil {
+		return errors.Wrap(err, "positive side")
+	}
+
+	negativeCount, err := checkHistogramBuckets(h.NegativeBuckets)
+	if err != nil {
+		return errors.Wrap(err, "negative side")
+	}
+	positiveCount, err := checkHistogramBuckets(h.PositiveBuckets)
+	if err != nil {
+		return errors.Wrap(err, "positive side")
+	}
+
+	if c := negativeCount + positiveCount; c > h.Count {
+		return errors.Wrap(
+			storage.ErrHistogramCountNotBigEnough,
+			fmt.Sprintf("%d observations found in buckets, but overall count is %d", c, h.Count),
+		)
+	}
+
+	return nil
+}
+
+func checkHistogramSpans(spans []histogram.Span, numBuckets int) error {
+	var spanBuckets int
+	for n, span := range spans {
+		if n > 0 && span.Offset < 0 {
+			return errors.Wrap(
+				storage.ErrHistogramSpanNegativeOffset,
+				fmt.Sprintf("span number %d with offset %d", n+1, span.Offset),
+			)
+		}
+		spanBuckets += int(span.Length)
+	}
+	if spanBuckets != numBuckets {
+		return errors.Wrap(
+			storage.ErrHistogramSpansBucketsMismatch,
+			fmt.Sprintf("spans need %d buckets, have %d buckets", spanBuckets, numBuckets),
+		)
+	}
+	return nil
+}
+
+func checkHistogramBuckets(buckets []int64) (uint64, error) {
+	if len(buckets) == 0 {
+		return 0, nil
+	}
+
+	var count uint64
+	var last int64
+
+	for i := 0; i < len(buckets); i++ {
+		c := last + buckets[i]
+		if c < 0 {
+			return 0, errors.Wrap(
+				storage.ErrHistogramNegativeBucketCount,
+				fmt.Sprintf("bucket number %d has observation count of %d", i+1, c),
+			)
+		}
+		last = c
+		count += uint64(c)
+	}
+
+	return count, nil
 }
 
 var _ storage.GetRef = &headAppender{}
@@ -599,6 +687,7 @@ func (a *headAppender) Commit() (err error) {
 	defer a.head.putAppendBuffer(a.samples)
 	defer a.head.putSeriesBuffer(a.sampleSeries)
 	defer a.head.putExemplarBuffer(a.exemplars)
+	defer a.head.putHistogramBuffer(a.histograms)
 	defer a.head.iso.closeAppend(a.appendID)
 
 	var (
@@ -1123,10 +1212,19 @@ func (a *headAppender) Rollback() (err error) {
 		series.pendingCommit = false
 		series.Unlock()
 	}
+	for i := range a.histograms {
+		series = a.histogramSeries[i]
+		series.Lock()
+		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.pendingCommit = false
+		series.Unlock()
+	}
 	a.head.putAppendBuffer(a.samples)
 	a.head.putExemplarBuffer(a.exemplars)
+	a.head.putHistogramBuffer(a.histograms)
 	a.samples = nil
 	a.exemplars = nil
+	a.histograms = nil
 
 	// Series are created in the head memory regardless of rollback. Thus we have
 	// to log them to the WAL in any case.

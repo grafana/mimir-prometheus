@@ -3923,7 +3923,7 @@ func TestSparseHistogram_Sum_AddOperator(t *testing.T) {
 			histograms: []histogram.Histogram{
 				{
 					Schema:        0,
-					Count:         9,
+					Count:         21,
 					Sum:           1234.5,
 					ZeroThreshold: 0.001,
 					ZeroCount:     4,
@@ -3940,7 +3940,7 @@ func TestSparseHistogram_Sum_AddOperator(t *testing.T) {
 				},
 				{
 					Schema:        0,
-					Count:         15,
+					Count:         36,
 					Sum:           2345.6,
 					ZeroThreshold: 0.001,
 					ZeroCount:     5,
@@ -3959,7 +3959,7 @@ func TestSparseHistogram_Sum_AddOperator(t *testing.T) {
 				},
 				{
 					Schema:        0,
-					Count:         15,
+					Count:         36,
 					Sum:           1111.1,
 					ZeroThreshold: 0.001,
 					ZeroCount:     5,
@@ -3981,7 +3981,7 @@ func TestSparseHistogram_Sum_AddOperator(t *testing.T) {
 				Schema:        0,
 				ZeroThreshold: 0.001,
 				ZeroCount:     14,
-				Count:         39,
+				Count:         93,
 				Sum:           4691.2,
 				PositiveSpans: []histogram.Span{
 					{Offset: 0, Length: 3},
@@ -4014,8 +4014,8 @@ func TestSparseHistogram_Sum_AddOperator(t *testing.T) {
 				lbls := labels.FromStrings("__name__", seriesName, "idx", fmt.Sprintf("%d", idx))
 				// Since we mutate h later, we need to create a copy here.
 				_, err = app.AppendHistogram(0, lbls, ts, h.Copy())
+				require.NoError(t, err)
 			}
-			require.NoError(t, err)
 			require.NoError(t, app.Commit())
 
 			queryAndCheck := func(queryString string) {
