@@ -461,9 +461,12 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 		return 0, storage.ErrOutOfBounds
 	}
 
-	if err := ValidateHistogram(h); err != nil {
-		return 0, err
-	}
+	// Mimir already runs the same checks in the distributor, so it's
+	// redundant to run them here as well. This omission SHOULD NOT
+	// make Prometheus upstream though.
+	//if err := ValidateHistogram(h); err != nil {
+	//	 	return 0, err
+	//}
 
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
 	if s == nil {
