@@ -27,15 +27,19 @@ import (
 
 // The errors exposed.
 var (
-	ErrNotFound                    = errors.New("not found")
-	ErrOutOfOrderSample            = errors.New("out of order sample")            // OOO support disabled and sample is OOO
-	ErrTooOldSample                = errors.New("too old sample")                 // OOO support enabled, but sample outside of tolerance
-	ErrDuplicateSampleForTimestamp = errors.New("duplicate sample for timestamp") // WARNING: this is only reported if value differs. equal values get silently dropped
-	ErrOutOfBounds                 = errors.New("out of bounds")                  // OOO support disabled and t < minValidTime
-	ErrOutOfOrderExemplar          = errors.New("out of order exemplar")
-	ErrDuplicateExemplar           = errors.New("duplicate exemplar")
-	ErrExemplarLabelLength         = fmt.Errorf("label length for exemplar exceeds maximum of %d UTF-8 characters", exemplar.ExemplarMaxLabelSetLength)
-	ErrExemplarsDisabled           = fmt.Errorf("exemplar storage is disabled or max exemplars is less than or equal to 0")
+	ErrNotFound                      = errors.New("not found")
+	ErrOutOfOrderSample              = errors.New("out of order sample")            // OOO support disabled and sample is OOO
+	ErrTooOldSample                  = errors.New("too old sample")                 // OOO support enabled, but sample outside of tolerance
+	ErrDuplicateSampleForTimestamp   = errors.New("duplicate sample for timestamp") // WARNING: this is only reported if value differs. equal values get silently dropped
+	ErrOutOfBounds                   = errors.New("out of bounds")                  // OOO support disabled and t < minValidTime
+	ErrOutOfOrderExemplar            = errors.New("out of order exemplar")
+	ErrDuplicateExemplar             = errors.New("duplicate exemplar")
+	ErrExemplarLabelLength           = fmt.Errorf("label length for exemplar exceeds maximum of %d UTF-8 characters", exemplar.ExemplarMaxLabelSetLength)
+	ErrExemplarsDisabled             = fmt.Errorf("exemplar storage is disabled or max exemplars is less than or equal to 0")
+	ErrHistogramSpanNegativeOffset   = errors.New("histogram has a span whose offset is negative")
+	ErrHistogramSpansBucketsMismatch = errors.New("histogram spans specify different number of buckets than provided")
+	ErrHistogramNegativeBucketCount  = errors.New("histogram has a bucket whose observation count is negative")
+	ErrHistogramCountNotBigEnough    = errors.New("histogram's observation count should be at least the number of observations found in the buckets")
 )
 
 // SeriesRef is a generic series reference. In prometheus it is either a
