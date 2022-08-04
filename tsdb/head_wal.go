@@ -30,6 +30,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
@@ -46,6 +47,7 @@ func (h *Head) loadWAL(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunks.H
 	// for error reporting.
 	var unknownRefs atomic.Uint64
 	var unknownExemplarRefs atomic.Uint64
+	var unknownMetadataRefs atomic.Uint64
 	// Track number of series records that had overlapping m-map chunks.
 	var mmapOverlappingChunks uint64
 
@@ -79,6 +81,11 @@ func (h *Head) loadWAL(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunks.H
 		exemplarsPool = sync.Pool{
 			New: func() interface{} {
 				return []record.RefExemplar{}
+			},
+		}
+		metadataPool = sync.Pool{
+			New: func() interface{} {
+				return []record.RefMetadata{}
 			},
 		}
 	)
@@ -184,6 +191,18 @@ func (h *Head) loadWAL(r *wal.Reader, multiRef map[chunks.HeadSeriesRef]chunks.H
 					return
 				}
 				decoded <- exemplars
+			case record.Metadata:
+				meta := metadataPool.Get().([]record.RefMetadata)[:0]
+				meta, err := dec.Metadata(rec, meta)
+				if err != nil {
+					decodeErr = &wal.CorruptionErr{
+						Err:     errors.Wrap(err, "decode metadata"),
+						Segment: r.Segment(),
+						Offset:  r.Offset(),
+					}
+					return
+				}
+				decoded <- meta
 			default:
 				// Noop.
 			}
@@ -308,6 +327,21 @@ Outer:
 			}
 			//nolint:staticcheck // Ignore SA6002 relax staticcheck verification.
 			exemplarsPool.Put(v)
+		case []record.RefMetadata:
+			for _, m := range v {
+				s := h.series.getByID(chunks.HeadSeriesRef(m.Ref))
+				if s == nil {
+					unknownMetadataRefs.Inc()
+					continue
+				}
+				s.meta = metadata.Metadata{
+					Type: record.ToTextparseMetricType(m.Type),
+					Unit: m.Unit,
+					Help: m.Help,
+				}
+			}
+			//nolint:staticcheck // Ignore SA6002 relax staticcheck verification.
+			metadataPool.Put(v)
 		default:
 			panic(fmt.Errorf("unexpected decoded type: %T", d))
 		}
@@ -334,8 +368,8 @@ Outer:
 		return errors.Wrap(r.Err(), "read records")
 	}
 
-	if unknownRefs.Load() > 0 || unknownExemplarRefs.Load() > 0 {
-		level.Warn(h.logger).Log("msg", "Unknown series references", "samples", unknownRefs.Load(), "exemplars", unknownExemplarRefs.Load())
+	if unknownRefs.Load() > 0 || unknownExemplarRefs.Load() > 0 || unknownMetadataRefs.Load() > 0 {
+		level.Warn(h.logger).Log("msg", "Unknown series references", "samples", unknownRefs.Load(), "exemplars", unknownExemplarRefs.Load(), "metadata", unknownMetadataRefs.Load())
 	}
 	if mmapOverlappingChunks > 0 {
 		level.Info(h.logger).Log("msg", "Overlapping m-map chunks on duplicate series records", "count", mmapOverlappingChunks)
@@ -768,11 +802,7 @@ func (s *memSeries) encodeToSnapshotRecord(b []byte) []byte {
 
 	buf.PutByte(chunkSnapshotRecordTypeSeries)
 	buf.PutBE64(uint64(s.ref))
-	buf.PutUvarint(len(s.lset))
-	for _, l := range s.lset {
-		buf.PutUvarintStr(l.Name)
-		buf.PutUvarintStr(l.Value)
-	}
+	record.EncodeLabels(&buf, s.lset)
 	buf.PutBE64int64(s.chunkRange)
 
 	s.Lock()
@@ -795,7 +825,7 @@ func (s *memSeries) encodeToSnapshotRecord(b []byte) []byte {
 	return buf.Get()
 }
 
-func decodeSeriesFromChunkSnapshot(b []byte) (csr chunkSnapshotRecord, err error) {
+func decodeSeriesFromChunkSnapshot(d *record.Decoder, b []byte) (csr chunkSnapshotRecord, err error) {
 	dec := encoding.Decbuf{B: b}
 
 	if flag := dec.Byte(); flag != chunkSnapshotRecordTypeSeries {
@@ -803,13 +833,9 @@ func decodeSeriesFromChunkSnapshot(b []byte) (csr chunkSnapshotRecord, err error
 	}
 
 	csr.ref = chunks.HeadSeriesRef(dec.Be64())
-
 	// The label set written to the disk is already sorted.
-	csr.lset = make(labels.Labels, dec.Uvarint())
-	for i := range csr.lset {
-		csr.lset[i].Name = dec.UvarintStr()
-		csr.lset[i].Value = dec.UvarintStr()
-	}
+	// TODO: figure out why DecodeLabels calls Sort(), and perhaps remove it.
+	csr.lset = d.DecodeLabels(&dec)
 
 	csr.chunkRange = dec.Be64int64()
 	if dec.Uvarint() == 0 {
@@ -1199,8 +1225,12 @@ func (h *Head) loadChunkSnapshot() (int, int, map[chunks.HeadSeriesRef]*memSerie
 					return
 				}
 				localRefSeries[csr.ref] = series
-				if chunks.HeadSeriesRef(h.lastSeriesID.Load()) < series.ref {
-					h.lastSeriesID.Store(uint64(series.ref))
+				for {
+					seriesID := uint64(series.ref)
+					lastSeriesID := h.lastSeriesID.Load()
+					if lastSeriesID >= seriesID || h.lastSeriesID.CAS(lastSeriesID, seriesID) {
+						break
+					}
 				}
 
 				series.chunkRange = csr.chunkRange
@@ -1241,7 +1271,7 @@ Outer:
 		switch rec[0] {
 		case chunkSnapshotRecordTypeSeries:
 			numSeries++
-			csr, err := decodeSeriesFromChunkSnapshot(rec)
+			csr, err := decodeSeriesFromChunkSnapshot(&dec, rec)
 			if err != nil {
 				loopErr = errors.Wrap(err, "decode series record")
 				break Outer
