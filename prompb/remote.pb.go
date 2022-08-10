@@ -15,8 +15,11 @@ import (
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
-var _ = fmt.Errorf
-var _ = math.Inf
+
+var (
+	_ = fmt.Errorf
+	_ = math.Inf
+)
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the proto package it is being compiled against.
@@ -75,9 +78,11 @@ func (*WriteRequest) ProtoMessage()    {}
 func (*WriteRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_eefc82927d57d89b, []int{0}
 }
+
 func (m *WriteRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *WriteRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_WriteRequest.Marshal(b, m, deterministic)
@@ -90,12 +95,15 @@ func (m *WriteRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error)
 		return b[:n], nil
 	}
 }
+
 func (m *WriteRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_WriteRequest.Merge(m, src)
 }
+
 func (m *WriteRequest) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *WriteRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_WriteRequest.DiscardUnknown(m)
 }
@@ -136,9 +144,11 @@ func (*ReadRequest) ProtoMessage()    {}
 func (*ReadRequest) Descriptor() ([]byte, []int) {
 	return fileDescriptor_eefc82927d57d89b, []int{1}
 }
+
 func (m *ReadRequest) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *ReadRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ReadRequest.Marshal(b, m, deterministic)
@@ -151,12 +161,15 @@ func (m *ReadRequest) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) 
 		return b[:n], nil
 	}
 }
+
 func (m *ReadRequest) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ReadRequest.Merge(m, src)
 }
+
 func (m *ReadRequest) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *ReadRequest) XXX_DiscardUnknown() {
 	xxx_messageInfo_ReadRequest.DiscardUnknown(m)
 }
@@ -192,9 +205,11 @@ func (*ReadResponse) ProtoMessage()    {}
 func (*ReadResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_eefc82927d57d89b, []int{2}
 }
+
 func (m *ReadResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *ReadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ReadResponse.Marshal(b, m, deterministic)
@@ -207,12 +222,15 @@ func (m *ReadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error)
 		return b[:n], nil
 	}
 }
+
 func (m *ReadResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ReadResponse.Merge(m, src)
 }
+
 func (m *ReadResponse) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *ReadResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_ReadResponse.DiscardUnknown(m)
 }
@@ -242,9 +260,11 @@ func (*Query) ProtoMessage()    {}
 func (*Query) Descriptor() ([]byte, []int) {
 	return fileDescriptor_eefc82927d57d89b, []int{3}
 }
+
 func (m *Query) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *Query) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_Query.Marshal(b, m, deterministic)
@@ -257,12 +277,15 @@ func (m *Query) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
+
 func (m *Query) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Query.Merge(m, src)
 }
+
 func (m *Query) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *Query) XXX_DiscardUnknown() {
 	xxx_messageInfo_Query.DiscardUnknown(m)
 }
@@ -311,9 +334,11 @@ func (*QueryResult) ProtoMessage()    {}
 func (*QueryResult) Descriptor() ([]byte, []int) {
 	return fileDescriptor_eefc82927d57d89b, []int{4}
 }
+
 func (m *QueryResult) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *QueryResult) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_QueryResult.Marshal(b, m, deterministic)
@@ -326,12 +351,15 @@ func (m *QueryResult) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) 
 		return b[:n], nil
 	}
 }
+
 func (m *QueryResult) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_QueryResult.Merge(m, src)
 }
+
 func (m *QueryResult) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *QueryResult) XXX_DiscardUnknown() {
 	xxx_messageInfo_QueryResult.DiscardUnknown(m)
 }
@@ -364,9 +392,11 @@ func (*ChunkedReadResponse) ProtoMessage()    {}
 func (*ChunkedReadResponse) Descriptor() ([]byte, []int) {
 	return fileDescriptor_eefc82927d57d89b, []int{5}
 }
+
 func (m *ChunkedReadResponse) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *ChunkedReadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ChunkedReadResponse.Marshal(b, m, deterministic)
@@ -379,12 +409,15 @@ func (m *ChunkedReadResponse) XXX_Marshal(b []byte, deterministic bool) ([]byte,
 		return b[:n], nil
 	}
 }
+
 func (m *ChunkedReadResponse) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ChunkedReadResponse.Merge(m, src)
 }
+
 func (m *ChunkedReadResponse) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *ChunkedReadResponse) XXX_DiscardUnknown() {
 	xxx_messageInfo_ChunkedReadResponse.DiscardUnknown(m)
 }
@@ -768,6 +801,7 @@ func encodeVarintRemote(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
+
 func (m *WriteRequest) Size() (n int) {
 	if m == nil {
 		return 0
@@ -905,9 +939,11 @@ func (m *ChunkedReadResponse) Size() (n int) {
 func sovRemote(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
+
 func sozRemote(x uint64) (n int) {
 	return sovRemote(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
+
 func (m *WriteRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1027,6 +1063,7 @@ func (m *WriteRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *ReadRequest) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1181,6 +1218,7 @@ func (m *ReadRequest) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *ReadResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1266,6 +1304,7 @@ func (m *ReadResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *Query) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1425,6 +1464,7 @@ func (m *Query) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *QueryResult) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1510,6 +1550,7 @@ func (m *QueryResult) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *ChunkedReadResponse) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1614,6 +1655,7 @@ func (m *ChunkedReadResponse) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func skipRemote(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0

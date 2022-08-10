@@ -23,13 +23,14 @@ package xds
 
 import (
 	context "context"
+	reflect "reflect"
+	sync "sync"
+
 	v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 	_ "google.golang.org/genproto/googleapis/api/annotations"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	sync "sync"
 )
 
 const (
@@ -132,13 +133,13 @@ type MonitoringAssignment_Target struct {
 	// E.g., `backend-01`
 	Name string `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
 	// Scheme on which to scrape the target.
-	//E.g., `http`
+	// E.g., `http`
 	Scheme string `protobuf:"bytes,2,opt,name=scheme,proto3" json:"scheme,omitempty"`
 	// Address (preferably IP) for the service
 	// E.g., `backend.svc` or `10.1.4.32:9090`
 	Address string `protobuf:"bytes,3,opt,name=address,proto3" json:"address,omitempty"`
 	// Optional path to append to the address for scraping
-	//E.g., `/metrics`
+	// E.g., `/metrics`
 	MetricsPath string `protobuf:"bytes,4,opt,name=metrics_path,json=metricsPath,proto3" json:"metrics_path,omitempty"`
 	// Arbitrary labels associated with that particular target.
 	//
@@ -312,17 +313,19 @@ func file_observability_v1_mads_proto_rawDescGZIP() []byte {
 	return file_observability_v1_mads_proto_rawDescData
 }
 
-var file_observability_v1_mads_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_observability_v1_mads_proto_goTypes = []interface{}{
-	(*MonitoringAssignment)(nil),        // 0: kuma.observability.v1.MonitoringAssignment
-	(*MonitoringAssignment_Target)(nil), // 1: kuma.observability.v1.MonitoringAssignment.Target
-	nil,                                 // 2: kuma.observability.v1.MonitoringAssignment.LabelsEntry
-	nil,                                 // 3: kuma.observability.v1.MonitoringAssignment.Target.LabelsEntry
-	(*v3.DeltaDiscoveryRequest)(nil),    // 4: envoy.service.discovery.v3.DeltaDiscoveryRequest
-	(*v3.DiscoveryRequest)(nil),         // 5: envoy.service.discovery.v3.DiscoveryRequest
-	(*v3.DeltaDiscoveryResponse)(nil),   // 6: envoy.service.discovery.v3.DeltaDiscoveryResponse
-	(*v3.DiscoveryResponse)(nil),        // 7: envoy.service.discovery.v3.DiscoveryResponse
-}
+var (
+	file_observability_v1_mads_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+	file_observability_v1_mads_proto_goTypes  = []interface{}{
+		(*MonitoringAssignment)(nil),        // 0: kuma.observability.v1.MonitoringAssignment
+		(*MonitoringAssignment_Target)(nil), // 1: kuma.observability.v1.MonitoringAssignment.Target
+		nil,                                 // 2: kuma.observability.v1.MonitoringAssignment.LabelsEntry
+		nil,                                 // 3: kuma.observability.v1.MonitoringAssignment.Target.LabelsEntry
+		(*v3.DeltaDiscoveryRequest)(nil),    // 4: envoy.service.discovery.v3.DeltaDiscoveryRequest
+		(*v3.DiscoveryRequest)(nil),         // 5: envoy.service.discovery.v3.DiscoveryRequest
+		(*v3.DeltaDiscoveryResponse)(nil),   // 6: envoy.service.discovery.v3.DeltaDiscoveryResponse
+		(*v3.DiscoveryResponse)(nil),        // 7: envoy.service.discovery.v3.DiscoveryResponse
+	}
+)
 var file_observability_v1_mads_proto_depIdxs = []int32{
 	1, // 0: kuma.observability.v1.MonitoringAssignment.targets:type_name -> kuma.observability.v1.MonitoringAssignment.Target
 	2, // 1: kuma.observability.v1.MonitoringAssignment.labels:type_name -> kuma.observability.v1.MonitoringAssignment.LabelsEntry

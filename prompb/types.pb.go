@@ -16,8 +16,11 @@ import (
 
 // Reference imports to suppress errors if they are not otherwise used.
 var _ = proto.Marshal
-var _ = fmt.Errorf
-var _ = math.Inf
+
+var (
+	_ = fmt.Errorf
+	_ = math.Inf
+)
 
 // This is a compile-time assertion to ensure that this generated file
 // is compatible with the proto package it is being compiled against.
@@ -143,9 +146,11 @@ func (*MetricMetadata) ProtoMessage()    {}
 func (*MetricMetadata) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{0}
 }
+
 func (m *MetricMetadata) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *MetricMetadata) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_MetricMetadata.Marshal(b, m, deterministic)
@@ -158,12 +163,15 @@ func (m *MetricMetadata) XXX_Marshal(b []byte, deterministic bool) ([]byte, erro
 		return b[:n], nil
 	}
 }
+
 func (m *MetricMetadata) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_MetricMetadata.Merge(m, src)
 }
+
 func (m *MetricMetadata) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *MetricMetadata) XXX_DiscardUnknown() {
 	xxx_messageInfo_MetricMetadata.DiscardUnknown(m)
 }
@@ -214,9 +222,11 @@ func (*Sample) ProtoMessage()    {}
 func (*Sample) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{1}
 }
+
 func (m *Sample) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *Sample) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_Sample.Marshal(b, m, deterministic)
@@ -229,12 +239,15 @@ func (m *Sample) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
+
 func (m *Sample) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Sample.Merge(m, src)
 }
+
 func (m *Sample) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *Sample) XXX_DiscardUnknown() {
 	xxx_messageInfo_Sample.DiscardUnknown(m)
 }
@@ -273,9 +286,11 @@ func (*Exemplar) ProtoMessage()    {}
 func (*Exemplar) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{2}
 }
+
 func (m *Exemplar) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *Exemplar) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_Exemplar.Marshal(b, m, deterministic)
@@ -288,12 +303,15 @@ func (m *Exemplar) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
+
 func (m *Exemplar) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Exemplar.Merge(m, src)
 }
+
 func (m *Exemplar) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *Exemplar) XXX_DiscardUnknown() {
 	xxx_messageInfo_Exemplar.DiscardUnknown(m)
 }
@@ -339,9 +357,11 @@ func (*TimeSeries) ProtoMessage()    {}
 func (*TimeSeries) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{3}
 }
+
 func (m *TimeSeries) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *TimeSeries) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_TimeSeries.Marshal(b, m, deterministic)
@@ -354,12 +374,15 @@ func (m *TimeSeries) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
+
 func (m *TimeSeries) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_TimeSeries.Merge(m, src)
 }
+
 func (m *TimeSeries) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *TimeSeries) XXX_DiscardUnknown() {
 	xxx_messageInfo_TimeSeries.DiscardUnknown(m)
 }
@@ -401,9 +424,11 @@ func (*Label) ProtoMessage()    {}
 func (*Label) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{4}
 }
+
 func (m *Label) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *Label) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_Label.Marshal(b, m, deterministic)
@@ -416,12 +441,15 @@ func (m *Label) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
+
 func (m *Label) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Label.Merge(m, src)
 }
+
 func (m *Label) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *Label) XXX_DiscardUnknown() {
 	xxx_messageInfo_Label.DiscardUnknown(m)
 }
@@ -455,9 +483,11 @@ func (*Labels) ProtoMessage()    {}
 func (*Labels) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{5}
 }
+
 func (m *Labels) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *Labels) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_Labels.Marshal(b, m, deterministic)
@@ -470,12 +500,15 @@ func (m *Labels) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
+
 func (m *Labels) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Labels.Merge(m, src)
 }
+
 func (m *Labels) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *Labels) XXX_DiscardUnknown() {
 	xxx_messageInfo_Labels.DiscardUnknown(m)
 }
@@ -505,9 +538,11 @@ func (*LabelMatcher) ProtoMessage()    {}
 func (*LabelMatcher) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{6}
 }
+
 func (m *LabelMatcher) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *LabelMatcher) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_LabelMatcher.Marshal(b, m, deterministic)
@@ -520,12 +555,15 @@ func (m *LabelMatcher) XXX_Marshal(b []byte, deterministic bool) ([]byte, error)
 		return b[:n], nil
 	}
 }
+
 func (m *LabelMatcher) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_LabelMatcher.Merge(m, src)
 }
+
 func (m *LabelMatcher) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *LabelMatcher) XXX_DiscardUnknown() {
 	xxx_messageInfo_LabelMatcher.DiscardUnknown(m)
 }
@@ -572,9 +610,11 @@ func (*ReadHints) ProtoMessage()    {}
 func (*ReadHints) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{7}
 }
+
 func (m *ReadHints) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *ReadHints) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ReadHints.Marshal(b, m, deterministic)
@@ -587,12 +627,15 @@ func (m *ReadHints) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
+
 func (m *ReadHints) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ReadHints.Merge(m, src)
 }
+
 func (m *ReadHints) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *ReadHints) XXX_DiscardUnknown() {
 	xxx_messageInfo_ReadHints.DiscardUnknown(m)
 }
@@ -666,9 +709,11 @@ func (*Chunk) ProtoMessage()    {}
 func (*Chunk) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{8}
 }
+
 func (m *Chunk) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *Chunk) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_Chunk.Marshal(b, m, deterministic)
@@ -681,12 +726,15 @@ func (m *Chunk) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 		return b[:n], nil
 	}
 }
+
 func (m *Chunk) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_Chunk.Merge(m, src)
 }
+
 func (m *Chunk) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *Chunk) XXX_DiscardUnknown() {
 	xxx_messageInfo_Chunk.DiscardUnknown(m)
 }
@@ -738,9 +786,11 @@ func (*ChunkedSeries) ProtoMessage()    {}
 func (*ChunkedSeries) Descriptor() ([]byte, []int) {
 	return fileDescriptor_d938547f84707355, []int{9}
 }
+
 func (m *ChunkedSeries) XXX_Unmarshal(b []byte) error {
 	return m.Unmarshal(b)
 }
+
 func (m *ChunkedSeries) XXX_Marshal(b []byte, deterministic bool) ([]byte, error) {
 	if deterministic {
 		return xxx_messageInfo_ChunkedSeries.Marshal(b, m, deterministic)
@@ -753,12 +803,15 @@ func (m *ChunkedSeries) XXX_Marshal(b []byte, deterministic bool) ([]byte, error
 		return b[:n], nil
 	}
 }
+
 func (m *ChunkedSeries) XXX_Merge(src proto.Message) {
 	xxx_messageInfo_ChunkedSeries.Merge(m, src)
 }
+
 func (m *ChunkedSeries) XXX_Size() int {
 	return m.Size()
 }
+
 func (m *ChunkedSeries) XXX_DiscardUnknown() {
 	xxx_messageInfo_ChunkedSeries.DiscardUnknown(m)
 }
@@ -1375,6 +1428,7 @@ func encodeVarintTypes(dAtA []byte, offset int, v uint64) int {
 	dAtA[offset] = uint8(v)
 	return base
 }
+
 func (m *MetricMetadata) Size() (n int) {
 	if m == nil {
 		return 0
@@ -1624,9 +1678,11 @@ func (m *ChunkedSeries) Size() (n int) {
 func sovTypes(x uint64) (n int) {
 	return (math_bits.Len64(x|1) + 6) / 7
 }
+
 func sozTypes(x uint64) (n int) {
 	return sovTypes(uint64((x << 1) ^ uint64((int64(x) >> 63))))
 }
+
 func (m *MetricMetadata) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1793,6 +1849,7 @@ func (m *MetricMetadata) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *Sample) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1874,6 +1931,7 @@ func (m *Sample) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *Exemplar) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -1989,6 +2047,7 @@ func (m *Exemplar) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *TimeSeries) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2142,6 +2201,7 @@ func (m *TimeSeries) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *Label) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2257,6 +2317,7 @@ func (m *Label) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *Labels) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2342,6 +2403,7 @@ func (m *Labels) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *LabelMatcher) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2476,6 +2538,7 @@ func (m *LabelMatcher) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *ReadHints) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2687,6 +2750,7 @@ func (m *ReadHints) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *Chunk) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2829,6 +2893,7 @@ func (m *Chunk) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func (m *ChunkedSeries) Unmarshal(dAtA []byte) error {
 	l := len(dAtA)
 	iNdEx := 0
@@ -2948,6 +3013,7 @@ func (m *ChunkedSeries) Unmarshal(dAtA []byte) error {
 	}
 	return nil
 }
+
 func skipTypes(dAtA []byte) (n int, err error) {
 	l := len(dAtA)
 	iNdEx := 0
