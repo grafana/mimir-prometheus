@@ -85,104 +85,12 @@ func BenchmarkRangeQuery(b *testing.B) {
 		steps int
 	}
 	cases := []benchCase{
-		// Plain retrieval.
 		{
-			expr: "a_X",
+			expr: "count(max(a_X))",
 		},
-		// Simple rate.
-		{
-			expr: "rate(a_X[1m])",
-		},
-		{
-			expr:  "rate(a_X[1m])",
-			steps: 10000,
-		},
-		// Holt-Winters and long ranges.
-		{
-			expr: "holt_winters(a_X[1d], 0.3, 0.3)",
-		},
-		{
-			expr: "changes(a_X[1d])",
-		},
-		{
-			expr: "rate(a_X[1d])",
-		},
-		{
-			expr: "absent_over_time(a_X[1d])",
-		},
-		// Unary operators.
-		{
-			expr: "-a_X",
-		},
-		// Binary operators.
-		{
-			expr: "a_X - b_X",
-		},
-		{
-			expr:  "a_X - b_X",
-			steps: 10000,
-		},
-		{
-			expr: "a_X and b_X{l=~'.*[0-4]$'}",
-		},
-		{
-			expr: "a_X or b_X{l=~'.*[0-4]$'}",
-		},
-		{
-			expr: "a_X unless b_X{l=~'.*[0-4]$'}",
-		},
-		{
-			expr: "a_X and b_X{l='notfound'}",
-		},
-		// Simple functions.
-		{
-			expr: "abs(a_X)",
-		},
-		{
-			expr: "label_replace(a_X, 'l2', '$1', 'l', '(.*)')",
-		},
-		{
-			expr: "label_join(a_X, 'l2', '-', 'l', 'l')",
-		},
-		// Simple aggregations.
-		{
-			expr: "sum(a_X)",
-		},
-		{
-			expr: "sum without (l)(h_X)",
-		},
-		{
-			expr: "sum without (le)(h_X)",
-		},
-		{
-			expr: "sum by (l)(h_X)",
-		},
-		{
-			expr: "sum by (le)(h_X)",
-		},
-		{
-			expr: "count_values('value', h_X)",
-		},
-		{
-			expr: "topk(1, a_X)",
-		},
-		// Combinations.
-		{
-			expr: "rate(a_X[1m]) + rate(b_X[1m])",
-		},
-		{
-			expr: "sum without (l)(rate(a_X[1m]))",
-		},
-		{
-			expr: "sum without (l)(rate(a_X[1m])) / sum without (l)(rate(b_X[1m]))",
-		},
-		{
-			expr: "histogram_quantile(0.9, rate(h_X[5m]))",
-		},
-		// Many-to-one join.
-		{
-			expr: "a_X + on(l) group_right a_one",
-		},
+		//{
+		//	expr: "count(a_X)",
+		//},
 	}
 
 	// X in an expr will be replaced by different metric sizes.
@@ -191,7 +99,7 @@ func BenchmarkRangeQuery(b *testing.B) {
 		if !strings.Contains(c.expr, "X") {
 			tmp = append(tmp, c)
 		} else {
-			tmp = append(tmp, benchCase{expr: strings.Replace(c.expr, "X", "one", -1), steps: c.steps})
+			//tmp = append(tmp, benchCase{expr: strings.Replace(c.expr, "X", "one", -1), steps: c.steps})
 			tmp = append(tmp, benchCase{expr: strings.Replace(c.expr, "X", "ten", -1), steps: c.steps})
 			tmp = append(tmp, benchCase{expr: strings.Replace(c.expr, "X", "hundred", -1), steps: c.steps})
 		}
@@ -204,13 +112,15 @@ func BenchmarkRangeQuery(b *testing.B) {
 		if c.steps != 0 {
 			tmp = append(tmp, c)
 		} else {
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 1})
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 10})
-			tmp = append(tmp, benchCase{expr: c.expr, steps: 100})
+			//tmp = append(tmp, benchCase{expr: c.expr, steps: 1})
+			//tmp = append(tmp, benchCase{expr: c.expr, steps: 10})
+			//tmp = append(tmp, benchCase{expr: c.expr, steps: 100})
 			tmp = append(tmp, benchCase{expr: c.expr, steps: 1000})
 		}
 	}
 	cases = tmp
+
+	b.ResetTimer()
 	for _, c := range cases {
 		name := fmt.Sprintf("expr=%s,steps=%d", c.expr, c.steps)
 		b.Run(name, func(b *testing.B) {
