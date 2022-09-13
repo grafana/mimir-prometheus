@@ -249,6 +249,7 @@ type Group struct {
 	interval             time.Duration
 	evaluationDelay      *time.Duration
 	limit                int
+	alertLimit           int
 	rules                []Rule
 	sourceTenants        []string
 	seriesInPreviousEval []map[string]labels.Labels // One per Rule.
@@ -280,6 +281,7 @@ type GroupOptions struct {
 	Name, File               string
 	Interval                 time.Duration
 	Limit                    int
+	AlertLimit               int
 	Rules                    []Rule
 	SourceTenants            []string
 	ShouldRestore            bool
@@ -313,6 +315,7 @@ func NewGroup(o GroupOptions) *Group {
 		interval:                 o.Interval,
 		evaluationDelay:          o.EvaluationDelay,
 		limit:                    o.Limit,
+		alertLimit:               o.AlertLimit,
 		rules:                    o.Rules,
 		shouldRestore:            o.ShouldRestore,
 		opts:                     o.Opts,
@@ -347,6 +350,9 @@ func (g *Group) Interval() time.Duration { return g.interval }
 
 // Limit returns the group's limit.
 func (g *Group) Limit() int { return g.limit }
+
+// AlertLimit returns the group's alert limit.
+func (g *Group) AlertLimit() int { return g.alertLimit }
 
 // SourceTenants returns the source tenants for the group.
 // If it's empty or nil, then the owning user/tenant is considered to be the source tenant.
@@ -637,7 +643,13 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 
 			g.metrics.EvalTotal.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 
-			vector, err := rule.Eval(ctx, evaluationDelay, ts, g.opts.QueryFunc, g.opts.ExternalURL, g.Limit())
+			limit := g.Limit()
+			if _, ok := rule.(*AlertingRule); ok {
+				if g.AlertLimit() > 0 {
+					limit = g.AlertLimit()
+				}
+			}
+			vector, err := rule.Eval(ctx, evaluationDelay, ts, g.opts.QueryFunc, g.opts.ExternalURL, limit)
 			if err != nil {
 				rule.SetHealth(HealthBad)
 				rule.SetLastError(err)
@@ -891,6 +903,10 @@ func (g *Group) Equals(ng *Group) bool {
 	}
 
 	if g.limit != ng.limit {
+		return false
+	}
+
+	if g.alertLimit != ng.alertLimit {
 		return false
 	}
 
@@ -1170,6 +1186,7 @@ func (m *Manager) LoadGroups(
 				File:                     fn,
 				Interval:                 itv,
 				Limit:                    rg.Limit,
+				AlertLimit:               rg.AlertLimit,
 				Rules:                    rules,
 				SourceTenants:            rg.SourceTenants,
 				ShouldRestore:            shouldRestore,
