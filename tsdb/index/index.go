@@ -1751,7 +1751,8 @@ func (r *Reader) SortedPostings(p Postings) Postings {
 func (r *Reader) ShardedPostings(p Postings, shardIndex, shardCount uint64) Postings {
 	var (
 		out     = make([]storage.SeriesRef, 0, 128)
-		bufLbls = make(labels.Labels, 0, 10)
+		builder = labels.SimpleBuilder{}
+		bufLbls = labels.Labels{}
 	)
 
 	// Request the cache each time because the cache implementation requires
@@ -1776,7 +1777,7 @@ func (r *Reader) ShardedPostings(p Postings, shardIndex, shardCount uint64) Post
 
 		if !ok {
 			// Get the series labels (no chunks).
-			err := r.Series(id, &bufLbls, nil)
+			err := r.Series(id, &builder, &bufLbls, nil)
 			if err != nil {
 				return ErrPostings(errors.Errorf("series %d not found", id))
 			}

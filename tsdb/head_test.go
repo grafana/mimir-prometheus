@@ -2416,12 +2416,12 @@ func TestHeadShardedPostings(t *testing.T) {
 	// We expect the postings merged out of shards is the exact same of the non sharded ones.
 	require.ElementsMatch(t, expected, actualPostings)
 
+	var lbls labels.Labels
+	var builder labels.SimpleBuilder
 	// We expect the series in each shard are the expected ones.
 	for shardIndex, ids := range actualShards {
 		for _, id := range ids {
-			var lbls labels.Labels
-
-			require.NoError(t, ir.Series(id, &lbls, nil))
+			require.NoError(t, ir.Series(id, &builder, &lbls, nil))
 			require.Equal(t, shardIndex, lbls.Hash()%shardCount)
 		}
 	}
