@@ -1922,7 +1922,6 @@ func (dec *Decoder) LabelValueFor(b []byte, label string) (string, error) {
 // Skips reading chunks metadata if chks is nil.
 func (dec *Decoder) Series(b []byte, builder *labels.SimpleBuilder, lbls *labels.Labels, chks *[]chunks.Meta) error {
 	builder.Reset()
-	*chks = (*chks)[:0]
 
 	d := encoding.Decbuf{B: b}
 
@@ -1965,7 +1964,7 @@ func (dec *Decoder) Series(b []byte, builder *labels.SimpleBuilder, lbls *labels
 	maxt := int64(d.Uvarint64()) + t0
 	ref0 := int64(d.Uvarint64())
 
-	*chks = append(*chks, chunks.Meta{
+	*chks = append((*chks)[:0], chunks.Meta{
 		Ref:     chunks.ChunkRef(ref0),
 		MinTime: t0,
 		MaxTime: maxt,
