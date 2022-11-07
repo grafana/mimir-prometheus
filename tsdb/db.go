@@ -186,6 +186,9 @@ type Options struct {
 	// OutOfOrderCapMax is maximum capacity for OOO chunks (in samples).
 	// If it is <=0, the default value is assumed.
 	OutOfOrderCapMax int64
+
+	// Compactor will be used instead of the default one if not nil.
+	Compactor Compactor
 }
 
 type BlocksToDeleteFunc func(blocks []*Block) map[ulid.ULID]struct{}
@@ -715,6 +718,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		stopc:          make(chan struct{}),
 		autoCompact:    true,
 		chunkPool:      chunkenc.NewPool(),
+		compactor:      opts.Compactor,
 		blocksToDelete: opts.BlocksToDelete,
 		registerer:     r,
 	}
@@ -747,13 +751,15 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	db.compactor, err = NewLeveledCompactorWithChunkSize(ctx, r, l, rngs, db.chunkPool, opts.MaxBlockChunkSegmentSize, nil, opts.AllowOverlappingCompaction)
-	if err != nil {
-		cancel()
-		return nil, errors.Wrap(err, "create leveled compactor")
+	if db.compactor == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		db.compactor, err = NewLeveledCompactorWithChunkSize(ctx, r, l, rngs, db.chunkPool, opts.MaxBlockChunkSegmentSize, nil, opts.AllowOverlappingCompaction)
+		if err != nil {
+			cancel()
+			return nil, errors.Wrap(err, "create leveled compactor")
+		}
+		db.compactCancel = cancel
 	}
-	db.compactCancel = cancel
 
 	var wlog, wblog *wal.WAL
 	segmentSize := wal.DefaultSegmentSize

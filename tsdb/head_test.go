@@ -3735,3 +3735,31 @@ func TestHeadMinOOOTimeUpdate(t *testing.T) {
 	require.NoError(t, h.truncateOOO(0, 2))
 	require.Equal(t, 295*time.Minute.Milliseconds(), h.MinOOOTime())
 }
+
+func TestCustomCompactor(t *testing.T) {
+	dir := t.TempDir()
+
+	options := DefaultOptions()
+	options.Compactor = &mockCompactorFailing{t: t}
+	db, err := Open(dir, nil, nil, options, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+	db.DisableCompactions()
+
+	var (
+		app = db.Appender(context.Background())
+		ref = storage.SeriesRef(0)
+	)
+
+	// Appends samples to span over 1.5 block ranges.
+	// 7 chunks with 15s scrape interval.
+	for i := int64(0); i <= 120*7; i++ {
+		ts := i * DefaultBlockDuration / (4 * 120)
+		ref, err = app.Append(ref, labels.FromStrings("a", "b"), ts, float64(i))
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+	require.Error(t, db.Compact())
+}
