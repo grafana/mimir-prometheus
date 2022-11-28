@@ -11,6 +11,7 @@ import (
 
 	golog "github.com/go-kit/log"
 
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb"
 )
 
@@ -82,7 +83,7 @@ func main() {
 	opts.MaxOpeningBlocks = openConcurrency
 	c.SetConcurrencyOptions(opts)
 
-	_, err = c.CompactWithSplitting(outputDir, blockDirs, nil, uint64(shardCount))
+	_, err = c.CompactWithSplitting(outputDir, blockDirs, nil, uint64(shardCount), func(l labels.Labels) uint64 { return l.Hash() })
 	if err != nil {
 		log.Fatalln("compacting", err)
 	}

@@ -104,7 +104,7 @@ func (w *BlockWriter) Flush(ctx context.Context) (ulid.ULID, error) {
 	if err != nil {
 		return ulid.ULID{}, errors.Wrap(err, "create leveled compactor")
 	}
-	id, err := compactor.Write(w.destinationDir, w.head, mint, maxt, nil)
+	id, err := compactor.Write(w.destinationDir, w.head, mint, maxt, nil, nil)
 	if err != nil {
 		return ulid.ULID{}, errors.Wrap(err, "compactor write")
 	}

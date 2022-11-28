@@ -432,13 +432,13 @@ func TestRangeWithFailedCompactionWontGetSelected(t *testing.T) {
 }
 
 func TestCompactionFailWillCleanUpTempDir(t *testing.T) {
-	compactor, err := NewLeveledCompactor(context.Background(), nil, log.NewNopLogger(), []int64{
+	compactor, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, log.NewNopLogger(), []int64{
 		20,
 		60,
 		240,
 		720,
 		2160,
-	}, nil, nil, true)
+	}, nil, chunks.DefaultChunkSegmentSize, nil, true)
 	require.NoError(t, err)
 
 	tmpdir := t.TempDir()
@@ -449,7 +449,7 @@ func TestCompactionFailWillCleanUpTempDir(t *testing.T) {
 		{meta: &BlockMeta{ULID: ulid.MustNew(ulid.Now(), crand.Reader)}},
 	}
 
-	require.Error(t, compactor.write(tmpdir, shardedBlocks, erringBReader{}))
+	require.Error(t, compactor.write(tmpdir, shardedBlocks, shardFunc, erringBReader{}))
 
 	// We rely on the fact that blockDir and tmpDir will be updated by compactor.write.
 	for _, b := range shardedBlocks {
@@ -502,6 +502,10 @@ func samplesForRange(minTime, maxTime int64, maxSamplesPerChunk int) (ret [][]sa
 	return ret
 }
 
+func shardFunc(l labels.Labels) uint64 {
+	return l.Hash()
+}
+
 func TestCompaction_CompactWithSplitting(t *testing.T) {
 	seriesCounts := []int{10, 1234}
 	shardCounts := []uint64{1, 13}
@@ -532,10 +536,10 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 
 		for _, shardCount := range shardCounts {
 			t.Run(fmt.Sprintf("series=%d, shards=%d", series, shardCount), func(t *testing.T) {
-				c, err := NewLeveledCompactor(context.Background(), nil, log.NewNopLogger(), []int64{0}, nil, nil, true)
+				c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, log.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil, true)
 				require.NoError(t, err)
 
-				blockIDs, err := c.CompactWithSplitting(dir, blockDirs, openBlocks, shardCount)
+				blockIDs, err := c.CompactWithSplitting(dir, blockDirs, openBlocks, shardCount, shardFunc)
 
 				require.NoError(t, err)
 				require.Equal(t, shardCount, uint64(len(blockIDs)))
@@ -666,10 +670,10 @@ func TestCompaction_CompactEmptyBlocks(t *testing.T) {
 		blockDirs = append(blockDirs, bdir)
 	}
 
-	c, err := NewLeveledCompactor(context.Background(), nil, log.NewNopLogger(), []int64{0}, nil, nil, true)
+	c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, log.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil, true)
 	require.NoError(t, err)
 
-	blockIDs, err := c.CompactWithSplitting(dir, blockDirs, nil, 5)
+	blockIDs, err := c.CompactWithSplitting(dir, blockDirs, nil, 5, shardFunc)
 	require.NoError(t, err)
 
 	// There are no output blocks.
@@ -1141,7 +1145,7 @@ func TestCompaction_populateBlock(t *testing.T) {
 				blocks = append(blocks, &mockBReader{ir: ir, cr: cr, mint: mint, maxt: maxt})
 			}
 
-			c, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{0}, nil, nil, true)
+			c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, nil, []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil, true)
 			require.NoError(t, err)
 
 			meta := &BlockMeta{
@@ -1154,7 +1158,7 @@ func TestCompaction_populateBlock(t *testing.T) {
 
 			iw := &mockIndexWriter{}
 			ob := shardedBlock{meta: meta, indexw: iw, chunkw: nopChunkWriter{}}
-			err = c.populateBlock(blocks, meta.MinTime, meta.MaxTime, []shardedBlock{ob})
+			err = c.populateBlock(blocks, meta.MinTime, meta.MaxTime, []shardedBlock{ob}, shardFunc)
 			if tc.expErr != nil {
 				require.Error(t, err)
 				require.Equal(t, tc.expErr.Error(), err.Error())
@@ -1692,7 +1696,7 @@ func TestHeadCompactionWithHistograms(t *testing.T) {
 	maxt := head.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
 	compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), nil, true)
 	require.NoError(t, err)
-	id, err := compactor.Write(head.opts.ChunkDirRoot, head, mint, maxt, nil)
+	id, err := compactor.Write(head.opts.ChunkDirRoot, head, mint, maxt, nil, nil)
 	require.NoError(t, err)
 	require.NotEqual(t, ulid.ULID{}, id)
 
@@ -1838,7 +1842,7 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 					maxt := sparseHead.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
 					compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), nil, true)
 					require.NoError(t, err)
-					sparseULID, err = compactor.Write(sparseHead.opts.ChunkDirRoot, sparseHead, mint, maxt, nil)
+					sparseULID, err = compactor.Write(sparseHead.opts.ChunkDirRoot, sparseHead, mint, maxt, nil, nil)
 					require.NoError(t, err)
 					require.NotEqual(t, ulid.ULID{}, sparseULID)
 				}()
@@ -1890,7 +1894,7 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 					maxt := oldHead.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
 					compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), nil, true)
 					require.NoError(t, err)
-					oldULID, err = compactor.Write(oldHead.opts.ChunkDirRoot, oldHead, mint, maxt, nil)
+					oldULID, err = compactor.Write(oldHead.opts.ChunkDirRoot, oldHead, mint, maxt, nil, nil)
 					require.NoError(t, err)
 					require.NotEqual(t, ulid.ULID{}, oldULID)
 				}()

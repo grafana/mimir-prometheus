@@ -64,7 +64,7 @@ type Compactor interface {
 
 	// Write persists a Block into a directory.
 	// No Block is written when resulting Block has 0 samples, and returns empty ulid.ULID{}.
-	Write(dest string, b BlockReader, mint, maxt int64, parent *BlockMeta) (ulid.ULID, error)
+	Write(dest string, b BlockReader, mint, maxt int64, parent *BlockMeta, shardFunc func(labels.Labels) uint64) (ulid.ULID, error)
 
 	// Compact runs compaction against the provided directories. Must
 	// only be called concurrently with results of Plan().
@@ -427,14 +427,14 @@ func CompactBlockMetas(uid ulid.ULID, blocks ...*BlockMeta) *BlockMeta {
 // CompactWithSplitting merges and splits the input blocks into shardCount number of output blocks,
 // and returns slice of block IDs. Position of returned block ID in the result slice corresponds to the shard index.
 // If given output block has no series, corresponding block ID will be zero ULID value.
-func (c *LeveledCompactor) CompactWithSplitting(dest string, dirs []string, open []*Block, shardCount uint64) (result []ulid.ULID, _ error) {
-	return c.compact(dest, dirs, open, shardCount)
+func (c *LeveledCompactor) CompactWithSplitting(dest string, dirs []string, open []*Block, shardCount uint64, shardFunc func(labels.Labels) uint64) (result []ulid.ULID, _ error) {
+	return c.compact(dest, dirs, open, shardCount, shardFunc)
 }
 
 // Compact creates a new block in the compactor's directory from the blocks in the
 // provided directories.
 func (c *LeveledCompactor) Compact(dest string, dirs []string, open []*Block) (uid ulid.ULID, err error) {
-	ulids, err := c.compact(dest, dirs, open, 1)
+	ulids, err := c.compact(dest, dirs, open, 1, nil)
 	if err != nil {
 		return ulid.ULID{}, err
 	}
@@ -453,7 +453,7 @@ type shardedBlock struct {
 	indexw   IndexWriter
 }
 
-func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, shardCount uint64) (_ []ulid.ULID, err error) {
+func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, shardCount uint64, shardFunc func(labels.Labels) uint64) (_ []ulid.ULID, err error) {
 	if shardCount == 0 {
 		shardCount = 1
 	}
@@ -487,7 +487,7 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 		outBlocks[ix] = shardedBlock{meta: CompactBlockMetas(ulid.MustNew(outBlocksTime, rand.Reader), metas...)}
 	}
 
-	err = c.write(dest, outBlocks, blocks...)
+	err = c.write(dest, outBlocks, shardFunc, blocks...)
 	if err == nil {
 		ulids := make([]ulid.ULID, len(outBlocks))
 		allOutputBlocksAreEmpty := true
@@ -555,14 +555,14 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 // 'i' corresponds to a single time range of blocks while 'j' corresponds to the shard index.
 // If given output block has no series, corresponding block ID will be zero ULID value.
 // TODO: write tests for this.
-func (c *LeveledCompactor) CompactOOOWithSplitting(dest string, oooHead *OOOCompactionHead, shardCount uint64) (result [][]ulid.ULID, _ error) {
-	return c.compactOOO(dest, oooHead, shardCount)
+func (c *LeveledCompactor) CompactOOOWithSplitting(dest string, oooHead *OOOCompactionHead, shardCount uint64, shardFunc func(labels.Labels) uint64) (result [][]ulid.ULID, _ error) {
+	return c.compactOOO(dest, oooHead, shardCount, shardFunc)
 }
 
 // CompactOOO creates a new block per possible block range in the compactor's directory from the OOO Head given.
 // Each ULID in the result corresponds to a block in a unique time range.
 func (c *LeveledCompactor) CompactOOO(dest string, oooHead *OOOCompactionHead) (result []ulid.ULID, err error) {
-	ulids, err := c.compactOOO(dest, oooHead, 1)
+	ulids, err := c.compactOOO(dest, oooHead, 1, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -574,7 +574,7 @@ func (c *LeveledCompactor) CompactOOO(dest string, oooHead *OOOCompactionHead) (
 	return result, err
 }
 
-func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, shardCount uint64) (_ [][]ulid.ULID, err error) {
+func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, shardCount uint64, shardFunc func(labels.Labels) uint64) (_ [][]ulid.ULID, err error) {
 	if shardCount == 0 {
 		shardCount = 1
 	}
@@ -619,7 +619,7 @@ func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, s
 		}
 
 		// Block intervals are half-open: [b.MinTime, b.MaxTime). Block intervals are always +1 than the total samples it includes.
-		err := c.write(dest, outBlocks[ix], oooHead.CloneForTimeRange(mint, maxt-1))
+		err := c.write(dest, outBlocks[ix], shardFunc, oooHead.CloneForTimeRange(mint, maxt-1))
 		if err != nil {
 			// We need to delete all blocks in case there was an error.
 			for _, obs := range outBlocks {
@@ -672,7 +672,7 @@ func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, s
 	return ulids, nil
 }
 
-func (c *LeveledCompactor) Write(dest string, b BlockReader, mint, maxt int64, parent *BlockMeta) (ulid.ULID, error) {
+func (c *LeveledCompactor) Write(dest string, b BlockReader, mint, maxt int64, parent *BlockMeta, shardFunc func(labels.Labels) uint64) (ulid.ULID, error) {
 	start := time.Now()
 
 	uid := ulid.MustNew(ulid.Now(), rand.Reader)
@@ -691,7 +691,7 @@ func (c *LeveledCompactor) Write(dest string, b BlockReader, mint, maxt int64, p
 		}
 	}
 
-	err := c.write(dest, []shardedBlock{{meta: meta}}, b)
+	err := c.write(dest, []shardedBlock{{meta: meta}}, shardFunc, b)
 	if err != nil {
 		return uid, err
 	}
@@ -736,7 +736,7 @@ func (w *instrumentedChunkWriter) WriteChunks(chunks ...chunks.Meta) error {
 }
 
 // write creates new output blocks that are the union of the provided blocks into dir.
-func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blocks ...BlockReader) (err error) {
+func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, shardFunc func(labels.Labels) uint64, blocks ...BlockReader) (err error) {
 	var closers []io.Closer
 
 	defer func(t time.Time) {
@@ -814,7 +814,7 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blocks .
 	}
 
 	// We use MinTime and MaxTime from first output block, because ALL output blocks have the same min/max times set.
-	if err := c.populateBlock(blocks, outBlocks[0].meta.MinTime, outBlocks[0].meta.MaxTime, outBlocks); err != nil {
+	if err := c.populateBlock(blocks, outBlocks[0].meta.MinTime, outBlocks[0].meta.MaxTime, outBlocks, shardFunc); err != nil {
 		return errors.Wrap(err, "populate block")
 	}
 
@@ -943,7 +943,7 @@ func timeFromMillis(ms int64) time.Time {
 // It expects sorted blocks input by mint.
 // If there is more than 1 output block, each output block will only contain series that hash into its shard
 // (based on total number of output blocks).
-func (c *LeveledCompactor) populateBlock(blocks []BlockReader, minT, maxT int64, outBlocks []shardedBlock) (err error) {
+func (c *LeveledCompactor) populateBlock(blocks []BlockReader, minT, maxT int64, outBlocks []shardedBlock, shardFunc func(labels.Labels) uint64) (err error) {
 	if len(blocks) == 0 {
 		return errors.New("cannot populate block(s) from no readers")
 	}
@@ -1042,7 +1042,7 @@ func (c *LeveledCompactor) populateBlock(blocks []BlockReader, minT, maxT int64,
 			return errors.Wrap(symbols.Err(), "next symbol")
 		}
 	} else {
-		if err := c.populateSymbols(symbolsSets, outBlocks); err != nil {
+		if err := c.populateSymbols(symbolsSets, outBlocks, shardFunc); err != nil {
 			return err
 		}
 	}
@@ -1093,7 +1093,7 @@ func (c *LeveledCompactor) populateBlock(blocks []BlockReader, minT, maxT int64,
 
 		obIx := uint64(0)
 		if len(outBlocks) > 1 {
-			obIx = s.Labels().Hash() % uint64(len(outBlocks))
+			obIx = shardFunc(s.Labels()) % uint64(len(outBlocks))
 		}
 
 		err := blockWriters[obIx].addSeries(s.Labels(), chks)
@@ -1127,7 +1127,7 @@ const inMemorySymbolsLimit = 1_000_000
 // populateSymbols writes symbols to output blocks. We need to iterate through all series to find
 // which series belongs to what block. We collect symbols per sharded block, and then add sorted symbols to
 // block's index.
-func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlocks []shardedBlock) error {
+func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlocks []shardedBlock, shardFunc func(labels.Labels) uint64) error {
 	if len(outBlocks) == 0 {
 		return errors.New("no output block")
 	}
@@ -1159,7 +1159,10 @@ func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlo
 
 		s := seriesSet.At()
 
-		obIx := s.Labels().Hash() % uint64(len(outBlocks))
+		var obIx uint64
+		if len(outBlocks) > 1 {
+			obIx = shardFunc(s.Labels()) % uint64(len(outBlocks))
+		}
 
 		for _, l := range s.Labels() {
 			if err := batchers[obIx].addSymbol(l.Name); err != nil {

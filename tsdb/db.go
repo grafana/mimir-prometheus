@@ -450,7 +450,7 @@ func (db *DBReadOnly) FlushWAL(dir string) (returnErr error) {
 	}
 	// Add +1 millisecond to block maxt because block intervals are half-open: [b.MinTime, b.MaxTime).
 	// Because of this block intervals are always +1 than the total samples it includes.
-	_, err = compactor.Write(dir, rh, mint, maxt+1, nil)
+	_, err = compactor.Write(dir, rh, mint, maxt+1, nil, nil)
 	return errors.Wrap(err, "writing WAL")
 }
 
@@ -553,7 +553,7 @@ func (db *DBReadOnly) Blocks() ([]BlockReader, error) {
 		return nil, ErrClosed
 	default:
 	}
-	loadable, corrupted, err := openBlocks(db.logger, db.dir, nil, nil, nil)
+	loadable, corrupted, err := openBlocks(db.logger, db.dir, nil, nil, nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1196,7 +1196,7 @@ func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead) (_ []ulid.ULID
 	for t := blockSize * (oooHeadMint / blockSize); t <= oooHeadMaxt; t = t + blockSize {
 		mint, maxt := t, t+blockSize
 		// Block intervals are half-open: [b.MinTime, b.MaxTime). Block intervals are always +1 than the total samples it includes.
-		uid, err := db.compactor.Write(dest, oooHead.CloneForTimeRange(mint, maxt-1), mint, maxt, nil)
+		uid, err := db.compactor.Write(dest, oooHead.CloneForTimeRange(mint, maxt-1), mint, maxt, nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1234,7 +1234,7 @@ func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead) (_ []ulid.ULID
 // compactHead compacts the given RangeHead.
 // The compaction mutex should be held before calling this method.
 func (db *DB) compactHead(head *RangeHead) error {
-	uid, err := db.compactor.Write(db.dir, head, head.MinTime(), head.BlockMaxTime(), nil)
+	uid, err := db.compactor.Write(db.dir, head, head.MinTime(), head.BlockMaxTime(), nil, nil)
 	if err != nil {
 		return errors.Wrap(err, "persist head block")
 	}
@@ -1331,7 +1331,7 @@ func (db *DB) reloadBlocks() (err error) {
 	db.mtx.Lock()
 	defer db.mtx.Unlock()
 
-	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.SeriesHashCache)
+	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.SeriesHashCache, nil)
 	if err != nil {
 		return err
 	}
@@ -1414,7 +1414,7 @@ func (db *DB) reloadBlocks() (err error) {
 	return nil
 }
 
-func openBlocks(l log.Logger, dir string, loaded []*Block, chunkPool chunkenc.Pool, cache *hashcache.SeriesHashCache) (blocks []*Block, corrupted map[ulid.ULID]error, err error) {
+func openBlocks(l log.Logger, dir string, loaded []*Block, chunkPool chunkenc.Pool, cache *hashcache.SeriesHashCache, shardFunc func(l labels.Labels) uint64) (blocks []*Block, corrupted map[ulid.ULID]error, err error) {
 	bDirs, err := blockDirs(dir)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "find blocks")
@@ -1436,7 +1436,7 @@ func openBlocks(l log.Logger, dir string, loaded []*Block, chunkPool chunkenc.Po
 				cacheProvider = cache.GetBlockCacheProvider(meta.ULID.String())
 			}
 
-			block, err = OpenBlockWithCache(l, bDir, chunkPool, cacheProvider)
+			block, err = OpenBlockWithOptions(l, bDir, chunkPool, cacheProvider, shardFunc)
 			if err != nil {
 				corrupted[meta.ULID] = err
 				continue
@@ -1772,7 +1772,7 @@ func (db *DB) Snapshot(dir string, withHead bool) error {
 	head := NewRangeHead(db.head, mint, maxt)
 	// Add +1 millisecond to block maxt because block intervals are half-open: [b.MinTime, b.MaxTime).
 	// Because of this block intervals are always +1 than the total samples it includes.
-	if _, err := db.compactor.Write(dir, head, mint, maxt+1, nil); err != nil {
+	if _, err := db.compactor.Write(dir, head, mint, maxt+1, nil, nil); err != nil {
 		return errors.Wrap(err, "snapshot head block")
 	}
 	return nil

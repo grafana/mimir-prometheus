@@ -1389,7 +1389,7 @@ func (*mockCompactorFailing) Plan(dir string) ([]string, error) {
 	return nil, nil
 }
 
-func (c *mockCompactorFailing) Write(dest string, b BlockReader, mint, maxt int64, parent *BlockMeta) (ulid.ULID, error) {
+func (c *mockCompactorFailing) Write(dest string, b BlockReader, mint, maxt int64, parent *BlockMeta, shardFunc func(labels.Labels) uint64) (ulid.ULID, error) {
 	if len(c.blocks) >= c.max {
 		return ulid.ULID{}, fmt.Errorf("the compactor already did the maximum allowed blocks so it is time to fail")
 	}
