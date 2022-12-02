@@ -153,26 +153,18 @@ func funcRawIncrease(vals []parser.Value, args parser.Expressions, enh *EvalNode
 		return enh.Out
 	}
 
-	if samples.Points[0].H != nil {
-		// TODO (oleg): implement raw increase for histograms.
-		return nil
-	} else {
-		fromTs := samples.Points[len(samples.Points)-1].T - window
-		startIdx := len(samples.Points) - 2
-		for startIdx > 0 && samples.Points[startIdx-1].T >= fromTs {
-			startIdx--
+	fromTs := samples.Points[len(samples.Points)-1].T - window
+	startIdx := len(samples.Points) - 2
+	for startIdx > 0 && samples.Points[startIdx-1].T >= fromTs {
+		startIdx--
+	}
+	resultValue = samples.Points[len(samples.Points)-1].V - samples.Points[startIdx].V
+	prevValue := samples.Points[startIdx].V
+	for _, currPoint := range samples.Points[startIdx+1:] {
+		if currPoint.V < prevValue {
+			resultValue += prevValue
 		}
-		resultValue = samples.Points[len(samples.Points)-1].V - samples.Points[startIdx].V
-		prevValue := samples.Points[startIdx].V
-		for _, currPoint := range samples.Points[startIdx+1:] {
-			if currPoint.H != nil {
-				return nil // Range contains a mix of histograms and floats.
-			}
-			if currPoint.V < prevValue {
-				resultValue += prevValue
-			}
-			prevValue = currPoint.V
-		}
+		prevValue = currPoint.V
 	}
 
 	return append(enh.Out, Sample{
