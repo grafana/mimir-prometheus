@@ -143,7 +143,7 @@ func funcRawIncrease(vals []parser.Value, args parser.Expressions, enh *EvalNode
 		resultValue float64
 	)
 
-	// Make sure that the requested
+	// Make sure that the requested window is smaller than the matrix selector range.
 	if ms := args[0].(*parser.MatrixSelector); window > ms.Range.Milliseconds() {
 		panic(fmt.Sprintf("invalid window for raw_increase, can't be bigger than matrix selector range: window=%dms > range=%dms", window, ms.Range.Milliseconds()))
 	}
