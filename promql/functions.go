@@ -211,6 +211,50 @@ func histogramRate(points []Point, isCounter bool) *histogram.FloatHistogram {
 	return h.Compact(0)
 }
 
+func funcRawIncrease(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
+	var (
+		samples     = vals[0].(Matrix)[0]
+		window      = int64(vals[1].(Vector)[0].V)
+		resultValue float64
+	)
+
+	// Make sure that the requested
+	if ms := args[0].(*parser.MatrixSelector); window > ms.Range.Milliseconds() {
+		panic(fmt.Sprintf("invalid window for raw_increase, can't be bigger than matrix selector range: window=%dms > range=%dms", window, ms.Range.Milliseconds()))
+	}
+
+	// No sense in trying to compute a rate without at least two points. Drop this Vector element.
+	if len(samples.Points) < 2 {
+		return enh.Out
+	}
+
+	if samples.Points[0].H != nil {
+		// TODO (oleg): implement raw increase for histograms.
+		return nil
+	} else {
+		fromTs := samples.Points[len(samples.Points)-1].T - window
+		startIdx := len(samples.Points) - 2
+		for startIdx > 0 && samples.Points[startIdx-1].T >= fromTs {
+			startIdx--
+		}
+		resultValue = samples.Points[len(samples.Points)-1].V - samples.Points[startIdx].V
+		prevValue := samples.Points[startIdx].V
+		for _, currPoint := range samples.Points[startIdx+1:] {
+			if currPoint.H != nil {
+				return nil // Range contains a mix of histograms and floats.
+			}
+			if currPoint.V < prevValue {
+				resultValue += prevValue
+			}
+			prevValue = currPoint.V
+		}
+	}
+
+	return append(enh.Out, Sample{
+		Point: Point{V: resultValue, H: nil},
+	})
+}
+
 // === delta(Matrix parser.ValueTypeMatrix) Vector ===
 func funcDelta(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
 	return extrapolatedRate(vals, args, enh, false, false)
@@ -1287,6 +1331,7 @@ var FunctionCalls = map[string]FunctionCall{
 	"quantile_over_time": funcQuantileOverTime,
 	"rad":                funcRad,
 	"rate":               funcRate,
+	"raw_increase":       funcRawIncrease,
 	"resets":             funcResets,
 	"round":              funcRound,
 	"scalar":             funcScalar,
