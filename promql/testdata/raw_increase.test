@@ -1,0 +1,30 @@
+# Testing raw_increase().
+load 30s
+	http_requests{path="/foo"}	0+10x5 10 20 30 40 50
+	http_requests{path="/bar"}	0+10x5 10 20 30 40 10
+	http_requests{path="/baz"}	0+10x5 10 20 30 _  10
+	http_requests{path="/boo"}	0+10x5  _  _  _ _  10
+	http_requests{path="/faf"}	0+10x5  _ 10  _  _  _
+
+# Tests for raw_increase().
+eval instant at 5m raw_increase(http_requests[1m], 30e3)
+	{path="/foo"} 10
+	{path="/bar"} 10
+	{path="/baz"} 10
+	{path="/boo"}  0
+
+eval instant at 5m raw_increase(http_requests[2m], 30e3)
+	{path="/foo"} 10
+	{path="/bar"} 10
+	{path="/baz"} 10
+	{path="/boo"}  0
+	{path="/faf"}  0
+
+eval instant at 5m raw_increase(http_requests[2m], 60e3)
+	{path="/foo"} 20
+	{path="/bar"} 20
+	{path="/baz"} 10
+	{path="/boo"}  0
+	{path="/faf"}  0
+
+clear

@@ -1037,31 +1037,3 @@ eval instant at 5m log10(exp_root_log - 20)
 	{l="y"} -Inf
 
 clear
-
-# Testing raw_increase().
-load 30s
-	http_requests{path="/foo"}	0+10x6 10 20 30 40
-	http_requests{path="/bar"}	0+10x6 10 20 30 10
-	http_requests{path="/baz"}	0+10x6 10 20  _ 10
-	http_requests{path="/boo"}	0+10x6  _  _  _ 10
-
-
-# Tests for raw_increase().
-eval instant at 5m raw_increase(http_requests[1m], 30e3)
-	{path="/foo"} 10
-	{path="/bar"} 10
-	{path="/baz"} 10
-
-eval instant at 5m raw_increase(http_requests[2m], 30e3)
-	{path="/foo"} 10
-	{path="/bar"} 10
-	{path="/baz"} 10
-	{path="/boo"} 10
-
-eval instant at 5m raw_increase(http_requests[2m], 60e3)
-	{path="/foo"} 20
-	{path="/bar"} 20
-	{path="/baz"} 10
-	{path="/boo"} 10
-
-clear
