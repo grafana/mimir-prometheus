@@ -140,7 +140,8 @@ const droppedLabelsLabel = "dropped_labels"
 
 func funcAggregateCounters(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
 	samples := vals[0].(Matrix)
-	fmt.Printf("%+v\n", samples)
+	label := vals[1].(String).V
+	fmt.Printf("label: %+v\nsamples: %+v\n", label, samples)
 	return append(enh.Out, Sample{
 		Point: Point{V: 123},
 	})
