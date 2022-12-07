@@ -16,8 +16,10 @@
 package record
 
 import (
+	"fmt"
 	"math"
 	"sort"
+	"strconv"
 
 	"github.com/pkg/errors"
 
@@ -546,7 +548,10 @@ func (e *Encoder) Samples(samples []RefSample, b []byte) []byte {
 	// All samples encode their timestamp and ref as delta to those.
 	first := samples[0]
 
-	buf.PutBE64(uint64(first.Ref))
+	firstRef := uint64(first.Ref)
+	fmt.Println("ASDFASDF: firstRef: " + strconv.FormatUint(firstRef, 10))
+
+	buf.PutBE64(firstRef)
 	buf.PutBE64int64(first.T)
 
 	for _, s := range samples {
