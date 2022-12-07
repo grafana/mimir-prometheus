@@ -517,6 +517,10 @@ outer:
 	for _, s := range samples {
 		t.seriesMtx.Lock()
 		lbls, ok := t.seriesLabels[s.Ref]
+		level.Info(t.logger).Log("msg", "Appending sample", "ref", s.Ref, "labels", lbls.String()) // FIXME
+		for k, v := range t.seriesLabels {
+			level.Info(t.logger).Log("k", k, "v", v.String())
+		}
 		if !ok {
 			t.metrics.droppedSamplesTotal.Inc()
 			t.dataDropped.incr(1)
@@ -681,6 +685,7 @@ func (t *QueueManager) StoreSeries(series []record.RefSeries, index int) {
 			t.releaseLabels(orig)
 		}
 		t.seriesLabels[s.Ref] = lbls
+		level.Info(t.logger).Log("msg", "QueueManager.StoreSeries", "ref", s.Ref, "lbls", lbls.String())
 	}
 }
 

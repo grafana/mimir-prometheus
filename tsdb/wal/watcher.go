@@ -27,6 +27,7 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/prometheus/tsdb/encoding"
 	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/prometheus/model/timestamp"
@@ -498,6 +499,18 @@ func (w *Watcher) readSegment(r *LiveReader, segmentNum int, tail bool) error {
 			if !tail {
 				break
 			}
+
+			recCopy := make([]byte, len(rec))
+			copy(recCopy, rec)
+
+			decBuf := encoding.Decbuf{B: recCopy}
+			_ = decBuf.Byte() // type
+			baseRef := decBuf.Be64()
+			_ = decBuf.Be64int64() // baseTime
+			dref := decBuf.Varint64()
+
+			level.Info(w.logger).Log("msg", "reading sample", "baseRef", baseRef, "dref", dref, "ref", int64(baseRef)+dref)
+
 			samples, err := dec.Samples(rec, samples[:0])
 			if err != nil {
 				w.recordDecodeFailsMetric.Inc()
