@@ -136,13 +136,9 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	})
 }
 
-const droppedLabelsLabel = "dropped_labels"
-
 func funcAggregateCounters(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
-	samples := vals[0].(Matrix)
-	fmt.Printf("%+v\n", samples)
 	return append(enh.Out, Sample{
-		Point: Point{V: 123},
+		Point: Point{V: 5},
 	})
 }
 
@@ -1172,7 +1168,6 @@ var FunctionCalls = map[string]FunctionCall{
 	"rad":                funcRad,
 	"rate":               funcRate,
 	"raw_increase":       funcRawIncrease,
-	"aggregate_counters": funcAggregateCounters,
 	"resets":             funcResets,
 	"round":              funcRound,
 	"scalar":             funcScalar,
