@@ -136,12 +136,6 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	})
 }
 
-func funcAggregateCounters(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
-	return append(enh.Out, Sample{
-		Point: Point{V: 5},
-	})
-}
-
 func funcRawIncrease(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
 	var (
 		samples     = vals[0].(Matrix)[0]
