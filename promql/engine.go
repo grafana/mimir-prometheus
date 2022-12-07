@@ -1352,19 +1352,12 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, storage.Warnings) {
 		// Evaluate any non-matrix arguments.
 		otherArgs := make([]Matrix, len(e.Args))
 		otherInArgs := make([]Vector, len(e.Args))
-		stringArgs := make([]bool, len(e.Args))
 		for i, e := range e.Args {
 			if i != matrixArgIndex {
 				val, ws := ev.eval(e)
-				switch val.(type) {
-				case String:
-					stringArgs[i] = true
-					inArgs[i] = val
-				default:
-					otherArgs[i] = val.(Matrix)
-					otherInArgs[i] = Vector{Sample{}}
-					inArgs[i] = otherInArgs[i]
-				}
+				otherArgs[i] = val.(Matrix)
+				otherInArgs[i] = Vector{Sample{}}
+				inArgs[i] = otherInArgs[i]
 				warnings = append(warnings, ws...)
 			}
 		}
@@ -1417,7 +1410,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, storage.Warnings) {
 				// They are scalar, so it is safe to use the step number
 				// when looking up the argument, as there will be no gaps.
 				for j := range e.Args {
-					if j != matrixArgIndex && !stringArgs[j] {
+					if j != matrixArgIndex {
 						otherInArgs[j][0].V = otherArgs[j][0].Points[step].V
 					}
 				}
