@@ -150,6 +150,7 @@ func funcAggregateCounters(vals []parser.Value, args parser.Expressions, enh *Ev
 	for i := 2; i < len(vals); i++ {
 		labelsToDrop = append(labelsToDrop, vals[i].(String).V)
 	}
+	sort.Strings(labelsToDrop)
 
 	// Make sure that the requested window is smaller than the matrix selector range.
 	ms := args[0].(*parser.MatrixSelector)
@@ -208,7 +209,7 @@ func funcAggregateCounters(vals []parser.Value, args parser.Expressions, enh *Ev
 
 	seriesHash := aggregatedSeriesLabels.Hash()
 	if mrt, ok := enh.signatureToMetricWithRunningTotal[seriesHash]; ok {
-		mrt.runningTotal = resultValue
+		mrt.runningTotal += resultValue
 	} else {
 		enh.signatureToMetricWithRunningTotal[seriesHash] = &metricWithRunningTotal{
 			metric:       aggregatedSeriesLabels,

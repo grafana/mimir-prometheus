@@ -1,0 +1,8 @@
+
+load 30s
+	test_metric{label1="value1", label2="value2", label3="value3", unique="uniqueValue1", binary="binaryValue0"}	0+1x10
+	test_metric{label1="value1", label2="value2", label3="value3", unique="uniqueValue3", binary="binaryValue0"}	0+3x10
+	test_metric{__dropped_labels__="label3,unique", label1="value1", label2="value2", binary="binaryValue0"}	120x10
+
+eval instant at 5m aggregate_counters(test_metric[10m], 300000, "unique", "label3")
+	test_metric{__dropped_labels__="label3,unique", label1="value1", label2="value2", binary="binaryValue0"}	160
