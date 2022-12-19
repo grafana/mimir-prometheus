@@ -136,7 +136,7 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	})
 }
 
-const dropped_labels_label = "__dropped_labels__"
+const droppedLabelsLabel = "__dropped_labels__"
 
 func funcAggregateCounters(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) Vector {
 	var (
@@ -164,7 +164,7 @@ func funcAggregateCounters(vals []parser.Value, args parser.Expressions, enh *Ev
 		return enh.Out
 	}
 
-	dropped := samples.Metric.Get(dropped_labels_label)
+	dropped := samples.Metric.Get(droppedLabelsLabel)
 	if len(dropped) > 0 {
 		// Aggregated series.
 		aggregatedSeriesLabels = samples.Metric
@@ -200,7 +200,7 @@ func funcAggregateCounters(vals []parser.Value, args parser.Expressions, enh *Ev
 			prevValue = currPoint.V
 		}
 
-		aggregatedSeriesLabels = labels.NewBuilder(samples.Metric).Del(labelsToDrop...).Set(dropped_labels_label, strings.Join(labelsToDrop, ",")).Labels(nil)
+		aggregatedSeriesLabels = labels.NewBuilder(samples.Metric).Del(labelsToDrop...).Set(droppedLabelsLabel, strings.Join(labelsToDrop, ",")).Labels(nil)
 	}
 
 	if enh.signatureToMetricWithRunningTotal == nil {
