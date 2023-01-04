@@ -155,7 +155,7 @@ func BenchmarkRuleEval(b *testing.B) {
 				result, err := rule.Eval(suite.Context(), 0, ts, EngineQueryFunc(suite.QueryEngine(), suite.Storage()), nil, 0)
 
 				require.NoError(b, err)
-				require.Equal(b, scenario.expected, result)
+				require.ElementsMatch(b, scenario.expected, result)
 			}
 		})
 	}
