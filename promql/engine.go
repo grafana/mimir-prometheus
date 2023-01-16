@@ -709,6 +709,7 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 	evalSpanTimer.Finish()
 
 	if err != nil {
+		fmt.Println("FAZ: ", query.q)
 		return nil, warnings, err
 	}
 
