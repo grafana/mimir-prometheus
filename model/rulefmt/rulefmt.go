@@ -139,6 +139,7 @@ type RuleGroup struct {
 	Interval        model.Duration  `yaml:"interval,omitempty"`
 	EvaluationDelay *model.Duration `yaml:"evaluation_delay,omitempty"`
 	Limit           int             `yaml:"limit,omitempty"`
+	AlertLimit      int             `yaml:"alert_limit,omitempty"`
 	Rules           []RuleNode      `yaml:"rules"`
 	SourceTenants   []string        `yaml:"source_tenants,omitempty"`
 }
