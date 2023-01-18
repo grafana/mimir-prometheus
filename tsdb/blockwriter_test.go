@@ -40,6 +40,14 @@ func TestBlockWriter(t *testing.T) {
 	ts2, v2 := int64(55), float64(12)
 	_, err = app.Append(0, labels.FromStrings("c", "d"), ts2, v2)
 	require.NoError(t, err)
+	ts3 := int64(66)
+	hist1 := GenerateTestHistograms(1)[0]
+	_, err = app.AppendHistogram(0, labels.FromStrings("e", "f"), ts3, hist1, nil)
+	require.NoError(t, err)
+	ts4 := int64(77)
+	hist2 := GenerateTestFloatHistograms(1)[0]
+	_, err = app.AppendHistogram(0, labels.FromStrings("g", "h"), ts4, nil, hist2)
+	require.NoError(t, err)
 	require.NoError(t, app.Commit())
 	id, err := w.Flush(ctx)
 	require.NoError(t, err)
@@ -49,12 +57,18 @@ func TestBlockWriter(t *testing.T) {
 	b, err := OpenBlock(nil, blockpath, nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b.Close()) }()
+
+	require.Equal(t, uint64(2), b.meta.Stats.NumNativeHistogramChunks)
+
 	q, err := NewBlockQuerier(b, math.MinInt64, math.MaxInt64)
 	require.NoError(t, err)
+
 	series := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "", ".*"))
 	sample1 := []tsdbutil.Sample{sample{t: ts1, v: v1}}
 	sample2 := []tsdbutil.Sample{sample{t: ts2, v: v2}}
-	expectedSeries := map[string][]tsdbutil.Sample{"{a=\"b\"}": sample1, "{c=\"d\"}": sample2}
+	sample3 := []tsdbutil.Sample{sample{t: ts3, h: hist1}}
+	sample4 := []tsdbutil.Sample{sample{t: ts4, fh: hist2}}
+	expectedSeries := map[string][]tsdbutil.Sample{"{a=\"b\"}": sample1, "{c=\"d\"}": sample2, "{e=\"f\"}": sample3, "{g=\"h\"}": sample4}
 	require.Equal(t, expectedSeries, series)
 
 	require.NoError(t, w.Close())
