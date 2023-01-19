@@ -964,9 +964,12 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 		}
 		require.NotNil(t, g, "group not found: %s", groupName)
 
-		// In very rare cases (when g.hash() % g.interval == 0) alignment cannot be checked, because aligned and unaligned eval timestamps
-		// would be the same. Chance of this happening is tiny.
-		require.NotZero(t, g.hash()%uint64(g.interval), "alignment cannot be checked")
+		// When "g.hash() % g.interval == 0" alignment cannot be checked, because aligned and unaligned eval timestamps
+		// would be the same. This can happen because g.hash() depends on path passed to ruleManager.Update function,
+		// and this test uses temporary directory for storing rule group files.
+		if g.hash()%uint64(g.interval) == 0 {
+			t.Skip("skipping test, because rule group hash is divisible by interval, which makes eval timestamp always aligned to the interval")
+		}
 
 		now := time.Now()
 		ts := g.EvalTimestamp(now.UnixNano())
@@ -976,6 +979,7 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 	}
 
 	assertGroupEvalTimeAlignedOnIntervalIsHonored("aligned", true)
+	assertGroupEvalTimeAlignedOnIntervalIsHonored("aligned_with_crazy_interval", true)
 	assertGroupEvalTimeAlignedOnIntervalIsHonored("unaligned_default", false)
 	assertGroupEvalTimeAlignedOnIntervalIsHonored("unaligned_explicit", false)
 }
