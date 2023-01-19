@@ -27,7 +27,6 @@ import (
 	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 	"go.uber.org/goleak"
@@ -973,7 +972,7 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 		ts := g.EvalTimestamp(now.UnixNano())
 
 		aligned := ts.UnixNano()%g.interval.Nanoseconds() == 0
-		assert.Equal(t, expectedAligned, aligned, "group: %s, hash: %d, now: %d", groupName, g.hash(), now.UnixNano())
+		require.Equal(t, expectedAligned, aligned, "group: %s, hash: %d, now: %d", groupName, g.hash(), now.UnixNano())
 	}
 
 	assertGroupEvalTimeAlignedOnIntervalIsHonored("aligned", true)
