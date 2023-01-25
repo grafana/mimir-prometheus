@@ -145,7 +145,7 @@ type RuntimeInfo struct {
 	StorageRetention    string    `json:"storageRetention"`
 }
 
-type response struct {
+type Response struct {
 	Status    status      `json:"status"`
 	Data      interface{} `json:"data,omitempty"`
 	ErrorType errorType   `json:"errorType,omitempty"`
@@ -1563,7 +1563,7 @@ func (api *API) respond(w http.ResponseWriter, data interface{}, warnings storag
 		warningStrings = append(warningStrings, warning.Error())
 	}
 
-	resp := response{
+	resp := Response{
 		Status:   statusMessage,
 		Data:     data,
 		Warnings: warningStrings,
@@ -1586,7 +1586,7 @@ func (api *API) respond(w http.ResponseWriter, data interface{}, warnings storag
 
 func (api *API) respondError(w http.ResponseWriter, apiErr *apiError, data interface{}) {
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	b, err := json.Marshal(&response{
+	b, err := json.Marshal(&Response{
 		Status:    statusError,
 		ErrorType: apiErr.typ,
 		Error:     apiErr.err.Error(),

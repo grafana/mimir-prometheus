@@ -2788,12 +2788,12 @@ func TestRespondSuccess(t *testing.T) {
 		t.Fatalf("Expected Content-Type %q but got %q", "application/json", h)
 	}
 
-	var res response
+	var res Response
 	if err = json.Unmarshal([]byte(body), &res); err != nil {
 		t.Fatalf("Error unmarshaling JSON body: %s", err)
 	}
 
-	exp := &response{
+	exp := &Response{
 		Status: statusSuccess,
 		Data:   "test",
 	}
@@ -2824,12 +2824,12 @@ func TestRespondError(t *testing.T) {
 		t.Fatalf("Expected Content-Type %q but got %q", "application/json", h)
 	}
 
-	var res response
+	var res Response
 	if err = json.Unmarshal([]byte(body), &res); err != nil {
 		t.Fatalf("Error unmarshaling JSON body: %s", err)
 	}
 
-	exp := &response{
+	exp := &Response{
 		Status:    statusError,
 		Data:      "test",
 		ErrorType: errorTimeout,

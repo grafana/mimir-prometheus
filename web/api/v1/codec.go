@@ -18,8 +18,8 @@ type Codec interface {
 	ContentType() string
 
 	// CanEncode determines if this Codec can encode resp.
-	CanEncode(resp *response) bool
+	CanEncode(resp *Response) bool
 
 	// Encode encodes resp, ready for transmission to an API consumer.
-	Encode(resp *response) ([]byte, error)
+	Encode(resp *Response) ([]byte, error)
 }

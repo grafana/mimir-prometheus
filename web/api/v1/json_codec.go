@@ -21,11 +21,11 @@ func (j JsonCodec) ContentType() string {
 	return "application/json"
 }
 
-func (j JsonCodec) CanEncode(_ *response) bool {
+func (j JsonCodec) CanEncode(_ *Response) bool {
 	return true
 }
 
-func (j JsonCodec) Encode(resp *response) ([]byte, error) {
+func (j JsonCodec) Encode(resp *Response) ([]byte, error) {
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
 	return json.Marshal(resp)
 }
