@@ -2767,7 +2767,7 @@ func TestAdminEndpoints(t *testing.T) {
 func TestRespondSuccess(t *testing.T) {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api := API{fallbackCodec: JsonCodec{}}
-		api.respond(w, "test", nil)
+		api.respond(w, r, "test", nil)
 	}))
 	defer s.Close()
 
@@ -3186,7 +3186,7 @@ func TestRespond(t *testing.T) {
 	for _, c := range cases {
 		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			api := API{fallbackCodec: JsonCodec{}}
-			api.respond(w, c.response, nil)
+			api.respond(w, r, c.response, nil)
 		}))
 		defer s.Close()
 
@@ -3281,6 +3281,8 @@ var testResponseWriter = httptest.ResponseRecorder{}
 
 func BenchmarkRespond(b *testing.B) {
 	b.ReportAllocs()
+	request, err := http.NewRequest(http.MethodGet, "/does-not-matter", nil)
+	require.NoError(b, err)
 	points := []promql.Point{}
 	for i := 0; i < 10000; i++ {
 		points = append(points, promql.Point{V: float64(i * 1000000), T: int64(i)})
@@ -3297,7 +3299,7 @@ func BenchmarkRespond(b *testing.B) {
 	b.ResetTimer()
 	api := API{}
 	for n := 0; n < b.N; n++ {
-		api.respond(&testResponseWriter, response, nil)
+		api.respond(&testResponseWriter, request, response, nil)
 	}
 }
 

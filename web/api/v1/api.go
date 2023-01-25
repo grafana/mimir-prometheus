@@ -209,7 +209,7 @@ type API struct {
 	remoteWriteHandler http.Handler
 	remoteReadHandler  http.Handler
 
-	codecs        []Codec
+	codecs        map[string]Codec
 	fallbackCodec Codec
 }
 
@@ -279,7 +279,7 @@ func NewAPI(
 
 		remoteReadHandler: remote.NewReadHandler(logger, registerer, q, configFunc, remoteReadSampleLimit, remoteReadConcurrencyLimit, remoteReadMaxBytesInFrame),
 
-		codecs:        []Codec{jsonCodec},
+		codecs:        map[string]Codec{jsonCodec.ContentType(): jsonCodec},
 		fallbackCodec: jsonCodec,
 	}
 
@@ -292,6 +292,11 @@ func NewAPI(
 	}
 
 	return a
+}
+
+// TODO: naming - is there a better verb than 'add'?
+func (api *API) AddCodec(codec Codec) {
+	api.codecs[codec.ContentType()] = codec
 }
 
 func setUnavailStatusOnTSDBNotReady(r apiFuncResult) apiFuncResult {
@@ -316,7 +321,7 @@ func (api *API) Register(r *route.Router) {
 			}
 
 			if result.data != nil {
-				api.respond(w, result.data, result.warnings)
+				api.respond(w, r, result.data, result.warnings)
 				return
 			}
 			w.WriteHeader(http.StatusNoContent)
@@ -1454,7 +1459,7 @@ func (api *API) serveWALReplayStatus(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		api.respondError(w, &apiError{errorInternal, err}, nil)
 	}
-	api.respond(w, walReplayStatus{
+	api.respond(w, r, walReplayStatus{
 		Min:     status.Min,
 		Max:     status.Max,
 		Current: status.Current,
@@ -1556,21 +1561,27 @@ func (api *API) cleanTombstones(r *http.Request) apiFuncResult {
 	return apiFuncResult{nil, nil, nil, nil}
 }
 
-func (api *API) respond(w http.ResponseWriter, data interface{}, warnings storage.Warnings) {
+func (api *API) respond(w http.ResponseWriter, req *http.Request, data interface{}, warnings storage.Warnings) {
 	statusMessage := statusSuccess
 	var warningStrings []string
 	for _, warning := range warnings {
 		warningStrings = append(warningStrings, warning.Error())
 	}
 
-	resp := Response{
+	resp := &Response{
 		Status:   statusMessage,
 		Data:     data,
 		Warnings: warningStrings,
 	}
 
-	codec := api.fallbackCodec
-	b, err := codec.Encode(&resp)
+	codec := api.negotiateCodec(req, resp)
+	// TODO: if we can't find an acceptable codec, should we fallback to JSON instead of failing the request?
+	if codec == nil {
+		http.Error(w, "", http.StatusNotAcceptable)
+		return
+	}
+
+	b, err := codec.Encode(resp)
 	if err != nil {
 		level.Error(api.logger).Log("msg", "error marshaling response", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -1582,6 +1593,32 @@ func (api *API) respond(w http.ResponseWriter, data interface{}, warnings storag
 	if n, err := w.Write(b); err != nil {
 		level.Error(api.logger).Log("msg", "error writing response", "bytesWritten", n, "err", err)
 	}
+}
+
+// FIXME: HTTP content negotiation is hard (see https://developer.mozilla.org/en-US/docs/Web/HTTP/Content_negotiation).
+// Ideally, we shouldn't be implementing this ourselves - https://github.com/golang/go/issues/19307 is an open proposal to add
+// this to the Go stdlib and has links to a number of other implementations.
+//
+// This is an initial sketch to illustrate what this could look like. If we go down the path of implementing this ourselves, it
+// would need to be fleshed out further to support wildcards, multiple types, weighting etc.
+func (api *API) negotiateCodec(req *http.Request, resp *Response) Codec {
+	acceptHeader := req.Header.Get("Accept")
+	if acceptHeader == "" {
+		return api.fallbackCodec
+	}
+
+	codec, ok := api.codecs[acceptHeader]
+	if !ok {
+		level.Warn(api.logger).Log("msg", "could not find codec for requested content type", "acceptHeader", acceptHeader)
+		return nil
+	}
+
+	if !codec.CanEncode(resp) {
+		level.Warn(api.logger).Log("msg", "codec for requested content type cannot encode response", "acceptHeader", acceptHeader)
+		return nil
+	}
+
+	return codec
 }
 
 func (api *API) respondError(w http.ResponseWriter, apiErr *apiError, data interface{}) {
