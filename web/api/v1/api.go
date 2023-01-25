@@ -208,6 +208,9 @@ type API struct {
 
 	remoteWriteHandler http.Handler
 	remoteReadHandler  http.Handler
+
+	codecs        []Codec
+	fallbackCodec Codec
 }
 
 func init() {
@@ -246,6 +249,8 @@ func NewAPI(
 	registerer prometheus.Registerer,
 	statsRenderer StatsRenderer,
 ) *API {
+	jsonCodec := JsonCodec{}
+
 	a := &API{
 		QueryEngine:       qe,
 		Queryable:         q,
@@ -273,6 +278,9 @@ func NewAPI(
 		statsRenderer:    defaultStatsRenderer,
 
 		remoteReadHandler: remote.NewReadHandler(logger, registerer, q, configFunc, remoteReadSampleLimit, remoteReadConcurrencyLimit, remoteReadMaxBytesInFrame),
+
+		codecs:        []Codec{jsonCodec},
+		fallbackCodec: jsonCodec,
 	}
 
 	if statsRenderer != nil {
@@ -1554,19 +1562,22 @@ func (api *API) respond(w http.ResponseWriter, data interface{}, warnings storag
 	for _, warning := range warnings {
 		warningStrings = append(warningStrings, warning.Error())
 	}
-	json := jsoniter.ConfigCompatibleWithStandardLibrary
-	b, err := json.Marshal(&response{
+
+	resp := response{
 		Status:   statusMessage,
 		Data:     data,
 		Warnings: warningStrings,
-	})
+	}
+
+	codec := api.fallbackCodec
+	b, err := codec.Encode(&resp)
 	if err != nil {
-		level.Error(api.logger).Log("msg", "error marshaling json response", "err", err)
+		level.Error(api.logger).Log("msg", "error marshaling response", "err", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", codec.ContentType())
 	w.WriteHeader(http.StatusOK)
 	if n, err := w.Write(b); err != nil {
 		level.Error(api.logger).Log("msg", "error writing response", "bytesWritten", n, "err", err)

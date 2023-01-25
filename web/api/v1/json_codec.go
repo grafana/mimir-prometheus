@@ -13,13 +13,19 @@
 
 package v1
 
-type Codec interface {
-	// ContentType returns the MIME time that this Codec emits.
-	ContentType() string
+import jsoniter "github.com/json-iterator/go"
 
-	// CanEncode determines if this Codec can encode resp.
-	CanEncode(resp *response) bool
+type JsonCodec struct{}
 
-	// Encode encodes resp, ready for transmission to an API consumer.
-	Encode(resp *response) ([]byte, error)
+func (j JsonCodec) ContentType() string {
+	return "application/json"
+}
+
+func (j JsonCodec) CanEncode(_ *response) bool {
+	return true
+}
+
+func (j JsonCodec) Encode(resp *response) ([]byte, error) {
+	json := jsoniter.ConfigCompatibleWithStandardLibrary
+	return json.Marshal(resp)
 }
