@@ -2766,7 +2766,7 @@ func TestAdminEndpoints(t *testing.T) {
 
 func TestRespondSuccess(t *testing.T) {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		api := API{fallbackCodec: JsonCodec{}}
+		api := API{defaultCodec: JsonCodec{}}
 		api.respond(w, r, "test", nil)
 	}))
 	defer s.Close()
@@ -3185,7 +3185,7 @@ func TestRespond(t *testing.T) {
 
 	for _, c := range cases {
 		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			api := API{fallbackCodec: JsonCodec{}}
+			api := API{defaultCodec: JsonCodec{}}
 			api.respond(w, r, c.response, nil)
 		}))
 		defer s.Close()

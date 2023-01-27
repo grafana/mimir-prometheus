@@ -209,8 +209,8 @@ type API struct {
 	remoteWriteHandler http.Handler
 	remoteReadHandler  http.Handler
 
-	codecs        map[string]Codec
-	fallbackCodec Codec
+	codecs       map[string]Codec
+	defaultCodec Codec
 }
 
 func init() {
@@ -279,8 +279,8 @@ func NewAPI(
 
 		remoteReadHandler: remote.NewReadHandler(logger, registerer, q, configFunc, remoteReadSampleLimit, remoteReadConcurrencyLimit, remoteReadMaxBytesInFrame),
 
-		codecs:        map[string]Codec{jsonCodec.ContentType(): jsonCodec},
-		fallbackCodec: jsonCodec,
+		codecs:       map[string]Codec{jsonCodec.ContentType(): jsonCodec},
+		defaultCodec: jsonCodec,
 	}
 
 	if statsRenderer != nil {
@@ -1604,7 +1604,7 @@ func (api *API) respond(w http.ResponseWriter, req *http.Request, data interface
 func (api *API) negotiateCodec(req *http.Request, resp *Response) Codec {
 	acceptHeader := req.Header.Get("Accept")
 	if acceptHeader == "" {
-		return api.fallbackCodec
+		return api.defaultCodec
 	}
 
 	codec, ok := api.codecs[acceptHeader]
