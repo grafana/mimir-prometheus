@@ -2769,33 +2769,31 @@ func TestRespondSuccess(t *testing.T) {
 	}))
 	defer s.Close()
 
-	resp, err := http.Get(s.URL)
-	if err != nil {
-		t.Fatalf("Error on test request: %s", err)
-	}
-	body, err := io.ReadAll(resp.Body)
-	defer resp.Body.Close()
-	if err != nil {
-		t.Fatalf("Error reading response body: %s", err)
-	}
+	for _, tc := range []struct {
+		name                string
+		acceptHeader        string
+		expectedContentType string
+		expectedBody        string
+	}{
+		{
+			name:                "no Accept header",
+			expectedContentType: "application/json",
+			expectedBody:        `{"status":"success","data":"test"}`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp, err := http.Get(s.URL)
+			require.NoError(t, err)
 
-	if resp.StatusCode != 200 {
-		t.Fatalf("Return code %d expected in success response but got %d", 200, resp.StatusCode)
-	}
-	if h := resp.Header.Get("Content-Type"); h != "application/json" {
-		t.Fatalf("Expected Content-Type %q but got %q", "application/json", h)
-	}
+			body, err := io.ReadAll(resp.Body)
+			defer resp.Body.Close()
+			require.NoError(t, err)
 
-	var res Response
-	if err = json.Unmarshal([]byte(body), &res); err != nil {
-		t.Fatalf("Error unmarshaling JSON body: %s", err)
+			require.Equal(t, 200, resp.StatusCode)
+			require.Equal(t, tc.expectedContentType, resp.Header.Get("Content-Type"))
+			require.Equal(t, tc.expectedBody, string(body))
+		})
 	}
-
-	exp := &Response{
-		Status: statusSuccess,
-		Data:   "test",
-	}
-	require.Equal(t, exp, &res)
 }
 
 func TestRespondError(t *testing.T) {
