@@ -281,7 +281,7 @@ func NewAPI(
 		codecs: map[string]Codec{},
 	}
 
-	a.AddCodec(defaultCodec)
+	a.InstallCodec(defaultCodec)
 
 	if statsRenderer != nil {
 		a.statsRenderer = statsRenderer
@@ -294,8 +294,9 @@ func NewAPI(
 	return a
 }
 
-// TODO: naming - is there a better verb than 'add'?
-func (api *API) AddCodec(codec Codec) {
+// InstallCodec adds codec to this API's available codecs.
+// If codec handles a content type handled by a codec already installed in this API, codec replaces the previous codec.
+func (api *API) InstallCodec(codec Codec) {
 	api.codecs[codec.ContentType()] = codec
 }
 
