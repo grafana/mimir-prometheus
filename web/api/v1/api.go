@@ -80,6 +80,8 @@ const (
 
 var LocalhostRepresentations = []string{"127.0.0.1", "localhost", "::1"}
 
+var defaultCodec = JsonCodec{}
+
 type apiError struct {
 	typ errorType
 	err error
@@ -209,8 +211,7 @@ type API struct {
 	remoteWriteHandler http.Handler
 	remoteReadHandler  http.Handler
 
-	codecs       map[string]Codec
-	defaultCodec Codec
+	codecs map[string]Codec
 }
 
 func init() {
@@ -249,8 +250,6 @@ func NewAPI(
 	registerer prometheus.Registerer,
 	statsRenderer StatsRenderer,
 ) *API {
-	jsonCodec := JsonCodec{}
-
 	a := &API{
 		QueryEngine:       qe,
 		Queryable:         q,
@@ -279,9 +278,10 @@ func NewAPI(
 
 		remoteReadHandler: remote.NewReadHandler(logger, registerer, q, configFunc, remoteReadSampleLimit, remoteReadConcurrencyLimit, remoteReadMaxBytesInFrame),
 
-		codecs:       map[string]Codec{jsonCodec.ContentType(): jsonCodec},
-		defaultCodec: jsonCodec,
+		codecs: map[string]Codec{},
 	}
+
+	a.AddCodec(defaultCodec)
 
 	if statsRenderer != nil {
 		a.statsRenderer = statsRenderer
@@ -1604,7 +1604,7 @@ func (api *API) respond(w http.ResponseWriter, req *http.Request, data interface
 func (api *API) negotiateCodec(req *http.Request, resp *Response) Codec {
 	acceptHeader := req.Header.Get("Accept")
 	if acceptHeader == "" {
-		return api.defaultCodec
+		return defaultCodec
 	}
 
 	codec, ok := api.codecs[acceptHeader]
