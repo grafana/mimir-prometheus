@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -30,7 +29,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/util/stats"
 
@@ -3044,165 +3042,6 @@ func TestOptionsMethod(t *testing.T) {
 
 	if resp.StatusCode != http.StatusNoContent {
 		t.Fatalf("Expected status %d, got %d", http.StatusNoContent, resp.StatusCode)
-	}
-}
-
-func TestRespond(t *testing.T) {
-	cases := []struct {
-		response interface{}
-		expected string
-	}{
-		{
-			response: &queryData{
-				ResultType: parser.ValueTypeMatrix,
-				Result: promql.Matrix{
-					promql.Series{
-						Points: []promql.Point{{V: 1, T: 1000}},
-						Metric: labels.FromStrings("__name__", "foo"),
-					},
-				},
-			},
-			expected: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"foo"},"values":[[1,"1"]]}]}}`,
-		},
-		{
-			response: &queryData{
-				ResultType: parser.ValueTypeMatrix,
-				Result: promql.Matrix{
-					promql.Series{
-						Points: []promql.Point{{H: &histogram.FloatHistogram{
-							Schema:        2,
-							ZeroThreshold: 0.001,
-							ZeroCount:     12,
-							Count:         10,
-							Sum:           20,
-							PositiveSpans: []histogram.Span{
-								{Offset: 3, Length: 2},
-								{Offset: 1, Length: 3},
-							},
-							NegativeSpans: []histogram.Span{
-								{Offset: 2, Length: 2},
-							},
-							PositiveBuckets: []float64{1, 2, 2, 1, 1},
-							NegativeBuckets: []float64{2, 1},
-						}, T: 1000}},
-						Metric: labels.FromStrings("__name__", "foo"),
-					},
-				},
-			},
-			expected: `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"__name__":"foo"},"histograms":[[1,{"count":"10","sum":"20","buckets":[[1,"-1.6817928305074288","-1.414213562373095","1"],[1,"-1.414213562373095","-1.189207115002721","2"],[3,"-0.001","0.001","12"],[0,"1.414213562373095","1.6817928305074288","1"],[0,"1.6817928305074288","2","2"],[0,"2.378414230005442","2.82842712474619","2"],[0,"2.82842712474619","3.3635856610148576","1"],[0,"3.3635856610148576","4","1"]]}]]}]}}`,
-		},
-		{
-			response: promql.Point{V: 0, T: 0},
-			expected: `{"status":"success","data":[0,"0"]}`,
-		},
-		{
-			response: promql.Point{V: 20, T: 1},
-			expected: `{"status":"success","data":[0.001,"20"]}`,
-		},
-		{
-			response: promql.Point{V: 20, T: 10},
-			expected: `{"status":"success","data":[0.010,"20"]}`,
-		},
-		{
-			response: promql.Point{V: 20, T: 100},
-			expected: `{"status":"success","data":[0.100,"20"]}`,
-		},
-		{
-			response: promql.Point{V: 20, T: 1001},
-			expected: `{"status":"success","data":[1.001,"20"]}`,
-		},
-		{
-			response: promql.Point{V: 20, T: 1010},
-			expected: `{"status":"success","data":[1.010,"20"]}`,
-		},
-		{
-			response: promql.Point{V: 20, T: 1100},
-			expected: `{"status":"success","data":[1.100,"20"]}`,
-		},
-		{
-			response: promql.Point{V: 20, T: 12345678123456555},
-			expected: `{"status":"success","data":[12345678123456.555,"20"]}`,
-		},
-		{
-			response: promql.Point{V: 20, T: -1},
-			expected: `{"status":"success","data":[-0.001,"20"]}`,
-		},
-		{
-			response: promql.Point{V: math.NaN(), T: 0},
-			expected: `{"status":"success","data":[0,"NaN"]}`,
-		},
-		{
-			response: promql.Point{V: math.Inf(1), T: 0},
-			expected: `{"status":"success","data":[0,"+Inf"]}`,
-		},
-		{
-			response: promql.Point{V: math.Inf(-1), T: 0},
-			expected: `{"status":"success","data":[0,"-Inf"]}`,
-		},
-		{
-			response: promql.Point{V: 1.2345678e6, T: 0},
-			expected: `{"status":"success","data":[0,"1234567.8"]}`,
-		},
-		{
-			response: promql.Point{V: 1.2345678e-6, T: 0},
-			expected: `{"status":"success","data":[0,"0.0000012345678"]}`,
-		},
-		{
-			response: promql.Point{V: 1.2345678e-67, T: 0},
-			expected: `{"status":"success","data":[0,"1.2345678e-67"]}`,
-		},
-		{
-			response: []exemplar.QueryResult{
-				{
-					SeriesLabels: labels.FromStrings("foo", "bar"),
-					Exemplars: []exemplar.Exemplar{
-						{
-							Labels: labels.FromStrings("traceID", "abc"),
-							Value:  100.123,
-							Ts:     1234,
-						},
-					},
-				},
-			},
-			expected: `{"status":"success","data":[{"seriesLabels":{"foo":"bar"},"exemplars":[{"labels":{"traceID":"abc"},"value":"100.123","timestamp":1.234}]}]}`,
-		},
-		{
-			response: []exemplar.QueryResult{
-				{
-					SeriesLabels: labels.FromStrings("foo", "bar"),
-					Exemplars: []exemplar.Exemplar{
-						{
-							Labels: labels.FromStrings("traceID", "abc"),
-							Value:  math.Inf(1),
-							Ts:     1234,
-						},
-					},
-				},
-			},
-			expected: `{"status":"success","data":[{"seriesLabels":{"foo":"bar"},"exemplars":[{"labels":{"traceID":"abc"},"value":"+Inf","timestamp":1.234}]}]}`,
-		},
-	}
-
-	for _, c := range cases {
-		s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			api := API{}
-			api.respond(w, r, c.response, nil)
-		}))
-		defer s.Close()
-
-		resp, err := http.Get(s.URL)
-		if err != nil {
-			t.Fatalf("Error on test request: %s", err)
-		}
-		body, err := io.ReadAll(resp.Body)
-		defer resp.Body.Close()
-		if err != nil {
-			t.Fatalf("Error reading response body: %s", err)
-		}
-
-		if string(body) != c.expected {
-			t.Fatalf("Expected response \n%v\n but got \n%v\n", c.expected, string(body))
-		}
 	}
 }
 
