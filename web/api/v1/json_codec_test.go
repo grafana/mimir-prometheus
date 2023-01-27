@@ -167,7 +167,6 @@ func TestJsonCodec_Encode(t *testing.T) {
 			Status: statusSuccess,
 			Data:   c.response,
 		})
-
 		if err != nil {
 			t.Fatalf("Error encoding response body: %s", err)
 		}
