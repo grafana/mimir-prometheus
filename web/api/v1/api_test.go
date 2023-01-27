@@ -2831,6 +2831,13 @@ func TestRespondSuccess(t *testing.T) {
 			expectedContentType: "test/can-encode",
 			expectedBody:        `response from test/can-encode codec`,
 		},
+		{
+			name:                "Accept header with multiple content types, none of which are available",
+			acceptHeader:        "test/not-registered, test/also-not-registered",
+			expectedStatusCode:  http.StatusNotAcceptable,
+			expectedContentType: "text/plain; charset=utf-8",
+			expectedBody:        "cannot satisfy Accept header\n",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			req, err := http.NewRequest(http.MethodGet, s.URL, nil)
