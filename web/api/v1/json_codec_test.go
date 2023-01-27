@@ -160,7 +160,7 @@ func TestJsonCodec_Encode(t *testing.T) {
 		},
 	}
 
-	codec := JsonCodec{}
+	codec := JSONCodec{}
 
 	for _, c := range cases {
 		body, err := codec.Encode(&Response{

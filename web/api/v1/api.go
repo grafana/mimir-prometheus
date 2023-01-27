@@ -80,7 +80,7 @@ const (
 
 var LocalhostRepresentations = []string{"127.0.0.1", "localhost", "::1"}
 
-var defaultCodec = JsonCodec{}
+var defaultCodec = JSONCodec{}
 
 type apiError struct {
 	typ errorType

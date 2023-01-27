@@ -15,18 +15,18 @@ package v1
 
 import jsoniter "github.com/json-iterator/go"
 
-// JsonCodec is a Codec that encodes API responses as JSON.
-type JsonCodec struct{}
+// JSONCodec is a Codec that encodes API responses as JSON.
+type JSONCodec struct{}
 
-func (j JsonCodec) ContentType() string {
+func (j JSONCodec) ContentType() string {
 	return "application/json"
 }
 
-func (j JsonCodec) CanEncode(_ *Response) bool {
+func (j JSONCodec) CanEncode(_ *Response) bool {
 	return true
 }
 
-func (j JsonCodec) Encode(resp *Response) ([]byte, error) {
+func (j JSONCodec) Encode(resp *Response) ([]byte, error) {
 	json := jsoniter.ConfigCompatibleWithStandardLibrary
 	return json.Marshal(resp)
 }
