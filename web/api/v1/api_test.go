@@ -2763,8 +2763,15 @@ func TestAdminEndpoints(t *testing.T) {
 }
 
 func TestRespondSuccess(t *testing.T) {
+	api := API{
+		logger: log.NewNopLogger(),
+	}
+
+	api.InstallCodec(&testCodec{contentType: "test/cannot-encode", canEncode: false})
+	api.InstallCodec(&testCodec{contentType: "test/can-encode", canEncode: true})
+	api.InstallCodec(&testCodec{contentType: "test/can-encode-2", canEncode: true})
+
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		api := API{}
 		api.respond(w, r, "test", nil)
 	}))
 	defer s.Close()
@@ -2772,24 +2779,75 @@ func TestRespondSuccess(t *testing.T) {
 	for _, tc := range []struct {
 		name                string
 		acceptHeader        string
+		expectedStatusCode  int
 		expectedContentType string
 		expectedBody        string
 	}{
 		{
 			name:                "no Accept header",
+			expectedStatusCode:  http.StatusOK,
 			expectedContentType: "application/json",
 			expectedBody:        `{"status":"success","data":"test"}`,
 		},
+		{
+			name:                "Accept header with single content type which is suitable",
+			acceptHeader:        "test/can-encode",
+			expectedStatusCode:  http.StatusOK,
+			expectedContentType: "test/can-encode",
+			expectedBody:        `response from test/can-encode codec`,
+		},
+		{
+			name:                "Accept header with single content type which is not available",
+			acceptHeader:        "test/not-registered",
+			expectedStatusCode:  http.StatusNotAcceptable,
+			expectedContentType: "text/plain; charset=utf-8",
+			expectedBody:        "cannot satisfy Accept header\n",
+		},
+		{
+			name:                "Accept header with single content type which cannot encode the response payload",
+			acceptHeader:        "test/cannot-encode",
+			expectedStatusCode:  http.StatusNotAcceptable,
+			expectedContentType: "text/plain; charset=utf-8",
+			expectedBody:        "cannot satisfy Accept header\n",
+		},
+		{
+			name:                "Accept header with multiple content types, all of which are suitable",
+			acceptHeader:        "test/can-encode, test/can-encode-2",
+			expectedStatusCode:  http.StatusOK,
+			expectedContentType: "test/can-encode",
+			expectedBody:        `response from test/can-encode codec`,
+		},
+		{
+			name:                "Accept header with multiple content types, only one of which is available",
+			acceptHeader:        "test/not-registered, test/can-encode",
+			expectedStatusCode:  http.StatusOK,
+			expectedContentType: "test/can-encode",
+			expectedBody:        `response from test/can-encode codec`,
+		},
+		{
+			name:                "Accept header with multiple content types, only one of which can encode the response payload",
+			acceptHeader:        "test/cannot-encode, test/can-encode",
+			expectedStatusCode:  http.StatusOK,
+			expectedContentType: "test/can-encode",
+			expectedBody:        `response from test/can-encode codec`,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			resp, err := http.Get(s.URL)
+			req, err := http.NewRequest(http.MethodGet, s.URL, nil)
+			require.NoError(t, err)
+
+			if tc.acceptHeader != "" {
+				req.Header.Set("Accept", tc.acceptHeader)
+			}
+
+			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 
 			body, err := io.ReadAll(resp.Body)
 			defer resp.Body.Close()
 			require.NoError(t, err)
 
-			require.Equal(t, 200, resp.StatusCode)
+			require.Equal(t, tc.expectedStatusCode, resp.StatusCode)
 			require.Equal(t, tc.expectedContentType, resp.Header.Get("Content-Type"))
 			require.Equal(t, tc.expectedBody, string(body))
 		})
@@ -3246,4 +3304,21 @@ func TestGetGlobalURL(t *testing.T) {
 			require.Equal(t, tc.expected, output)
 		})
 	}
+}
+
+type testCodec struct {
+	contentType string
+	canEncode   bool
+}
+
+func (t *testCodec) ContentType() string {
+	return t.contentType
+}
+
+func (t *testCodec) CanEncode(_ *Response) bool {
+	return t.canEncode
+}
+
+func (t *testCodec) Encode(_ *Response) ([]byte, error) {
+	return []byte(fmt.Sprintf("response from %v codec", t.contentType)), nil
 }

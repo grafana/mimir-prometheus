@@ -297,6 +297,10 @@ func NewAPI(
 // InstallCodec adds codec to this API's available codecs.
 // If codec handles a content type handled by a codec already installed in this API, codec replaces the previous codec.
 func (api *API) InstallCodec(codec Codec) {
+	if api.codecs == nil {
+		api.codecs = map[string]Codec{}
+	}
+
 	api.codecs[codec.ContentType()] = codec
 }
 
@@ -1576,9 +1580,8 @@ func (api *API) respond(w http.ResponseWriter, req *http.Request, data interface
 	}
 
 	codec := api.negotiateCodec(req, resp)
-	// TODO: if we can't find an acceptable codec, should we fallback to JSON instead of failing the request?
 	if codec == nil {
-		http.Error(w, "", http.StatusNotAcceptable)
+		http.Error(w, "cannot satisfy Accept header", http.StatusNotAcceptable)
 		return
 	}
 
@@ -1600,26 +1603,22 @@ func (api *API) respond(w http.ResponseWriter, req *http.Request, data interface
 // Ideally, we shouldn't be implementing this ourselves - https://github.com/golang/go/issues/19307 is an open proposal to add
 // this to the Go stdlib and has links to a number of other implementations.
 //
-// This is an initial sketch to illustrate what this could look like. If we go down the path of implementing this ourselves, it
-// would need to be fleshed out further to support wildcards, multiple types, weighting etc.
+// This is an initial MVP, and doesn't support features like wildcards or weighting.
 func (api *API) negotiateCodec(req *http.Request, resp *Response) Codec {
 	acceptHeader := req.Header.Get("Accept")
 	if acceptHeader == "" {
 		return defaultCodec
 	}
 
-	codec, ok := api.codecs[acceptHeader]
-	if !ok {
-		level.Warn(api.logger).Log("msg", "could not find codec for requested content type", "acceptHeader", acceptHeader)
-		return nil
+	for _, contentType := range strings.Split(acceptHeader, ",") {
+		codec, ok := api.codecs[strings.TrimSpace(contentType)]
+		if ok && codec.CanEncode(resp) {
+			return codec
+		}
 	}
 
-	if !codec.CanEncode(resp) {
-		level.Warn(api.logger).Log("msg", "codec for requested content type cannot encode response", "acceptHeader", acceptHeader)
-		return nil
-	}
-
-	return codec
+	level.Warn(api.logger).Log("msg", "could not find suitable codec for response", "accept_header", acceptHeader)
+	return nil
 }
 
 func (api *API) respondError(w http.ResponseWriter, apiErr *apiError, data interface{}) {
