@@ -147,6 +147,7 @@ type RuntimeInfo struct {
 	StorageRetention    string    `json:"storageRetention"`
 }
 
+// Response contains a response to a HTTP API request.
 type Response struct {
 	Status    status      `json:"status"`
 	Data      interface{} `json:"data,omitempty"`

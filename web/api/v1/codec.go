@@ -13,6 +13,7 @@
 
 package v1
 
+// A Codec performs encoding of API responses.
 type Codec interface {
 	// ContentType returns the MIME time that this Codec emits.
 	ContentType() string
