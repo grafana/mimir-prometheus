@@ -2779,64 +2779,55 @@ func TestRespondSuccess(t *testing.T) {
 	for _, tc := range []struct {
 		name                string
 		acceptHeader        string
-		expectedStatusCode  int
 		expectedContentType string
 		expectedBody        string
 	}{
 		{
 			name:                "no Accept header",
-			expectedStatusCode:  http.StatusOK,
 			expectedContentType: "application/json",
 			expectedBody:        `{"status":"success","data":"test"}`,
 		},
 		{
 			name:                "Accept header with single content type which is suitable",
 			acceptHeader:        "test/can-encode",
-			expectedStatusCode:  http.StatusOK,
 			expectedContentType: "test/can-encode",
 			expectedBody:        `response from test/can-encode codec`,
 		},
 		{
 			name:                "Accept header with single content type which is not available",
 			acceptHeader:        "test/not-registered",
-			expectedStatusCode:  http.StatusNotAcceptable,
-			expectedContentType: "text/plain; charset=utf-8",
-			expectedBody:        "cannot satisfy Accept header\n",
+			expectedContentType: "application/json",
+			expectedBody:        `{"status":"success","data":"test"}`,
 		},
 		{
 			name:                "Accept header with single content type which cannot encode the response payload",
 			acceptHeader:        "test/cannot-encode",
-			expectedStatusCode:  http.StatusNotAcceptable,
-			expectedContentType: "text/plain; charset=utf-8",
-			expectedBody:        "cannot satisfy Accept header\n",
+			expectedContentType: "application/json",
+			expectedBody:        `{"status":"success","data":"test"}`,
 		},
 		{
 			name:                "Accept header with multiple content types, all of which are suitable",
 			acceptHeader:        "test/can-encode, test/can-encode-2",
-			expectedStatusCode:  http.StatusOK,
 			expectedContentType: "test/can-encode",
 			expectedBody:        `response from test/can-encode codec`,
 		},
 		{
 			name:                "Accept header with multiple content types, only one of which is available",
 			acceptHeader:        "test/not-registered, test/can-encode",
-			expectedStatusCode:  http.StatusOK,
 			expectedContentType: "test/can-encode",
 			expectedBody:        `response from test/can-encode codec`,
 		},
 		{
 			name:                "Accept header with multiple content types, only one of which can encode the response payload",
 			acceptHeader:        "test/cannot-encode, test/can-encode",
-			expectedStatusCode:  http.StatusOK,
 			expectedContentType: "test/can-encode",
 			expectedBody:        `response from test/can-encode codec`,
 		},
 		{
 			name:                "Accept header with multiple content types, none of which are available",
 			acceptHeader:        "test/not-registered, test/also-not-registered",
-			expectedStatusCode:  http.StatusNotAcceptable,
-			expectedContentType: "text/plain; charset=utf-8",
-			expectedBody:        "cannot satisfy Accept header\n",
+			expectedContentType: "application/json",
+			expectedBody:        `{"status":"success","data":"test"}`,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -2854,7 +2845,7 @@ func TestRespondSuccess(t *testing.T) {
 			defer resp.Body.Close()
 			require.NoError(t, err)
 
-			require.Equal(t, tc.expectedStatusCode, resp.StatusCode)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
 			require.Equal(t, tc.expectedContentType, resp.Header.Get("Content-Type"))
 			require.Equal(t, tc.expectedBody, string(body))
 		})

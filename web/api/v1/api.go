@@ -1581,11 +1581,6 @@ func (api *API) respond(w http.ResponseWriter, req *http.Request, data interface
 	}
 
 	codec := api.negotiateCodec(req, resp)
-	if codec == nil {
-		http.Error(w, "cannot satisfy Accept header", http.StatusNotAcceptable)
-		return
-	}
-
 	b, err := codec.Encode(resp)
 	if err != nil {
 		level.Error(api.logger).Log("msg", "error marshaling response", "err", err)
@@ -1618,8 +1613,8 @@ func (api *API) negotiateCodec(req *http.Request, resp *Response) Codec {
 		}
 	}
 
-	level.Warn(api.logger).Log("msg", "could not find suitable codec for response", "accept_header", acceptHeader)
-	return nil
+	level.Warn(api.logger).Log("msg", "could not find suitable codec for response, falling back to default codec", "accept_header", acceptHeader)
+	return defaultCodec
 }
 
 func (api *API) respondError(w http.ResponseWriter, apiErr *apiError, data interface{}) {
