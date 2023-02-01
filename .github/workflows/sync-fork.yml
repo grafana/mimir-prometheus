@@ -10,7 +10,7 @@ jobs:
   sync-fork-pr:
     runs-on: ubuntu-latest
     steps:
-      - uses: tgymnich/fork-sync@v1.7
+      - uses: tgymnich/fork-sync@v1.8
         with:
           owner: grafana
           base: main
