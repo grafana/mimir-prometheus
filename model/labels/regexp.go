@@ -325,6 +325,14 @@ func stringMatcherFromRegexpInternal(re *syntax.Regexp) StringMatcher {
 	clearCapture(re)
 
 	switch re.Op {
+	case syntax.OpBeginText:
+		// Correctly handling the begin text operator inside a regex is tricky,
+		// so in this case we fallback to the regex engine.
+		return nil
+	case syntax.OpEndText:
+		// Correctly handling the end text operator inside a regex is tricky,
+		// so in this case we fallback to the regex engine.
+		return nil
 	case syntax.OpPlus, syntax.OpStar:
 		if re.Sub[0].Op != syntax.OpAnyChar && re.Sub[0].Op != syntax.OpAnyCharNotNL {
 			return nil
