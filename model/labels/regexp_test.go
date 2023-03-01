@@ -129,6 +129,9 @@ func TestOptimizeConcatRegex(t *testing.T) {
 		{regex: "(?i).*(?-i:abc)def", prefix: "", suffix: "", contains: "abc"},
 		{regex: ".*(?msU:abc).*", prefix: "", suffix: "", contains: "abc"},
 		{regex: "[aA]bc.*", prefix: "", suffix: "", contains: "bc"},
+		{regex: "^5..$", prefix: "5", suffix: "", contains: ""},
+		{regex: "^release.*", prefix: "release", suffix: "", contains: ""},
+		{regex: "^env-[0-9]+laio[1]?[^0-9].*", prefix: "env-", suffix: "", contains: "laio"},
 	}
 
 	for _, c := range cases {
@@ -164,8 +167,11 @@ func TestFindSetMatches(t *testing.T) {
 		{"bar|b|buzz", []string{"bar", "b", "buzz"}, true},
 		// Skip outer anchors (it's enforced anyway at the root).
 		{"^(bar|b|buzz)$", []string{"bar", "b", "buzz"}, true},
+		{"^(?:prod|production)$", []string{"prod", "production"}, true},
 		// Do not optimize regexp with inner anchors.
 		{"(bar|b|b^uz$z)", nil, false},
+		// Do not optimize regexp with empty string matcher.
+		{"^$|Running", nil, false},
 		// Simple sets containing escaped characters.
 		{"fo\\.o|bar\\?|\\^baz", []string{"fo.o", "bar?", "^baz"}, true},
 		// using charclass
