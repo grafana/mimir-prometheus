@@ -188,8 +188,18 @@ func TestFindSetMatches(t *testing.T) {
 		{"(?i)foo", []string{"FOO"}, false},
 		// case sensitive wrapper on alternate.
 		{"(?i)foo|bar|baz", []string{"FOO", "BAR", "BAZ", "BAr", "BAz"}, false},
-		// mixed case sensitive.
+		// mixed case sensitivity.
 		{"(api|rpc)_(v1|prom)_((?i)push|query)", nil, false},
+		// mixed case sensitivity concatenation only without capture group.
+		{"api_v1_(?i)push", nil, false},
+		// mixed case sensitivity alternation only without capture group.
+		{"api|(?i)rpc", nil, false},
+		// case sensitive after unsetting insensitivity.
+		{"rpc|(?i)(?-i)api", []string{"rpc", "api"}, true},
+		// case sensitive after unsetting insensitivity in all alternation options.
+		{"(?i)((?-i)api|(?-i)rpc)", []string{"api", "rpc"}, true},
+		// mixed case sensitivity after unsetting insensitivity.
+		{"(?i)rpc|(?-i)api", nil, false},
 		// too high charset combination
 		{"(api|rpc)_[^0-9]", nil, false},
 		// too many combinations
@@ -229,7 +239,7 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 		"(?i:foo)",
 		"(?i:(foo|bar))",
 		"(?i:(foo1|foo2|bar))",
-		"(?i:(foo1|foo2|aaa|bbb|ccc|ddd|eee|fff|ggg|hhh|iii|lll|mmm|nnn|ooo|ppp|qqq|rrr|sss|ttt|uuu|vvv|zzz|xxx|yyy|www))",
+		"(?i:(foo1|foo2|aaa|bbb|ccc|ddd|eee|fff|ggg|hhh|iii|lll|mmm|nnn|ooo|ppp|qqq|rrr|sss|ttt|uuu|vvv|www|xxx|yyy|zzz))",
 		"(prometheus|api_prom)_api_v1_.+",
 		"((fo(bar))|.+foo)",
 	}
