@@ -105,18 +105,17 @@ func findSetMatches(re *syntax.Regexp, base string) (matches []string, caseSensi
 	return nil, false
 }
 
-func findSetMatchesFromConcat(re *syntax.Regexp, base string) (matches []string, caseSensitive bool) {
+func findSetMatchesFromConcat(re *syntax.Regexp, base string) (matches []string, matchesCaseSensitive bool) {
 	if len(re.Sub) == 0 {
 		return nil, false
 	}
 	clearCapture(re.Sub...)
 
 	matches = []string{base}
-	var matchesCaseSensitive *bool
 
 	for i := 0; i < len(re.Sub); i++ {
 		var newMatches []string
-		for _, b := range matches {
+		for j, b := range matches {
 			m, caseSensitive := findSetMatches(re.Sub[i], b)
 			if m == nil {
 				return nil, false
@@ -128,10 +127,10 @@ func findSetMatchesFromConcat(re *syntax.Regexp, base string) (matches []string,
 			// All matches must have the same case sensitivity. If it's the first set of matches
 			// returned, we store its sensitivity as the expected case, and then we'll check all
 			// other ones.
-			if matchesCaseSensitive == nil {
-				matchesCaseSensitive = &caseSensitive
+			if i == 0 && j == 0 {
+				matchesCaseSensitive = caseSensitive
 			}
-			if *matchesCaseSensitive != caseSensitive {
+			if matchesCaseSensitive != caseSensitive {
 				return nil, false
 			}
 
@@ -140,18 +139,11 @@ func findSetMatchesFromConcat(re *syntax.Regexp, base string) (matches []string,
 		matches = newMatches
 	}
 
-	// matchesCaseInsensitive is guaranteed to be never nil.
-	return matches, *matchesCaseSensitive
+	return matches, matchesCaseSensitive
 }
 
-func findSetMatchesFromAlternate(re *syntax.Regexp, base string) (matches []string, caseSensitive bool) {
-	if len(re.Sub) == 0 {
-		return nil, false
-	}
-
-	var matchesCaseSensitive *bool
-
-	for _, sub := range re.Sub {
+func findSetMatchesFromAlternate(re *syntax.Regexp, base string) (matches []string, matchesCaseSensitive bool) {
+	for i, sub := range re.Sub {
 		found, caseSensitive := findSetMatches(sub, base)
 		if found == nil {
 			return nil, false
@@ -163,18 +155,17 @@ func findSetMatchesFromAlternate(re *syntax.Regexp, base string) (matches []stri
 		// All matches must have the same case sensitivity. If it's the first set of matches
 		// returned, we store its sensitivity as the expected case, and then we'll check all
 		// other ones.
-		if matchesCaseSensitive == nil {
-			matchesCaseSensitive = &caseSensitive
+		if i == 0 {
+			matchesCaseSensitive = caseSensitive
 		}
-		if *matchesCaseSensitive != caseSensitive {
+		if matchesCaseSensitive != caseSensitive {
 			return nil, false
 		}
 
 		matches = append(matches, found...)
 	}
 
-	// matchesCaseInsensitive is guaranteed to be never nil.
-	return matches, *matchesCaseSensitive
+	return matches, matchesCaseSensitive
 }
 
 // clearCapture removes capture operation as they are not used for matching.
