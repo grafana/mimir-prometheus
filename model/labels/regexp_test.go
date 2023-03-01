@@ -162,8 +162,10 @@ func TestFindSetMatches(t *testing.T) {
 		// Simple sets alternate and concat and alternates with empty matches
 		// parsed as  b(ar|(?:)|uzz) where b(?:) means literal b.
 		{"bar|b|buzz", []string{"bar", "b", "buzz"}, true},
-		// Skip anchors it's enforced anyway at the root.
-		{"(^bar$)|(b$)|(^buzz)", []string{"bar", "b", "buzz"}, true},
+		// Skip outer anchors (it's enforced anyway at the root).
+		{"^(bar|b|buzz)$", []string{"bar", "b", "buzz"}, true},
+		// Do not optimize regexp with inner anchors.
+		{"(bar|b|b^uz$z)", nil, false},
 		// Simple sets containing escaped characters.
 		{"fo\\.o|bar\\?|\\^baz", []string{"fo.o", "bar?", "^baz"}, true},
 		// using charclass
@@ -208,7 +210,7 @@ func TestFindSetMatches(t *testing.T) {
 			t.Parallel()
 			parsed, err := syntax.Parse(c.pattern, syntax.Perl)
 			require.NoError(t, err)
-			matches, actualCaseSensitive := findSetMatches(parsed, "")
+			matches, actualCaseSensitive := findSetMatches(parsed)
 			require.Equal(t, c.expMatches, matches)
 			require.Equal(t, c.expCaseSensitive, actualCaseSensitive)
 		})
@@ -274,8 +276,8 @@ func Test_OptimizeRegex(t *testing.T) {
 		{"^$", emptyStringMatcher{}},
 		{"^foo$", &equalStringMatcher{s: "foo", caseSensitive: true}},
 		{"^(?i:foo)$", &equalStringMatcher{s: "FOO", caseSensitive: false}},
-		{"^(?i:foo)|(bar)$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
-		{"^(?i:foo|oo)|(bar)$", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "OO", caseSensitive: false}}), &equalStringMatcher{s: "bar", caseSensitive: true}})},
+		{"^((?i:foo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
+		{"^((?i:foo|oo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "OO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
 		{"(?i:(foo1|foo2|bar))", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}}), &equalStringMatcher{s: "BAR", caseSensitive: false}})},
 		{".*foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
 		{"(.*)foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
@@ -346,5 +348,23 @@ func FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions(f *testing.F) 
 		for _, m := range matchers {
 			require.Equalf(t, m.re.MatchString(text), m.MatchString(text), "regexp: %s text: %s", m.re.String(), text)
 		}
+	})
+}
+
+func FuzzFastRegexMatcher_WithFuzzyRegularExpressions(f *testing.F) {
+	for _, re := range regexes {
+		for _, text := range values {
+			f.Add(re, text)
+		}
+	}
+
+	f.Fuzz(func(t *testing.T, re, text string) {
+		m, err := NewFastRegexMatcher(re)
+		if err != nil {
+			// Ignore invalid regexes.
+			return
+		}
+
+		require.Equalf(t, m.re.MatchString(text), m.MatchString(text), "regexp: %s text: %s", m.re.String(), text)
 	})
 }
