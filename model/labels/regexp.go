@@ -59,6 +59,8 @@ func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 
 // isOptimized returns true if any fast-path optimization is applied to the
 // regex matcher.
+//
+//nolint:unused
 func (m *FastRegexMatcher) isOptimized() bool {
 	return len(m.setMatches) > 0 || m.stringMatcher != nil || m.prefix != "" || m.suffix != "" || m.contains != ""
 }
