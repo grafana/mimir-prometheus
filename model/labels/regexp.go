@@ -20,7 +20,14 @@ import (
 	"github.com/grafana/regexp/syntax"
 )
 
-const maxSetMatches = 256
+const (
+	maxSetMatches = 256
+
+	// The minimum number of alternate values a regex should have to trigger
+	// the optimization done by optimizeEqualStringMatchers(). This value has
+	// been computed running BenchmarkOptimizeEqualStringMatchers.
+	optimizeEqualStringMatchersThreshold = 16
+)
 
 type FastRegexMatcher struct {
 	re *regexp.Regexp
@@ -326,7 +333,10 @@ type StringMatcher interface {
 func stringMatcherFromRegexp(re *syntax.Regexp) StringMatcher {
 	clearBeginEndText(re)
 
-	return stringMatcherFromRegexpInternal(re)
+	m := stringMatcherFromRegexpInternal(re)
+	m = optimizeEqualStringMatchers(m, optimizeEqualStringMatchersThreshold)
+
+	return m
 }
 
 func stringMatcherFromRegexpInternal(re *syntax.Regexp) StringMatcher {
@@ -503,6 +513,24 @@ func (m *equalStringMatcher) Matches(s string) bool {
 	return strings.EqualFold(m.s, s)
 }
 
+// equalMultiStringMatcher matches a string exactly against a set of valid values.
+type equalMultiStringMatcher struct {
+	// values to match a string against. If the matching is case insensitive,
+	// the values here must be lowercase.
+	values map[string]struct{}
+
+	caseSensitive bool
+}
+
+func (m *equalMultiStringMatcher) Matches(s string) bool {
+	if !m.caseSensitive {
+		s = strings.ToLower(s)
+	}
+
+	_, ok := m.values[s]
+	return ok
+}
+
 // anyStringMatcher is a matcher that matches any string.
 // It is used for the + and * operator. matchNL tells if it should matches newlines or not.
 type anyStringMatcher struct {
@@ -518,4 +546,80 @@ func (m *anyStringMatcher) Matches(s string) bool {
 		return false
 	}
 	return true
+}
+
+// optimizeEqualStringMatchers optimize a specific case where all matchers are made by an
+// alternation (orStringMatcher) of strings checked for equality (equalStringMatcher). In
+// this specific case, when we have many strings to match against we can use a map instead
+// of iterating over the list of strings.
+func optimizeEqualStringMatchers(input StringMatcher, threshold int) StringMatcher {
+	values, caseSensitive := findEqualStringMatchers(input)
+	if values == nil {
+		return input
+	}
+
+	if len(values) < threshold {
+		return input
+	}
+
+	return &equalMultiStringMatcher{
+		values:        values,
+		caseSensitive: caseSensitive,
+	}
+}
+
+// findEqualStringMatchers analyze the input StringMatcher and return a map with all
+// equalStringMatcher values if and only if the input StringMatcher is composed by an
+// alternation of equalStringMatcher with the same case sensitivity.
+func findEqualStringMatchers(input StringMatcher) (values map[string]struct{}, caseSensitive bool) {
+	orInput, ok := input.(orStringMatcher)
+	if !ok {
+		return nil, false
+	}
+
+	values = map[string]struct{}{}
+
+	for _, m := range orInput {
+		switch casted := m.(type) {
+		case orStringMatcher:
+			subValues, subCaseSensitive := findEqualStringMatchers(m)
+			if subValues == nil {
+				return nil, false
+			}
+
+			// Ensure we don't have mixed case sensitivity.
+			if len(values) > 0 && caseSensitive != subCaseSensitive {
+				return nil, false
+			} else if len(values) == 0 {
+				caseSensitive = subCaseSensitive
+			}
+
+			// Merge the values with our owns.
+			for v := range subValues {
+				values[v] = struct{}{}
+			}
+
+		case *equalStringMatcher:
+			// Ensure we don't have mixed case sensitivity.
+			if len(values) > 0 && caseSensitive != casted.caseSensitive {
+				return nil, false
+			} else if len(values) == 0 {
+				caseSensitive = casted.caseSensitive
+			}
+
+			// Store the value (lower case if matcher is case insensitive).
+			if caseSensitive {
+				values[casted.s] = struct{}{}
+			} else {
+				values[strings.ToLower(casted.s)] = struct{}{}
+			}
+
+		default:
+			// It's not an equal string matcher, so we have to stop searching
+			// cause this optimization can't be applied.
+			return nil, false
+		}
+	}
+
+	return
 }

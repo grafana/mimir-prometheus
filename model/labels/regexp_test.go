@@ -15,6 +15,7 @@ package labels
 
 import (
 	"bufio"
+	"fmt"
 	"math/rand"
 	"os"
 	"strings"
@@ -86,9 +87,9 @@ func BenchmarkNewFastRegexMatcher(b *testing.B) {
 	benchValues := values
 	for _, v := range values {
 		for i := 5; i < 50; i = i + 5 {
-			benchValues = append(benchValues, v+RandStringRunes(i))
-			benchValues = append(benchValues, RandStringRunes(i)+v+RandStringRunes(i))
-			benchValues = append(benchValues, RandStringRunes(i)+v)
+			benchValues = append(benchValues, v+randString(i))
+			benchValues = append(benchValues, randString(i)+v+randString(i))
+			benchValues = append(benchValues, randString(i)+v)
 		}
 	}
 	for _, r := range regexes {
@@ -171,9 +172,9 @@ func TestFindSetMatches(t *testing.T) {
 		// Skip outer anchors (it's enforced anyway at the root).
 		{"^(bar|b|buzz)$", []string{"bar", "b", "buzz"}, true},
 		{"^(?:prod|production)$", []string{"prod", "production"}, true},
-		// Do not optimize regexp with inner anchors.
+		// Do not optimizeEqualStringMatchers regexp with inner anchors.
 		{"(bar|b|b^uz$z)", nil, false},
-		// Do not optimize regexp with empty string matcher.
+		// Do not optimizeEqualStringMatchers regexp with empty string matcher.
 		{"^$|Running", nil, false},
 		// Simple sets containing escaped characters.
 		{"fo\\.o|bar\\?|\\^baz", []string{"fo.o", "bar?", "^baz"}, true},
@@ -251,10 +252,18 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 		"(?i:(foo1|foo2|aaa|bbb|ccc|ddd|eee|fff|ggg|hhh|iii|lll|mmm|nnn|ooo|ppp|qqq|rrr|sss|ttt|uuu|vvv|www|xxx|yyy|zzz))",
 		"(prometheus|api_prom)_api_v1_.+",
 		"((fo(bar))|.+foo)",
+		// A long case sensitive alternation.
+		"zQPbMkNO|NNSPdvMi|iWuuSoAl|qbvKMimS|IecrXtPa|seTckYqt|NxnyHkgB|fIDlOgKb|UhlWIygH|OtNoJxHG|cUTkFVIV|mTgFIHjr|jQkoIDtE|PPMKxRXl|AwMfwVkQ|CQyMrTQJ|BzrqxVSi|nTpcWuhF|PertdywG|ZZDgCtXN|WWdDPyyE|uVtNQsKk|BdeCHvPZ|wshRnFlH|aOUIitIp|RxZeCdXT|CFZMslCj|AVBZRDxl|IzIGCnhw|ythYuWiz|oztXVXhl|VbLkwqQx|qvaUgyVC|VawUjPWC|ecloYJuj|boCLTdSU|uPrKeAZx|hrMWLWBq|JOnUNHRM|rYnujkPq|dDEdZhIj|DRrfvugG|yEGfDxVV|YMYdJWuP|PHUQZNWM|AmKNrLis|zTxndVfn|FPsHoJnc|EIulZTua|KlAPhdzg|ScHJJCLt|NtTfMzME|eMCwuFdo|SEpJVJbR|cdhXZeCx|sAVtBwRh|kVFEVcMI|jzJrxraA|tGLHTell|NNWoeSaw|DcOKSetX|UXZAJyka|THpMphDP|rizheevl|kDCBRidd|pCZZRqyu|pSygkitl|SwZGkAaW|wILOrfNX|QkwVOerj|kHOMxPDr|EwOVycJv|AJvtzQFS|yEOjKYYB|LizIINLL|JBRSsfcG|YPiUqqNl|IsdEbvee|MjEpGcBm|OxXZVgEQ|xClXGuxa|UzRCGFEb|buJbvfvA|IPZQxRet|oFYShsMc|oBHffuHO|bzzKrcBR|KAjzrGCl|IPUsAVls|OGMUMbIU|gyDccHuR|bjlalnDd|ZLWjeMna|fdsuIlxQ|dVXtiomV|XxedTjNg|XWMHlNoA|nnyqArQX|opfkWGhb|wYtnhdYb",
+		// A long case insensitive alternation.
+		"(?i:(zQPbMkNO|NNSPdvMi|iWuuSoAl|qbvKMimS|IecrXtPa|seTckYqt|NxnyHkgB|fIDlOgKb|UhlWIygH|OtNoJxHG|cUTkFVIV|mTgFIHjr|jQkoIDtE|PPMKxRXl|AwMfwVkQ|CQyMrTQJ|BzrqxVSi|nTpcWuhF|PertdywG|ZZDgCtXN|WWdDPyyE|uVtNQsKk|BdeCHvPZ|wshRnFlH|aOUIitIp|RxZeCdXT|CFZMslCj|AVBZRDxl|IzIGCnhw|ythYuWiz|oztXVXhl|VbLkwqQx|qvaUgyVC|VawUjPWC|ecloYJuj|boCLTdSU|uPrKeAZx|hrMWLWBq|JOnUNHRM|rYnujkPq|dDEdZhIj|DRrfvugG|yEGfDxVV|YMYdJWuP|PHUQZNWM|AmKNrLis|zTxndVfn|FPsHoJnc|EIulZTua|KlAPhdzg|ScHJJCLt|NtTfMzME|eMCwuFdo|SEpJVJbR|cdhXZeCx|sAVtBwRh|kVFEVcMI|jzJrxraA|tGLHTell|NNWoeSaw|DcOKSetX|UXZAJyka|THpMphDP|rizheevl|kDCBRidd|pCZZRqyu|pSygkitl|SwZGkAaW|wILOrfNX|QkwVOerj|kHOMxPDr|EwOVycJv|AJvtzQFS|yEOjKYYB|LizIINLL|JBRSsfcG|YPiUqqNl|IsdEbvee|MjEpGcBm|OxXZVgEQ|xClXGuxa|UzRCGFEb|buJbvfvA|IPZQxRet|oFYShsMc|oBHffuHO|bzzKrcBR|KAjzrGCl|IPUsAVls|OGMUMbIU|gyDccHuR|bjlalnDd|ZLWjeMna|fdsuIlxQ|dVXtiomV|XxedTjNg|XWMHlNoA|nnyqArQX|opfkWGhb|wYtnhdYb))",
 	}
 	for _, r := range regexes {
-		r := r
-		b.Run(r, func(b *testing.B) {
+		testName := r
+		if len(testName) > 32 {
+			testName = testName[:32]
+		}
+
+		b.Run(testName, func(b *testing.B) {
 			m, err := NewFastRegexMatcher(r)
 			require.NoError(b, err)
 			b.ResetTimer()
@@ -331,12 +340,20 @@ func Test_OptimizeRegex(t *testing.T) {
 	}
 }
 
-func RandStringRunes(n int) string {
-	b := make([]rune, n)
+func randString(length int) string {
+	b := make([]rune, length)
 	for i := range b {
 		b[i] = letterRunes[rand.Intn(len(letterRunes))]
 	}
 	return string(b)
+}
+
+func randStrings(many, length int) []string {
+	out := make([]string, 0, many)
+	for i := 0; i < many; i++ {
+		out = append(out, randString(length))
+	}
+	return out
 }
 
 func FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions(f *testing.F) {
@@ -427,4 +444,151 @@ func TestAnalyzeRealQueries(t *testing.T) {
 	}
 
 	t.Logf("Found %d (%.2f%%) optimized matchers out of %d", numOptimized, (float64(numOptimized)/float64(numChecked))*100, numChecked)
+}
+
+func TestFindEqualStringMatchers(t *testing.T) {
+	tests := map[string]struct {
+		input                 StringMatcher
+		expectedValues        map[string]struct{}
+		expectedCaseSensitive bool
+	}{
+		"should return nil values on orStringMatcher with containsStringMatcher": {
+			input: orStringMatcher{
+				&equalStringMatcher{s: "FOO", caseSensitive: true},
+				&containsStringMatcher{substrings: []string{"a", "b", "c"}},
+			},
+			expectedValues: nil,
+		},
+		"should return values on orStringMatcher with equalStringMatcher and same case sensitivity": {
+			input: orStringMatcher{
+				&equalStringMatcher{s: "FOO", caseSensitive: true},
+				&equalStringMatcher{s: "bar", caseSensitive: true},
+				&equalStringMatcher{s: "baz", caseSensitive: true},
+			},
+			expectedValues: map[string]struct{}{
+				"FOO": {},
+				"bar": {},
+				"baz": {},
+			},
+			expectedCaseSensitive: true,
+		},
+		"should return nil values on orStringMatcher with equalStringMatcher but different case sensitivity": {
+			input: orStringMatcher{
+				&equalStringMatcher{s: "FOO", caseSensitive: true},
+				&equalStringMatcher{s: "bar", caseSensitive: false},
+				&equalStringMatcher{s: "baz", caseSensitive: true},
+			},
+			expectedValues: nil,
+		},
+		"should return values on orStringMatcher with nested orStringMatcher and equalStringMatcher, and same case sensitivity": {
+			input: orStringMatcher{
+				&equalStringMatcher{s: "FOO", caseSensitive: true},
+				orStringMatcher{
+					&equalStringMatcher{s: "bar", caseSensitive: true},
+					&equalStringMatcher{s: "xxx", caseSensitive: true},
+				},
+				&equalStringMatcher{s: "baz", caseSensitive: true},
+			},
+			expectedValues: map[string]struct{}{
+				"FOO": {},
+				"bar": {},
+				"xxx": {},
+				"baz": {},
+			},
+			expectedCaseSensitive: true,
+		},
+		"should return nil values on orStringMatcher with nested orStringMatcher and equalStringMatcher, but different case sensitivity": {
+			input: orStringMatcher{
+				&equalStringMatcher{s: "FOO", caseSensitive: true},
+				orStringMatcher{
+					// Case sensitivity is different within items at the same level.
+					&equalStringMatcher{s: "bar", caseSensitive: true},
+					&equalStringMatcher{s: "xxx", caseSensitive: false},
+				},
+				&equalStringMatcher{s: "baz", caseSensitive: true},
+			},
+			expectedValues: nil,
+		},
+		"should return nil values on orStringMatcher with nested orStringMatcher and equalStringMatcher, but different case sensitivity in the nested one": {
+			input: orStringMatcher{
+				&equalStringMatcher{s: "FOO", caseSensitive: true},
+				// Case sensitivity is different between the parent and child.
+				orStringMatcher{
+					&equalStringMatcher{s: "bar", caseSensitive: false},
+					&equalStringMatcher{s: "xxx", caseSensitive: false},
+				},
+				&equalStringMatcher{s: "baz", caseSensitive: true},
+			},
+			expectedValues: nil,
+		},
+		"should return lowercase values case insensitive matchers": {
+			input: orStringMatcher{
+				&equalStringMatcher{s: "FOO", caseSensitive: false},
+				orStringMatcher{
+					&equalStringMatcher{s: "bAr", caseSensitive: false},
+				},
+				&equalStringMatcher{s: "baZ", caseSensitive: false},
+			},
+			expectedValues: map[string]struct{}{
+				"foo": {},
+				"bar": {},
+				"baz": {},
+			},
+			expectedCaseSensitive: false,
+		},
+	}
+
+	for testName, testData := range tests {
+		t.Run(testName, func(t *testing.T) {
+			actualValues, actualCaseSensitive := findEqualStringMatchers(testData.input)
+			require.Equal(t, testData.expectedValues, actualValues)
+			require.Equal(t, testData.expectedCaseSensitive, actualCaseSensitive)
+		})
+	}
+}
+
+// This benchmark is used to find a good threshold to use to apply the optimization
+// done by optimizeEqualStringMatchers()
+func BenchmarkOptimizeEqualStringMatchers(b *testing.B) {
+	// Generate variable lengths random texts to match against.
+	texts := append([]string{}, randStrings(10, 10)...)
+	texts = append(texts, randStrings(5, 30)...)
+	texts = append(texts, randStrings(1, 100)...)
+
+	for numAlternations := 2; numAlternations <= 256; numAlternations *= 2 {
+		for _, caseSensitive := range []bool{true, false} {
+			b.Run(fmt.Sprintf("alternations: %d case sensitive: %t", numAlternations, caseSensitive), func(b *testing.B) {
+				// Generate a regex with the expected number of alternations.
+				re := strings.Join(randStrings(numAlternations, 10), "|")
+				if !caseSensitive {
+					re = "(?i:(" + re + "))"
+				}
+
+				parsed, err := syntax.Parse(re, syntax.Perl)
+				require.NoError(b, err)
+
+				unoptimized := stringMatcherFromRegexpInternal(parsed)
+				require.IsType(b, orStringMatcher{}, unoptimized)
+
+				optimized := optimizeEqualStringMatchers(unoptimized, 0)
+				require.IsType(b, &equalMultiStringMatcher{}, optimized)
+
+				b.Run("without optimizeEqualStringMatchers()", func(b *testing.B) {
+					for n := 0; n < b.N; n++ {
+						for _, t := range texts {
+							unoptimized.Matches(t)
+						}
+					}
+				})
+
+				b.Run("with optimizeEqualStringMatchers()", func(b *testing.B) {
+					for n := 0; n < b.N; n++ {
+						for _, t := range texts {
+							optimized.Matches(t)
+						}
+					}
+				})
+			})
+		}
+	}
 }
