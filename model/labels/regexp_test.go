@@ -414,20 +414,20 @@ func TestAnalyzeRealQueries(t *testing.T) {
 	t.Logf("Found %d (%.2f%%) optimized matchers out of %d", numOptimized, (float64(numOptimized)/float64(numChecked))*100, numChecked)
 }
 
-func TestFindEqualStringMatchers(t *testing.T) {
+func TestOptimizeEqualStringMatchers(t *testing.T) {
 	tests := map[string]struct {
 		input                 StringMatcher
 		expectedValues        map[string]struct{}
 		expectedCaseSensitive bool
 	}{
-		"should return nil values on orStringMatcher with containsStringMatcher": {
+		"should skip optimization on orStringMatcher with containsStringMatcher": {
 			input: orStringMatcher{
 				&equalStringMatcher{s: "FOO", caseSensitive: true},
 				&containsStringMatcher{substrings: []string{"a", "b", "c"}},
 			},
 			expectedValues: nil,
 		},
-		"should return values on orStringMatcher with equalStringMatcher and same case sensitivity": {
+		"should run optimization on orStringMatcher with equalStringMatcher and same case sensitivity": {
 			input: orStringMatcher{
 				&equalStringMatcher{s: "FOO", caseSensitive: true},
 				&equalStringMatcher{s: "bar", caseSensitive: true},
@@ -440,7 +440,7 @@ func TestFindEqualStringMatchers(t *testing.T) {
 			},
 			expectedCaseSensitive: true,
 		},
-		"should return nil values on orStringMatcher with equalStringMatcher but different case sensitivity": {
+		"should skip optimization on orStringMatcher with equalStringMatcher but different case sensitivity": {
 			input: orStringMatcher{
 				&equalStringMatcher{s: "FOO", caseSensitive: true},
 				&equalStringMatcher{s: "bar", caseSensitive: false},
@@ -448,7 +448,7 @@ func TestFindEqualStringMatchers(t *testing.T) {
 			},
 			expectedValues: nil,
 		},
-		"should return values on orStringMatcher with nested orStringMatcher and equalStringMatcher, and same case sensitivity": {
+		"should run optimization on orStringMatcher with nested orStringMatcher and equalStringMatcher, and same case sensitivity": {
 			input: orStringMatcher{
 				&equalStringMatcher{s: "FOO", caseSensitive: true},
 				orStringMatcher{
@@ -465,7 +465,7 @@ func TestFindEqualStringMatchers(t *testing.T) {
 			},
 			expectedCaseSensitive: true,
 		},
-		"should return nil values on orStringMatcher with nested orStringMatcher and equalStringMatcher, but different case sensitivity": {
+		"should skip optimization on orStringMatcher with nested orStringMatcher and equalStringMatcher, but different case sensitivity": {
 			input: orStringMatcher{
 				&equalStringMatcher{s: "FOO", caseSensitive: true},
 				orStringMatcher{
@@ -477,7 +477,7 @@ func TestFindEqualStringMatchers(t *testing.T) {
 			},
 			expectedValues: nil,
 		},
-		"should return nil values on orStringMatcher with nested orStringMatcher and equalStringMatcher, but different case sensitivity in the nested one": {
+		"should skip optimization on orStringMatcher with nested orStringMatcher and equalStringMatcher, but different case sensitivity in the nested one": {
 			input: orStringMatcher{
 				&equalStringMatcher{s: "FOO", caseSensitive: true},
 				// Case sensitivity is different between the parent and child.
@@ -508,9 +508,15 @@ func TestFindEqualStringMatchers(t *testing.T) {
 
 	for testName, testData := range tests {
 		t.Run(testName, func(t *testing.T) {
-			actualValues, actualCaseSensitive := findEqualStringMatchers(testData.input)
-			require.Equal(t, testData.expectedValues, actualValues)
-			require.Equal(t, testData.expectedCaseSensitive, actualCaseSensitive)
+			actualMatcher := optimizeEqualStringMatchers(testData.input, 0)
+
+			if testData.expectedValues == nil {
+				require.IsType(t, testData.input, actualMatcher)
+			} else {
+				require.IsType(t, &equalMultiStringMatcher{}, actualMatcher)
+				require.Equal(t, testData.expectedValues, actualMatcher.(*equalMultiStringMatcher).values)
+				require.Equal(t, testData.expectedCaseSensitive, actualMatcher.(*equalMultiStringMatcher).caseSensitive)
+			}
 		})
 	}
 }
