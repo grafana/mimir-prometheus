@@ -489,7 +489,7 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 			},
 			expectedValues: nil,
 		},
-		"should return lowercase values case insensitive matchers": {
+		"should return lowercase values on case insensitive matchers": {
 			input: orStringMatcher{
 				&equalStringMatcher{s: "FOO", caseSensitive: false},
 				orStringMatcher{
