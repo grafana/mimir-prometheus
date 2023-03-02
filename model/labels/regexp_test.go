@@ -34,6 +34,8 @@ func init() {
 var (
 	letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	regexes     = []string{
+		"foo",
+		"^foo",
 		"(foo|bar)",
 		"foo.*",
 		".*foo",
@@ -47,17 +49,24 @@ var (
 		"foo\n.*",
 		".*foo.*",
 		".+foo.+",
-		"",
 		"(?s:.*)",
 		"(?s:.+)",
 		"(?s:^.*foo$)",
+		"(?i:foo)",
+		"(?i:(foo|bar))",
+		"(?i:(foo1|foo2|bar))",
 		"^(?i:foo|oo)|(bar)$",
+		"(?i:(foo1|foo2|aaa|bbb|ccc|ddd|eee|fff|ggg|hhh|iii|lll|mmm|nnn|ooo|ppp|qqq|rrr|sss|ttt|uuu|vvv|www|xxx|yyy|zzz))",
 		"((.*)(bar|b|buzz)(.+)|foo)$",
 		"^$",
 		"(prometheus|api_prom)_api_v1_.+",
 		"10\\.0\\.(1|2)\\.+",
 		"10\\.0\\.(1|2).+",
 		"((fo(bar))|.+foo)",
+		// A long case sensitive alternation.
+		"zQPbMkNO|NNSPdvMi|iWuuSoAl|qbvKMimS|IecrXtPa|seTckYqt|NxnyHkgB|fIDlOgKb|UhlWIygH|OtNoJxHG|cUTkFVIV|mTgFIHjr|jQkoIDtE|PPMKxRXl|AwMfwVkQ|CQyMrTQJ|BzrqxVSi|nTpcWuhF|PertdywG|ZZDgCtXN|WWdDPyyE|uVtNQsKk|BdeCHvPZ|wshRnFlH|aOUIitIp|RxZeCdXT|CFZMslCj|AVBZRDxl|IzIGCnhw|ythYuWiz|oztXVXhl|VbLkwqQx|qvaUgyVC|VawUjPWC|ecloYJuj|boCLTdSU|uPrKeAZx|hrMWLWBq|JOnUNHRM|rYnujkPq|dDEdZhIj|DRrfvugG|yEGfDxVV|YMYdJWuP|PHUQZNWM|AmKNrLis|zTxndVfn|FPsHoJnc|EIulZTua|KlAPhdzg|ScHJJCLt|NtTfMzME|eMCwuFdo|SEpJVJbR|cdhXZeCx|sAVtBwRh|kVFEVcMI|jzJrxraA|tGLHTell|NNWoeSaw|DcOKSetX|UXZAJyka|THpMphDP|rizheevl|kDCBRidd|pCZZRqyu|pSygkitl|SwZGkAaW|wILOrfNX|QkwVOerj|kHOMxPDr|EwOVycJv|AJvtzQFS|yEOjKYYB|LizIINLL|JBRSsfcG|YPiUqqNl|IsdEbvee|MjEpGcBm|OxXZVgEQ|xClXGuxa|UzRCGFEb|buJbvfvA|IPZQxRet|oFYShsMc|oBHffuHO|bzzKrcBR|KAjzrGCl|IPUsAVls|OGMUMbIU|gyDccHuR|bjlalnDd|ZLWjeMna|fdsuIlxQ|dVXtiomV|XxedTjNg|XWMHlNoA|nnyqArQX|opfkWGhb|wYtnhdYb",
+		// A long case insensitive alternation.
+		"(?i:(zQPbMkNO|NNSPdvMi|iWuuSoAl|qbvKMimS|IecrXtPa|seTckYqt|NxnyHkgB|fIDlOgKb|UhlWIygH|OtNoJxHG|cUTkFVIV|mTgFIHjr|jQkoIDtE|PPMKxRXl|AwMfwVkQ|CQyMrTQJ|BzrqxVSi|nTpcWuhF|PertdywG|ZZDgCtXN|WWdDPyyE|uVtNQsKk|BdeCHvPZ|wshRnFlH|aOUIitIp|RxZeCdXT|CFZMslCj|AVBZRDxl|IzIGCnhw|ythYuWiz|oztXVXhl|VbLkwqQx|qvaUgyVC|VawUjPWC|ecloYJuj|boCLTdSU|uPrKeAZx|hrMWLWBq|JOnUNHRM|rYnujkPq|dDEdZhIj|DRrfvugG|yEGfDxVV|YMYdJWuP|PHUQZNWM|AmKNrLis|zTxndVfn|FPsHoJnc|EIulZTua|KlAPhdzg|ScHJJCLt|NtTfMzME|eMCwuFdo|SEpJVJbR|cdhXZeCx|sAVtBwRh|kVFEVcMI|jzJrxraA|tGLHTell|NNWoeSaw|DcOKSetX|UXZAJyka|THpMphDP|rizheevl|kDCBRidd|pCZZRqyu|pSygkitl|SwZGkAaW|wILOrfNX|QkwVOerj|kHOMxPDr|EwOVycJv|AJvtzQFS|yEOjKYYB|LizIINLL|JBRSsfcG|YPiUqqNl|IsdEbvee|MjEpGcBm|OxXZVgEQ|xClXGuxa|UzRCGFEb|buJbvfvA|IPZQxRet|oFYShsMc|oBHffuHO|bzzKrcBR|KAjzrGCl|IPUsAVls|OGMUMbIU|gyDccHuR|bjlalnDd|ZLWjeMna|fdsuIlxQ|dVXtiomV|XxedTjNg|XWMHlNoA|nnyqArQX|opfkWGhb|wYtnhdYb))",
 	}
 	values = []string{
 		"foo", " foo bar", "bar", "buzz\nbar", "bar foo", "bfoo", "\n", "\nfoo", "foo\n", "hello foo world", "hello foo\n world", "",
@@ -233,30 +242,6 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 		y = "foo" + x
 		z = x + "foo"
 	)
-	regexes := []string{
-		"foo",
-		"^foo",
-		"(foo|bar)",
-		"foo.*",
-		".*foo",
-		"^.*foo$",
-		"^.+foo$",
-		".*",
-		".+",
-		"foo.+",
-		".+foo",
-		".*foo.*",
-		"(?i:foo)",
-		"(?i:(foo|bar))",
-		"(?i:(foo1|foo2|bar))",
-		"(?i:(foo1|foo2|aaa|bbb|ccc|ddd|eee|fff|ggg|hhh|iii|lll|mmm|nnn|ooo|ppp|qqq|rrr|sss|ttt|uuu|vvv|www|xxx|yyy|zzz))",
-		"(prometheus|api_prom)_api_v1_.+",
-		"((fo(bar))|.+foo)",
-		// A long case sensitive alternation.
-		"zQPbMkNO|NNSPdvMi|iWuuSoAl|qbvKMimS|IecrXtPa|seTckYqt|NxnyHkgB|fIDlOgKb|UhlWIygH|OtNoJxHG|cUTkFVIV|mTgFIHjr|jQkoIDtE|PPMKxRXl|AwMfwVkQ|CQyMrTQJ|BzrqxVSi|nTpcWuhF|PertdywG|ZZDgCtXN|WWdDPyyE|uVtNQsKk|BdeCHvPZ|wshRnFlH|aOUIitIp|RxZeCdXT|CFZMslCj|AVBZRDxl|IzIGCnhw|ythYuWiz|oztXVXhl|VbLkwqQx|qvaUgyVC|VawUjPWC|ecloYJuj|boCLTdSU|uPrKeAZx|hrMWLWBq|JOnUNHRM|rYnujkPq|dDEdZhIj|DRrfvugG|yEGfDxVV|YMYdJWuP|PHUQZNWM|AmKNrLis|zTxndVfn|FPsHoJnc|EIulZTua|KlAPhdzg|ScHJJCLt|NtTfMzME|eMCwuFdo|SEpJVJbR|cdhXZeCx|sAVtBwRh|kVFEVcMI|jzJrxraA|tGLHTell|NNWoeSaw|DcOKSetX|UXZAJyka|THpMphDP|rizheevl|kDCBRidd|pCZZRqyu|pSygkitl|SwZGkAaW|wILOrfNX|QkwVOerj|kHOMxPDr|EwOVycJv|AJvtzQFS|yEOjKYYB|LizIINLL|JBRSsfcG|YPiUqqNl|IsdEbvee|MjEpGcBm|OxXZVgEQ|xClXGuxa|UzRCGFEb|buJbvfvA|IPZQxRet|oFYShsMc|oBHffuHO|bzzKrcBR|KAjzrGCl|IPUsAVls|OGMUMbIU|gyDccHuR|bjlalnDd|ZLWjeMna|fdsuIlxQ|dVXtiomV|XxedTjNg|XWMHlNoA|nnyqArQX|opfkWGhb|wYtnhdYb",
-		// A long case insensitive alternation.
-		"(?i:(zQPbMkNO|NNSPdvMi|iWuuSoAl|qbvKMimS|IecrXtPa|seTckYqt|NxnyHkgB|fIDlOgKb|UhlWIygH|OtNoJxHG|cUTkFVIV|mTgFIHjr|jQkoIDtE|PPMKxRXl|AwMfwVkQ|CQyMrTQJ|BzrqxVSi|nTpcWuhF|PertdywG|ZZDgCtXN|WWdDPyyE|uVtNQsKk|BdeCHvPZ|wshRnFlH|aOUIitIp|RxZeCdXT|CFZMslCj|AVBZRDxl|IzIGCnhw|ythYuWiz|oztXVXhl|VbLkwqQx|qvaUgyVC|VawUjPWC|ecloYJuj|boCLTdSU|uPrKeAZx|hrMWLWBq|JOnUNHRM|rYnujkPq|dDEdZhIj|DRrfvugG|yEGfDxVV|YMYdJWuP|PHUQZNWM|AmKNrLis|zTxndVfn|FPsHoJnc|EIulZTua|KlAPhdzg|ScHJJCLt|NtTfMzME|eMCwuFdo|SEpJVJbR|cdhXZeCx|sAVtBwRh|kVFEVcMI|jzJrxraA|tGLHTell|NNWoeSaw|DcOKSetX|UXZAJyka|THpMphDP|rizheevl|kDCBRidd|pCZZRqyu|pSygkitl|SwZGkAaW|wILOrfNX|QkwVOerj|kHOMxPDr|EwOVycJv|AJvtzQFS|yEOjKYYB|LizIINLL|JBRSsfcG|YPiUqqNl|IsdEbvee|MjEpGcBm|OxXZVgEQ|xClXGuxa|UzRCGFEb|buJbvfvA|IPZQxRet|oFYShsMc|oBHffuHO|bzzKrcBR|KAjzrGCl|IPUsAVls|OGMUMbIU|gyDccHuR|bjlalnDd|ZLWjeMna|fdsuIlxQ|dVXtiomV|XxedTjNg|XWMHlNoA|nnyqArQX|opfkWGhb|wYtnhdYb))",
-	}
 	for _, r := range regexes {
 		testName := r
 		if len(testName) > 32 {
