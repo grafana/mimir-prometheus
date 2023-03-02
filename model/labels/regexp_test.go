@@ -93,27 +93,15 @@ func TestNewFastRegexMatcher(t *testing.T) {
 }
 
 func BenchmarkNewFastRegexMatcher(b *testing.B) {
-	benchValues := values
-	for _, v := range values {
-		for i := 5; i < 50; i = i + 5 {
-			benchValues = append(benchValues, v+randString(i))
-			benchValues = append(benchValues, randString(i)+v+randString(i))
-			benchValues = append(benchValues, randString(i)+v)
-		}
-	}
 	for _, r := range regexes {
-		r := r
-		b.Run(r, func(b *testing.B) {
-			m, err := NewFastRegexMatcher(r)
-			require.NoError(b, err)
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				for _, v := range benchValues {
-					_ = m.MatchString(v)
+		b.Run(getTestNameFromRegexp(r), func(b *testing.B) {
+			for n := 0; n < b.N; n++ {
+				_, err := NewFastRegexMatcher(r)
+				if err != nil {
+					b.Fatal(err)
 				}
 			}
 		})
-
 	}
 }
 
@@ -243,12 +231,7 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 		z = x + "foo"
 	)
 	for _, r := range regexes {
-		testName := r
-		if len(testName) > 32 {
-			testName = testName[:32]
-		}
-
-		b.Run(testName, func(b *testing.B) {
+		b.Run(getTestNameFromRegexp(r), func(b *testing.B) {
 			m, err := NewFastRegexMatcher(r)
 			require.NoError(b, err)
 			b.ResetTimer()
@@ -576,4 +559,11 @@ func BenchmarkOptimizeEqualStringMatchers(b *testing.B) {
 			})
 		}
 	}
+}
+
+func getTestNameFromRegexp(re string) string {
+	if len(re) > 32 {
+		return re[:32]
+	}
+	return re
 }
