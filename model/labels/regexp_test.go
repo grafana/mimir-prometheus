@@ -169,9 +169,9 @@ func TestFindSetMatches(t *testing.T) {
 		// Skip outer anchors (it's enforced anyway at the root).
 		{"^(bar|b|buzz)$", []string{"bar", "b", "buzz"}, true},
 		{"^(?:prod|production)$", []string{"prod", "production"}, true},
-		// Do not optimizeEqualStringMatchers regexp with inner anchors.
+		// Do not optimize regexp with inner anchors.
 		{"(bar|b|b^uz$z)", nil, false},
-		// Do not optimizeEqualStringMatchers regexp with empty string matcher.
+		// Do not optimize regexp with empty string matcher.
 		{"^$|Running", nil, false},
 		// Simple sets containing escaped characters.
 		{"fo\\.o|bar\\?|\\^baz", []string{"fo.o", "bar?", "^baz"}, true},
