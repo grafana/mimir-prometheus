@@ -180,7 +180,7 @@ type HeadOptions struct {
 	// Maximum number of CPUs that can simultaneously processes WAL replay.
 	// If this value is negative, zero, or greater than the number of available CPUs that
 	// can be executing simultaneously, GOMAXPROCS will be used.
-	WALReplyConcurrency int
+	WALReplayConcurrency int
 }
 
 const (

@@ -471,8 +471,8 @@ Outer:
 
 func (h *Head) getNumberOfProcessors() int {
 	numberOfProcessors := runtime.GOMAXPROCS(0)
-	if h.opts.WALReplyConcurrency > 0 && h.opts.WALReplyConcurrency < numberOfProcessors {
-		numberOfProcessors = h.opts.WALReplyConcurrency
+	if h.opts.WALReplayConcurrency > 0 && h.opts.WALReplayConcurrency < numberOfProcessors {
+		numberOfProcessors = h.opts.WALReplayConcurrency
 	}
 	return numberOfProcessors
 }

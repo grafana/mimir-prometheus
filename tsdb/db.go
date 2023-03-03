@@ -133,7 +133,7 @@ type Options struct {
 	WALCompression bool
 
 	// Maximum number of CPUs that can simultaneously processes WAL replay.
-	WALReplyConcurrency int
+	WALReplayConcurrency int
 
 	// StripeSize is the size in entries of the series hash map. Reducing the size will save memory but impact performance.
 	StripeSize int
@@ -678,8 +678,8 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	}
 
 	walReplyConcurrency := runtime.GOMAXPROCS(0)
-	if opts.WALReplyConcurrency <= 0 || opts.WALReplyConcurrency > walReplyConcurrency {
-		opts.WALReplyConcurrency = walReplyConcurrency
+	if opts.WALReplayConcurrency <= 0 || opts.WALReplayConcurrency > walReplyConcurrency {
+		opts.WALReplayConcurrency = walReplyConcurrency
 	}
 
 	if len(rngs) == 0 {
@@ -822,7 +822,7 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	headOpts.PostingsForMatchersCacheTTL = opts.HeadPostingsForMatchersCacheTTL
 	headOpts.PostingsForMatchersCacheSize = opts.HeadPostingsForMatchersCacheSize
 	headOpts.PostingsForMatchersCacheForce = opts.HeadPostingsForMatchersCacheForce
-	headOpts.WALReplyConcurrency = opts.WALReplyConcurrency
+	headOpts.WALReplayConcurrency = opts.WALReplayConcurrency
 	if opts.IsolationDisabled {
 		// We only override this flag if isolation is disabled at DB level. We use the default otherwise.
 		headOpts.IsolationDisabled = opts.IsolationDisabled
