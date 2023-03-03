@@ -64,14 +64,14 @@ func (h *Head) loadWAL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 
 	// Start workers that each process samples for a partition of the series ID space.
 	var (
-		wg             sync.WaitGroup
-		n              = runtime.GOMAXPROCS(0)
-		processors     = make([]walSubsetProcessor, n)
-		exemplarsInput chan record.RefExemplar
+		wg                 sync.WaitGroup
+		numberOfProcessors = h.getNumberOfProcessors()
+		processors         = make([]walSubsetProcessor, numberOfProcessors)
+		exemplarsInput     chan record.RefExemplar
 
 		dec             record.Decoder
-		shards          = make([][]record.RefSample, n)
-		histogramShards = make([][]histogramRecord, n)
+		shards          = make([][]record.RefSample, numberOfProcessors)
+		histogramShards = make([][]histogramRecord, numberOfProcessors)
 
 		decoded                      = make(chan interface{}, 10)
 		decodeErr, seriesCreationErr error
@@ -116,7 +116,7 @@ func (h *Head) loadWAL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 		// For CorruptionErr ensure to terminate all workers before exiting.
 		_, ok := err.(*wlog.CorruptionErr)
 		if ok || seriesCreationErr != nil {
-			for i := 0; i < n; i++ {
+			for i := 0; i < numberOfProcessors; i++ {
 				processors[i].closeAndDrain()
 			}
 			close(exemplarsInput)
@@ -124,8 +124,8 @@ func (h *Head) loadWAL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 		}
 	}()
 
-	wg.Add(n)
-	for i := 0; i < n; i++ {
+	wg.Add(numberOfProcessors)
+	for i := 0; i < numberOfProcessors; i++ {
 		processors[i].setup()
 
 		go func(wp *walSubsetProcessor) {
@@ -276,7 +276,7 @@ Outer:
 					multiRef[walSeries.Ref] = mSeries.ref
 				}
 
-				idx := uint64(mSeries.ref) % uint64(n)
+				idx := uint64(mSeries.ref) % uint64(numberOfProcessors)
 				processors[idx].input <- walSubsetProcessorInputItem{walSeriesRef: walSeries.Ref, existingSeries: mSeries}
 			}
 			//nolint:staticcheck // Ignore SA6002 relax staticcheck verification.
@@ -293,7 +293,7 @@ Outer:
 				if len(samples) < m {
 					m = len(samples)
 				}
-				for i := 0; i < n; i++ {
+				for i := 0; i < numberOfProcessors; i++ {
 					if shards[i] == nil {
 						shards[i] = processors[i].reuseBuf()
 					}
@@ -305,10 +305,10 @@ Outer:
 					if r, ok := multiRef[sam.Ref]; ok {
 						sam.Ref = r
 					}
-					mod := uint64(sam.Ref) % uint64(n)
+					mod := uint64(sam.Ref) % uint64(numberOfProcessors)
 					shards[mod] = append(shards[mod], sam)
 				}
-				for i := 0; i < n; i++ {
+				for i := 0; i < numberOfProcessors; i++ {
 					if len(shards[i]) > 0 {
 						processors[i].input <- walSubsetProcessorInputItem{samples: shards[i]}
 						shards[i] = nil
@@ -351,7 +351,7 @@ Outer:
 				if len(samples) < m {
 					m = len(samples)
 				}
-				for i := 0; i < n; i++ {
+				for i := 0; i < numberOfProcessors; i++ {
 					if histogramShards[i] == nil {
 						histogramShards[i] = processors[i].reuseHistogramBuf()
 					}
@@ -363,10 +363,10 @@ Outer:
 					if r, ok := multiRef[sam.Ref]; ok {
 						sam.Ref = r
 					}
-					mod := uint64(sam.Ref) % uint64(n)
+					mod := uint64(sam.Ref) % uint64(numberOfProcessors)
 					histogramShards[mod] = append(histogramShards[mod], histogramRecord{ref: sam.Ref, t: sam.T, h: sam.H})
 				}
-				for i := 0; i < n; i++ {
+				for i := 0; i < numberOfProcessors; i++ {
 					if len(histogramShards[i]) > 0 {
 						processors[i].input <- walSubsetProcessorInputItem{histogramSamples: histogramShards[i]}
 						histogramShards[i] = nil
@@ -388,7 +388,7 @@ Outer:
 				if len(samples) < m {
 					m = len(samples)
 				}
-				for i := 0; i < n; i++ {
+				for i := 0; i < numberOfProcessors; i++ {
 					if histogramShards[i] == nil {
 						histogramShards[i] = processors[i].reuseHistogramBuf()
 					}
@@ -400,10 +400,10 @@ Outer:
 					if r, ok := multiRef[sam.Ref]; ok {
 						sam.Ref = r
 					}
-					mod := uint64(sam.Ref) % uint64(n)
+					mod := uint64(sam.Ref) % uint64(numberOfProcessors)
 					histogramShards[mod] = append(histogramShards[mod], histogramRecord{ref: sam.Ref, t: sam.T, fh: sam.FH})
 				}
-				for i := 0; i < n; i++ {
+				for i := 0; i < numberOfProcessors; i++ {
 					if len(histogramShards[i]) > 0 {
 						processors[i].input <- walSubsetProcessorInputItem{histogramSamples: histogramShards[i]}
 						histogramShards[i] = nil
@@ -444,7 +444,7 @@ Outer:
 	}
 
 	// Signal termination to each worker and wait for it to close its output channel.
-	for i := 0; i < n; i++ {
+	for i := 0; i < numberOfProcessors; i++ {
 		processors[i].closeAndDrain()
 	}
 	close(exemplarsInput)
@@ -467,6 +467,14 @@ Outer:
 		level.Info(h.logger).Log("msg", "Overlapping m-map chunks on duplicate series records", "count", count)
 	}
 	return nil
+}
+
+func (h *Head) getNumberOfProcessors() int {
+	numberOfProcessors := runtime.GOMAXPROCS(0)
+	if h.opts.WALReplyConcurrency > 0 && h.opts.WALReplyConcurrency < numberOfProcessors {
+		numberOfProcessors = h.opts.WALReplyConcurrency
+	}
+	return numberOfProcessors
 }
 
 // resetSeriesWithMMappedChunks is only used during the WAL replay.
@@ -687,12 +695,12 @@ func (h *Head) loadWBL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 	lastSeq, lastOff := lastMmapRef.Unpack()
 	// Start workers that each process samples for a partition of the series ID space.
 	var (
-		wg         sync.WaitGroup
-		n          = runtime.GOMAXPROCS(0)
-		processors = make([]wblSubsetProcessor, n)
+		wg                 sync.WaitGroup
+		numberOfProcessors = h.getNumberOfProcessors()
+		processors         = make([]wblSubsetProcessor, numberOfProcessors)
 
 		dec    record.Decoder
-		shards = make([][]record.RefSample, n)
+		shards = make([][]record.RefSample, numberOfProcessors)
 
 		decodedCh   = make(chan interface{}, 10)
 		decodeErr   error
@@ -714,15 +722,15 @@ func (h *Head) loadWBL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 		_, ok := err.(*wlog.CorruptionErr)
 		if ok {
 			err = &errLoadWbl{err: err}
-			for i := 0; i < n; i++ {
+			for i := 0; i < numberOfProcessors; i++ {
 				processors[i].closeAndDrain()
 			}
 			wg.Wait()
 		}
 	}()
 
-	wg.Add(n)
-	for i := 0; i < n; i++ {
+	wg.Add(numberOfProcessors)
+	for i := 0; i < numberOfProcessors; i++ {
 		processors[i].setup()
 
 		go func(wp *wblSubsetProcessor) {
@@ -781,17 +789,17 @@ func (h *Head) loadWBL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 				if len(samples) < m {
 					m = len(samples)
 				}
-				for i := 0; i < n; i++ {
+				for i := 0; i < numberOfProcessors; i++ {
 					shards[i] = processors[i].reuseBuf()
 				}
 				for _, sam := range samples[:m] {
 					if r, ok := multiRef[sam.Ref]; ok {
 						sam.Ref = r
 					}
-					mod := uint64(sam.Ref) % uint64(n)
+					mod := uint64(sam.Ref) % uint64(numberOfProcessors)
 					shards[mod] = append(shards[mod], sam)
 				}
-				for i := 0; i < n; i++ {
+				for i := 0; i < numberOfProcessors; i++ {
 					processors[i].input <- shards[i]
 				}
 				samples = samples[m:]
@@ -818,7 +826,7 @@ func (h *Head) loadWBL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 					mmapMarkerUnknownRefs.Inc()
 					continue
 				}
-				idx := uint64(ms.ref) % uint64(n)
+				idx := uint64(ms.ref) % uint64(numberOfProcessors)
 				// It is possible that some old sample is being processed in processWALSamples that
 				// could cause race below. So we wait for the goroutine to empty input the buffer and finish
 				// processing all old samples after emptying the buffer.
@@ -847,7 +855,7 @@ func (h *Head) loadWBL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 	}
 
 	// Signal termination to each worker and wait for it to close its output channel.
-	for i := 0; i < n; i++ {
+	for i := 0; i < numberOfProcessors; i++ {
 		processors[i].closeAndDrain()
 	}
 	wg.Wait()

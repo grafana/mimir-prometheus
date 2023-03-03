@@ -176,6 +176,11 @@ type HeadOptions struct {
 	PostingsForMatchersCacheTTL   time.Duration
 	PostingsForMatchersCacheSize  int
 	PostingsForMatchersCacheForce bool
+
+	// Maximum number of CPUs that can simultaneously processes WAL replay.
+	// If this value is negative, zero, or greater than the number of available CPUs that
+	// can be executing simultaneously, GOMAXPROCS will be used.
+	WALReplyConcurrency int
 }
 
 const (
