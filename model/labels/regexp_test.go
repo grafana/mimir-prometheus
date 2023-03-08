@@ -27,10 +27,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func init() {
-	rand.Seed(time.Now().UnixNano())
-}
-
 var (
 	asciiRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 	regexes    = []string{
@@ -225,12 +221,15 @@ func TestFindSetMatches(t *testing.T) {
 }
 
 func BenchmarkFastRegexMatcher(b *testing.B) {
+	// Init the random seed with a constant, so that it doesn't change between runs.
+	randGenerator := rand.New(rand.NewSource(1))
+
 	// Generate variable lengths random texts to match against.
-	texts := append([]string{}, randStrings(10, 10)...)
-	texts = append(texts, randStrings(5, 30)...)
-	texts = append(texts, randStrings(1, 100)...)
-	texts = append(texts, "foo"+randString(50))
-	texts = append(texts, randString(50)+"foo")
+	texts := append([]string{}, randStrings(randGenerator, 10, 10)...)
+	texts = append(texts, randStrings(randGenerator, 5, 30)...)
+	texts = append(texts, randStrings(randGenerator, 1, 100)...)
+	texts = append(texts, "foo"+randString(randGenerator, 50))
+	texts = append(texts, randString(randGenerator, 50)+"foo")
 
 	for _, r := range regexes {
 		b.Run(getTestNameFromRegexp(r), func(b *testing.B) {
@@ -310,18 +309,18 @@ func Test_OptimizeRegex(t *testing.T) {
 	}
 }
 
-func randString(length int) string {
+func randString(randGenerator *rand.Rand, length int) string {
 	b := make([]rune, length)
 	for i := range b {
-		b[i] = asciiRunes[rand.Intn(len(asciiRunes))]
+		b[i] = asciiRunes[randGenerator.Intn(len(asciiRunes))]
 	}
 	return string(b)
 }
 
-func randStrings(many, length int) []string {
+func randStrings(randGenerator *rand.Rand, many, length int) []string {
 	out := make([]string, 0, many)
 	for i := 0; i < many; i++ {
-		out = append(out, randString(length))
+		out = append(out, randString(randGenerator, length))
 	}
 	return out
 }
@@ -526,16 +525,18 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 // This benchmark is used to find a good threshold to use to apply the optimization
 // done by optimizeEqualStringMatchers()
 func BenchmarkOptimizeEqualStringMatchers(b *testing.B) {
+	randGenerator := rand.New(rand.NewSource(time.Now().UnixNano()))
+
 	// Generate variable lengths random texts to match against.
-	texts := append([]string{}, randStrings(10, 10)...)
-	texts = append(texts, randStrings(5, 30)...)
-	texts = append(texts, randStrings(1, 100)...)
+	texts := append([]string{}, randStrings(randGenerator, 10, 10)...)
+	texts = append(texts, randStrings(randGenerator, 5, 30)...)
+	texts = append(texts, randStrings(randGenerator, 1, 100)...)
 
 	for numAlternations := 2; numAlternations <= 256; numAlternations *= 2 {
 		for _, caseSensitive := range []bool{true, false} {
 			b.Run(fmt.Sprintf("alternations: %d case sensitive: %t", numAlternations, caseSensitive), func(b *testing.B) {
 				// Generate a regex with the expected number of alternations.
-				re := strings.Join(randStrings(numAlternations, 10), "|")
+				re := strings.Join(randStrings(randGenerator, numAlternations, 10), "|")
 				if !caseSensitive {
 					re = "(?i:(" + re + "))"
 				}
