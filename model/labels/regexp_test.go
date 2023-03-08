@@ -32,8 +32,8 @@ func init() {
 }
 
 var (
-	letterRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
-	regexes     = []string{
+	asciiRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
+	regexes    = []string{
 		"foo",
 		"^foo",
 		"(foo|bar)",
@@ -225,20 +225,22 @@ func TestFindSetMatches(t *testing.T) {
 }
 
 func BenchmarkFastRegexMatcher(b *testing.B) {
-	var (
-		x = strings.Repeat("x", 50)
-		y = "foo" + x
-		z = x + "foo"
-	)
+	// Generate variable lengths random texts to match against.
+	texts := append([]string{}, randStrings(10, 10)...)
+	texts = append(texts, randStrings(5, 30)...)
+	texts = append(texts, randStrings(1, 100)...)
+	texts = append(texts, "foo"+randString(50))
+	texts = append(texts, randString(50)+"foo")
+
 	for _, r := range regexes {
 		b.Run(getTestNameFromRegexp(r), func(b *testing.B) {
 			m, err := NewFastRegexMatcher(r)
 			require.NoError(b, err)
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = m.MatchString(x)
-				_ = m.MatchString(y)
-				_ = m.MatchString(z)
+				for _, text := range texts {
+					_ = m.MatchString(text)
+				}
 			}
 		})
 	}
@@ -249,15 +251,15 @@ func Test_OptimizeRegex(t *testing.T) {
 		pattern string
 		exp     StringMatcher
 	}{
-		{".*", &anyStringMatcher{allowEmpty: true, matchNL: false}},
-		{".*?", &anyStringMatcher{allowEmpty: true, matchNL: false}},
-		{"(?s:.*)", &anyStringMatcher{allowEmpty: true, matchNL: true}},
-		{"(.*)", &anyStringMatcher{allowEmpty: true, matchNL: false}},
-		{"^.*$", &anyStringMatcher{allowEmpty: true, matchNL: false}},
-		{".+", &anyStringMatcher{allowEmpty: false, matchNL: false}},
-		{"(?s:.+)", &anyStringMatcher{allowEmpty: false, matchNL: true}},
-		{"^.+$", &anyStringMatcher{allowEmpty: false, matchNL: false}},
-		{"(.+)", &anyStringMatcher{allowEmpty: false, matchNL: false}},
+		{".*", anyStringWithoutNewlineMatcher{}},
+		{".*?", anyStringWithoutNewlineMatcher{}},
+		{"(?s:.*)", trueMatcher{}},
+		{"(.*)", anyStringWithoutNewlineMatcher{}},
+		{"^.*$", anyStringWithoutNewlineMatcher{}},
+		{".+", &anyNonEmptyStringMatcher{matchNL: false}},
+		{"(?s:.+)", &anyNonEmptyStringMatcher{matchNL: true}},
+		{"^.+$", &anyNonEmptyStringMatcher{matchNL: false}},
+		{"(.+)", &anyNonEmptyStringMatcher{matchNL: false}},
 		{"", emptyStringMatcher{}},
 		{"^$", emptyStringMatcher{}},
 		{"^foo$", &equalStringMatcher{s: "foo", caseSensitive: true}},
@@ -265,23 +267,23 @@ func Test_OptimizeRegex(t *testing.T) {
 		{"^((?i:foo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
 		{"^((?i:foo|oo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "OO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
 		{"(?i:(foo1|foo2|bar))", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}}), &equalStringMatcher{s: "BAR", caseSensitive: false}})},
-		{".*foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
-		{"(.*)foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
-		{"(.*)foo(.*)", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
-		{"(.+)foo(.*)", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: false, matchNL: false}, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
-		{"^.+foo.+", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: false, matchNL: false}, right: &anyStringMatcher{allowEmpty: false, matchNL: false}}},
-		{"^(.*)(foo)(.*)$", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
-		{"^(.*)(foo|foobar)(.*)$", &containsStringMatcher{substrings: []string{"foo", "foobar"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
-		{"^(.*)(foo|foobar)(.+)$", &containsStringMatcher{substrings: []string{"foo", "foobar"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: false, matchNL: false}}},
-		{"^(.*)(bar|b|buzz)(.+)$", &containsStringMatcher{substrings: []string{"bar", "b", "buzz"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: false, matchNL: false}}},
+		{".*foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: anyStringWithoutNewlineMatcher{}, right: anyStringWithoutNewlineMatcher{}}},
+		{"(.*)foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: anyStringWithoutNewlineMatcher{}, right: anyStringWithoutNewlineMatcher{}}},
+		{"(.*)foo(.*)", &containsStringMatcher{substrings: []string{"foo"}, left: anyStringWithoutNewlineMatcher{}, right: anyStringWithoutNewlineMatcher{}}},
+		{"(.+)foo(.*)", &containsStringMatcher{substrings: []string{"foo"}, left: &anyNonEmptyStringMatcher{matchNL: false}, right: anyStringWithoutNewlineMatcher{}}},
+		{"^.+foo.+", &containsStringMatcher{substrings: []string{"foo"}, left: &anyNonEmptyStringMatcher{matchNL: false}, right: &anyNonEmptyStringMatcher{matchNL: false}}},
+		{"^(.*)(foo)(.*)$", &containsStringMatcher{substrings: []string{"foo"}, left: anyStringWithoutNewlineMatcher{}, right: anyStringWithoutNewlineMatcher{}}},
+		{"^(.*)(foo|foobar)(.*)$", &containsStringMatcher{substrings: []string{"foo", "foobar"}, left: anyStringWithoutNewlineMatcher{}, right: anyStringWithoutNewlineMatcher{}}},
+		{"^(.*)(foo|foobar)(.+)$", &containsStringMatcher{substrings: []string{"foo", "foobar"}, left: anyStringWithoutNewlineMatcher{}, right: &anyNonEmptyStringMatcher{matchNL: false}}},
+		{"^(.*)(bar|b|buzz)(.+)$", &containsStringMatcher{substrings: []string{"bar", "b", "buzz"}, left: anyStringWithoutNewlineMatcher{}, right: &anyNonEmptyStringMatcher{matchNL: false}}},
 		{"10\\.0\\.(1|2)\\.+", nil},
-		{"10\\.0\\.(1|2).+", &containsStringMatcher{substrings: []string{"10.0.1", "10.0.2"}, left: nil, right: &anyStringMatcher{allowEmpty: false, matchNL: false}}},
-		{"^.+foo", &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: false, matchNL: false}, right: nil}},
-		{"foo-.*$", &containsStringMatcher{substrings: []string{"foo-"}, left: nil, right: &anyStringMatcher{allowEmpty: true, matchNL: false}}},
-		{"(prometheus|api_prom)_api_v1_.+", &containsStringMatcher{substrings: []string{"prometheus_api_v1_", "api_prom_api_v1_"}, left: nil, right: &anyStringMatcher{allowEmpty: false, matchNL: false}}},
-		{"^((.*)(bar|b|buzz)(.+)|foo)$", orStringMatcher([]StringMatcher{&containsStringMatcher{substrings: []string{"bar", "b", "buzz"}, left: &anyStringMatcher{allowEmpty: true, matchNL: false}, right: &anyStringMatcher{allowEmpty: false, matchNL: false}}, &equalStringMatcher{s: "foo", caseSensitive: true}})},
-		{"((fo(bar))|.+foo)", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "fobar", caseSensitive: true}}), &containsStringMatcher{substrings: []string{"foo"}, left: &anyStringMatcher{allowEmpty: false, matchNL: false}, right: nil}})},
-		{"(.+)/(gateway|cortex-gw|cortex-gw-internal)", &containsStringMatcher{substrings: []string{"/gateway", "/cortex-gw", "/cortex-gw-internal"}, left: &anyStringMatcher{allowEmpty: false, matchNL: false}, right: nil}},
+		{"10\\.0\\.(1|2).+", &containsStringMatcher{substrings: []string{"10.0.1", "10.0.2"}, left: nil, right: &anyNonEmptyStringMatcher{matchNL: false}}},
+		{"^.+foo", &containsStringMatcher{substrings: []string{"foo"}, left: &anyNonEmptyStringMatcher{matchNL: false}, right: nil}},
+		{"foo-.*$", &containsStringMatcher{substrings: []string{"foo-"}, left: nil, right: anyStringWithoutNewlineMatcher{}}},
+		{"(prometheus|api_prom)_api_v1_.+", &containsStringMatcher{substrings: []string{"prometheus_api_v1_", "api_prom_api_v1_"}, left: nil, right: &anyNonEmptyStringMatcher{matchNL: false}}},
+		{"^((.*)(bar|b|buzz)(.+)|foo)$", orStringMatcher([]StringMatcher{&containsStringMatcher{substrings: []string{"bar", "b", "buzz"}, left: anyStringWithoutNewlineMatcher{}, right: &anyNonEmptyStringMatcher{matchNL: false}}, &equalStringMatcher{s: "foo", caseSensitive: true}})},
+		{"((fo(bar))|.+foo)", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "fobar", caseSensitive: true}}), &containsStringMatcher{substrings: []string{"foo"}, left: &anyNonEmptyStringMatcher{matchNL: false}, right: nil}})},
+		{"(.+)/(gateway|cortex-gw|cortex-gw-internal)", &containsStringMatcher{substrings: []string{"/gateway", "/cortex-gw", "/cortex-gw-internal"}, left: &anyNonEmptyStringMatcher{matchNL: false}, right: nil}},
 		// we don't support case insensitive matching for contains.
 		// This is because there's no strings.IndexOfFold function.
 		// We can revisit later if this is really popular by using strings.ToUpper.
@@ -311,7 +313,7 @@ func Test_OptimizeRegex(t *testing.T) {
 func randString(length int) string {
 	b := make([]rune, length)
 	for i := range b {
-		b[i] = letterRunes[rand.Intn(len(letterRunes))]
+		b[i] = asciiRunes[rand.Intn(len(asciiRunes))]
 	}
 	return string(b)
 }
