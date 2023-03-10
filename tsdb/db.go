@@ -1166,6 +1166,12 @@ func (db *DB) compactOOOHead() error {
 	if !db.oooWasEnabled.Load() {
 		return nil
 	}
+	// If this is nil then calling NewOOOCompactionHead will crash.
+	// Don't really understand why this happens, but let's not crash.
+	if db.head.wbl == nil {
+		level.Warn(db.logger).Log("msg", "compact ooo head with nil wbl")
+		return nil
+	}
 	oooHead, err := NewOOOCompactionHead(db.head)
 	if err != nil {
 		return errors.Wrap(err, "get ooo compaction head")
