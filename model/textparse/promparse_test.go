@@ -171,7 +171,7 @@ testmetric{label="\"bar\""} 1`
 		},
 	}
 
-	p := NewPromParser([]byte(input))
+	p := NewPromParser([]byte(input), labels.NewSymbolTable())
 	i := 0
 
 	var res labels.Labels
@@ -281,7 +281,7 @@ func TestPromParseErrors(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		p := NewPromParser([]byte(c.input))
+		p := NewPromParser([]byte(c.input), labels.NewSymbolTable())
 		var err error
 		for err == nil {
 			_, err = p.Next()
@@ -335,7 +335,7 @@ func TestPromNullByteHandling(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		p := NewPromParser([]byte(c.input))
+		p := NewPromParser([]byte(c.input), labels.NewSymbolTable())
 		var err error
 		for err == nil {
 			_, err = p.Next()
@@ -356,7 +356,7 @@ const (
 )
 
 func BenchmarkParse(b *testing.B) {
-	for parserName, parser := range map[string]func([]byte) Parser{
+	for parserName, parser := range map[string]func([]byte, *labels.SymbolTable) Parser{
 		"prometheus":  NewPromParser,
 		"openmetrics": NewOpenMetricsParser,
 	} {
@@ -375,8 +375,9 @@ func BenchmarkParse(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 
+				st := labels.NewSymbolTable()
 				for i := 0; i < b.N; i += promtestdataSampleCount {
-					p := parser(buf)
+					p := parser(buf, st)
 
 				Outer:
 					for i < b.N {
@@ -403,8 +404,9 @@ func BenchmarkParse(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 
+				st := labels.NewSymbolTable()
 				for i := 0; i < b.N; i += promtestdataSampleCount {
-					p := parser(buf)
+					p := parser(buf, st)
 
 				Outer:
 					for i < b.N {
@@ -436,8 +438,9 @@ func BenchmarkParse(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 
+				st := labels.NewSymbolTable()
 				for i := 0; i < b.N; i += promtestdataSampleCount {
-					p := parser(buf)
+					p := parser(buf, st)
 
 				Outer:
 					for i < b.N {
