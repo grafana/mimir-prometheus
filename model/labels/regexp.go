@@ -39,7 +39,8 @@ func init() {
 }
 
 type FastRegexMatcher struct {
-	re *regexp.Regexp
+	reString string
+	re       *regexp.Regexp
 
 	setMatches    []string
 	stringMatcher StringMatcher
@@ -70,26 +71,34 @@ func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 }
 
 func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
-	parsed, err := syntax.Parse(v, syntax.Perl)
-	if err != nil {
-		return nil, err
-	}
-	// Simplify the syntax tree to run faster.
-	parsed = parsed.Simplify()
-	re, err := regexp.Compile("^(?:" + parsed.String() + ")$")
-	if err != nil {
-		return nil, err
-	}
 	m := &FastRegexMatcher{
-		re: re,
+		reString: v,
 	}
-	if parsed.Op == syntax.OpConcat {
-		m.prefix, m.suffix, m.contains = optimizeConcatRegex(parsed)
+
+	tr, literal, ok := optimizeAlternatingLiterals(v)
+	if ok {
+		m.stringMatcher = tr
+	} else if literal != "" {
+		m.stringMatcher = &equalStringMatcher{s: literal, caseSensitive: true}
+	} else {
+		parsed, err := syntax.Parse(v, syntax.Perl)
+		if err != nil {
+			return nil, err
+		}
+		// Simplify the syntax tree to run faster.
+		parsed = parsed.Simplify()
+		m.re, err = regexp.Compile("^(?:" + parsed.String() + ")$")
+		if err != nil {
+			return nil, err
+		}
+		if parsed.Op == syntax.OpConcat {
+			m.prefix, m.suffix, m.contains = optimizeConcatRegex(parsed)
+		}
+		if matches, caseSensitive := findSetMatches(parsed); caseSensitive {
+			m.setMatches = matches
+		}
+		m.stringMatcher = stringMatcherFromRegexp(parsed)
 	}
-	if matches, caseSensitive := findSetMatches(parsed); caseSensitive {
-		m.setMatches = matches
-	}
-	m.stringMatcher = stringMatcherFromRegexp(parsed)
 
 	m.matchString = m.compileMatchStringFunction()
 	return m, nil
@@ -321,7 +330,52 @@ func (m *FastRegexMatcher) SetMatches() []string {
 }
 
 func (m *FastRegexMatcher) GetRegexString() string {
-	return m.re.String()
+	return m.reString
+}
+
+// optimizeAlternatingLiterals optimizes a regex of the form
+//
+//	`literal1|literal2|literal3|...`
+//
+// this function returns a trie which matches the same set of strings as the
+// regex, a boolean indicating whether the regex is eligible for this optimization,
+// and a single literal string if the regex is a single literal.
+func optimizeAlternatingLiterals(s string) (*trie, string, bool) {
+	tr := &trie{}
+
+	count := 0
+	start := 0
+	for i := 0; i < len(s); i++ {
+		switch {
+		case s[i] == '|':
+			count++
+			subMatch := s[start:i]
+			// break if any of the submatches are not literals
+			if regexp.QuoteMeta(subMatch) != subMatch {
+				return nil, "", false
+			}
+
+			tr.add(subMatch)
+			start = i + 1
+			continue
+		default:
+			continue
+		}
+	}
+
+	count++
+	subMatch := s[start:]
+	// break if any of the submatches are not literals
+	if regexp.QuoteMeta(subMatch) != subMatch {
+		return nil, "", false
+	}
+	tr.add(subMatch)
+
+	if count == 1 {
+		return nil, subMatch, false
+	}
+
+	return tr, "", true
 }
 
 // optimizeConcatRegex returns literal prefix/suffix text that can be safely
