@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -106,6 +107,22 @@ func BenchmarkNewFastRegexMatcher(b *testing.B) {
 
 	b.Run("with cache", runBenchmark(NewFastRegexMatcher))
 	b.Run("without cache", runBenchmark(newFastRegexMatcherWithoutCache))
+}
+
+func BenchmarkNewFastRegexMatcher_CacheMisses(b *testing.B) {
+	regexpPrefix := strings.Repeat("x", 20)
+
+	for n := 0; n < b.N; n++ {
+		// Generate unique regexps. These regexps are very simple to simulate
+		// a worst case scenario in case of cache misses (the cost of looking up
+		// the cache may be higher than not having a cache at all).
+		regexp := regexpPrefix + strconv.Itoa(n)
+
+		_, err := NewFastRegexMatcher(regexp)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }
 
 func TestOptimizeConcatRegex(t *testing.T) {
