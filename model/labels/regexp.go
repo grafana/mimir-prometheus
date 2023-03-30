@@ -39,6 +39,8 @@ func init() {
 }
 
 type FastRegexMatcher struct {
+	// Under some conditions, re is nil because the expression is never parsed.
+	// We store the original string to be able to return it in GetRegexString().
 	reString string
 	re       *regexp.Regexp
 
@@ -75,12 +77,8 @@ func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 		reString: v,
 	}
 
-	tr, literal, ok := optimizeAlternatingLiterals(v)
-	if ok {
-		m.stringMatcher = tr
-	} else if literal != "" {
-		m.stringMatcher = &equalStringMatcher{s: literal, caseSensitive: true}
-	} else {
+	m.stringMatcher = optimizeAlternatingLiterals(v)
+	if m.stringMatcher == nil {
 		parsed, err := syntax.Parse(v, syntax.Perl)
 		if err != nil {
 			return nil, err
@@ -338,9 +336,8 @@ func (m *FastRegexMatcher) GetRegexString() string {
 //	`literal1|literal2|literal3|...`
 //
 // this function returns a trie which matches the same set of strings as the
-// regex, a boolean indicating whether the regex is eligible for this optimization,
-// and a single literal string if the regex is a single literal.
-func optimizeAlternatingLiterals(s string) (*trie, string, bool) {
+// regex, an equalStringMatcher, or a nil trie if the regex is not of the form above.
+func optimizeAlternatingLiterals(s string) StringMatcher {
 	tr := &trie{}
 
 	count := 0
@@ -348,13 +345,13 @@ func optimizeAlternatingLiterals(s string) (*trie, string, bool) {
 	for i := 0; i < len(s); i++ {
 		switch {
 		case s[i] == '|':
-			count++
 			subMatch := s[start:i]
 			// break if any of the submatches are not literals
 			if regexp.QuoteMeta(subMatch) != subMatch {
-				return nil, "", false
+				return nil
 			}
 
+			count++
 			tr.add(subMatch)
 			start = i + 1
 			continue
@@ -363,19 +360,19 @@ func optimizeAlternatingLiterals(s string) (*trie, string, bool) {
 		}
 	}
 
-	count++
 	subMatch := s[start:]
 	// break if any of the submatches are not literals
 	if regexp.QuoteMeta(subMatch) != subMatch {
-		return nil, "", false
+		return nil
 	}
+	count++
 	tr.add(subMatch)
 
 	if count == 1 {
-		return nil, subMatch, false
+		return &equalStringMatcher{s: subMatch, caseSensitive: true}
 	}
 
-	return tr, "", true
+	return tr
 }
 
 // optimizeConcatRegex returns literal prefix/suffix text that can be safely

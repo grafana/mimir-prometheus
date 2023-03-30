@@ -9,6 +9,8 @@ import (
 
 func TestTrieMatches(t *testing.T) {
 	actualLabelValues := []string{
+		"aa",
+		"aaa",
 		"node_cpu_seconds_total",
 		"node_memory_MemAvailable_bytes",
 		"node_memory_MemFree_bytes",
@@ -42,6 +44,8 @@ func TestTrieMatches(t *testing.T) {
 
 	nonexistentLabelValues := []string{
 		// Values with a shared prefix
+		"aab",
+		"aaab",
 		"node_cpu_cfs_periods_total",
 		"node_cpu_cfs_throttled_seconds_total",
 		"summary_metric_count",
