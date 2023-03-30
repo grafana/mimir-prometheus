@@ -79,7 +79,13 @@ func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 	}
 
 	m.stringMatcher, m.setMatches = optimizeAlternatingLiterals(v)
-	if m.stringMatcher == nil {
+	if m.stringMatcher != nil {
+		// If we already have a string matcher, we don't need to parse the regex
+		// or compile the matchString function. This also avoids the behavior in
+		// compileMatchStringFunction where it prefers to use setMatches when
+		// available, even if the string matcher is faster.
+		m.matchString = m.stringMatcher.Matches
+	} else {
 		parsed, err := syntax.Parse(v, syntax.Perl)
 		if err != nil {
 			return nil, err
@@ -97,9 +103,9 @@ func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 			m.setMatches = matches
 		}
 		m.stringMatcher = stringMatcherFromRegexp(parsed)
+		m.matchString = m.compileMatchStringFunction()
 	}
 
-	m.matchString = m.compileMatchStringFunction()
 	return m, nil
 }
 
