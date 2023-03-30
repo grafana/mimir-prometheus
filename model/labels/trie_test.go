@@ -37,7 +37,7 @@ func TestTrieMatches(t *testing.T) {
 		"go_memstats_gc_sys_bytes",
 		"go_memstats_heap_alloc_bytes",
 		"go_memstats_heap_idle_bytes",
-		"summary_metric",
+		"summary_metric_sum",
 	}
 
 	nonexistentLabelValues := []string{
@@ -45,6 +45,7 @@ func TestTrieMatches(t *testing.T) {
 		"node_cpu_cfs_periods_total",
 		"node_cpu_cfs_throttled_seconds_total",
 		"summary_metric_count",
+		"summary_metric",
 
 		// Values with no shared prefix
 		"ruby_gc_stat_count",
