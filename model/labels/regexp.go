@@ -15,11 +15,10 @@ package labels
 
 import (
 	"strings"
-	"sync"
 
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
-	"github.com/hashicorp/golang-lru/simplelru"
+	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -32,14 +31,13 @@ const (
 )
 
 var (
-	fastRegexMatcherCacheMx sync.Mutex
-	fastRegexMatcherCache   *simplelru.LRU
+	fastRegexMatcherCache *lru.Cache[string, *FastRegexMatcher]
 )
 
 func init() {
 	// Ignore error because it can only return error if size is invalid,
 	// but we're using an hardcoded size here.
-	fastRegexMatcherCache, _ = simplelru.NewLRU(10000, nil)
+	fastRegexMatcherCache, _ = lru.New[string, *FastRegexMatcher](10000)
 }
 
 type FastRegexMatcher struct {
@@ -57,12 +55,8 @@ type FastRegexMatcher struct {
 
 func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 	// Check the cache.
-	fastRegexMatcherCacheMx.Lock()
-	cachedMatcher, ok := fastRegexMatcherCache.Get(v)
-	fastRegexMatcherCacheMx.Unlock()
-
-	if ok {
-		return cachedMatcher.(*FastRegexMatcher), nil
+	if matcher, ok := fastRegexMatcherCache.Get(v); ok {
+		return matcher, nil
 	}
 
 	// Create a new matcher.
@@ -72,9 +66,7 @@ func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 	}
 
 	// Cache it.
-	fastRegexMatcherCacheMx.Lock()
 	fastRegexMatcherCache.Add(v, matcher)
-	fastRegexMatcherCacheMx.Unlock()
 
 	return matcher, nil
 }
