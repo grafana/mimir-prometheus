@@ -25,9 +25,10 @@ const (
 	maxSetMatches = 256
 
 	// The minimum number of alternate values a regex should have to trigger
-	// the optimization done by optimizeEqualStringMatchers(). This value has
+	// the optimization done by optimizeEqualStringMatchers() and so use a map
+	// to match values instead of iterating over a list. This value has
 	// been computed running BenchmarkOptimizeEqualStringMatchers.
-	optimizeEqualStringMatchersThreshold = 16
+	minEqualMultiStringMatcherMapThreshold = 16
 )
 
 var fastRegexMatcherCache *lru.Cache[string, *FastRegexMatcher]
@@ -353,7 +354,7 @@ func optimizeAlternatingLiterals(s string) StringMatcher {
 			return nil
 		}
 
-		multiMatcher.add(subMatch, optimizeEqualStringMatchersThreshold)
+		multiMatcher.add(subMatch, minEqualMultiStringMatcherMapThreshold)
 		count++
 		start = i + 1
 	}
@@ -363,7 +364,7 @@ func optimizeAlternatingLiterals(s string) StringMatcher {
 	if regexp.QuoteMeta(subMatch) != subMatch {
 		return nil
 	}
-	multiMatcher.add(subMatch, optimizeEqualStringMatchersThreshold)
+	multiMatcher.add(subMatch, minEqualMultiStringMatcherMapThreshold)
 	count++
 
 	if count == 1 {
@@ -426,7 +427,7 @@ func stringMatcherFromRegexp(re *syntax.Regexp) StringMatcher {
 	clearBeginEndText(re)
 
 	m := stringMatcherFromRegexpInternal(re)
-	m = optimizeEqualStringMatchers(m, optimizeEqualStringMatchersThreshold)
+	m = optimizeEqualStringMatchers(m, minEqualMultiStringMatcherMapThreshold)
 
 	return m
 }
@@ -634,7 +635,7 @@ func (m *equalMultiStringMatcher) add(s string, threshold int) {
 		s = strings.ToLower(s)
 	}
 
-	if len(m.valuesList) >= threshold && m.valuesMap == nil {
+	if len(m.valuesList)+1 >= threshold && m.valuesMap == nil {
 		m.valuesMap = make(map[string]struct{}, len(m.valuesList))
 		for _, s := range m.valuesList {
 			m.valuesMap[s] = struct{}{}
