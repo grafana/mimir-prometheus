@@ -353,7 +353,7 @@ func optimizeAlternatingLiterals(s string) StringMatcher {
 			return nil
 		}
 
-		multiMatcher.add(subMatch)
+		multiMatcher.add(subMatch, optimizeEqualStringMatchersThreshold)
 		count++
 		start = i + 1
 	}
@@ -363,7 +363,7 @@ func optimizeAlternatingLiterals(s string) StringMatcher {
 	if regexp.QuoteMeta(subMatch) != subMatch {
 		return nil
 	}
-	multiMatcher.add(subMatch)
+	multiMatcher.add(subMatch, optimizeEqualStringMatchersThreshold)
 	count++
 
 	if count == 1 {
@@ -629,12 +629,12 @@ type equalMultiStringMatcher struct {
 	caseSensitive bool
 }
 
-func (m *equalMultiStringMatcher) add(s string) {
+func (m *equalMultiStringMatcher) add(s string, threshold int) {
 	if !m.caseSensitive {
 		s = strings.ToLower(s)
 	}
 
-	if len(m.valuesList) >= optimizeEqualStringMatchersThreshold {
+	if len(m.valuesList) >= threshold && m.valuesMap == nil {
 		m.valuesMap = make(map[string]struct{}, len(m.valuesList))
 		for _, s := range m.valuesList {
 			m.valuesMap[s] = struct{}{}
@@ -754,7 +754,7 @@ func optimizeEqualStringMatchers(input StringMatcher, threshold int) StringMatch
 	// Ignore the return value because we already iterated over the input StringMatcher
 	// and it was all good.
 	findEqualStringMatchers(input, func(matcher *equalStringMatcher) bool {
-		multiMatcher.add(matcher.s)
+		multiMatcher.add(matcher.s, threshold)
 		return true
 	})
 
