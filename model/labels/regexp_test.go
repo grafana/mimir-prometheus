@@ -671,7 +671,7 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 				require.IsType(t, testData.input, actualMatcher)
 			} else {
 				require.IsType(t, &equalMultiStringMatcher{}, actualMatcher)
-				require.Equal(t, testData.expectedValues, actualMatcher.(*equalMultiStringMatcher).values)
+				require.Equal(t, testData.expectedValues, actualMatcher.(*equalMultiStringMatcher).valuesMap)
 				require.Equal(t, testData.expectedCaseSensitive, actualMatcher.(*equalMultiStringMatcher).caseSensitive)
 			}
 		})

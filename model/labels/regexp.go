@@ -335,29 +335,27 @@ func (m *FastRegexMatcher) GetRegexString() string {
 //
 //	`literal1|literal2|literal3|...`
 //
-// this function returns a trie which matches the same set of strings as the
-// regex, an equalStringMatcher, or a nil trie if the regex is not of the form above.
+// this function returns an optimized StringMatcher or nil if the regex
+// cannot be optimized in this way.
 func optimizeAlternatingLiterals(s string) StringMatcher {
-	tr := &trie{}
+	multiMatcher := &equalMultiStringMatcher{caseSensitive: true}
 
 	count := 0
 	start := 0
 	for i := 0; i < len(s); i++ {
-		switch {
-		case s[i] == '|':
-			subMatch := s[start:i]
-			// break if any of the submatches are not literals
-			if regexp.QuoteMeta(subMatch) != subMatch {
-				return nil
-			}
-
-			count++
-			tr.add(subMatch)
-			start = i + 1
-			continue
-		default:
+		if s[i] != '|' {
 			continue
 		}
+
+		subMatch := s[start:i]
+		// break if any of the submatches are not literals
+		if regexp.QuoteMeta(subMatch) != subMatch {
+			return nil
+		}
+
+		multiMatcher.add(subMatch)
+		count++
+		start = i + 1
 	}
 
 	subMatch := s[start:]
@@ -365,14 +363,14 @@ func optimizeAlternatingLiterals(s string) StringMatcher {
 	if regexp.QuoteMeta(subMatch) != subMatch {
 		return nil
 	}
+	multiMatcher.add(subMatch)
 	count++
-	tr.add(subMatch)
 
 	if count == 1 {
 		return &equalStringMatcher{s: subMatch, caseSensitive: true}
 	}
 
-	return tr
+	return multiMatcher
 }
 
 // optimizeConcatRegex returns literal prefix/suffix text that can be safely
@@ -620,19 +618,62 @@ func (m *equalStringMatcher) Matches(s string) bool {
 
 // equalMultiStringMatcher matches a string exactly against a set of valid values.
 type equalMultiStringMatcher struct {
-	// values to match a string against. If the matching is case insensitive,
-	// the values here must be lowercase.
-	values map[string]struct{}
+	// valuesMap contains values to match a string against. If the matching is case insensitive,
+	// the values here must be lowercase. valuesMap and valuesList are mutually exclusive.
+	valuesMap map[string]struct{}
+
+	// valuesList contains values to match a string against. valuesMap and valuesList are
+	// mutually exclusive.
+	valuesList []string
 
 	caseSensitive bool
 }
 
-func (m *equalMultiStringMatcher) Matches(s string) bool {
+func (m *equalMultiStringMatcher) add(s string) {
 	if !m.caseSensitive {
 		s = strings.ToLower(s)
 	}
 
-	_, ok := m.values[s]
+	if len(m.valuesList) >= optimizeEqualStringMatchersThreshold {
+		m.valuesMap = make(map[string]struct{}, len(m.valuesList))
+		for _, s := range m.valuesList {
+			m.valuesMap[s] = struct{}{}
+		}
+		m.valuesList = nil
+	}
+
+	if m.valuesMap != nil {
+		m.valuesMap[s] = struct{}{}
+		return
+	}
+
+	m.valuesList = append(m.valuesList, s)
+}
+
+func (m *equalMultiStringMatcher) Matches(s string) bool {
+	if len(m.valuesList) > 0 {
+		if m.caseSensitive {
+			for _, v := range m.valuesList {
+				if s == v {
+					return true
+				}
+			}
+		} else {
+			for _, v := range m.valuesList {
+				if strings.EqualFold(s, v) {
+					return true
+				}
+			}
+		}
+
+		return false
+	}
+
+	if !m.caseSensitive {
+		s = strings.ToLower(s)
+	}
+
+	_, ok := m.valuesMap[s]
 	return ok
 }
 
@@ -708,24 +749,16 @@ func optimizeEqualStringMatchers(input StringMatcher, threshold int) StringMatch
 	// Parse again the input StringMatcher to extract all values and storing them.
 	// We can skip the case sensitivity check because we've already checked it and
 	// if the code reach this point then it means all matchers have the same case sensitivity.
-	values := make(map[string]struct{}, numValues)
+	multiMatcher := &equalMultiStringMatcher{caseSensitive: caseSensitive}
 
 	// Ignore the return value because we already iterated over the input StringMatcher
 	// and it was all good.
 	findEqualStringMatchers(input, func(matcher *equalStringMatcher) bool {
-		if caseSensitive {
-			values[matcher.s] = struct{}{}
-		} else {
-			values[strings.ToLower(matcher.s)] = struct{}{}
-		}
-
+		multiMatcher.add(matcher.s)
 		return true
 	})
 
-	return &equalMultiStringMatcher{
-		values:        values,
-		caseSensitive: caseSensitive,
-	}
+	return multiMatcher
 }
 
 // findEqualStringMatchers analyze the input StringMatcher and calls the callback for each
