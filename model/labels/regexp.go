@@ -78,7 +78,7 @@ func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 		reString: v,
 	}
 
-	m.stringMatcher = optimizeAlternatingLiterals(v)
+	m.stringMatcher, m.setMatches = optimizeAlternatingLiterals(v)
 	if m.stringMatcher == nil {
 		parsed, err := syntax.Parse(v, syntax.Perl)
 		if err != nil {
@@ -337,8 +337,8 @@ func (m *FastRegexMatcher) GetRegexString() string {
 //	`literal1|literal2|literal3|...`
 //
 // this function returns an optimized StringMatcher or nil if the regex
-// cannot be optimized in this way.
-func optimizeAlternatingLiterals(s string) StringMatcher {
+// cannot be optimized in this way, and a list of setMatches up to maxSetMatches
+func optimizeAlternatingLiterals(s string) (StringMatcher, []string) {
 	multiMatcher := &equalMultiStringMatcher{caseSensitive: true}
 
 	count := 0
@@ -351,7 +351,7 @@ func optimizeAlternatingLiterals(s string) StringMatcher {
 		subMatch := s[start:i]
 		// break if any of the submatches are not literals
 		if regexp.QuoteMeta(subMatch) != subMatch {
-			return nil
+			return nil, nil
 		}
 
 		multiMatcher.add(subMatch, minEqualMultiStringMatcherMapThreshold)
@@ -362,16 +362,16 @@ func optimizeAlternatingLiterals(s string) StringMatcher {
 	subMatch := s[start:]
 	// break if any of the submatches are not literals
 	if regexp.QuoteMeta(subMatch) != subMatch {
-		return nil
+		return nil, nil
 	}
 	multiMatcher.add(subMatch, minEqualMultiStringMatcherMapThreshold)
 	count++
 
 	if count == 1 {
-		return &equalStringMatcher{s: subMatch, caseSensitive: true}
+		return &equalStringMatcher{s: subMatch, caseSensitive: true}, nil
 	}
 
-	return multiMatcher
+	return multiMatcher, multiMatcher.setMatches(maxSetMatches)
 }
 
 // optimizeConcatRegex returns literal prefix/suffix text that can be safely
@@ -649,6 +649,22 @@ func (m *equalMultiStringMatcher) add(s string, threshold int) {
 	}
 
 	m.valuesList = append(m.valuesList, s)
+}
+
+func (m *equalMultiStringMatcher) setMatches(threshold int) []string {
+	if m.valuesList != nil {
+		return m.valuesList
+	}
+
+	if len(m.valuesMap) >= threshold {
+		return nil
+	}
+
+	matches := make([]string, 0, len(m.valuesMap))
+	for s := range m.valuesMap {
+		matches = append(matches, s)
+	}
+	return matches
 }
 
 func (m *equalMultiStringMatcher) Matches(s string) bool {
