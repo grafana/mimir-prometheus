@@ -15,9 +15,11 @@ package labels
 
 import (
 	"strings"
+	"sync"
 
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
+	"github.com/hashicorp/golang-lru/simplelru"
 )
 
 const (
@@ -28,6 +30,17 @@ const (
 	// been computed running BenchmarkOptimizeEqualStringMatchers.
 	optimizeEqualStringMatchersThreshold = 16
 )
+
+var (
+	fastRegexMatcherCacheMx sync.Mutex
+	fastRegexMatcherCache   *simplelru.LRU
+)
+
+func init() {
+	// Ignore error because it can only return error if size is invalid,
+	// but we're using an hardcoded size here.
+	fastRegexMatcherCache, _ = simplelru.NewLRU(10000, nil)
+}
 
 type FastRegexMatcher struct {
 	re *regexp.Regexp
@@ -43,6 +56,30 @@ type FastRegexMatcher struct {
 }
 
 func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
+	// Check the cache.
+	fastRegexMatcherCacheMx.Lock()
+	cachedMatcher, ok := fastRegexMatcherCache.Get(v)
+	fastRegexMatcherCacheMx.Unlock()
+
+	if ok {
+		return cachedMatcher.(*FastRegexMatcher), nil
+	}
+
+	// Create a new matcher.
+	matcher, err := newFastRegexMatcherWithoutCache(v)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache it.
+	fastRegexMatcherCacheMx.Lock()
+	fastRegexMatcherCache.Add(v, matcher)
+	fastRegexMatcherCacheMx.Unlock()
+
+	return matcher, nil
+}
+
+func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 	parsed, err := syntax.Parse(v, syntax.Perl)
 	if err != nil {
 		return nil, err

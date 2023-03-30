@@ -89,16 +89,23 @@ func TestNewFastRegexMatcher(t *testing.T) {
 }
 
 func BenchmarkNewFastRegexMatcher(b *testing.B) {
-	for _, r := range regexes {
-		b.Run(getTestNameFromRegexp(r), func(b *testing.B) {
-			for n := 0; n < b.N; n++ {
-				_, err := NewFastRegexMatcher(r)
-				if err != nil {
-					b.Fatal(err)
-				}
+	runBenchmark := func(newFunc func(v string) (*FastRegexMatcher, error)) func(b *testing.B) {
+		return func(b *testing.B) {
+			for _, r := range regexes {
+				b.Run(getTestNameFromRegexp(r), func(b *testing.B) {
+					for n := 0; n < b.N; n++ {
+						_, err := newFunc(r)
+						if err != nil {
+							b.Fatal(err)
+						}
+					}
+				})
 			}
-		})
+		}
 	}
+
+	b.Run("with cache", runBenchmark(NewFastRegexMatcher))
+	b.Run("without cache", runBenchmark(newFastRegexMatcherWithoutCache))
 }
 
 func TestOptimizeConcatRegex(t *testing.T) {
