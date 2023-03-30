@@ -405,7 +405,12 @@ func FuzzFastRegexMatcher_WithFuzzyRegularExpressions(f *testing.F) {
 			// Ignore invalid regexes.
 			return
 		}
-		m.re = regexp.MustCompile("^(?:" + re + ")$")
+
+		m.re, err = regexp.Compile("^(?:" + re + ")$")
+		if err != nil {
+			// Ignore invalid regexes.
+			return
+		}
 
 		require.Equalf(t, m.re.MatchString(text), m.MatchString(text), "regexp: %s text: %s", m.re.String(), text)
 	})
