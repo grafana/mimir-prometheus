@@ -26,7 +26,6 @@ import (
 
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -714,9 +713,9 @@ func TestNewEqualMultiStringMatcherFromList(t *testing.T) {
 			for _, v := range testData.values {
 				matcher.add(v, minEqualMultiStringMatcherMapThreshold)
 			}
-			assert.Equal(t, testData.expectedValuesMap, matcher.valuesMap)
-			assert.Equal(t, testData.expectedValuesList, matcher.valuesList)
-			assert.Equal(t, testData.caseSensitive, matcher.caseSensitive)
+			require.Equal(t, testData.expectedValuesMap, matcher.valuesMap)
+			require.Equal(t, testData.expectedValuesList, matcher.valuesList)
+			require.Equal(t, testData.caseSensitive, matcher.caseSensitive)
 		})
 	}
 }
@@ -762,10 +761,10 @@ func TestEqualMultiStringMatcher_Matches(t *testing.T) {
 			}
 
 			for _, v := range testData.expectedMatches {
-				assert.True(t, matcher.Matches(v), "value: %s", v)
+				require.True(t, matcher.Matches(v), "value: %s", v)
 			}
 			for _, v := range testData.expectedNotMatches {
-				assert.False(t, matcher.Matches(v), "value: %s", v)
+				require.False(t, matcher.Matches(v), "value: %s", v)
 			}
 		})
 	}
