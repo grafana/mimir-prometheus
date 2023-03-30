@@ -110,18 +110,26 @@ func BenchmarkNewFastRegexMatcher(b *testing.B) {
 }
 
 func BenchmarkNewFastRegexMatcher_CacheMisses(b *testing.B) {
-	regexpPrefix := strings.Repeat("x", 20)
+	// Init the random seed with a constant, so that it doesn't change between runs.
+	randGenerator := rand.New(rand.NewSource(1))
 
-	for n := 0; n < b.N; n++ {
-		// Generate unique regexps. These regexps are very simple to simulate
-		// a worst case scenario in case of cache misses (the cost of looking up
-		// the cache may be higher than not having a cache at all).
-		regexp := regexpPrefix + strconv.Itoa(n)
+	tests := map[string]string{
+		"simple regexp":  randString(randGenerator, 10),
+		"complex regexp": strings.Join(randStrings(randGenerator, 100, 10), "|"),
+	}
 
-		_, err := NewFastRegexMatcher(regexp)
-		if err != nil {
-			b.Fatal(err)
-		}
+	for testName, regexpPrefix := range tests {
+		b.Run(testName, func(b *testing.B) {
+			for n := 0; n < b.N; n++ {
+				// Unique regexp to emulate 100% cache misses.
+				regexp := regexpPrefix + strconv.Itoa(n)
+
+				_, err := NewFastRegexMatcher(regexp)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 
