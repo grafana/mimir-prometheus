@@ -120,6 +120,11 @@ func BenchmarkNewFastRegexMatcher_CacheMisses(b *testing.B) {
 
 	for testName, regexpPrefix := range tests {
 		b.Run(testName, func(b *testing.B) {
+			// Ensure the cache is empty.
+			fastRegexMatcherCache.Purge()
+
+			b.ResetTimer()
+
 			for n := 0; n < b.N; n++ {
 				// Unique regexp to emulate 100% cache misses.
 				regexp := regexpPrefix + strconv.Itoa(n)
