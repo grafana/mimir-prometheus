@@ -24,6 +24,7 @@ import (
 
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -515,7 +516,7 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 				require.IsType(t, testData.input, actualMatcher)
 			} else {
 				require.IsType(t, &equalMultiStringMatcher{}, actualMatcher)
-				require.Equal(t, testData.expectedValues, actualMatcher.(*equalMultiStringMatcher).values)
+				require.Equal(t, testData.expectedValues, actualMatcher.(*equalMultiStringMatcher).valuesMap)
 				require.Equal(t, testData.expectedCaseSensitive, actualMatcher.(*equalMultiStringMatcher).caseSensitive)
 			}
 		})
@@ -567,6 +568,92 @@ func BenchmarkOptimizeEqualStringMatchers(b *testing.B) {
 				})
 			})
 		}
+	}
+}
+
+func TestNewEqualMultiStringMatcherFromList(t *testing.T) {
+	tests := map[string]struct {
+		values             []string
+		caseSensitive      bool
+		expectedValuesMap  map[string]struct{}
+		expectedValuesList []string
+	}{
+		"few case sensitive values": {
+			values:             []string{"a", "B"},
+			caseSensitive:      true,
+			expectedValuesList: []string{"a", "B"},
+		},
+		"few case insensitive values": {
+			values:             []string{"a", "B"},
+			caseSensitive:      false,
+			expectedValuesList: []string{"a", "B"},
+		},
+		"many case sensitive values": {
+			values:            []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
+			caseSensitive:     true,
+			expectedValuesMap: map[string]struct{}{"a": {}, "B": {}, "c": {}, "D": {}, "e": {}, "F": {}, "g": {}, "H": {}, "i": {}, "L": {}, "m": {}, "N": {}, "o": {}, "P": {}, "q": {}, "r": {}},
+		},
+		"many case insensitive values": {
+			values:            []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
+			caseSensitive:     false,
+			expectedValuesMap: map[string]struct{}{"a": {}, "b": {}, "c": {}, "d": {}, "e": {}, "f": {}, "g": {}, "h": {}, "i": {}, "l": {}, "m": {}, "n": {}, "o": {}, "p": {}, "q": {}, "r": {}},
+		},
+	}
+
+	for testName, testData := range tests {
+		t.Run(testName, func(t *testing.T) {
+			matcher := newEqualMultiStringMatcherFromList(testData.values, testData.caseSensitive)
+			assert.Equal(t, testData.expectedValuesMap, matcher.valuesMap)
+			assert.Equal(t, testData.expectedValuesList, matcher.valuesList)
+			assert.Equal(t, testData.caseSensitive, matcher.caseSensitive)
+		})
+	}
+}
+
+func TestEqualMultiStringMatcher_Matches(t *testing.T) {
+	tests := map[string]struct {
+		values             []string
+		caseSensitive      bool
+		expectedMatches    []string
+		expectedNotMatches []string
+	}{
+		"few case sensitive values": {
+			values:             []string{"a", "B"},
+			caseSensitive:      true,
+			expectedMatches:    []string{"a", "B"},
+			expectedNotMatches: []string{"A", "b"},
+		},
+		"few case insensitive values": {
+			values:             []string{"a", "B"},
+			caseSensitive:      false,
+			expectedMatches:    []string{"a", "A", "b", "B"},
+			expectedNotMatches: []string{"c", "C"},
+		},
+		"many case sensitive values": {
+			values:             []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
+			caseSensitive:      true,
+			expectedMatches:    []string{"a", "B"},
+			expectedNotMatches: []string{"A", "b"},
+		},
+		"many case insensitive values": {
+			values:             []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
+			caseSensitive:      false,
+			expectedMatches:    []string{"a", "A", "b", "B"},
+			expectedNotMatches: []string{"x", "X"},
+		},
+	}
+
+	for testName, testData := range tests {
+		t.Run(testName, func(t *testing.T) {
+			matcher := newEqualMultiStringMatcherFromList(testData.values, testData.caseSensitive)
+
+			for _, v := range testData.expectedMatches {
+				assert.True(t, matcher.Matches(v), "value: %s", v)
+			}
+			for _, v := range testData.expectedNotMatches {
+				assert.False(t, matcher.Matches(v), "value: %s", v)
+			}
+		})
 	}
 }
 

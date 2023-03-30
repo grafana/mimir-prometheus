@@ -24,9 +24,10 @@ const (
 	maxSetMatches = 256
 
 	// The minimum number of alternate values a regex should have to trigger
-	// the optimization done by optimizeEqualStringMatchers(). This value has
+	// the optimization done by optimizeEqualStringMatchers() and so use a map
+	// to match values instead of iterating over a list. This value has
 	// been computed running BenchmarkOptimizeEqualStringMatchers.
-	optimizeEqualStringMatchersThreshold = 16
+	minEqualMultiStringMatcherMapThreshold = 16
 )
 
 type FastRegexMatcher struct {
@@ -56,13 +57,27 @@ func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 	m := &FastRegexMatcher{
 		re: re,
 	}
-	if parsed.Op == syntax.OpConcat {
-		m.prefix, m.suffix, m.contains = optimizeConcatRegex(parsed)
+
+	// Check if the regex can be converted into a finite set of matches.
+	// If so, don't try any other optimization because this is expected
+	// to be the best one.
+	if matches, caseSensitive := findSetMatches(parsed); len(matches) > 0 {
+		if len(matches) == 1 {
+			m.stringMatcher = &equalStringMatcher{
+				s:             matches[0],
+				caseSensitive: caseSensitive,
+			}
+		} else if caseSensitive {
+			m.setMatches = matches
+		} else {
+			m.stringMatcher = newEqualMultiStringMatcherFromList(matches, caseSensitive)
+		}
+	} else {
+		if parsed.Op == syntax.OpConcat {
+			m.prefix, m.suffix, m.contains = optimizeConcatRegex(parsed)
+		}
+		m.stringMatcher = stringMatcherFromRegexp(parsed)
 	}
-	if matches, caseSensitive := findSetMatches(parsed); caseSensitive {
-		m.setMatches = matches
-	}
-	m.stringMatcher = stringMatcherFromRegexp(parsed)
 
 	m.matchString = m.compileMatchStringFunction()
 	return m, nil
@@ -350,7 +365,7 @@ func stringMatcherFromRegexp(re *syntax.Regexp) StringMatcher {
 	clearBeginEndText(re)
 
 	m := stringMatcherFromRegexpInternal(re)
-	m = optimizeEqualStringMatchers(m, optimizeEqualStringMatchersThreshold)
+	m = optimizeEqualStringMatchers(m, minEqualMultiStringMatcherMapThreshold)
 
 	return m
 }
@@ -542,19 +557,65 @@ func (m *equalStringMatcher) Matches(s string) bool {
 
 // equalMultiStringMatcher matches a string exactly against a set of valid values.
 type equalMultiStringMatcher struct {
-	// values to match a string against. If the matching is case insensitive,
-	// the values here must be lowercase.
-	values map[string]struct{}
+	// valuesMap contains values to match a string against. If the matching is case insensitive,
+	// the values here must be lowercase. valuesMap and valuesList are mutually exclusive.
+	valuesMap map[string]struct{}
+
+	// valuesList contains values to match a string against. valuesMap and valuesList are
+	// mutually exclusive.
+	valuesList []string
 
 	caseSensitive bool
 }
 
+func newEqualMultiStringMatcherFromList(values []string, caseSensitive bool) *equalMultiStringMatcher {
+	if len(values) < minEqualMultiStringMatcherMapThreshold {
+		return &equalMultiStringMatcher{
+			valuesList:    values,
+			caseSensitive: caseSensitive,
+		}
+	}
+
+	// Covert values to a map.
+	valuesMap := make(map[string]struct{}, len(values))
+	for _, v := range values {
+		if !caseSensitive {
+			v = strings.ToLower(v)
+		}
+
+		valuesMap[v] = struct{}{}
+	}
+
+	return &equalMultiStringMatcher{
+		valuesMap:     valuesMap,
+		caseSensitive: caseSensitive,
+	}
+}
+
 func (m *equalMultiStringMatcher) Matches(s string) bool {
+	if len(m.valuesList) > 0 {
+		if m.caseSensitive {
+			for _, v := range m.valuesList {
+				if s == v {
+					return true
+				}
+			}
+		} else {
+			for _, v := range m.valuesList {
+				if strings.EqualFold(s, v) {
+					return true
+				}
+			}
+		}
+
+		return false
+	}
+
 	if !m.caseSensitive {
 		s = strings.ToLower(s)
 	}
 
-	_, ok := m.values[s]
+	_, ok := m.valuesMap[s]
 	return ok
 }
 
@@ -645,7 +706,7 @@ func optimizeEqualStringMatchers(input StringMatcher, threshold int) StringMatch
 	})
 
 	return &equalMultiStringMatcher{
-		values:        values,
+		valuesMap:     values,
 		caseSensitive: caseSensitive,
 	}
 }
