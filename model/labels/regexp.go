@@ -30,9 +30,7 @@ const (
 	optimizeEqualStringMatchersThreshold = 16
 )
 
-var (
-	fastRegexMatcherCache *lru.Cache[string, *FastRegexMatcher]
-)
+var fastRegexMatcherCache *lru.Cache[string, *FastRegexMatcher]
 
 func init() {
 	// Ignore error because it can only return error if size is invalid,
