@@ -357,28 +357,24 @@ func optimizeAlternatingLiterals(s string) (StringMatcher, []string) {
 
 	multiMatcher := newEqualMultiStringMatcher(true, estimatedAlternates)
 
-	start := 0
-	for i := 0; i < len(s); i++ {
-		if s[i] != '|' {
-			continue
-		}
+	for end := strings.IndexByte(s, '|'); end > -1; end = strings.IndexByte(s, '|') {
+		// Split the string into the next literal and the remainder
+		subMatch := s[:end]
+		s = s[end+1:]
 
-		subMatch := s[start:i]
 		// break if any of the submatches are not literals
 		if regexp.QuoteMeta(subMatch) != subMatch {
 			return nil, nil
 		}
 
 		multiMatcher.add(subMatch)
-		start = i + 1
 	}
 
-	subMatch := s[start:]
-	// break if any of the submatches are not literals
-	if regexp.QuoteMeta(subMatch) != subMatch {
+	// break if the remainder is not a literal
+	if regexp.QuoteMeta(s) != s {
 		return nil, nil
 	}
-	multiMatcher.add(subMatch)
+	multiMatcher.add(s)
 
 	return multiMatcher, multiMatcher.setMatches()
 }
@@ -633,6 +629,7 @@ type multiStringMatcherBuilder interface {
 }
 
 func newEqualMultiStringMatcher(caseSensitive bool, estimatedSize int) multiStringMatcherBuilder {
+	// If the estimated size is low enough, it's faster to use a slice instead of a map.
 	if estimatedSize < minEqualMultiStringMatcherMapThreshold {
 		return &equalMultiStringSliceMatcher{caseSensitive: caseSensitive, values: make([]string, 0, estimatedSize)}
 	}
