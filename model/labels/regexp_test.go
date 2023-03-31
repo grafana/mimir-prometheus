@@ -574,7 +574,7 @@ func TestAnalyzeRealQueries(t *testing.T) {
 func TestOptimizeEqualStringMatchers(t *testing.T) {
 	tests := map[string]struct {
 		input                 StringMatcher
-		expectedValues        map[string]struct{}
+		expectedValues        []string
 		expectedCaseSensitive bool
 	}{
 		"should skip optimization on orStringMatcher with containsStringMatcher": {
@@ -590,11 +590,7 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 				&equalStringMatcher{s: "bar", caseSensitive: true},
 				&equalStringMatcher{s: "baz", caseSensitive: true},
 			},
-			expectedValues: map[string]struct{}{
-				"FOO": {},
-				"bar": {},
-				"baz": {},
-			},
+			expectedValues:        []string{"FOO", "bar", "baz"},
 			expectedCaseSensitive: true,
 		},
 		"should skip optimization on orStringMatcher with equalStringMatcher but different case sensitivity": {
@@ -614,12 +610,7 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 				},
 				&equalStringMatcher{s: "baz", caseSensitive: true},
 			},
-			expectedValues: map[string]struct{}{
-				"FOO": {},
-				"bar": {},
-				"xxx": {},
-				"baz": {},
-			},
+			expectedValues:        []string{"FOO", "bar", "xxx", "baz"},
 			expectedCaseSensitive: true,
 		},
 		"should skip optimization on orStringMatcher with nested orStringMatcher and equalStringMatcher, but different case sensitivity": {
@@ -646,7 +637,7 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 			},
 			expectedValues: nil,
 		},
-		"should return lowercase values on case insensitive matchers": {
+		"should return unchanged values on few case insensitive matchers": {
 			input: orStringMatcher{
 				&equalStringMatcher{s: "FOO", caseSensitive: false},
 				orStringMatcher{
@@ -654,11 +645,7 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 				},
 				&equalStringMatcher{s: "baZ", caseSensitive: false},
 			},
-			expectedValues: map[string]struct{}{
-				"foo": {},
-				"bar": {},
-				"baz": {},
-			},
+			expectedValues:        []string{"FOO", "bAr", "baZ"},
 			expectedCaseSensitive: false,
 		},
 	}
@@ -670,15 +657,15 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 			if testData.expectedValues == nil {
 				require.IsType(t, testData.input, actualMatcher)
 			} else {
-				require.IsType(t, &equalMultiStringMatcher{}, actualMatcher)
-				require.Equal(t, testData.expectedValues, actualMatcher.(*equalMultiStringMatcher).valuesMap)
-				require.Equal(t, testData.expectedCaseSensitive, actualMatcher.(*equalMultiStringMatcher).caseSensitive)
+				require.IsType(t, &equalMultiStringSliceMatcher{}, actualMatcher)
+				require.Equal(t, testData.expectedValues, actualMatcher.(*equalMultiStringSliceMatcher).values)
+				require.Equal(t, testData.expectedCaseSensitive, actualMatcher.(*equalMultiStringSliceMatcher).caseSensitive)
 			}
 		})
 	}
 }
 
-func TestNewEqualMultiStringMatcherFromList(t *testing.T) {
+func TestNewEqualMultiStringMatcher(t *testing.T) {
 	tests := map[string]struct {
 		values             []string
 		caseSensitive      bool
@@ -693,7 +680,7 @@ func TestNewEqualMultiStringMatcherFromList(t *testing.T) {
 		"few case insensitive values": {
 			values:             []string{"a", "B"},
 			caseSensitive:      false,
-			expectedValuesList: []string{"a", "b"},
+			expectedValuesList: []string{"a", "B"},
 		},
 		"many case sensitive values": {
 			values:            []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
@@ -709,13 +696,20 @@ func TestNewEqualMultiStringMatcherFromList(t *testing.T) {
 
 	for testName, testData := range tests {
 		t.Run(testName, func(t *testing.T) {
-			matcher := &equalMultiStringMatcher{caseSensitive: testData.caseSensitive}
+			matcher := newEqualMultiStringMatcher(testData.caseSensitive, len(testData.values))
 			for _, v := range testData.values {
-				matcher.add(v, minEqualMultiStringMatcherMapThreshold)
+				matcher.add(v)
 			}
-			require.Equal(t, testData.expectedValuesMap, matcher.valuesMap)
-			require.Equal(t, testData.expectedValuesList, matcher.valuesList)
-			require.Equal(t, testData.caseSensitive, matcher.caseSensitive)
+			if testData.expectedValuesMap != nil {
+				require.IsType(t, &equalMultiStringMapMatcher{}, matcher)
+				require.Equal(t, testData.expectedValuesMap, matcher.(*equalMultiStringMapMatcher).values)
+				require.Equal(t, testData.caseSensitive, matcher.(*equalMultiStringMapMatcher).caseSensitive)
+			}
+			if testData.expectedValuesList != nil {
+				require.IsType(t, &equalMultiStringSliceMatcher{}, matcher)
+				require.Equal(t, testData.expectedValuesList, matcher.(*equalMultiStringSliceMatcher).values)
+				require.Equal(t, testData.caseSensitive, matcher.(*equalMultiStringSliceMatcher).caseSensitive)
+			}
 		})
 	}
 }
@@ -755,9 +749,9 @@ func TestEqualMultiStringMatcher_Matches(t *testing.T) {
 
 	for testName, testData := range tests {
 		t.Run(testName, func(t *testing.T) {
-			matcher := &equalMultiStringMatcher{caseSensitive: testData.caseSensitive}
+			matcher := newEqualMultiStringMatcher(testData.caseSensitive, len(testData.values))
 			for _, v := range testData.values {
-				matcher.add(v, minEqualMultiStringMatcherMapThreshold)
+				matcher.add(v)
 			}
 
 			for _, v := range testData.expectedMatches {
@@ -796,7 +790,7 @@ func BenchmarkOptimizeEqualStringMatchers(b *testing.B) {
 				require.IsType(b, orStringMatcher{}, unoptimized)
 
 				optimized := optimizeEqualStringMatchers(unoptimized, 0)
-				require.IsType(b, &equalMultiStringMatcher{}, optimized)
+				require.IsType(b, &equalMultiStringMapMatcher{}, optimized)
 
 				b.Run("without optimizeEqualStringMatchers()", func(b *testing.B) {
 					for n := 0; n < b.N; n++ {
