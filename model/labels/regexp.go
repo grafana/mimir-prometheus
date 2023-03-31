@@ -345,6 +345,10 @@ func (m *FastRegexMatcher) GetRegexString() string {
 // this function returns an optimized StringMatcher or nil if the regex
 // cannot be optimized in this way, and a list of setMatches up to maxSetMatches
 func optimizeAlternatingLiterals(s string) (StringMatcher, []string) {
+	if len(s) == 0 {
+		return emptyStringMatcher{}, nil
+	}
+
 	estimatedAlternates := strings.Count(s, "|") + 1
 
 	// If there are no alternates, check if the string is a literal

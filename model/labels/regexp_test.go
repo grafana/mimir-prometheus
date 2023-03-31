@@ -32,6 +32,7 @@ import (
 var (
 	asciiRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 	regexes    = []string{
+		"",
 		"foo",
 		"^foo",
 		"(foo|bar)",
