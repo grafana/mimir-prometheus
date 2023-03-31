@@ -90,8 +90,8 @@ func TestNewFastRegexMatcher(t *testing.T) {
 				t.Parallel()
 				m, err := NewFastRegexMatcher(r)
 				require.NoError(t, err)
-				m.re = regexp.MustCompile("^(?:" + r + ")$")
-				require.Equal(t, m.re.MatchString(v), m.MatchString(v))
+				re := regexp.MustCompile("^(?:" + r + ")$")
+				require.Equal(t, re.MatchString(v), m.MatchString(v))
 			})
 		}
 
@@ -374,11 +374,13 @@ func randStrings(randGenerator *rand.Rand, many, length int) []string {
 func FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions(f *testing.F) {
 	// Create all matchers.
 	matchers := make([]*FastRegexMatcher, 0, len(regexes))
+	res := make([]*regexp.Regexp, 0, len(regexes))
 	for _, re := range regexes {
 		m, err := NewFastRegexMatcher(re)
 		require.NoError(f, err)
-		m.re = regexp.MustCompile("^(?:" + re + ")$")
+		r := regexp.MustCompile("^(?:" + re + ")$")
 		matchers = append(matchers, m)
+		res = append(res, r)
 	}
 
 	// Add known values to seed corpus.
@@ -387,8 +389,8 @@ func FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions(f *testing.F) 
 	}
 
 	f.Fuzz(func(t *testing.T, text string) {
-		for _, m := range matchers {
-			require.Equalf(t, m.re.MatchString(text), m.MatchString(text), "regexp: %s text: %s", m.re.String(), text)
+		for i, m := range matchers {
+			require.Equalf(t, res[i].MatchString(text), m.MatchString(text), "regexp: %s text: %s", res[i].String(), text)
 		}
 	})
 }
@@ -407,13 +409,13 @@ func FuzzFastRegexMatcher_WithFuzzyRegularExpressions(f *testing.F) {
 			return
 		}
 
-		m.re, err = regexp.Compile("^(?:" + re + ")$")
+		reg, err := regexp.Compile("^(?:" + re + ")$")
 		if err != nil {
 			// Ignore invalid regexes.
 			return
 		}
 
-		require.Equalf(t, m.re.MatchString(text), m.MatchString(text), "regexp: %s text: %s", m.re.String(), text)
+		require.Equalf(t, reg.MatchString(text), m.MatchString(text), "regexp: %s text: %s", reg.String(), text)
 	})
 }
 
