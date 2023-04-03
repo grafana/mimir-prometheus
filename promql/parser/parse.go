@@ -682,35 +682,6 @@ func (p *parser) newLabelMatcher(label, operator, value Item) *labels.Matcher {
 	return m
 }
 
-func (p *parser) newStringLabelMatcher(label string, operator, value Item) *labels.Matcher {
-	op := operator.Typ
-	val := p.unquoteString(value.Val)
-
-	// Map the Item to the respective match type.
-	var matchType labels.MatchType
-	switch op {
-	case EQL:
-		matchType = labels.MatchEqual
-	case NEQ:
-		matchType = labels.MatchNotEqual
-	case EQL_REGEX:
-		matchType = labels.MatchRegexp
-	case NEQ_REGEX:
-		matchType = labels.MatchNotRegexp
-	default:
-		// This should never happen, since the error should have been caught
-		// by the generated parser.
-		panic("invalid operator")
-	}
-
-	m, err := labels.NewMatcher(matchType, label, val)
-	if err != nil {
-		p.addParseErr(value.PositionRange(), err)
-	}
-
-	return m
-}
-
 // addOffset is used to set the offset in the generated parser.
 func (p *parser) addOffset(e Node, offset time.Duration) {
 	var orgoffsetp *time.Duration
