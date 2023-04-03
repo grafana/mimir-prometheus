@@ -513,6 +513,17 @@ vector_selector: metric_identifier label_matchers
                         yylex.(*parser).assembleVectorSelector(vs)
                         $$ = vs
                         }
+                | LEFT_BRACE string_literal COMMA label_match_list RIGHT_BRACE
+                        {
+                        vs := &VectorSelector{
+                                Name: $2.(*StringLiteral).Val,
+                                LabelMatchers: $4,
+                                PosRange: mergeRanges(&$1, &$5),
+                        }
+
+                        yylex.(*parser).assembleVectorSelector(vs)
+                        $$ = vs
+                        }
                 ;
 
 label_matchers  : LEFT_BRACE label_match_list RIGHT_BRACE
@@ -554,6 +565,11 @@ label_match_list: label_match_list COMMA label_matcher
 
 label_matcher   : IDENTIFIER match_op STRING
                         { $$ = yylex.(*parser).newLabelMatcher($1, $2, $3);  }
+                | STRING match_op STRING
+                        {
+                                label := yylex.(*parser).unquoteString($1.Val)
+                                $$ = yylex.(*parser).newStringLabelMatcher(label, $2, $3);
+                        }
                 | IDENTIFIER match_op error
                         { yylex.(*parser).unexpected("label matching", "string"); $$ = nil}
                 | IDENTIFIER error

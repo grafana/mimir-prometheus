@@ -1761,6 +1761,20 @@ var testExpr = []struct {
 		},
 	},
 	{
+		input:  `{"foo.bar", "bar.cpu"=~"baz"}`,
+		expected: &VectorSelector{
+			Name: "foo.bar",
+			LabelMatchers: []*labels.Matcher{
+				MustLabelMatcher(labels.MatchRegexp, "bar.cpu", "baz"),
+				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "foo.bar"),
+			},
+			PosRange: PositionRange{
+				Start: 0,
+				End:   29,
+			},
+		},
+	},
+	{
 		input:  `{`,
 		fail:   true,
 		errMsg: "unexpected end of input inside braces",
