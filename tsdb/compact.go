@@ -539,7 +539,7 @@ func (c *LeveledCompactor) compact(dest string, dirs []string, open []*Block, sh
 	}
 
 	errs := tsdb_errors.NewMulti(err)
-	if err != context.Canceled {
+	if !errors.Is(err, context.Canceled) {
 		for _, b := range bs {
 			if err := b.setCompactionFailed(); err != nil {
 				errs.Add(errors.Wrapf(err, "setting compaction failed for block: %s", b.Dir()))
@@ -1176,13 +1176,17 @@ func (c *LeveledCompactor) populateSymbols(sets []storage.ChunkSeriesSet, outBlo
 			obIx = labels.StableHash(s.Labels()) % uint64(len(outBlocks))
 		}
 
-		for _, l := range s.Labels() {
+		err := s.Labels().Validate(func(l labels.Label) error {
 			if err := batchers[obIx].addSymbol(l.Name); err != nil {
 				return errors.Wrap(err, "addSymbol to batcher")
 			}
 			if err := batchers[obIx].addSymbol(l.Value); err != nil {
 				return errors.Wrap(err, "addSymbol to batcher")
 			}
+			return nil
+		})
+		if err != nil {
+			return err
 		}
 	}
 

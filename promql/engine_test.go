@@ -3114,17 +3114,11 @@ func TestRangeQuery(t *testing.T) {
 			Result: Matrix{
 				Series{
 					Points: []Point{{V: 1, T: 0}, {V: 3, T: 60000}, {V: 5, T: 120000}},
-					Metric: labels.Labels{
-						labels.Label{Name: "__name__", Value: "bar"},
-						labels.Label{Name: "job", Value: "2"},
-					},
+					Metric: labels.FromStrings("__name__", "bar", "job", "2"),
 				},
 				Series{
 					Points: []Point{{V: 3, T: 60000}, {V: 5, T: 120000}},
-					Metric: labels.Labels{
-						labels.Label{Name: "__name__", Value: "foo"},
-						labels.Label{Name: "job", Value: "1"},
-					},
+					Metric: labels.FromStrings("__name__", "foo", "job", "1"),
 				},
 			},
 			Start:    time.Unix(0, 0),
@@ -3181,8 +3175,7 @@ func TestNativeHistogramRate(t *testing.T) {
 	require.Len(t, vector, 1)
 	actualHistogram := vector[0].H
 	expectedHistogram := &histogram.FloatHistogram{
-		// TODO(beorn7): This should be GaugeType. Change it once supported by PromQL.
-		CounterResetHint: histogram.NotCounterReset,
+		CounterResetHint: histogram.GaugeType,
 		Schema:           1,
 		ZeroThreshold:    0.001,
 		ZeroCount:        1. / 15.,
@@ -3226,8 +3219,7 @@ func TestNativeFloatHistogramRate(t *testing.T) {
 	require.Len(t, vector, 1)
 	actualHistogram := vector[0].H
 	expectedHistogram := &histogram.FloatHistogram{
-		// TODO(beorn7): This should be GaugeType. Change it once supported by PromQL.
-		CounterResetHint: histogram.NotCounterReset,
+		CounterResetHint: histogram.GaugeType,
 		Schema:           1,
 		ZeroThreshold:    0.001,
 		ZeroCount:        1. / 15.,

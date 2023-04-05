@@ -32,7 +32,6 @@ import (
 	"go.uber.org/goleak"
 	"gopkg.in/yaml.v2"
 
-	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/rulefmt"
 	"github.com/prometheus/prometheus/model/timestamp"
@@ -832,7 +831,7 @@ func TestUpdate_AlwaysRestore(t *testing.T) {
 	ruleManager.start()
 	defer ruleManager.Stop()
 
-	err := ruleManager.Update(10*time.Second, []string{"fixtures/rules_alerts.yaml"}, nil, "", nil)
+	err := ruleManager.Update(10*time.Second, []string{"fixtures/rules_alerts.yaml"}, labels.EmptyLabels(), "", nil)
 	require.NoError(t, err)
 
 	for _, g := range ruleManager.groups {
@@ -841,7 +840,7 @@ func TestUpdate_AlwaysRestore(t *testing.T) {
 	}
 
 	// Use different file, so groups haven't changed, therefore, we expect state restoration
-	err = ruleManager.Update(10*time.Second, []string{"fixtures/rules_alerts2.yaml"}, nil, "", nil)
+	err = ruleManager.Update(10*time.Second, []string{"fixtures/rules_alerts2.yaml"}, labels.EmptyLabels(), "", nil)
 	for _, g := range ruleManager.groups {
 		require.True(t, g.shouldRestore)
 	}
@@ -864,7 +863,7 @@ func TestUpdate_AlwaysRestoreDoesntAffectUnchangedGroups(t *testing.T) {
 	ruleManager.start()
 	defer ruleManager.Stop()
 
-	err := ruleManager.Update(10*time.Second, files, nil, "", nil)
+	err := ruleManager.Update(10*time.Second, files, labels.EmptyLabels(), "", nil)
 	require.NoError(t, err)
 
 	for _, g := range ruleManager.groups {
@@ -873,7 +872,7 @@ func TestUpdate_AlwaysRestoreDoesntAffectUnchangedGroups(t *testing.T) {
 	}
 
 	// Use the same file, so groups haven't changed, therefore, we don't expect state restoration
-	err = ruleManager.Update(10*time.Second, files, nil, "", nil)
+	err = ruleManager.Update(10*time.Second, files, labels.EmptyLabels(), "", nil)
 	for _, g := range ruleManager.groups {
 		require.False(t, g.shouldRestore)
 	}
@@ -1091,7 +1090,7 @@ func reloadRules(rgs *rulefmt.RuleGroups, t *testing.T, tmpFile *os.File, ruleMa
 	_, _ = tmpFile.Seek(0, 0)
 	_, err = tmpFile.Write(bs)
 	require.NoError(t, err)
-	err = ruleManager.Update(interval, []string{tmpFile.Name()}, nil, "", nil)
+	err = ruleManager.Update(interval, []string{tmpFile.Name()}, labels.EmptyLabels(), "", nil)
 	require.NoError(t, err)
 }
 
@@ -1687,7 +1686,7 @@ groups:
 		},
 	})
 	m.start()
-	err = m.Update(time.Second, []string{fname}, nil, "", nil)
+	err = m.Update(time.Second, []string{fname}, labels.EmptyLabels(), "", nil)
 	require.NoError(t, err)
 
 	rgs := m.RuleGroups()
@@ -1860,7 +1859,6 @@ func TestNativeHistogramsInRecordingRules(t *testing.T) {
 	for _, h := range hists[1:] {
 		expHist = expHist.Add(h.ToFloat())
 	}
-	expHist.CounterResetHint = histogram.GaugeType
 
 	it := s.Iterator(nil)
 	require.Equal(t, chunkenc.ValFloatHistogram, it.Next())
