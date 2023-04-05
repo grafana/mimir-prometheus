@@ -1761,7 +1761,7 @@ var testExpr = []struct {
 		},
 	},
 	{
-		input:  `{"foo.bar", "bar.cpu"=~"baz"}`,
+		input: `{"foo.bar", "bar.cpu"=~"baz"}`,
 		expected: &VectorSelector{
 			Name: "foo.bar",
 			LabelMatchers: []*labels.Matcher{
