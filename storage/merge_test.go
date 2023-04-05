@@ -353,12 +353,12 @@ func TestMergeChunkQuerierWithNoVerticalChunkSeriesMerger(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			var p ChunkQuerier
 			if tc.primaryChkQuerierSeries != nil {
-				p = &mockChunkQurier{toReturn: tc.primaryChkQuerierSeries}
+				p = &mockChunkQuerier{toReturn: tc.primaryChkQuerierSeries}
 			}
 
 			var qs []ChunkQuerier
 			for _, in := range tc.chkQuerierSeries {
-				qs = append(qs, &mockChunkQurier{toReturn: in})
+				qs = append(qs, &mockChunkQuerier{toReturn: in})
 			}
 			qs = append(qs, tc.extraQueriers...)
 
@@ -379,6 +379,70 @@ func TestMergeChunkQuerierWithNoVerticalChunkSeriesMerger(t *testing.T) {
 			require.False(t, tc.expected.Next(), "Expected Next() to be false")
 		})
 	}
+}
+
+func TestMergeChunkQuerier_ConcatenatingChunkSeriesMerger(t *testing.T) {
+	inOrder := mockChunkQuerier{
+		toReturn: []ChunkSeries{
+			NewListChunkSeriesFromSamples(
+				labels.FromStrings("foo", "bar"),
+				[]tsdbutil.Sample{
+					sample{t: 10, v: 1},
+					sample{t: 20, v: 1},
+					sample{t: 30, v: 1},
+					sample{t: 40, v: 1},
+					sample{t: 50, v: 1},
+				},
+			),
+		},
+	}
+
+	outOfOrder := mockChunkQuerier{
+		toReturn: []ChunkSeries{
+			NewListChunkSeriesFromSamples(
+				labels.FromStrings("foo", "bar"),
+				[]tsdbutil.Sample{
+					sample{t: 20, v: 2},
+				},
+			),
+		},
+	}
+
+	expected := []sample{
+		{t: 10, v: 1},
+		{t: 20, v: 1},
+		{t: 30, v: 1},
+		{t: 40, v: 1},
+		{t: 50, v: 1},
+		{t: 20, v: 2},
+	}
+	var actual []sample
+
+	q := NewMergeChunkQuerier([]ChunkQuerier{&inOrder, &outOfOrder}, nil, NewConcatenatingChunkSeriesMerger())
+	defer q.Close()
+
+	ss := q.Select(false, nil, &labels.Matcher{Type: labels.MatchEqual, Name: "foo", Value: "bar"})
+
+	for ss.Next() {
+		s := ss.At()
+		sItr := s.Iterator(nil)
+		for sItr.Next() {
+			meta := sItr.At()
+			require.Equal(t, chunkenc.EncXOR, meta.Chunk.Encoding())
+
+			chk, err := chunkenc.FromData(chunkenc.EncXOR, meta.Chunk.Bytes())
+			require.NoError(t, err)
+
+			chkItr := chk.Iterator(nil)
+			for valType := chkItr.Next(); valType != chunkenc.ValNone; valType = chkItr.Next() {
+				require.Equal(t, chunkenc.ValFloat, valType)
+				ts, v := chkItr.At()
+				actual = append(actual, sample{t: ts, v: v})
+			}
+		}
+	}
+
+	require.Equal(t, expected, actual)
 }
 
 func TestCompactingChunkSeriesMerger(t *testing.T) {
@@ -730,7 +794,7 @@ func (m *mockQuerier) Select(sortSeries bool, _ *SelectHints, _ ...*labels.Match
 	return NewMockSeriesSet(cpy...)
 }
 
-type mockChunkQurier struct {
+type mockChunkQuerier struct {
 	LabelQuerier
 
 	toReturn []ChunkSeries
@@ -744,7 +808,7 @@ func (a chunkSeriesByLabel) Less(i, j int) bool {
 	return labels.Compare(a[i].Labels(), a[j].Labels()) < 0
 }
 
-func (m *mockChunkQurier) Select(sortSeries bool, _ *SelectHints, _ ...*labels.Matcher) ChunkSeriesSet {
+func (m *mockChunkQuerier) Select(sortSeries bool, _ *SelectHints, _ ...*labels.Matcher) ChunkSeriesSet {
 	cpy := make([]ChunkSeries, len(m.toReturn))
 	copy(cpy, m.toReturn)
 	if sortSeries {
@@ -752,6 +816,10 @@ func (m *mockChunkQurier) Select(sortSeries bool, _ *SelectHints, _ ...*labels.M
 	}
 
 	return NewMockChunkSeriesSet(cpy...)
+}
+
+func (m *mockChunkQuerier) Close() error {
+	return nil
 }
 
 type mockSeriesSet struct {
