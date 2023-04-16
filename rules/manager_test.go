@@ -182,7 +182,7 @@ func TestAlertingRule(t *testing.T) {
 		sort.Slice(filteredRes, func(i, j int) bool {
 			return labels.Compare(filteredRes[i].Metric, filteredRes[j].Metric) < 0
 		})
-		require.Equal(t, test.result, filteredRes)
+		promtestutil.RequireEqual(t, test.result, filteredRes)
 
 		for _, aa := range rule.ActiveAlerts() {
 			require.Zero(t, aa.Labels.Get(model.MetricNameLabel), "%s label set on active alert: %s", model.MetricNameLabel, aa.Labels)
@@ -334,7 +334,7 @@ func TestForStateAddSamples(t *testing.T) {
 				sort.Slice(filteredRes, func(i, j int) bool {
 					return labels.Compare(filteredRes[i].Metric, filteredRes[j].Metric) < 0
 				})
-				require.Equal(t, test.result, filteredRes)
+				promtestutil.Equal(t, test.result, filteredRes)
 
 				for _, aa := range rule.ActiveAlerts() {
 					require.Zero(t, aa.Labels.Get(model.MetricNameLabel), "%s label set on active alert: %s", model.MetricNameLabel, aa.Labels)
