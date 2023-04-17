@@ -130,7 +130,7 @@ func BenchmarkNewFastRegexMatcher_CacheMisses(b *testing.B) {
 	for testName, regexpPrefix := range tests {
 		b.Run(testName, func(b *testing.B) {
 			// Ensure the cache is empty.
-			fastRegexMatcherCache.Purge()
+			fastRegexMatcherCache.Clear()
 
 			b.ResetTimer()
 
