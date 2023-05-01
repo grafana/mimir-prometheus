@@ -14,7 +14,7 @@ require (
 	github.com/dennwc/varint v1.0.0
 	github.com/dgraph-io/ristretto v0.1.1
 	github.com/digitalocean/godo v1.98.0
-	github.com/docker/docker v23.0.4+incompatible
+	github.com/docker/docker v23.0.5+incompatible
 	github.com/edsrzf/mmap-go v1.1.0
 	github.com/envoyproxy/go-control-plane v0.11.0
 	github.com/envoyproxy/protoc-gen-validate v0.10.1
