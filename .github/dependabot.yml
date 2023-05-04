@@ -4,7 +4,7 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
-# Disable version updates; we will get them when we update from upstream Prometheus.
+    # Disable version updates; we will get them when we update from upstream Prometheus.
     open-pull-requests-limit: 0
   - package-ecosystem: "gomod"
     directory: "/documentation/examples/remote_storage"
