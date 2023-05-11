@@ -83,7 +83,7 @@ func (h *headIndexReader) LabelValues(name string, matchers ...*labels.Matcher) 
 		return h.head.postings.LabelValues(name), nil
 	}
 
-	return labelValuesWithMatchers(h, name, matchers...)
+	return labelValuesWithMatchers(context.Background(), h, name, matchers...)
 }
 
 // LabelNames returns all the unique label names present in the head
@@ -99,7 +99,7 @@ func (h *headIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, err
 		return labelNames, nil
 	}
 
-	return labelNamesWithMatchers(h, matchers...)
+	return labelNamesWithMatchers(context.Background(), h, matchers...)
 }
 
 // Postings returns the postings list iterator for the label pairs.
@@ -120,15 +120,19 @@ func (h *headIndexReader) Postings(name string, values ...string) (index.Posting
 	}
 }
 
-func (h *headIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return h.head.pfmc.PostingsForMatchers(h, concurrent, ms...)
+func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return h.head.pfmc.PostingsForMatchers(ctx, h, concurrent, ms...)
 }
 
-func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
+func (h *headIndexReader) SortedPostings(ctx context.Context, p index.Postings) index.Postings {
 	series := make([]*memSeries, 0, 128)
 
 	// Fetch all the series only once.
 	for p.Next() {
+		if err := ctx.Err(); err != nil {
+			return index.ErrPostings(errors.Wrap(err, "expand postings"))
+		}
+
 		s := h.head.series.getByID(chunks.HeadSeriesRef(p.At()))
 		if s == nil {
 			level.Debug(h.head.logger).Log("msg", "Looked up series not found")

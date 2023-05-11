@@ -4238,7 +4238,7 @@ func TestOOOCompaction(t *testing.T) {
 			series2.String(): series2Samples,
 		}
 
-		q, err := NewBlockQuerier(block, math.MinInt64, math.MaxInt64)
+		q, err := NewBlockQuerier(context.Background(), block, math.MinInt64, math.MaxInt64)
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
@@ -4369,7 +4369,7 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 			series2.String(): series2Samples,
 		}
 
-		q, err := NewBlockQuerier(block, math.MinInt64, math.MaxInt64)
+		q, err := NewBlockQuerier(context.Background(), block, math.MinInt64, math.MaxInt64)
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
@@ -4469,7 +4469,7 @@ func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
 			series2.String(): series2Samples,
 		}
 
-		q, err := NewBlockQuerier(block, math.MinInt64, math.MaxInt64)
+		q, err := NewBlockQuerier(context.Background(), block, math.MinInt64, math.MaxInt64)
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
@@ -5257,7 +5257,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 			series1.String(): series1Samples,
 		}
 
-		q, err := NewBlockQuerier(block, math.MinInt64, math.MaxInt64)
+		q, err := NewBlockQuerier(context.Background(), block, math.MinInt64, math.MaxInt64)
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))

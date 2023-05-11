@@ -15,6 +15,7 @@
 package tsdb
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -80,11 +81,11 @@ type IndexReader interface {
 	// The resulting postings are not ordered by series.
 	// If concurrent hint is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
 	// avoiding same calculations twice, however this implementation may lead to a worse performance when called once.
-	PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error)
+	PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error)
 
 	// SortedPostings returns a postings list that is reordered to be sorted
 	// by the label set of the underlying series.
-	SortedPostings(index.Postings) index.Postings
+	SortedPostings(context.Context, index.Postings) index.Postings
 
 	// ShardedPostings returns a postings list filtered by the provided shardIndex
 	// out of shardCount. For a given posting, its shard MUST be computed hashing
@@ -498,7 +499,7 @@ func (r blockIndexReader) LabelValues(name string, matchers ...*labels.Matcher) 
 		return st, errors.Wrapf(err, "block: %s", r.b.Meta().ULID)
 	}
 
-	return labelValuesWithMatchers(r.ir, name, matchers...)
+	return labelValuesWithMatchers(context.Background(), r.ir, name, matchers...)
 }
 
 func (r blockIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, error) {
@@ -506,7 +507,7 @@ func (r blockIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, err
 		return r.b.LabelNames()
 	}
 
-	return labelNamesWithMatchers(r.ir, matchers...)
+	return labelNamesWithMatchers(context.Background(), r.ir, matchers...)
 }
 
 func (r blockIndexReader) Postings(name string, values ...string) (index.Postings, error) {
@@ -517,12 +518,12 @@ func (r blockIndexReader) Postings(name string, values ...string) (index.Posting
 	return p, nil
 }
 
-func (r blockIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return r.ir.PostingsForMatchers(concurrent, ms...)
+func (r blockIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return r.ir.PostingsForMatchers(ctx, concurrent, ms...)
 }
 
-func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {
-	return r.ir.SortedPostings(p)
+func (r blockIndexReader) SortedPostings(ctx context.Context, p index.Postings) index.Postings {
+	return r.ir.SortedPostings(ctx, p)
 }
 
 func (r blockIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
@@ -581,7 +582,7 @@ func (pb *Block) Delete(mint, maxt int64, ms ...*labels.Matcher) error {
 		return ErrClosing
 	}
 
-	p, err := pb.indexr.PostingsForMatchers(false, ms...)
+	p, err := pb.indexr.PostingsForMatchers(context.Background(), false, ms...)
 	if err != nil {
 		return errors.Wrap(err, "select series")
 	}

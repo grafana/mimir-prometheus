@@ -196,7 +196,7 @@ func TestCorruptedChunk(t *testing.T) {
 			}
 			defer func() { require.NoError(t, b.Close()) }()
 
-			querier, err := NewBlockQuerier(b, 0, 1)
+			querier, err := NewBlockQuerier(context.Background(), b, 0, 1)
 			require.NoError(t, err)
 			defer func() { require.NoError(t, querier.Close()) }()
 			set := querier.Select(false, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
@@ -353,12 +353,12 @@ func TestReadIndexFormatV1(t *testing.T) {
 		require.NoError(t, block.Close())
 	})
 
-	q, err := NewBlockQuerier(block, 0, 1000)
+	q, err := NewBlockQuerier(context.Background(), block, 0, 1000)
 	require.NoError(t, err)
 	require.Equal(t, query(t, q, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")),
 		map[string][]tsdbutil.Sample{`{foo="bar"}`: {sample{t: 1, f: 2}}})
 
-	q, err = NewBlockQuerier(block, 0, 1000)
+	q, err = NewBlockQuerier(context.Background(), block, 0, 1000)
 	require.NoError(t, err)
 	require.Equal(t, query(t, q, labels.MustNewMatcher(labels.MatchNotRegexp, "foo", "^.?$")),
 		map[string][]tsdbutil.Sample{

@@ -171,6 +171,7 @@ type blockQuerierTestCase struct {
 func testBlockQuerier(t *testing.T, c blockQuerierTestCase, ir IndexReader, cr ChunkReader, stones *tombstones.MemTombstones) {
 	t.Run("sample", func(t *testing.T) {
 		q := blockQuerier{
+			ctx: context.Background(),
 			blockBaseQuerier: &blockBaseQuerier{
 				index:      ir,
 				chunks:     cr,
@@ -207,6 +208,7 @@ func testBlockQuerier(t *testing.T, c blockQuerierTestCase, ir IndexReader, cr C
 
 	t.Run("chunk", func(t *testing.T) {
 		q := blockChunkQuerier{
+			ctx: context.Background(),
 			blockBaseQuerier: &blockBaseQuerier{
 				index:      ir,
 				chunks:     cr,
@@ -1548,7 +1550,7 @@ func (m mockIndex) Postings(name string, values ...string) (index.Postings, erro
 	return index.Merge(res...), nil
 }
 
-func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
+func (m mockIndex) SortedPostings(_ context.Context, p index.Postings) index.Postings {
 	ep, err := index.ExpandPostings(p)
 	if err != nil {
 		return index.ErrPostings(errors.Wrap(err, "expand postings"))
@@ -1560,7 +1562,7 @@ func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 	return index.NewListPostings(ep)
 }
 
-func (m mockIndex) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {
 		if matches(ms, s.l) {
@@ -1692,7 +1694,7 @@ func BenchmarkQueryIterator(b *testing.B) {
 
 				qblocks := make([]storage.Querier, 0, len(blocks))
 				for _, blk := range blocks {
-					q, err := NewBlockQuerier(blk, math.MinInt64, math.MaxInt64)
+					q, err := NewBlockQuerier(context.Background(), blk, math.MinInt64, math.MaxInt64)
 					require.NoError(b, err)
 					qblocks = append(qblocks, q)
 				}
@@ -1755,7 +1757,7 @@ func BenchmarkQuerySeek(b *testing.B) {
 
 				qblocks := make([]storage.Querier, 0, len(blocks))
 				for _, blk := range blocks {
-					q, err := NewBlockQuerier(blk, math.MinInt64, math.MaxInt64)
+					q, err := NewBlockQuerier(context.Background(), blk, math.MinInt64, math.MaxInt64)
 					require.NoError(b, err)
 					qblocks = append(qblocks, q)
 				}
@@ -1890,7 +1892,7 @@ func BenchmarkSetMatcher(b *testing.B) {
 
 		qblocks := make([]storage.Querier, 0, len(blocks))
 		for _, blk := range blocks {
-			q, err := NewBlockQuerier(blk, math.MinInt64, math.MaxInt64)
+			q, err := NewBlockQuerier(context.Background(), blk, math.MinInt64, math.MaxInt64)
 			require.NoError(b, err)
 			qblocks = append(qblocks, q)
 		}
@@ -2192,7 +2194,7 @@ func TestPostingsForMatchers(t *testing.T) {
 			for _, l := range c.exp {
 				exp[l.String()] = struct{}{}
 			}
-			p, err := PostingsForMatchers(ir, c.matchers...)
+			p, err := PostingsForMatchers(context.Background(), ir, c.matchers...)
 			require.NoError(t, err)
 
 			var builder labels.ScratchBuilder
@@ -2312,7 +2314,7 @@ func BenchmarkQueries(b *testing.B) {
 				for x := 0; x <= 10; x++ {
 					block, err := OpenBlock(nil, createBlock(b, dir, series), nil)
 					require.NoError(b, err)
-					q, err := NewBlockQuerier(block, 1, nSamples)
+					q, err := NewBlockQuerier(context.Background(), block, 1, nSamples)
 					require.NoError(b, err)
 					qs = append(qs, q)
 				}
@@ -2323,7 +2325,7 @@ func BenchmarkQueries(b *testing.B) {
 
 				chunkDir := b.TempDir()
 				head := createHead(b, nil, series, chunkDir)
-				qHead, err := NewBlockQuerier(NewRangeHead(head, 1, nSamples), 1, nSamples)
+				qHead, err := NewBlockQuerier(context.Background(), NewRangeHead(head, 1, nSamples), 1, nSamples)
 				require.NoError(b, err)
 				queryTypes = append(queryTypes, qt{"_Head", qHead})
 
@@ -2333,9 +2335,9 @@ func BenchmarkQueries(b *testing.B) {
 					oooSampleFrequency := int(nSamples) / totalOOOSamples
 					head := createHeadWithOOOSamples(b, nil, series, chunkDir, oooSampleFrequency)
 
-					qHead, err := NewBlockQuerier(NewRangeHead(head, 1, nSamples), 1, nSamples)
+					qHead, err := NewBlockQuerier(context.Background(), NewRangeHead(head, 1, nSamples), 1, nSamples)
 					require.NoError(b, err)
-					qOOOHead, err := NewBlockQuerier(NewOOORangeHead(head, 1, nSamples), 1, nSamples)
+					qOOOHead, err := NewBlockQuerier(context.Background(), NewOOORangeHead(head, 1, nSamples), 1, nSamples)
 					require.NoError(b, err)
 
 					queryTypes = append(queryTypes, qt{
@@ -2409,11 +2411,11 @@ func (m mockMatcherIndex) Postings(name string, values ...string) (index.Posting
 	return index.EmptyPostings(), nil
 }
 
-func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {
+func (m mockMatcherIndex) PostingsForMatchers(context.Context, bool, ...*labels.Matcher) (index.Postings, error) {
 	return index.EmptyPostings(), nil
 }
 
-func (m mockMatcherIndex) SortedPostings(p index.Postings) index.Postings {
+func (m mockMatcherIndex) SortedPostings(_ context.Context, p index.Postings) index.Postings {
 	return index.EmptyPostings()
 }
 
@@ -2457,7 +2459,7 @@ func TestPostingsForMatcher(t *testing.T) {
 
 	for _, tc := range cases {
 		ir := &mockMatcherIndex{}
-		_, err := postingsForMatcher(ir, tc.matcher)
+		_, err := postingsForMatcher(context.Background(), ir, tc.matcher)
 		if tc.hasError {
 			require.Error(t, err)
 		} else {

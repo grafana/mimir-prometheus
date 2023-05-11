@@ -15,6 +15,7 @@
 package tsdb
 
 import (
+	"context"
 	"errors"
 	"math"
 
@@ -156,8 +157,8 @@ func (oh *OOOHeadIndexReader) series(ref storage.SeriesRef, builder *labels.Scra
 
 // PostingsForMatchers needs to be overridden so that the right IndexReader
 // implementation gets passed down to the PostingsForMatchers call.
-func (oh *OOOHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return oh.head.pfmc.PostingsForMatchers(oh, concurrent, ms...)
+func (oh *OOOHeadIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return oh.head.pfmc.PostingsForMatchers(ctx, oh, concurrent, ms...)
 }
 
 // LabelValues needs to be overridden from the headIndexReader implementation due
@@ -172,7 +173,7 @@ func (oh *OOOHeadIndexReader) LabelValues(name string, matchers ...*labels.Match
 		return oh.head.postings.LabelValues(name), nil
 	}
 
-	return labelValuesWithMatchers(oh, name, matchers...)
+	return labelValuesWithMatchers(context.Background(), oh, name, matchers...)
 }
 
 type chunkMetaAndChunkDiskMapperRef struct {
@@ -274,7 +275,7 @@ type OOOCompactionHead struct {
 // 4. Cuts a new WBL file for the OOO WBL.
 // All the above together have a bit of CPU and memory overhead, and can have a bit of impact
 // on the sample append latency. So call NewOOOCompactionHead only right before compaction.
-func NewOOOCompactionHead(head *Head) (*OOOCompactionHead, error) {
+func NewOOOCompactionHead(ctx context.Context, head *Head) (*OOOCompactionHead, error) {
 	ch := &OOOCompactionHead{
 		chunkRange: head.chunkRange.Load(),
 		mint:       math.MaxInt64,
@@ -297,7 +298,7 @@ func NewOOOCompactionHead(head *Head) (*OOOCompactionHead, error) {
 	if err != nil {
 		return nil, err
 	}
-	p = ch.oooIR.SortedPostings(p)
+	p = ch.oooIR.SortedPostings(ctx, p)
 
 	var lastSeq, lastOff int
 	for p.Next() {
@@ -410,7 +411,7 @@ func (ir *OOOCompactionHeadIndexReader) Postings(name string, values ...string) 
 	return index.NewListPostings(ir.ch.postings), nil
 }
 
-func (ir *OOOCompactionHeadIndexReader) SortedPostings(p index.Postings) index.Postings {
+func (ir *OOOCompactionHeadIndexReader) SortedPostings(_ context.Context, p index.Postings) index.Postings {
 	// This will already be sorted from the Postings() call above.
 	return p
 }
@@ -431,7 +432,7 @@ func (ir *OOOCompactionHeadIndexReader) LabelValues(name string, matchers ...*la
 	return nil, errors.New("not implemented")
 }
 
-func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	return nil, errors.New("not implemented")
 }
 

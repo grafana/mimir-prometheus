@@ -418,7 +418,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 
 	// queryHead is a helper to query the head for a given time range and labelset.
 	queryHead := func(mint, maxt uint64, label labels.Label) (map[string][]tsdbutil.Sample, error) {
-		q, err := NewBlockQuerier(head, int64(mint), int64(maxt))
+		q, err := NewBlockQuerier(context.Background(), head, int64(mint), int64(maxt))
 		if err != nil {
 			return nil, err
 		}
@@ -658,7 +658,7 @@ func TestHead_WALMultiRef(t *testing.T) {
 		require.NoError(t, head.Close())
 	}()
 
-	q, err := NewBlockQuerier(head, 0, 2100)
+	q, err := NewBlockQuerier(context.Background(), head, 0, 2100)
 	require.NoError(t, err)
 	series := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
 	// The samples before the new ref should be discarded since Head truncation
@@ -970,7 +970,7 @@ func TestHeadDeleteSimple(t *testing.T) {
 				// Compare the query results for both heads - before and after the reloadBlocks.
 			Outer:
 				for _, h := range []*Head{head, reloadedHead} {
-					q, err := NewBlockQuerier(h, h.MinTime(), h.MaxTime())
+					q, err := NewBlockQuerier(context.Background(), h, h.MinTime(), h.MaxTime())
 					require.NoError(t, err)
 					actSeriesSet := q.Select(false, nil, labels.MustNewMatcher(labels.MatchEqual, lblDefault.Name, lblDefault.Value))
 					require.NoError(t, q.Close())
@@ -1030,7 +1030,7 @@ func TestDeleteUntilCurMax(t *testing.T) {
 	require.NoError(t, hb.Delete(0, 10000, labels.MustNewMatcher(labels.MatchEqual, "a", "b")))
 
 	// Test the series returns no samples. The series is cleared only after compaction.
-	q, err := NewBlockQuerier(hb, 0, 100000)
+	q, err := NewBlockQuerier(context.Background(), hb, 0, 100000)
 	require.NoError(t, err)
 	res := q.Select(false, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
 	require.True(t, res.Next(), "series is not present")
@@ -1047,7 +1047,7 @@ func TestDeleteUntilCurMax(t *testing.T) {
 	_, err = app.Append(0, labels.FromStrings("a", "b"), 11, 1)
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
-	q, err = NewBlockQuerier(hb, 0, 100000)
+	q, err = NewBlockQuerier(context.Background(), hb, 0, 100000)
 	require.NoError(t, err)
 	res = q.Select(false, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "b"))
 	require.True(t, res.Next(), "series don't exist")
@@ -1218,7 +1218,7 @@ func TestDelete_e2e(t *testing.T) {
 		}
 		sort.Sort(matched)
 		for i := 0; i < numRanges; i++ {
-			q, err := NewBlockQuerier(hb, 0, 100000)
+			q, err := NewBlockQuerier(context.Background(), hb, 0, 100000)
 			require.NoError(t, err)
 			defer q.Close()
 			ss := q.Select(true, nil, del.ms...)
@@ -1646,7 +1646,7 @@ func TestUncommittedSamplesNotLostOnTruncate(t *testing.T) {
 
 	require.NoError(t, app.Commit())
 
-	q, err := NewBlockQuerier(h, 1500, 2500)
+	q, err := NewBlockQuerier(context.Background(), h, 1500, 2500)
 	require.NoError(t, err)
 	defer q.Close()
 
@@ -1676,7 +1676,7 @@ func TestRemoveSeriesAfterRollbackAndTruncate(t *testing.T) {
 
 	require.NoError(t, app.Rollback())
 
-	q, err := NewBlockQuerier(h, 1500, 2500)
+	q, err := NewBlockQuerier(context.Background(), h, 1500, 2500)
 	require.NoError(t, err)
 
 	ss := q.Select(false, nil, labels.MustNewMatcher(labels.MatchEqual, "a", "1"))
@@ -1950,6 +1950,7 @@ func TestMemSeriesIsolation(t *testing.T) {
 		require.NoError(t, err)
 		// Hm.. here direct block chunk querier might be required?
 		querier := blockQuerier{
+			ctx: context.Background(),
 			blockBaseQuerier: &blockBaseQuerier{
 				index:      idx,
 				chunks:     chunks,
@@ -2324,7 +2325,7 @@ func testHeadSeriesChunkRace(t *testing.T) {
 
 	var wg sync.WaitGroup
 	matcher := labels.MustNewMatcher(labels.MatchEqual, "", "")
-	q, err := NewBlockQuerier(h, 18, 22)
+	q, err := NewBlockQuerier(context.Background(), h, 18, 22)
 	require.NoError(t, err)
 	defer q.Close()
 
@@ -3060,7 +3061,7 @@ func TestAppendHistogram(t *testing.T) {
 
 			require.NoError(t, app.Commit())
 
-			q, err := NewBlockQuerier(head, head.MinTime(), head.MaxTime())
+			q, err := NewBlockQuerier(context.Background(), head, head.MinTime(), head.MaxTime())
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				require.NoError(t, q.Close())
@@ -3269,7 +3270,7 @@ func TestHistogramInWALAndMmapChunk(t *testing.T) {
 	require.Equal(t, expHeadChunkSamples, ms.headChunk.chunk.NumSamples())
 
 	testQuery := func() {
-		q, err := NewBlockQuerier(head, head.MinTime(), head.MaxTime())
+		q, err := NewBlockQuerier(context.Background(), head, head.MinTime(), head.MaxTime())
 		require.NoError(t, err)
 		act := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "a", "b.*"))
 		compareSeries(t, exp, act)
@@ -3319,7 +3320,7 @@ func TestChunkSnapshot(t *testing.T) {
 	}
 
 	checkSamples := func() {
-		q, err := NewBlockQuerier(head, math.MinInt64, math.MaxInt64)
+		q, err := NewBlockQuerier(context.Background(), head, math.MinInt64, math.MaxInt64)
 		require.NoError(t, err)
 		series := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
 		require.Equal(t, expSeries, series)
@@ -3712,7 +3713,7 @@ func testHistogramStaleSampleHelper(t *testing.T, floatHistogram bool) {
 	expHistograms := make([]timedHistogram, 0, numHistograms)
 
 	testQuery := func(numStale int) {
-		q, err := NewBlockQuerier(head, head.MinTime(), head.MaxTime())
+		q, err := NewBlockQuerier(context.Background(), head, head.MinTime(), head.MaxTime())
 		require.NoError(t, err)
 		t.Cleanup(func() {
 			require.NoError(t, q.Close())
@@ -4164,7 +4165,7 @@ func TestChunkSnapshotReplayBug(t *testing.T) {
 
 	// Querying `request_duration{status_code!="200"}` should return no series since all of
 	// them have status_code="200".
-	q, err := NewBlockQuerier(head, math.MinInt64, math.MaxInt64)
+	q, err := NewBlockQuerier(context.Background(), head, math.MinInt64, math.MaxInt64)
 	require.NoError(t, err)
 	series := query(t, q,
 		labels.MustNewMatcher(labels.MatchEqual, "__name__", "request_duration"),
@@ -4580,7 +4581,7 @@ func TestReplayAfterMmapReplayError(t *testing.T) {
 	require.Equal(t, 2, len(files))
 
 	// Querying should not panic.
-	q, err := NewBlockQuerier(h, 0, lastTs)
+	q, err := NewBlockQuerier(context.Background(), h, 0, lastTs)
 	require.NoError(t, err)
 	res := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "__name__", "testing"))
 	require.Equal(t, map[string][]tsdbutil.Sample{lbls.String(): expSamples}, res)
