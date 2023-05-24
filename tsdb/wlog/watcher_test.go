@@ -104,7 +104,7 @@ func (wtm *writeToMock) SeriesReset(index int) {
 	}
 }
 
-func (wtm *writeToMock) checkNumSeries() int {
+func (wtm *writeToMock) checkNumLabels() int {
 	wtm.seriesLock.Lock()
 	defer wtm.seriesLock.Unlock()
 	return len(wtm.seriesSegmentIndexes)
@@ -230,9 +230,9 @@ func TestTailSamples(t *testing.T) {
 			expectedExemplars := seriesCount * exemplarsCount
 			expectedHistograms := seriesCount * histogramsCount
 			retry(t, defaultRetryInterval, defaultRetries, func() bool {
-				return wt.checkNumSeries() >= expectedSeries
+				return wt.checkNumLabels() >= expectedSeries
 			})
-			require.Equal(t, expectedSeries, wt.checkNumSeries(), "did not receive the expected number of series")
+			require.Equal(t, expectedSeries, wt.checkNumLabels(), "did not receive the expected number of series")
 			require.Equal(t, expectedSamples, wt.samplesAppended, "did not receive the expected number of samples")
 			require.Equal(t, expectedExemplars, wt.exemplarsAppended, "did not receive the expected number of exemplars")
 			require.Equal(t, expectedHistograms, wt.histogramsAppended, "did not receive the expected number of histograms")
@@ -290,7 +290,7 @@ func TestReadToEndNoCheckpoint(t *testing.T) {
 				}
 			}
 			require.NoError(t, w.Log(recs...))
-			readTimeout = time.Second
+
 			_, _, err = Segments(w.Dir())
 			require.NoError(t, err)
 
@@ -299,10 +299,11 @@ func TestReadToEndNoCheckpoint(t *testing.T) {
 			go watcher.Start()
 
 			expected := seriesCount
-			require.Eventually(t, func() bool {
-				return wt.checkNumSeries() == expected
-			}, 20*time.Second, 1*time.Second)
+			retry(t, defaultRetryInterval, defaultRetries, func() bool {
+				return wt.checkNumLabels() >= expected
+			})
 			watcher.Stop()
+			require.Equal(t, expected, wt.checkNumLabels())
 		})
 	}
 }
@@ -382,17 +383,16 @@ func TestReadToEndWithCheckpoint(t *testing.T) {
 
 			_, _, err = Segments(w.Dir())
 			require.NoError(t, err)
-			readTimeout = time.Second
 			wt := newWriteToMock()
 			watcher := NewWatcher(wMetrics, nil, nil, "", wt, dir, false, false)
 			go watcher.Start()
 
 			expected := seriesCount * 2
-
-			require.Eventually(t, func() bool {
-				return wt.checkNumSeries() == expected
-			}, 10*time.Second, 1*time.Second)
+			retry(t, defaultRetryInterval, defaultRetries, func() bool {
+				return wt.checkNumLabels() >= expected
+			})
 			watcher.Stop()
+			require.Equal(t, expected, wt.checkNumLabels())
 		})
 	}
 }
@@ -460,10 +460,10 @@ func TestReadCheckpoint(t *testing.T) {
 
 			expectedSeries := seriesCount
 			retry(t, defaultRetryInterval, defaultRetries, func() bool {
-				return wt.checkNumSeries() >= expectedSeries
+				return wt.checkNumLabels() >= expectedSeries
 			})
 			watcher.Stop()
-			require.Equal(t, expectedSeries, wt.checkNumSeries())
+			require.Equal(t, expectedSeries, wt.checkNumLabels())
 		})
 	}
 }
@@ -595,7 +595,6 @@ func TestCheckpointSeriesReset(t *testing.T) {
 			_, _, err = Segments(w.Dir())
 			require.NoError(t, err)
 
-			readTimeout = time.Second
 			wt := newWriteToMock()
 			watcher := NewWatcher(wMetrics, nil, nil, "", wt, dir, false, false)
 			watcher.MaxSegment = -1
@@ -603,11 +602,9 @@ func TestCheckpointSeriesReset(t *testing.T) {
 
 			expected := seriesCount
 			retry(t, defaultRetryInterval, defaultRetries, func() bool {
-				return wt.checkNumSeries() >= expected
+				return wt.checkNumLabels() >= expected
 			})
-			require.Eventually(t, func() bool {
-				return wt.checkNumSeries() == seriesCount
-			}, 10*time.Second, 1*time.Second)
+			require.Equal(t, seriesCount, wt.checkNumLabels())
 
 			_, err = Checkpoint(log.NewNopLogger(), w, 2, 4, func(x chunks.HeadSeriesRef) bool { return true }, 0)
 			require.NoError(t, err)
@@ -624,9 +621,7 @@ func TestCheckpointSeriesReset(t *testing.T) {
 			// If you modify the checkpoint and truncate segment #'s run the test to see how
 			// many series records you end up with and change the last Equals check accordingly
 			// or modify the Equals to Assert(len(wt.seriesLabels) < seriesCount*10)
-			require.Eventually(t, func() bool {
-				return wt.checkNumSeries() == tc.segments
-			}, 20*time.Second, 1*time.Second)
+			require.Equal(t, tc.segments, wt.checkNumLabels())
 		})
 	}
 }

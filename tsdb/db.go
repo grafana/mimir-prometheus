@@ -269,8 +269,6 @@ type DB struct {
 	// out-of-order compaction and vertical queries.
 	oooWasEnabled atomic.Bool
 
-	writeNotified wlog.WriteNotified
-
 	registerer prometheus.Registerer
 }
 
@@ -855,7 +853,6 @@ func open(dir string, l log.Logger, r prometheus.Registerer, opts *Options, rngs
 	if err != nil {
 		return nil, err
 	}
-	db.head.writeNotified = db.writeNotified
 
 	// Register metrics after assigning the head block.
 	db.metrics = newDBMetrics(db, r)
@@ -2083,12 +2080,6 @@ func (db *DB) CleanTombstones() (err error) {
 		}
 	}
 	return nil
-}
-
-func (db *DB) SetWriteNotified(wn wlog.WriteNotified) {
-	db.writeNotified = wn
-	// It's possible we already created the head struct, so we should also set the WN for that.
-	db.head.writeNotified = wn
 }
 
 func isBlockDir(fi fs.DirEntry) bool {
