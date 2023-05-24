@@ -260,18 +260,17 @@ type labelLimits struct {
 }
 
 type scrapeLoopOptions struct {
-	target                  *Target
-	scraper                 scraper
-	sampleLimit             int
-	bucketLimit             int
-	labelLimits             *labelLimits
-	honorLabels             bool
-	honorTimestamps         bool
-	interval                time.Duration
-	timeout                 time.Duration
-	scrapeClassicHistograms bool
-	mrc                     []*relabel.Config
-	cache                   *scrapeCache
+	target          *Target
+	scraper         scraper
+	sampleLimit     int
+	bucketLimit     int
+	labelLimits     *labelLimits
+	honorLabels     bool
+	honorTimestamps bool
+	interval        time.Duration
+	timeout         time.Duration
+	mrc             []*relabel.Config
+	cache           *scrapeCache
 }
 
 const maxAheadTime = 10 * time.Minute
@@ -332,7 +331,6 @@ func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, jitterSeed 
 			opts.labelLimits,
 			opts.interval,
 			opts.timeout,
-			opts.scrapeClassicHistograms,
 			options.ExtraMetrics,
 			options.EnableMetadataStorage,
 			opts.target,
@@ -549,10 +547,9 @@ func (sp *scrapePool) sync(targets []*Target) {
 			labelNameLengthLimit:  int(sp.config.LabelNameLengthLimit),
 			labelValueLengthLimit: int(sp.config.LabelValueLengthLimit),
 		}
-		honorLabels             = sp.config.HonorLabels
-		honorTimestamps         = sp.config.HonorTimestamps
-		mrc                     = sp.config.MetricRelabelConfigs
-		scrapeClassicHistograms = sp.config.ScrapeClassicHistograms
+		honorLabels     = sp.config.HonorLabels
+		honorTimestamps = sp.config.HonorTimestamps
+		mrc             = sp.config.MetricRelabelConfigs
 	)
 
 	sp.targetMtx.Lock()
@@ -571,17 +568,16 @@ func (sp *scrapePool) sync(targets []*Target) {
 			}
 			s := &targetScraper{Target: t, client: sp.client, timeout: timeout, bodySizeLimit: bodySizeLimit, acceptHeader: acceptHeader}
 			l := sp.newLoop(scrapeLoopOptions{
-				target:                  t,
-				scraper:                 s,
-				sampleLimit:             sampleLimit,
-				bucketLimit:             bucketLimit,
-				labelLimits:             labelLimits,
-				honorLabels:             honorLabels,
-				honorTimestamps:         honorTimestamps,
-				mrc:                     mrc,
-				interval:                interval,
-				timeout:                 timeout,
-				scrapeClassicHistograms: scrapeClassicHistograms,
+				target:          t,
+				scraper:         s,
+				sampleLimit:     sampleLimit,
+				bucketLimit:     bucketLimit,
+				labelLimits:     labelLimits,
+				honorLabels:     honorLabels,
+				honorTimestamps: honorTimestamps,
+				mrc:             mrc,
+				interval:        interval,
+				timeout:         timeout,
 			})
 			if err != nil {
 				l.setForcedError(err)
@@ -886,21 +882,20 @@ type cacheEntry struct {
 }
 
 type scrapeLoop struct {
-	scraper                 scraper
-	l                       log.Logger
-	cache                   *scrapeCache
-	lastScrapeSize          int
-	buffers                 *pool.Pool
-	jitterSeed              uint64
-	honorTimestamps         bool
-	forcedErr               error
-	forcedErrMtx            sync.Mutex
-	sampleLimit             int
-	bucketLimit             int
-	labelLimits             *labelLimits
-	interval                time.Duration
-	timeout                 time.Duration
-	scrapeClassicHistograms bool
+	scraper         scraper
+	l               log.Logger
+	cache           *scrapeCache
+	lastScrapeSize  int
+	buffers         *pool.Pool
+	jitterSeed      uint64
+	honorTimestamps bool
+	forcedErr       error
+	forcedErrMtx    sync.Mutex
+	sampleLimit     int
+	bucketLimit     int
+	labelLimits     *labelLimits
+	interval        time.Duration
+	timeout         time.Duration
 
 	appender            func(ctx context.Context) storage.Appender
 	sampleMutator       labelsMutator
@@ -1182,7 +1177,6 @@ func newScrapeLoop(ctx context.Context,
 	labelLimits *labelLimits,
 	interval time.Duration,
 	timeout time.Duration,
-	scrapeClassicHistograms bool,
 	reportExtraMetrics bool,
 	appendMetadataToWAL bool,
 	target *Target,
@@ -1210,26 +1204,25 @@ func newScrapeLoop(ctx context.Context,
 	}
 
 	sl := &scrapeLoop{
-		scraper:                 sc,
-		buffers:                 buffers,
-		cache:                   cache,
-		appender:                appender,
-		sampleMutator:           sampleMutator,
-		reportSampleMutator:     reportSampleMutator,
-		stopped:                 make(chan struct{}),
-		jitterSeed:              jitterSeed,
-		l:                       l,
-		parentCtx:               ctx,
-		appenderCtx:             appenderCtx,
-		honorTimestamps:         honorTimestamps,
-		sampleLimit:             sampleLimit,
-		bucketLimit:             bucketLimit,
-		labelLimits:             labelLimits,
-		interval:                interval,
-		timeout:                 timeout,
-		scrapeClassicHistograms: scrapeClassicHistograms,
-		reportExtraMetrics:      reportExtraMetrics,
-		appendMetadataToWAL:     appendMetadataToWAL,
+		scraper:             sc,
+		buffers:             buffers,
+		cache:               cache,
+		appender:            appender,
+		sampleMutator:       sampleMutator,
+		reportSampleMutator: reportSampleMutator,
+		stopped:             make(chan struct{}),
+		jitterSeed:          jitterSeed,
+		l:                   l,
+		parentCtx:           ctx,
+		appenderCtx:         appenderCtx,
+		honorTimestamps:     honorTimestamps,
+		sampleLimit:         sampleLimit,
+		bucketLimit:         bucketLimit,
+		labelLimits:         labelLimits,
+		interval:            interval,
+		timeout:             timeout,
+		reportExtraMetrics:  reportExtraMetrics,
+		appendMetadataToWAL: appendMetadataToWAL,
 	}
 	sl.ctx, sl.cancel = context.WithCancel(ctx)
 
@@ -1499,7 +1492,7 @@ type appendErrors struct {
 }
 
 func (sl *scrapeLoop) append(app storage.Appender, b []byte, contentType string, ts time.Time) (total, added, seriesAdded int, err error) {
-	p, err := textparse.New(b, contentType, sl.scrapeClassicHistograms)
+	p, err := textparse.New(b, contentType)
 	if err != nil {
 		level.Debug(sl.l).Log(
 			"msg", "Invalid content type on scrape, using prometheus parser as fallback.",
