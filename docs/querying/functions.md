@@ -589,9 +589,8 @@ over time and return an instant vector with per-series aggregation results:
 Note that all values in the specified interval have the same weight in the
 aggregation even if the values are not equally spaced throughout the interval.
 
-`avg_over_time`, `sum_over_time`, `count_over_time`, `last_over_time`, and
-`present_over_time` handle native histograms as expected. All other functions
-ignore histogram samples.
+`count_over_time`, `last_over_time`, and `present_over_time` handle native
+histograms as expected. All other functions ignore histogram samples.
 
 ## Trigonometric Functions
 
