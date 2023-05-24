@@ -310,22 +310,6 @@ func postingsForMatcher(ix IndexPostingsReader, m *labels.Matcher) (index.Postin
 
 // inversePostingsForMatcher returns the postings for the series with the label name set but not matching the matcher.
 func inversePostingsForMatcher(ix IndexPostingsReader, m *labels.Matcher) (index.Postings, error) {
-	// Fast-path for MatchNotRegexp matching.
-	// Inverse of a MatchNotRegexp is MatchRegexp (double negation).
-	// Fast-path for set matching.
-	if m.Type == labels.MatchNotRegexp {
-		setMatches := m.SetMatches()
-		if len(setMatches) > 0 {
-			return ix.Postings(m.Name, setMatches...)
-		}
-	}
-
-	// Fast-path for MatchNotEqual matching.
-	// Inverse of a MatchNotEqual is MatchEqual (double negation).
-	if m.Type == labels.MatchNotEqual {
-		return ix.Postings(m.Name, m.Value)
-	}
-
 	vals, err := ix.LabelValues(m.Name)
 	if err != nil {
 		return nil, err
@@ -336,6 +320,14 @@ func inversePostingsForMatcher(ix IndexPostingsReader, m *labels.Matcher) (index
 	if m.Type == labels.MatchEqual && m.Value == "" {
 		res = vals
 	} else {
+		// Inverse of a MatchNotRegexp is MatchRegexp (double negation).
+		// Fast-path for set matching.
+		if m.Type == labels.MatchNotRegexp {
+			setMatches := findSetMatches(m.GetRegexString())
+			if len(setMatches) > 0 {
+				return ix.Postings(m.Name, setMatches...)
+			}
+		}
 		for _, val := range vals {
 			if !m.Matches(val) {
 				res = append(res, val)
