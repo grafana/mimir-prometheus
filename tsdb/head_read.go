@@ -360,7 +360,7 @@ func (h *headChunkReader) chunk(meta chunks.Meta, copyLastChunk bool) (chunkenc.
 	}
 	s.Unlock()
 
-	return &safeHeadChunk{
+	return &safeChunk{
 		Chunk:    chk,
 		s:        s,
 		cid:      cid,
@@ -656,15 +656,15 @@ func (b boundedIterator) Seek(t int64) chunkenc.ValueType {
 	return b.Iterator.Seek(t)
 }
 
-// safeHeadChunk makes sure that the chunk can be accessed without a race condition
-type safeHeadChunk struct {
+// safeChunk makes sure that the chunk can be accessed without a race condition
+type safeChunk struct {
 	chunkenc.Chunk
 	s        *memSeries
 	cid      chunks.HeadChunkID
 	isoState *isolationState
 }
 
-func (c *safeHeadChunk) Iterator(reuseIter chunkenc.Iterator) chunkenc.Iterator {
+func (c *safeChunk) Iterator(reuseIter chunkenc.Iterator) chunkenc.Iterator {
 	c.s.Lock()
 	it := c.s.iterator(c.cid, c.Chunk, c.isoState, reuseIter)
 	c.s.Unlock()
