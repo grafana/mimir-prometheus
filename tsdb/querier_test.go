@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -2192,7 +2193,8 @@ func TestPostingsForMatchers(t *testing.T) {
 	}
 }
 
-func syncLog(ctx context.Context, l interface{ Log(...any) }, messages chan string) {
+func syncLog(ctx context.Context, done *sync.WaitGroup, l interface{ Log(...any) }, messages chan string) {
+	defer done.Done()
 	for {
 		select {
 		case <-ctx.Done():
@@ -2230,13 +2232,17 @@ func TestPostingsForMatchersRace(t *testing.T) {
 	logs := make(chan string)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
+	wg := &sync.WaitGroup{}
 	go appendSeries(ctx, logs, h, math.MaxInt)
 
 	for _, c := range cases {
 		t.Run(fmt.Sprintf("%v", c.matchers), func(t *testing.T) {
+			wg.Add(1)
+			t.Cleanup(wg.Wait)
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(cancel)
-			go syncLog(ctx, t, logs)
+			go syncLog(ctx, wg, t, logs) // separate syncLog goroutine so the logs are attached to this test case's t.
+
 			for i := 0; i < testRepeats; i++ {
 				logs <- fmt.Sprintf("Evaluation %d", i)
 				ir, err := h.Index()
