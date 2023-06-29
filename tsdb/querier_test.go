@@ -2192,6 +2192,87 @@ func TestPostingsForMatchers(t *testing.T) {
 	}
 }
 
+func syncLog(ctx context.Context, l interface{ Log(...any) }, messages chan string) {
+	for msg := range messages {
+		l.Log(msg)
+		if ctx.Err() != nil {
+			return
+		}
+	}
+}
+
+func TestPostingsForMatchersRace(t *testing.T) {
+	const testRepeats = 10000
+	chunkDir := t.TempDir()
+	opts := DefaultHeadOptions()
+	opts.ChunkRange = 1000
+	opts.ChunkDirRoot = chunkDir
+	h, err := NewHead(nil, nil, nil, nil, opts, nil)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, h.Close())
+	}()
+
+	cases := []struct {
+		matchers []*labels.Matcher
+	}{
+		{
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "n", "")},
+		},
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	logs := make(chan string)
+	go syncLog(ctx, t, logs)
+	go appendSeries(ctx, logs, h, math.MaxInt)
+
+	for _, c := range cases {
+		for i := 0; i < testRepeats; i++ {
+			logs <- fmt.Sprintf("Evaluation %d", i)
+			ir, err := h.Index()
+			require.NoError(t, err)
+			p, err := PostingsForMatchers(ir, c.matchers...)
+			require.NoError(t, err)
+
+			var foundSeriesLabels []string
+			for p.Next() {
+				var builder labels.ScratchBuilder
+				require.NoError(t, ir.Series(p.At(), &builder, &[]chunks.Meta{}))
+				foundSeriesLabels = append(foundSeriesLabels, builder.Labels().String())
+			}
+			if len(foundSeriesLabels) > 0 {
+				logs <- fmt.Sprintf("Evaluation %d, unexpected result for query %v %v", i, c.matchers, foundSeriesLabels)
+				t.Fail()
+			}
+			require.NoError(t, p.Err())
+			require.NoError(t, ir.Close())
+			logs <- fmt.Sprintf("Evaluation %d done", i)
+		}
+	}
+}
+
+func appendSeries(ctx context.Context, logs chan string, h *Head, numSeries int) {
+	for i := 0; i < numSeries; i++ {
+		if ctx.Err() != nil {
+			return
+		}
+		app := h.Appender(context.Background())
+		_, err := app.Append(0, labels.FromStrings("n", strconv.Itoa(i)), 0, 0)
+		if err != nil {
+			logs <- fmt.Sprintf("appendSeries error: %s", err)
+		}
+		err = app.Commit()
+		if err != nil {
+			logs <- fmt.Sprintf("appendSeries error: %s", err)
+		}
+		logs <- fmt.Sprintf("appended %d", i)
+		if i%100 == 0 {
+			// Throttle down the appends to keep the test somewhat nimble.
+			time.Sleep(time.Millisecond)
+		}
+	}
+}
+
 // TestClose ensures that calling Close more than once doesn't block and doesn't panic.
 func TestClose(t *testing.T) {
 	dir := t.TempDir()
