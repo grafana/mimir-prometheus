@@ -2223,7 +2223,7 @@ func TestPostingsForMatchersRace(t *testing.T) {
 		{
 			// This fails less often because the race conditions are on the series appended since the start of the PostingsForMatchers call
 			// and in the test case we can only anchor on a single value, i.e. only one test run is succeptable to the race.
-			// For me this fails in one test case when I run with -test.count=500.
+			// For me this fails in one test case when I run with -count=500.
 			matchers: []*labels.Matcher{
 				labels.MustNewMatcher(labels.MatchNotEqual, "n", "495"),
 				labels.MustNewMatcher(labels.MatchRegexp, "n", ".+"),
