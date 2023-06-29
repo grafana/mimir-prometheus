@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -2189,6 +2190,58 @@ func TestPostingsForMatchers(t *testing.T) {
 				t.Errorf("Evaluating %v, missing results %+v", c.matchers, exp)
 			}
 		})
+	}
+}
+
+// TestQuerierIndexQueriesRace tests the index queries with racing appends.
+func TestQuerierIndexQueriesRace(t *testing.T) {
+	const testRepeats = 1000
+
+	db := openTestDB(t, DefaultOptions(), nil)
+	h := db.Head()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	matchers := []*labels.Matcher{
+		// This matcher should involve the AllPostings posting list, which is racy
+		labels.MustNewMatcher(labels.MatchNotEqual, labels.MetricName, "metric"),
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
+	go appendSeries(t, ctx, wg, h)
+	t.Cleanup(wg.Wait)
+	t.Cleanup(cancel)
+
+	for i := 0; i < testRepeats; i++ {
+		q, err := db.Querier(ctx, math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		values, _, err := q.LabelValues("n", matchers...)
+		require.NoError(t, err)
+		require.Emptyf(t, values, `label values for label "n" should be empty`)
+	}
+}
+
+func appendSeries(t *testing.T, ctx context.Context, wg *sync.WaitGroup, h *Head) {
+	defer wg.Done()
+
+	for i := 0; ; i++ {
+		if ctx.Err() != nil {
+			return
+		}
+		app := h.Appender(context.Background())
+		_, err := app.Append(0, labels.FromStrings(labels.MetricName, "metric", "n", strconv.Itoa(i)), 0, 0)
+		require.NoError(t, err)
+		err = app.Commit()
+		require.NoError(t, err)
+
+		if i%10 == 0 {
+			// Throttle down the appends to keep the test somewhat nimble.
+			time.Sleep(time.Millisecond)
+		}
 	}
 }
 
