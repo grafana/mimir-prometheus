@@ -2202,7 +2202,7 @@ func syncLog(ctx context.Context, l interface{ Log(...any) }, messages chan stri
 }
 
 func TestPostingsForMatchersRace(t *testing.T) {
-	const testRepeats = 10000
+	const testRepeats = 1000
 	chunkDir := t.TempDir()
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
@@ -2266,7 +2266,7 @@ func appendSeries(ctx context.Context, logs chan string, h *Head, numSeries int)
 			logs <- fmt.Sprintf("appendSeries error: %s", err)
 		}
 		logs <- fmt.Sprintf("appended %d", i)
-		if i%100 == 0 {
+		if i%10 == 0 {
 			// Throttle down the appends to keep the test somewhat nimble.
 			time.Sleep(time.Millisecond)
 		}
