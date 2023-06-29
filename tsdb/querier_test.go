@@ -2193,10 +2193,12 @@ func TestPostingsForMatchers(t *testing.T) {
 }
 
 func syncLog(ctx context.Context, l interface{ Log(...any) }, messages chan string) {
-	for msg := range messages {
-		l.Log(msg)
-		if ctx.Err() != nil {
+	for {
+		select {
+		case <-ctx.Done():
 			return
+		case m := <-messages:
+			l.Log(m)
 		}
 	}
 }
@@ -2217,55 +2219,87 @@ func TestPostingsForMatchersRace(t *testing.T) {
 		matchers []*labels.Matcher
 	}{
 		{
+			// This fails less often because the race conditions are on the series appended since the start of the PostingsForMatchers call
+			// and in the test case we can only anchor on a single value, i.e. only one test run is succeptable to the race.
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchNotEqual, "n", "495")},
+		},
+		{
 			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "n", "")},
 		},
 	}
+	logs := make(chan string)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	logs := make(chan string)
-	go syncLog(ctx, t, logs)
 	go appendSeries(ctx, logs, h, math.MaxInt)
 
 	for _, c := range cases {
-		for i := 0; i < testRepeats; i++ {
-			logs <- fmt.Sprintf("Evaluation %d", i)
-			ir, err := h.Index()
-			require.NoError(t, err)
-			p, err := PostingsForMatchers(ir, c.matchers...)
-			require.NoError(t, err)
+		t.Run(fmt.Sprintf("%v", c.matchers), func(t *testing.T) {
+			ctx, cancel := context.WithCancel(context.Background())
+			t.Cleanup(cancel)
+			go syncLog(ctx, t, logs)
+			for i := 0; i < testRepeats; i++ {
+				logs <- fmt.Sprintf("Evaluation %d", i)
+				ir, err := h.Index()
+				require.NoError(t, err)
+				p, err := PostingsForMatchers(ir, c.matchers...)
+				require.NoError(t, err)
 
-			var foundSeriesLabels []string
-			for p.Next() {
-				var builder labels.ScratchBuilder
-				require.NoError(t, ir.Series(p.At(), &builder, &[]chunks.Meta{}))
-				foundSeriesLabels = append(foundSeriesLabels, builder.Labels().String())
+				var nonMatchingSeries []string
+				for p.Next() {
+					var builder labels.ScratchBuilder
+					require.NoError(t, ir.Series(p.At(), &builder, &[]chunks.Meta{}))
+					lbls := builder.Labels()
+					if !matchersMatch(c.matchers, lbls) {
+						nonMatchingSeries = append(nonMatchingSeries, builder.Labels().String())
+					}
+				}
+				if len(nonMatchingSeries) > 0 {
+					logs <- fmt.Sprintf("Evaluation %d, unexpected result for query %v %v", i, c.matchers, nonMatchingSeries)
+					t.Fail()
+				}
+				require.NoError(t, p.Err())
+				require.NoError(t, ir.Close())
+				logs <- fmt.Sprintf("Evaluation %d done", i)
 			}
-			if len(foundSeriesLabels) > 0 {
-				logs <- fmt.Sprintf("Evaluation %d, unexpected result for query %v %v", i, c.matchers, foundSeriesLabels)
-				t.Fail()
-			}
-			require.NoError(t, p.Err())
-			require.NoError(t, ir.Close())
-			logs <- fmt.Sprintf("Evaluation %d done", i)
-		}
+		})
 	}
 }
 
-func appendSeries(ctx context.Context, logs chan string, h *Head, numSeries int) {
-	for i := 0; i < numSeries; i++ {
-		if ctx.Err() != nil {
-			return
+func matchersMatch(m []*labels.Matcher, l labels.Labels) bool {
+	for _, matcher := range m {
+		if !matcher.Matches(l.Get(matcher.Name)) {
+			return false
 		}
+	}
+	return true
+}
+
+func appendSeries(ctx context.Context, logs chan string, h *Head, numSeries int) {
+	sendMsg := func(msg string) bool {
+		select {
+		case <-ctx.Done():
+			return false
+		case logs <- msg:
+			return true
+		}
+	}
+	for i := 0; i < numSeries; i++ {
 		app := h.Appender(context.Background())
 		_, err := app.Append(0, labels.FromStrings("n", strconv.Itoa(i)), 0, 0)
 		if err != nil {
-			logs <- fmt.Sprintf("appendSeries error: %s", err)
+			if !sendMsg(fmt.Sprintf("appendSeries error: %s", err)) {
+				return
+			}
 		}
 		err = app.Commit()
 		if err != nil {
-			logs <- fmt.Sprintf("appendSeries error: %s", err)
+			if !sendMsg(fmt.Sprintf("appendSeries error: %s", err)) {
+				return
+			}
 		}
-		logs <- fmt.Sprintf("appended %d", i)
+		if !sendMsg(fmt.Sprintf("appended %d", i)) {
+			return
+		}
 		if i%10 == 0 {
 			// Throttle down the appends to keep the test somewhat nimble.
 			time.Sleep(time.Millisecond)
