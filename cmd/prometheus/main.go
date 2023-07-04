@@ -1050,7 +1050,10 @@ func main() {
 					"WALSegmentSize", cfg.tsdb.WALSegmentSize,
 					"WALCompression", cfg.tsdb.WALCompression,
 				)
-
+				err = db.Compact()
+				if err != nil {
+					return fmt.Errorf("compaction after DB start failed: %w", err)
+				}
 				startTimeMargin := int64(2 * time.Duration(cfg.tsdb.MinBlockDuration).Seconds() * 1000)
 				localStorage.Set(db, startTimeMargin)
 				db.SetWriteNotified(remoteStorage)
