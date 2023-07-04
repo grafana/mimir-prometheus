@@ -237,6 +237,13 @@ Outer:
 		switch v := d.(type) {
 		case []record.RefSeries:
 			for _, walSeries := range v {
+				if len(walSeries.Labels.Map()) != walSeries.Labels.Len() {
+					level.Warn(h.logger).Log(
+						"msg", "series with duplicate labels found in WAL, skipping",
+						"series", walSeries.Labels.String(),
+					)
+					continue
+				}
 				mSeries, created, err := h.getOrCreateWithID(walSeries.Ref, walSeries.Labels.Hash(), walSeries.Labels)
 				if err != nil {
 					seriesCreationErr = err
