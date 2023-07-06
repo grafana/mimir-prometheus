@@ -2209,6 +2209,7 @@ func TestQuerierIsolationRace(t *testing.T) {
 	const testRepeats = 1000
 	opts := DefaultOptions()
 	opts.IsolationDisabled = true
+	selectHints := &storage.SelectHints{DisableTrimming: true}
 	db := openTestDB(t, opts, nil)
 	h := db.Head()
 	t.Cleanup(func() {
@@ -2244,12 +2245,11 @@ func TestQuerierIsolationRace(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
 			t.Cleanup(cancel)
 			go syncLog(ctx, wg, t, logs) // separate syncLog goroutine so the logs are attached to this test case's t.
-
 			for i := 0; i < testRepeats; i++ {
 				logs <- fmt.Sprintf("Evaluation %d", i)
 				q, err := db.Querier(ctx, math.MinInt64, math.MaxInt64)
 				require.NoError(t, err)
-				p := q.Select(true, nil, c.matchers...)
+				p := q.Select(true, selectHints, c.matchers...)
 
 				var nonMatchingSeries []string
 				for p.Next() {
