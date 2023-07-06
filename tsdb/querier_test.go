@@ -2205,17 +2205,15 @@ func syncLog(ctx context.Context, done *sync.WaitGroup, l interface{ Log(...any)
 	}
 }
 
-func TestPostingsForMatchersRace(t *testing.T) {
+func TestQuerierIsolationRace(t *testing.T) {
 	const testRepeats = 1000
-	chunkDir := t.TempDir()
-	opts := DefaultHeadOptions()
-	opts.ChunkRange = 1000
-	opts.ChunkDirRoot = chunkDir
-	h, err := NewHead(nil, nil, nil, nil, opts, nil)
-	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, h.Close())
-	}()
+	opts := DefaultOptions()
+	opts.IsolationDisabled = true
+	db := openTestDB(t, opts, nil)
+	h := db.Head()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
 
 	cases := []struct {
 		matchers []*labels.Matcher
@@ -2249,18 +2247,15 @@ func TestPostingsForMatchersRace(t *testing.T) {
 
 			for i := 0; i < testRepeats; i++ {
 				logs <- fmt.Sprintf("Evaluation %d", i)
-				ir, err := h.Index()
+				q, err := db.Querier(ctx, math.MinInt64, math.MaxInt64)
 				require.NoError(t, err)
-				p, err := PostingsForMatchers(ir, c.matchers...)
-				require.NoError(t, err)
+				p := q.Select(true, nil, c.matchers...)
 
 				var nonMatchingSeries []string
 				for p.Next() {
-					var builder labels.ScratchBuilder
-					require.NoError(t, ir.Series(p.At(), &builder, &[]chunks.Meta{}))
-					lbls := builder.Labels()
+					lbls := p.At().Labels()
 					if !matchersMatch(c.matchers, lbls) {
-						nonMatchingSeries = append(nonMatchingSeries, builder.Labels().String())
+						nonMatchingSeries = append(nonMatchingSeries, lbls.String())
 					}
 				}
 				if len(nonMatchingSeries) > 0 {
@@ -2268,7 +2263,6 @@ func TestPostingsForMatchersRace(t *testing.T) {
 					t.Fail()
 				}
 				require.NoError(t, p.Err())
-				require.NoError(t, ir.Close())
 				logs <- fmt.Sprintf("Evaluation %d done", i)
 			}
 		})
