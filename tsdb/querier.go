@@ -187,40 +187,6 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 		}
 	}
 
-	someSubtractingMatchers, someIntersectingMatchers := false, false
-	for _, m := range ms {
-		switch {
-		case m.Name == "" && m.Value == "": // Special-case for AllPostings, used in tests at least.
-			someIntersectingMatchers = true
-		case labelMustBeSet[m.Name]:
-			// If this matcher must be non-empty, we can be smarter.
-			matchesEmpty := m.Matches("")
-			isNot := m.Type == labels.MatchNotEqual || m.Type == labels.MatchNotRegexp
-			switch {
-			case isNot && matchesEmpty: // l!="foo"
-				someSubtractingMatchers = true
-			case isNot && !matchesEmpty: // l!=""
-				someIntersectingMatchers = true
-			default: // l="a"
-				someIntersectingMatchers = true
-			}
-		default: // l=""
-			someSubtractingMatchers = true
-		}
-	}
-
-	if someSubtractingMatchers && !someIntersectingMatchers {
-		// If there's nothing to subtract from, add in everything and remove the notIts later.
-		// We prefer to get AllPostings so that the base of subtraction (i.e. allPostings)
-		// doesn't include series that may be added ot the index reader during this function call.
-		k, v := index.AllPostingsKey()
-		allPostings, err := ix.Postings(k, v)
-		if err != nil {
-			return nil, err
-		}
-		its = append(its, allPostings)
-	}
-
 	for _, m := range ms {
 		switch {
 		case m.Name == "" && m.Value == "": // Special-case for AllPostings, used in tests at least.
@@ -286,6 +252,16 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 			}
 			notIts = append(notIts, it)
 		}
+	}
+
+	// If there's nothing to subtract from, add in everything and remove the notIts later.
+	if len(its) == 0 && len(notIts) != 0 {
+		k, v := index.AllPostingsKey()
+		allPostings, err := ix.Postings(k, v)
+		if err != nil {
+			return nil, err
+		}
+		its = append(its, allPostings)
 	}
 
 	it := index.Intersect(its...)
