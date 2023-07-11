@@ -2257,7 +2257,7 @@ func TestQuerierIsolationRace(t *testing.T) {
 				}
 				if len(nonMatchingSeries) > 0 {
 					logs <- fmt.Sprintf("Evaluation %d, unexpected result for query %v %v", i, c.matchers, nonMatchingSeries)
-					t.Fail()
+					t.FailNow() // we don't want to block CI for too long
 				}
 				require.NoError(t, p.Err())
 				logs <- fmt.Sprintf("Evaluation %d done", i)
