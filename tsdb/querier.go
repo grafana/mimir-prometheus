@@ -19,7 +19,6 @@ import (
 
 	"github.com/oklog/ulid"
 	"github.com/pkg/errors"
-	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -187,18 +186,26 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 			labelMustBeSet[m.Name] = true
 		}
 	}
-	isSubtractingMatcher := func(m *labels.Matcher) bool {
-		if !labelMustBeSet[m.Name] {
-			return true
-		}
-		return (m.Type == labels.MatchNotEqual || m.Type == labels.MatchNotRegexp) && m.Matches("")
-	}
+
 	someSubtractingMatchers, someIntersectingMatchers := false, false
 	for _, m := range ms {
-		if isSubtractingMatcher(m) {
-			someSubtractingMatchers = true
-		} else {
+		switch {
+		case m.Name == "" && m.Value == "": // Special-case for AllPostings, used in tests at least.
 			someIntersectingMatchers = true
+		case labelMustBeSet[m.Name]:
+			// If this matcher must be non-empty, we can be smarter.
+			matchesEmpty := m.Matches("")
+			isNot := m.Type == labels.MatchNotEqual || m.Type == labels.MatchNotRegexp
+			switch {
+			case isNot && matchesEmpty: // l!="foo"
+				someSubtractingMatchers = true
+			case isNot && !matchesEmpty: // l!=""
+				someIntersectingMatchers = true
+			default: // l="a"
+				someIntersectingMatchers = true
+			}
+		default: // l=""
+			someSubtractingMatchers = true
 		}
 	}
 
@@ -213,15 +220,6 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 		}
 		its = append(its, allPostings)
 	}
-
-	// Sort matchers to have the intersecting matchers first.
-	// This way the base for subtraction is smaller and
-	// there is no chance that the set we subtract from
-	// contains postings of series that didn't exist when
-	// we constructed the set we subtract by.
-	slices.SortFunc(ms, func(i, j *labels.Matcher) bool {
-		return !isSubtractingMatcher(i) && isSubtractingMatcher(j)
-	})
 
 	for _, m := range ms {
 		switch {
