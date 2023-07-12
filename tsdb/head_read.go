@@ -533,21 +533,15 @@ func (s *memSeries) oooMergedChunks(meta chunks.Meta, cdm chunkDiskMapper, mint,
 		}
 		var iterable chunkenc.Iterable
 		if c.meta.Ref == oooHeadRef {
-			var xor *chunkenc.XORChunk
-			var err error
-			// If head chunk min and max time match the meta OOO markers
-			// that means that the chunk has not expanded so we can append
-			// it as it is.
-			if s.ooo.oooHeadChunk.minTime == meta.OOOLastMinTime && s.ooo.oooHeadChunk.maxTime == meta.OOOLastMaxTime {
-				xor, err = s.ooo.oooHeadChunk.chunk.ToXOR() // TODO(jesus.vazquez) (This is an optimization idea that has no priority and might not be that useful) See if we could use a copy of the underlying slice. That would leave the more expensive ToXOR() function only for the usecase where Bytes() is called.
-			} else {
-				// We need to remove samples that are outside of the markers
-				xor, err = s.ooo.oooHeadChunk.chunk.ToXORBetweenTimestamps(meta.OOOLastMinTime, meta.OOOLastMaxTime)
-			}
+			chks, err := s.ooo.oooHeadChunk.chunk.ToEncodedChunks(meta.OOOLastMinTime, meta.OOOLastMaxTime)
 			if err != nil {
-				return nil, errors.Wrap(err, "failed to convert ooo head chunk to xor chunk")
+				return nil, errors.Wrap(err, "failed to convert ooo head chunk to encoded chunk(s)")
 			}
-			iterable = xor
+			// If the head results in multiple chunks, the chunks will share the same reference as the head chunk,
+			// which is technically true, but if some code does not check against the head, could lead to unexpected results.
+			for _, chk := range chks {
+				mc.chunkIterables = append(mc.chunkIterables, chk.chunk)
+			}
 		} else {
 			chk, err := cdm.Chunk(c.ref)
 			if err != nil {
@@ -566,8 +560,8 @@ func (s *memSeries) oooMergedChunks(meta chunks.Meta, cdm chunkDiskMapper, mint,
 			} else {
 				iterable = chk
 			}
+			mc.chunkIterables = append(mc.chunkIterables, iterable)
 		}
-		mc.chunkIterables = append(mc.chunkIterables, iterable)
 		if c.meta.MaxTime > absoluteMax {
 			absoluteMax = c.meta.MaxTime
 		}
