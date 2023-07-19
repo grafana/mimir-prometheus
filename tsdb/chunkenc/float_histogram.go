@@ -15,6 +15,7 @@ package chunkenc
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -80,8 +81,8 @@ func (c *FloatHistogramChunk) Layout() (
 	return readHistogramChunkLayout(&b)
 }
 
-// SetCounterResetHeader sets the counter reset header.
-func (c *FloatHistogramChunk) SetCounterResetHeader(h CounterResetHeader) {
+// setCounterResetHeader sets the counter reset header.
+func (c *FloatHistogramChunk) setCounterResetHeader(h CounterResetHeader) {
 	setCounterResetHeader(h, c.Bytes())
 }
 
@@ -201,6 +202,10 @@ func (a *FloatHistogramAppender) GetCounterResetHeader() CounterResetHeader {
 	return CounterResetHeader(a.b.bytes()[2] & 0b11000000)
 }
 
+func (a *FloatHistogramAppender) setCounterResetHeader(cr CounterResetHeader) {
+	a.b.bytes()[2] = (a.b.bytes()[2] & 0b00111111) | (byte(cr) & 0b11000000)
+}
+
 func (a *FloatHistogramAppender) NumSamples() int {
 	return int(binary.BigEndian.Uint16(a.b.bytes()))
 }
@@ -209,12 +214,6 @@ func (a *FloatHistogramAppender) NumSamples() int {
 // samples must never be appended to a histogram chunk.
 func (a *FloatHistogramAppender) Append(int64, float64) {
 	panic("appended a float sample to a histogram chunk")
-}
-
-// AppendHistogram implements Appender. This implementation panics because integer
-// histogram samples must never be appended to a float histogram chunk.
-func (a *FloatHistogramAppender) AppendHistogram(int64, *histogram.Histogram) {
-	panic("appended an integer histogram to a float histogram chunk")
 }
 
 // Appendable returns whether the chunk can be appended to, and if so whether
@@ -546,10 +545,10 @@ func (a *FloatHistogramAppender) Recode(
 		if len(negativeInserts) > 0 {
 			hOld.NegativeBuckets = insert(hOld.NegativeBuckets, negativeBuckets, negativeInserts, false)
 		}
-		app.AppendFloatHistogram(tOld, hOld)
+		app.(*FloatHistogramAppender).AppendFloatHistogram(tOld, hOld)
 	}
 
-	hc.SetCounterResetHeader(CounterResetHeader(byts[2] & 0b11000000))
+	hc.setCounterResetHeader(CounterResetHeader(byts[2] & 0b11000000))
 	return hc, app
 }
 
@@ -567,6 +566,116 @@ func (a *FloatHistogramAppender) RecodeHistogramm(
 		numNegativeBuckets := countSpans(fh.NegativeSpans)
 		fh.NegativeBuckets = insert(fh.NegativeBuckets, make([]float64, numNegativeBuckets), nBackwardInter, false)
 	}
+}
+
+func (a *FloatHistogramAppender) AppendOrCreateHistogram(*HistogramAppender, int64, *histogram.Histogram, bool) (Chunk, bool, Appender, error) {
+	panic("appended a histogram sample to a float histogram chunk")
+}
+
+func (a *FloatHistogramAppender) AppendOrCreateFloatHistogram(prev *FloatHistogramAppender, t int64, h *histogram.FloatHistogram, appendOnly bool) (Chunk, bool, Appender, error) {
+	if a.NumSamples() == 0 {
+		a.AppendFloatHistogram(t, h)
+		if h.CounterResetHint == histogram.GaugeType {
+			a.setCounterResetHeader(GaugeType)
+			return nil, false, a, nil
+		}
+
+		if prev != nil && h.CounterResetHint != histogram.CounterReset {
+			// This is a new chunk, but continued from a previous one. We need to calculate the reset header unless already set.
+			_, _, _, counterReset := prev.Appendable(h)
+			if counterReset {
+				a.setCounterResetHeader(CounterReset)
+			} else {
+				a.setCounterResetHeader(NotCounterReset)
+			}
+		} else {
+			// Honor the explicit counter reset hint.
+			switch h.CounterResetHint {
+			case histogram.CounterReset:
+				a.setCounterResetHeader(CounterReset)
+			case histogram.NotCounterReset:
+				a.setCounterResetHeader(NotCounterReset)
+			default:
+				a.setCounterResetHeader(UnknownCounterReset)
+			}
+		}
+		return nil, false, a, nil
+	}
+
+	// Adding non gauge histogram.
+	if h.CounterResetHint != histogram.GaugeType {
+		pForwardInserts, nForwardInserts, okToAppend, counterReset := a.Appendable(h)
+		if !okToAppend || counterReset {
+			if appendOnly {
+				if !okToAppend {
+					return nil, false, a, fmt.Errorf("float histogram schema change")
+				}
+				return nil, false, a, fmt.Errorf("float histogram counter reset")
+			}
+			newChunk := NewFloatHistogramChunk()
+			if counterReset {
+				newChunk.setCounterResetHeader(CounterReset)
+			}
+			app, err := newChunk.Appender()
+			if err != nil {
+				return nil, false, a, err
+			}
+			app.(*FloatHistogramAppender).AppendFloatHistogram(t, h)
+			return newChunk, false, app, nil
+		}
+		if len(pForwardInserts) > 0 || len(nForwardInserts) > 0 {
+			if appendOnly {
+				return nil, false, a, fmt.Errorf("float histogram layout change with %d positive and %d negative forwards inserts", len(pForwardInserts), len(nForwardInserts))
+			}
+			chk, app := a.Recode(
+				pForwardInserts, nForwardInserts,
+				h.PositiveSpans, h.NegativeSpans,
+			)
+			app.(*FloatHistogramAppender).AppendFloatHistogram(t, h)
+			return chk, true, app, nil
+		}
+		a.AppendFloatHistogram(t, h)
+		return nil, false, a, nil
+	}
+	// Adding gauge histogram
+	pForwardInserts, nForwardInserts, pBackwardInserts, nBackwardInserts, pMergedSpans, nMergedSpans, okToAppend := a.AppendableGauge(h)
+	if !okToAppend {
+		if appendOnly {
+			return nil, false, a, fmt.Errorf("float gauge histogram schema change")
+		}
+		newChunk := NewFloatHistogramChunk()
+		newChunk.setCounterResetHeader(GaugeType)
+		app, err := newChunk.Appender()
+		if err != nil {
+			return nil, false, a, err
+		}
+		app.(*FloatHistogramAppender).AppendFloatHistogram(t, h)
+		return newChunk, false, app, nil
+	}
+
+	if len(pBackwardInserts)+len(nBackwardInserts) > 0 {
+		if appendOnly {
+			return nil, false, a, fmt.Errorf("float gauge histogram layout change with %d positive and %d negative backwards inserts", len(pBackwardInserts), len(nBackwardInserts))
+		}
+		h.PositiveSpans = pMergedSpans
+		h.NegativeSpans = nMergedSpans
+		a.RecodeHistogramm(h, pBackwardInserts, nBackwardInserts)
+	}
+
+	if len(pForwardInserts) > 0 || len(nForwardInserts) > 0 {
+		if appendOnly {
+			return nil, false, a, fmt.Errorf("float gauge histogram layout change with %d positive and %d negative forwards inserts", len(pForwardInserts), len(nForwardInserts))
+		}
+		chk, app := a.Recode(
+			pForwardInserts, nForwardInserts,
+			h.PositiveSpans, h.NegativeSpans,
+		)
+		app.(*FloatHistogramAppender).AppendFloatHistogram(t, h)
+		return chk, true, app, nil
+	}
+
+	a.AppendFloatHistogram(t, h)
+	return nil, false, a, nil
 }
 
 type floatHistogramIterator struct {
