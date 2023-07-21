@@ -136,6 +136,15 @@ func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder,
 	return nil
 }
 
+func (m mockIndex) Labels(ref storage.SeriesRef, builder *labels.ScratchBuilder) error {
+	s, ok := m.series[ref]
+	if !ok {
+		return errors.New("not found")
+	}
+	builder.Assign(s.l)
+	return nil
+}
+
 func TestIndexRW_Create_Open(t *testing.T) {
 	dir := t.TempDir()
 
