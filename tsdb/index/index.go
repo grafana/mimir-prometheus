@@ -25,6 +25,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"unsafe"
 
@@ -1301,6 +1302,10 @@ func newReader(b ByteSlice, c io.Closer, cacheProvider ReaderCacheProvider) (*Re
 	return r, nil
 }
 
+func (r *Reader) Labels(ref storage.SeriesRef, builder *labels.ScratchBuilder) error {
+	return r.Series(ref, builder, nil)
+}
+
 // Version returns the file format version of the underlying index.
 func (r *Reader) Version() int {
 	return r.version
@@ -1594,6 +1599,22 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 	}
 
 	return values, ctx.Err()
+}
+
+func (r *Reader) LabelValuesStream(_ context.Context, name string, matchers ...*labels.Matcher) storage.LabelValues {
+	if r.version == FormatV1 {
+		p := r.postingsV1[name]
+		if len(p) == 0 {
+			return storage.EmptyLabelValues()
+		}
+		return &labelValuesV1{
+			matchers: matchers,
+			it:       reflect.ValueOf(p).MapRange(),
+			name:     name,
+		}
+	}
+
+	return r.newLabelValuesV2(name, matchers)
 }
 
 // LabelNamesFor returns all the label names for the series referred to by IDs.

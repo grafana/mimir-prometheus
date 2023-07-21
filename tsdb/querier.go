@@ -79,6 +79,10 @@ func (q *blockBaseQuerier) LabelValues(ctx context.Context, name string, matcher
 	return res, nil, err
 }
 
+func (q *blockBaseQuerier) LabelValuesStream(ctx context.Context, name string, matchers ...*labels.Matcher) storage.LabelValues {
+	return q.index.LabelValuesStream(ctx, name, matchers...)
+}
+
 func (q *blockBaseQuerier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	res, err := q.index.LabelNames(ctx, matchers...)
 	return res, nil, err
@@ -411,11 +415,11 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 
 			// We have expanded all the postings -- all returned label values will be from these series only.
 			// (We supply allValues as a buffer for storing results. It should be big enough already, since it holds all possible label values.)
-			return labelValuesFromSeries(r, name, expanded, allValues)
+			return index.LabelValuesFromSeries(r, name, expanded, allValues)
 		}
 
 		// If we haven't reached end of postings, we prepend our expanded postings to "p", and continue.
-		p = newPrependPostings(expanded, p)
+		p = index.NewPrependPostings(expanded, p)
 	}
 
 	valuesPostings := make([]index.Postings, len(allValues))
@@ -436,87 +440,6 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 	}
 
 	return values, nil
-}
-
-// labelValuesFromSeries returns all unique label values from for given label name from supplied series. Values are not sorted.
-// buf is space for holding result (if it isn't big enough, it will be ignored), may be nil.
-func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
-	values := map[string]struct{}{}
-
-	var builder labels.ScratchBuilder
-	for _, ref := range refs {
-		err := r.Series(ref, &builder, nil)
-		// Postings may be stale. Skip if no underlying series exists.
-		if errors.Is(err, storage.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return nil, fmt.Errorf("label values for label %s: %w", labelName, err)
-		}
-
-		v := builder.Labels().Get(labelName)
-		if v != "" {
-			values[v] = struct{}{}
-		}
-	}
-
-	if cap(buf) >= len(values) {
-		buf = buf[:0]
-	} else {
-		buf = make([]string, 0, len(values))
-	}
-	for v := range values {
-		buf = append(buf, v)
-	}
-	return buf, nil
-}
-
-func newPrependPostings(a []storage.SeriesRef, b index.Postings) index.Postings {
-	return &prependPostings{
-		ix:     -1,
-		prefix: a,
-		rest:   b,
-	}
-}
-
-// prependPostings returns series references from "prefix" before using "rest" postings.
-type prependPostings struct {
-	ix     int
-	prefix []storage.SeriesRef
-	rest   index.Postings
-}
-
-func (p *prependPostings) Next() bool {
-	p.ix++
-	if p.ix < len(p.prefix) {
-		return true
-	}
-	return p.rest.Next()
-}
-
-func (p *prependPostings) Seek(v storage.SeriesRef) bool {
-	for p.ix < len(p.prefix) {
-		if p.ix >= 0 && p.prefix[p.ix] >= v {
-			return true
-		}
-		p.ix++
-	}
-
-	return p.rest.Seek(v)
-}
-
-func (p *prependPostings) At() storage.SeriesRef {
-	if p.ix >= 0 && p.ix < len(p.prefix) {
-		return p.prefix[p.ix]
-	}
-	return p.rest.At()
-}
-
-func (p *prependPostings) Err() error {
-	if p.ix >= 0 && p.ix < len(p.prefix) {
-		return nil
-	}
-	return p.rest.Err()
 }
 
 func labelNamesWithMatchers(ctx context.Context, r IndexReader, matchers ...*labels.Matcher) ([]string, error) {
