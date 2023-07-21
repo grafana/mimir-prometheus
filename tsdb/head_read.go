@@ -173,6 +173,10 @@ func (h *headIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 	return index.NewListPostings(out)
 }
 
+func (h *headIndexReader) LabelValuesIntersectingPostings(name string, postings index.Postings) storage.LabelValues {
+	return h.head.postings.LabelValuesIntersectingPostings(name, postings)
+}
+
 // Series returns the series for the given reference.
 func (h *headIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	s := h.head.series.getByID(chunks.HeadSeriesRef(ref))

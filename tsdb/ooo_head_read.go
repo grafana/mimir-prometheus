@@ -450,6 +450,10 @@ func (ir *OOOCompactionHeadIndexReader) ShardedPostings(p index.Postings, shardI
 	return ir.ch.oooIR.ShardedPostings(p, shardIndex, shardCount)
 }
 
+func (ir *OOOCompactionHeadIndexReader) LabelValuesIntersectingPostings(name string, postings index.Postings) storage.LabelValues {
+	return ir.ch.oooIR.LabelValuesIntersectingPostings(name, postings)
+}
+
 func (ir *OOOCompactionHeadIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	return ir.ch.oooIR.series(ref, builder, chks, 0, ir.ch.lastMmapRef)
 }
@@ -460,6 +464,10 @@ func (ir *OOOCompactionHeadIndexReader) SortedLabelValues(_ context.Context, nam
 
 func (ir *OOOCompactionHeadIndexReader) LabelValues(_ context.Context, name string, matchers ...*labels.Matcher) ([]string, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelValuesStream(context.Context, string, ...*labels.Matcher) storage.LabelValues {
+	return storage.ErrLabelValues(errors.New("not implemented"))
 }
 
 func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {

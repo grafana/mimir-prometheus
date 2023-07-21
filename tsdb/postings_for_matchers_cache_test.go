@@ -357,6 +357,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		ctx2 := context.Background()
 		actualPostings, err := c.PostingsForMatchers(ctx2, indexForPostingsMock{}, true, matchers...)
 		require.NoError(t, err)
+		expectedPostings.Reset()
 		require.Equal(t, expectedPostings, actualPostings)
 	})
 }

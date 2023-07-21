@@ -93,6 +93,10 @@ type IndexReader interface {
 	// the series labels mod shardCount, using a hash function which is consistent over time.
 	ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings
 
+	// LabelValuesIntersectingPostings returns a LabelValues iterator, for values of the label with the specified
+	// name, where the postings intersect with p.
+	LabelValuesIntersectingPostings(name string, p index.Postings) storage.LabelValues
+
 	// Series populates the given builder and chunk metas for the series identified
 	// by the reference.
 	// Returns storage.ErrNotFound if the ref does not resolve to a known series.
@@ -540,6 +544,10 @@ func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {
 
 func (r blockIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
 	return r.ir.ShardedPostings(p, shardIndex, shardCount)
+}
+
+func (r blockIndexReader) LabelValuesIntersectingPostings(name string, postings index.Postings) storage.LabelValues {
+	return r.ir.LabelValuesIntersectingPostings(name, postings)
 }
 
 func (r blockIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {

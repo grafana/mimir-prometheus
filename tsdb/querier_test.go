@@ -2390,6 +2390,10 @@ func (m mockIndex) ShardedPostings(p index.Postings, shardIndex, shardCount uint
 	return index.NewListPostings(out)
 }
 
+func (mockIndex) LabelValuesIntersectingPostings(string, index.Postings) storage.LabelValues {
+	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
+}
+
 func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	s, ok := m.series[ref]
 	if !ok {
@@ -3652,7 +3656,7 @@ func TestPrependPostings(t *testing.T) {
 	})
 }
 
-func TestLabelsValuesWithMatchersOptimization(t *testing.T) {
+func TestLabelValuesWithMatchersOptimization(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
