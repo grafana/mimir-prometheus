@@ -1501,6 +1501,61 @@ func TestListPostings(t *testing.T) {
 	})
 }
 
+func TestPrependPostings(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		p := NewPrependPostings(nil, NewListPostings(nil))
+		require.False(t, p.Next())
+	})
+
+	t.Run("next+At", func(t *testing.T) {
+		p := NewPrependPostings([]storage.SeriesRef{10, 20, 30}, NewListPostings([]storage.SeriesRef{200, 300, 500}))
+
+		for _, s := range []storage.SeriesRef{10, 20, 30, 200, 300, 500} {
+			require.True(t, p.Next())
+			require.Equal(t, s, p.At())
+			require.Equal(t, s, p.At()) // Multiple calls return same value.
+		}
+		require.False(t, p.Next())
+	})
+
+	t.Run("seek+At", func(t *testing.T) {
+		p := NewPrependPostings([]storage.SeriesRef{10, 20, 30}, NewListPostings([]storage.SeriesRef{200, 300, 500}))
+
+		require.True(t, p.Seek(5))
+		require.Equal(t, storage.SeriesRef(10), p.At())
+		require.Equal(t, storage.SeriesRef(10), p.At())
+
+		require.True(t, p.Seek(15))
+		require.Equal(t, storage.SeriesRef(20), p.At())
+		require.Equal(t, storage.SeriesRef(20), p.At())
+
+		require.True(t, p.Seek(20)) // Seeking to "current" value doesn't move postings iterator.
+		require.Equal(t, storage.SeriesRef(20), p.At())
+		require.Equal(t, storage.SeriesRef(20), p.At())
+
+		require.True(t, p.Seek(50))
+		require.Equal(t, storage.SeriesRef(200), p.At())
+		require.Equal(t, storage.SeriesRef(200), p.At())
+
+		require.False(t, p.Seek(1000))
+		require.False(t, p.Next())
+	})
+
+	t.Run("err", func(t *testing.T) {
+		err := fmt.Errorf("error")
+		p := NewPrependPostings([]storage.SeriesRef{10, 20, 30}, ErrPostings(err))
+
+		for _, s := range []storage.SeriesRef{10, 20, 30} {
+			require.True(t, p.Next())
+			require.Equal(t, s, p.At())
+			require.NoError(t, p.Err())
+		}
+		// Advancing after prepended values returns false, and gives us access to error.
+		require.False(t, p.Next())
+		require.Equal(t, err, p.Err())
+	})
+}
+
 // BenchmarkListPostings benchmarks ListPostings by iterating Next/At sequentially.
 // See also BenchmarkIntersect as it performs more `At` calls than `Next` calls when intersecting.
 func BenchmarkListPostings(b *testing.B) {

@@ -2327,6 +2327,11 @@ func (m mockIndex) LabelValues(_ context.Context, name string, matchers ...*labe
 	return values, nil
 }
 
+func (m mockIndex) LabelValuesStream(context.Context, string, ...*labels.Matcher) storage.LabelValues {
+	// TODO
+	return storage.EmptyLabelValues()
+}
+
 func (m mockIndex) LabelValueFor(_ context.Context, id storage.SeriesRef, label string) (string, error) {
 	return m.series[id].l.Get(label), nil
 }
@@ -2434,6 +2439,15 @@ func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder,
 	builder.Assign(s.l)
 	*chks = append((*chks)[:0], s.chunks...)
 
+	return nil
+}
+
+func (m mockIndex) Labels(ref storage.SeriesRef, builder *labels.ScratchBuilder) error {
+	s, ok := m.series[ref]
+	if !ok {
+		return storage.ErrNotFound
+	}
+	builder.Assign(s.l)
 	return nil
 }
 
@@ -3541,62 +3555,7 @@ func TestQueryWithDeletedHistograms(t *testing.T) {
 	}
 }
 
-func TestPrependPostings(t *testing.T) {
-	t.Run("empty", func(t *testing.T) {
-		p := newPrependPostings(nil, index.NewListPostings(nil))
-		require.False(t, p.Next())
-	})
-
-	t.Run("next+At", func(t *testing.T) {
-		p := newPrependPostings([]storage.SeriesRef{10, 20, 30}, index.NewListPostings([]storage.SeriesRef{200, 300, 500}))
-
-		for _, s := range []storage.SeriesRef{10, 20, 30, 200, 300, 500} {
-			require.True(t, p.Next())
-			require.Equal(t, s, p.At())
-			require.Equal(t, s, p.At()) // Multiple calls return same value.
-		}
-		require.False(t, p.Next())
-	})
-
-	t.Run("seek+At", func(t *testing.T) {
-		p := newPrependPostings([]storage.SeriesRef{10, 20, 30}, index.NewListPostings([]storage.SeriesRef{200, 300, 500}))
-
-		require.True(t, p.Seek(5))
-		require.Equal(t, storage.SeriesRef(10), p.At())
-		require.Equal(t, storage.SeriesRef(10), p.At())
-
-		require.True(t, p.Seek(15))
-		require.Equal(t, storage.SeriesRef(20), p.At())
-		require.Equal(t, storage.SeriesRef(20), p.At())
-
-		require.True(t, p.Seek(20)) // Seeking to "current" value doesn't move postings iterator.
-		require.Equal(t, storage.SeriesRef(20), p.At())
-		require.Equal(t, storage.SeriesRef(20), p.At())
-
-		require.True(t, p.Seek(50))
-		require.Equal(t, storage.SeriesRef(200), p.At())
-		require.Equal(t, storage.SeriesRef(200), p.At())
-
-		require.False(t, p.Seek(1000))
-		require.False(t, p.Next())
-	})
-
-	t.Run("err", func(t *testing.T) {
-		err := fmt.Errorf("error")
-		p := newPrependPostings([]storage.SeriesRef{10, 20, 30}, index.ErrPostings(err))
-
-		for _, s := range []storage.SeriesRef{10, 20, 30} {
-			require.True(t, p.Next())
-			require.Equal(t, s, p.At())
-			require.NoError(t, p.Err())
-		}
-		// Advancing after prepended values returns false, and gives us access to error.
-		require.False(t, p.Next())
-		require.Equal(t, err, p.Err())
-	})
-}
-
-func TestLabelsValuesWithMatchersOptimization(t *testing.T) {
+func TestLabelValuesWithMatchersOptimization(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000

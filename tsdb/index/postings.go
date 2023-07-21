@@ -1007,3 +1007,51 @@ func fastPostingsForMatcher(ctx context.Context, pr PostingsReader, m *labels.Ma
 
 	return nil, false
 }
+
+func NewPrependPostings(a []storage.SeriesRef, b Postings) Postings {
+	return &prependPostings{
+		ix:     -1,
+		prefix: a,
+		rest:   b,
+	}
+}
+
+// prependPostings returns series references from "prefix" before using "rest" postings.
+type prependPostings struct {
+	ix     int
+	prefix []storage.SeriesRef
+	rest   Postings
+}
+
+func (p *prependPostings) Next() bool {
+	p.ix++
+	if p.ix < len(p.prefix) {
+		return true
+	}
+	return p.rest.Next()
+}
+
+func (p *prependPostings) Seek(v storage.SeriesRef) bool {
+	for p.ix < len(p.prefix) {
+		if p.ix >= 0 && p.prefix[p.ix] >= v {
+			return true
+		}
+		p.ix++
+	}
+
+	return p.rest.Seek(v)
+}
+
+func (p *prependPostings) At() storage.SeriesRef {
+	if p.ix >= 0 && p.ix < len(p.prefix) {
+		return p.prefix[p.ix]
+	}
+	return p.rest.At()
+}
+
+func (p *prependPostings) Err() error {
+	if p.ix >= 0 && p.ix < len(p.prefix) {
+		return nil
+	}
+	return p.rest.Err()
+}
