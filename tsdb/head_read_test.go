@@ -23,6 +23,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	"github.com/prometheus/prometheus/tsdb/index"
 )
 
 func TestBoundedChunk(t *testing.T) {
@@ -551,4 +552,19 @@ func TestMemSeries_chunk(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHeadIndexReader_LabelValuesIntersectingPostings(t *testing.T) {
+	t.Run("empty postings", func(t *testing.T) {
+		r := headIndexReader{
+			head: &Head{
+				postings: &index.MemPostings{},
+			},
+		}
+
+		it := r.LabelValuesIntersectingPostings("test", index.EmptyPostings())
+		require.False(t, it.Next())
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+	})
 }

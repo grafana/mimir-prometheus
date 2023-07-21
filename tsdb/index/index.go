@@ -1501,6 +1501,7 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 		return values, nil
 
 	}
+
 	e, ok := r.postings[name]
 	if !ok {
 		return nil, nil
@@ -1849,16 +1850,24 @@ type Decoder struct {
 
 // Postings returns a postings list for b and its number of elements.
 func (dec *Decoder) Postings(b []byte) (int, Postings, error) {
+	var p bigEndianPostings
+	n, err := dec.PostingsInPlace(b, &p)
+	return n, &p, err
+}
+
+func (dec *Decoder) PostingsInPlace(b []byte, p *bigEndianPostings) (int, error) {
 	d := encoding.Decbuf{B: b}
 	n := d.Be32int()
 	l := d.Get()
 	if d.Err() != nil {
-		return 0, nil, d.Err()
+		return 0, d.Err()
 	}
 	if len(l) != 4*n {
-		return 0, nil, fmt.Errorf("unexpected postings length, should be %d bytes for %d postings, got %d bytes", 4*n, n, len(l))
+		return 0, fmt.Errorf("unexpected postings length, should be %d bytes for %d postings, got %d bytes", 4*n, n, len(l))
 	}
-	return n, newBigEndianPostings(l), nil
+	p.list = l
+	p.Reset()
+	return n, nil
 }
 
 // LabelNamesOffsetsFor decodes the offsets of the name symbols for a given series.
