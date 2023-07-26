@@ -386,18 +386,12 @@ func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Mat
 		// Add space for one extra posting when checking if we expanded all postings.
 		expanded := make([]storage.SeriesRef, 0, maxExpandedPostings+1)
 
-		for len(expanded) < maxExpandedPostings && p.Next() {
+		// Call p.Next() even if len(expanded) == maxExpandedPostings. This tells us if there are more postings or not.
+		for len(expanded) <= maxExpandedPostings && p.Next() {
 			expanded = append(expanded, p.At())
 		}
 
-		// Did we reach the end of postings?
-		reachedEnd := true
-		if len(expanded) == maxExpandedPostings && p.Next() {
-			reachedEnd = false
-			expanded = append(expanded, p.At())
-		}
-
-		if reachedEnd {
+		if len(expanded) <= maxExpandedPostings {
 			// When we're here, p.Next() must have returned false, so we need to check for errors.
 			if err := p.Err(); err != nil {
 				return nil, errors.Wrap(err, "expanding postings for matchers")
