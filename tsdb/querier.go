@@ -390,7 +390,7 @@ func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Mat
 			expanded = append(expanded, p.At())
 		}
 
-		// Did we reach end of postings?
+		// Did we reach the end of postings?
 		reachedEnd := true
 		if len(expanded) == maxExpandedPostings && p.Next() {
 			reachedEnd = false
@@ -398,6 +398,11 @@ func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Mat
 		}
 
 		if reachedEnd {
+			// When we're here, p.Next() must have returned false, so we need to check for errors.
+			if err := p.Err(); err != nil {
+				return nil, errors.Wrap(err, "expanding postings for matchers")
+			}
+
 			// We have expanded all the postings -- all returned label values will be from these series only.
 			return labelValuesFromSeries(r, name, expanded)
 		}
