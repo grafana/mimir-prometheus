@@ -2805,7 +2805,7 @@ func TestLabelsValuesWithMatchersOptimization(t *testing.T) {
 		app.Append(0, l, 0, 0)
 	}
 
-	const maxI = minSeriesForPostingsLabelValues
+	const maxI = 10 * maxExpandedPostingsFactor
 
 	allValuesOfI := make([]string, 0, maxI)
 	for i := 0; i < maxI; i++ {
@@ -2813,7 +2813,7 @@ func TestLabelsValuesWithMatchersOptimization(t *testing.T) {
 	}
 
 	for n := 0; n < 10; n++ {
-		for i := 0; i < minSeriesForPostingsLabelValues; i++ {
+		for i := 0; i < maxI; i++ {
 			addSeries(labels.FromStrings("i", allValuesOfI[i], "n", strconv.Itoa(n), "j", "foo", "i_times_n", strconv.Itoa(i*n)))
 		}
 	}
