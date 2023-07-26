@@ -404,7 +404,8 @@ func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Mat
 			}
 
 			// We have expanded all the postings -- all returned label values will be from these series only.
-			return labelValuesFromSeries(r, name, expanded)
+			// (We supply allValues[:0] as a buffer for storing results. It should be big enough already, since it holds all possible label values.)
+			return labelValuesFromSeries(r, name, expanded, allValues)
 		}
 
 		// If we haven't reached end of postings, we prepend our expanded postings to "p", and continue.
@@ -432,7 +433,8 @@ func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Mat
 }
 
 // labelValuesFromSeries returns all unique label values from for given label name from supplied series. Values are not sorted.
-func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.SeriesRef) ([]string, error) {
+// buf is space for holding result (if it isn't big enough, it will be ignored), may be nil.
+func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
 	values := map[string]struct{}{}
 
 	var builder labels.ScratchBuilder
@@ -448,11 +450,15 @@ func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.Serie
 		}
 	}
 
-	result := make([]string, 0, len(values))
-	for v := range values {
-		result = append(result, v)
+	if cap(buf) >= len(values) {
+		buf = buf[:0]
+	} else {
+		buf = make([]string, 0, len(values))
 	}
-	return result, nil
+	for v := range values {
+		buf = append(buf, v)
+	}
+	return buf, nil
 }
 
 func newPrependPostings(a []storage.SeriesRef, b index.Postings) index.Postings {
