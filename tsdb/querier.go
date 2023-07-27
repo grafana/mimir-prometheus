@@ -398,7 +398,7 @@ func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Mat
 			}
 
 			// We have expanded all the postings -- all returned label values will be from these series only.
-			// (We supply allValues[:0] as a buffer for storing results. It should be big enough already, since it holds all possible label values.)
+			// (We supply allValues as a buffer for storing results. It should be big enough already, since it holds all possible label values.)
 			return labelValuesFromSeries(r, name, expanded, allValues)
 		}
 
