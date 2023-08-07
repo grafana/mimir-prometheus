@@ -107,12 +107,12 @@ func (m mockIndex) Postings(name string, values ...string) (Postings, error) {
 	p := []Postings{}
 	for _, value := range values {
 		l := labels.Label{Name: name, Value: value}
-		p = append(p, m.SortedPostings(context.Background(), NewListPostings(m.postings[l])))
+		p = append(p, m.SortedPostings(NewListPostings(m.postings[l])))
 	}
 	return Merge(p...), nil
 }
 
-func (m mockIndex) SortedPostings(_ context.Context, p Postings) Postings {
+func (m mockIndex) SortedPostings(p Postings) Postings {
 	ep, err := ExpandPostings(p)
 	if err != nil {
 		return ErrPostings(errors.Wrap(err, "expand postings"))

@@ -171,7 +171,6 @@ type blockQuerierTestCase struct {
 func testBlockQuerier(t *testing.T, c blockQuerierTestCase, ir IndexReader, cr ChunkReader, stones *tombstones.MemTombstones) {
 	t.Run("sample", func(t *testing.T) {
 		q := blockQuerier{
-			ctx: context.Background(),
 			blockBaseQuerier: &blockBaseQuerier{
 				index:      ir,
 				chunks:     cr,
@@ -182,7 +181,7 @@ func testBlockQuerier(t *testing.T, c blockQuerierTestCase, ir IndexReader, cr C
 			},
 		}
 
-		res := q.Select(false, c.hints, c.ms...)
+		res := q.Select(context.Background(), false, c.hints, c.ms...)
 		defer func() { require.NoError(t, q.Close()) }()
 
 		for {
@@ -208,7 +207,6 @@ func testBlockQuerier(t *testing.T, c blockQuerierTestCase, ir IndexReader, cr C
 
 	t.Run("chunk", func(t *testing.T) {
 		q := blockChunkQuerier{
-			ctx: context.Background(),
 			blockBaseQuerier: &blockBaseQuerier{
 				index:      ir,
 				chunks:     cr,
@@ -218,7 +216,7 @@ func testBlockQuerier(t *testing.T, c blockQuerierTestCase, ir IndexReader, cr C
 				maxt: c.maxt,
 			},
 		}
-		res := q.Select(false, c.hints, c.ms...)
+		res := q.Select(context.Background(), false, c.hints, c.ms...)
 		defer func() { require.NoError(t, q.Close()) }()
 
 		for {

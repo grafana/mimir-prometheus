@@ -124,15 +124,11 @@ func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bo
 	return h.head.pfmc.PostingsForMatchers(ctx, h, concurrent, ms...)
 }
 
-func (h *headIndexReader) SortedPostings(ctx context.Context, p index.Postings) index.Postings {
+func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
 	series := make([]*memSeries, 0, 128)
 
 	// Fetch all the series only once.
 	for p.Next() {
-		if err := ctx.Err(); err != nil {
-			return index.ErrPostings(errors.Wrap(err, "expand postings"))
-		}
-
 		s := h.head.series.getByID(chunks.HeadSeriesRef(p.At()))
 		if s == nil {
 			level.Debug(h.head.logger).Log("msg", "Looked up series not found")

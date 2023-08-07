@@ -85,7 +85,7 @@ type IndexReader interface {
 
 	// SortedPostings returns a postings list that is reordered to be sorted
 	// by the label set of the underlying series.
-	SortedPostings(context.Context, index.Postings) index.Postings
+	SortedPostings(index.Postings) index.Postings
 
 	// ShardedPostings returns a postings list filtered by the provided shardIndex
 	// out of shardCount. For a given posting, its shard MUST be computed hashing
@@ -522,8 +522,8 @@ func (r blockIndexReader) PostingsForMatchers(ctx context.Context, concurrent bo
 	return r.ir.PostingsForMatchers(ctx, concurrent, ms...)
 }
 
-func (r blockIndexReader) SortedPostings(ctx context.Context, p index.Postings) index.Postings {
-	return r.ir.SortedPostings(ctx, p)
+func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {
+	return r.ir.SortedPostings(p)
 }
 
 func (r blockIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {

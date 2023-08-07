@@ -75,7 +75,7 @@ func TestFanout_SelectSorted(t *testing.T) {
 	fanoutStorage := storage.NewFanout(nil, priStorage, remoteStorage1, remoteStorage2)
 
 	t.Run("querier", func(t *testing.T) {
-		querier, err := fanoutStorage.Querier(context.Background(), 0, 8000)
+		querier, err := fanoutStorage.Querier(0, 8000)
 		require.NoError(t, err)
 		defer querier.Close()
 
@@ -159,7 +159,7 @@ func TestFanoutErrors(t *testing.T) {
 		fanoutStorage := storage.NewFanout(nil, tc.primary, tc.secondary)
 
 		t.Run("samples", func(t *testing.T) {
-			querier, err := fanoutStorage.Querier(context.Background(), 0, 8000)
+			querier, err := fanoutStorage.Querier(0, 8000)
 			require.NoError(t, err)
 			defer querier.Close()
 
@@ -216,7 +216,7 @@ type errStorage struct{}
 
 type errQuerier struct{}
 
-func (errStorage) Querier(_ context.Context, _, _ int64) (storage.Querier, error) {
+func (errStorage) Querier(_, _ int64) (storage.Querier, error) {
 	return errQuerier{}, nil
 }
 

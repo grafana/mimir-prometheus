@@ -98,24 +98,23 @@ func (q *blockBaseQuerier) Close() error {
 
 type blockQuerier struct {
 	*blockBaseQuerier
-	ctx context.Context
 }
 
 // NewBlockQuerier returns a querier against the block reader and requested min and max time range.
-func NewBlockQuerier(ctx context.Context, b BlockReader, mint, maxt int64) (storage.Querier, error) {
+func NewBlockQuerier(b BlockReader, mint, maxt int64) (storage.Querier, error) {
 	q, err := newBlockBaseQuerier(b, mint, maxt)
 	if err != nil {
 		return nil, err
 	}
-	return &blockQuerier{blockBaseQuerier: q, ctx: ctx}, nil
+	return &blockQuerier{blockBaseQuerier: q}, nil
 }
 
-func (q *blockQuerier) Select(sortSeries bool, hints *storage.SelectHints, ms ...*labels.Matcher) storage.SeriesSet {
+func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, ms ...*labels.Matcher) storage.SeriesSet {
 	mint := q.mint
 	maxt := q.maxt
 	disableTrimming := false
 	sharded := hints != nil && hints.ShardCount > 0
-	p, err := q.index.PostingsForMatchers(q.ctx, sharded, ms...)
+	p, err := q.index.PostingsForMatchers(ctx, sharded, ms...)
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
@@ -123,7 +122,7 @@ func (q *blockQuerier) Select(sortSeries bool, hints *storage.SelectHints, ms ..
 		p = q.index.ShardedPostings(p, hints.ShardIndex, hints.ShardCount)
 	}
 	if sortSeries {
-		p = q.index.SortedPostings(q.ctx, p)
+		p = q.index.SortedPostings(p)
 	}
 
 	if hints != nil {
@@ -142,19 +141,18 @@ func (q *blockQuerier) Select(sortSeries bool, hints *storage.SelectHints, ms ..
 // blockChunkQuerier provides chunk querying access to a single block database.
 type blockChunkQuerier struct {
 	*blockBaseQuerier
-	ctx context.Context
 }
 
 // NewBlockChunkQuerier returns a chunk querier against the block reader and requested min and max time range.
-func NewBlockChunkQuerier(ctx context.Context, b BlockReader, mint, maxt int64) (storage.ChunkQuerier, error) {
+func NewBlockChunkQuerier(b BlockReader, mint, maxt int64) (storage.ChunkQuerier, error) {
 	q, err := newBlockBaseQuerier(b, mint, maxt)
 	if err != nil {
 		return nil, err
 	}
-	return &blockChunkQuerier{blockBaseQuerier: q, ctx: ctx}, nil
+	return &blockChunkQuerier{blockBaseQuerier: q}, nil
 }
 
-func (q *blockChunkQuerier) Select(sortSeries bool, hints *storage.SelectHints, ms ...*labels.Matcher) storage.ChunkSeriesSet {
+func (q *blockChunkQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, ms ...*labels.Matcher) storage.ChunkSeriesSet {
 	mint := q.mint
 	maxt := q.maxt
 	disableTrimming := false
@@ -164,7 +162,7 @@ func (q *blockChunkQuerier) Select(sortSeries bool, hints *storage.SelectHints, 
 		disableTrimming = hints.DisableTrimming
 	}
 	sharded := hints != nil && hints.ShardCount > 0
-	p, err := q.index.PostingsForMatchers(q.ctx, sharded, ms...)
+	p, err := q.index.PostingsForMatchers(ctx, sharded, ms...)
 	if err != nil {
 		return storage.ErrChunkSeriesSet(err)
 	}
@@ -172,7 +170,7 @@ func (q *blockChunkQuerier) Select(sortSeries bool, hints *storage.SelectHints, 
 		p = q.index.ShardedPostings(p, hints.ShardIndex, hints.ShardCount)
 	}
 	if sortSeries {
-		p = q.index.SortedPostings(q.ctx, p)
+		p = q.index.SortedPostings(p)
 	}
 	return NewBlockChunkSeriesSet(q.blockID, q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming)
 }

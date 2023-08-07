@@ -275,7 +275,7 @@ type OOOCompactionHead struct {
 // 4. Cuts a new WBL file for the OOO WBL.
 // All the above together have a bit of CPU and memory overhead, and can have a bit of impact
 // on the sample append latency. So call NewOOOCompactionHead only right before compaction.
-func NewOOOCompactionHead(ctx context.Context, head *Head) (*OOOCompactionHead, error) {
+func NewOOOCompactionHead(head *Head) (*OOOCompactionHead, error) {
 	ch := &OOOCompactionHead{
 		chunkRange: head.chunkRange.Load(),
 		mint:       math.MaxInt64,
@@ -298,7 +298,7 @@ func NewOOOCompactionHead(ctx context.Context, head *Head) (*OOOCompactionHead, 
 	if err != nil {
 		return nil, err
 	}
-	p = ch.oooIR.SortedPostings(ctx, p)
+	p = ch.oooIR.SortedPostings(p)
 
 	var lastSeq, lastOff int
 	for p.Next() {
@@ -411,7 +411,7 @@ func (ir *OOOCompactionHeadIndexReader) Postings(name string, values ...string) 
 	return index.NewListPostings(ir.ch.postings), nil
 }
 
-func (ir *OOOCompactionHeadIndexReader) SortedPostings(_ context.Context, p index.Postings) index.Postings {
+func (ir *OOOCompactionHeadIndexReader) SortedPostings(p index.Postings) index.Postings {
 	// This will already be sorted from the Postings() call above.
 	return p
 }
