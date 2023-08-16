@@ -36,13 +36,14 @@ go_gc_duration_seconds{quantile="0.25",} 7.424100000000001e-05
 go_gc_duration_seconds{quantile="0.5",a="b"} 8.3835e-05
 go_gc_duration_seconds{quantile="0.8", a="b"} 8.3835e-05
 go_gc_duration_seconds{ quantile="0.9", a="b"} 8.3835e-05
+"urmam"{ q="0.9", a="b"}  8.3835e-05
 # Hrandom comment starting with prefix of HELP
 #
 wind_speed{A="2",c="3"} 12345
 # comment with escaped \n newline
 # comment with escaped \ escape character
 # HELP nohelp1
-# HELP nohelp2 
+# HELP nohelp2
 go_gc_duration_seconds{ quantile="1.0", a="b" } 8.3835e-05
 go_gc_duration_seconds { quantile="1.0", a="b" } 8.3835e-05
 go_gc_duration_seconds { quantile= "1.0", a= "b", } 8.3835e-05
@@ -95,6 +96,10 @@ testmetric{label="\"bar\""} 1`
 			m:    `go_gc_duration_seconds{ quantile="0.9", a="b"}`,
 			v:    8.3835e-05,
 			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.9", "a", "b"),
+		}, {
+			m:    `"urmam"{ q="0.9", a="b"}`,
+			v:    8.3835e-05,
+			lset: labels.FromStrings("__name__", "urmam", "q", "0.9", "a", "b"),
 		}, {
 			comment: "# Hrandom comment starting with prefix of HELP",
 		}, {
