@@ -15,10 +15,12 @@ package labels
 
 import (
 	"strings"
+	"time"
 
+	"github.com/DmitriyVTitov/size"
+	"github.com/dgraph-io/ristretto"
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
-	lru "github.com/hashicorp/golang-lru/v2"
 )
 
 const (
@@ -29,14 +31,22 @@ const (
 	// to match values instead of iterating over a list. This value has
 	// been computed running BenchmarkOptimizeEqualStringMatchers.
 	minEqualMultiStringMatcherMapThreshold = 16
+
+	fastRegexMatcherCacheMaxSizeBytes = 1024 * 1024 * 1024 // 1GB
+	fastRegexMatcherCacheTTL          = 5 * time.Minute
 )
 
-var fastRegexMatcherCache *lru.Cache[string, *FastRegexMatcher]
+var fastRegexMatcherCache *ristretto.Cache
 
 func init() {
-	// Ignore error because it can only return error if size is invalid,
-	// but we're using an hardcoded size here.
-	fastRegexMatcherCache, _ = lru.New[string, *FastRegexMatcher](10000)
+	// Ignore error because it can only return error if config is invalid,
+	// but we're using an hardcoded static config here.
+	fastRegexMatcherCache, _ = ristretto.NewCache(&ristretto.Config{
+		NumCounters: 100_000, // 10x the max number of expected items (takes 3 bytes per counter),
+		MaxCost:     fastRegexMatcherCacheMaxSizeBytes,
+		BufferItems: 64, // Recommended default per the Config docs,
+		Metrics:     false,
+	})
 }
 
 type FastRegexMatcher struct {
@@ -58,7 +68,7 @@ type FastRegexMatcher struct {
 func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 	// Check the cache.
 	if matcher, ok := fastRegexMatcherCache.Get(v); ok {
-		return matcher, nil
+		return matcher.(*FastRegexMatcher), nil
 	}
 
 	// Create a new matcher.
@@ -68,7 +78,7 @@ func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 	}
 
 	// Cache it.
-	fastRegexMatcherCache.Add(v, matcher)
+	fastRegexMatcherCache.SetWithTTL(v, matcher, int64(size.Of(matcher)), fastRegexMatcherCacheTTL)
 
 	return matcher, nil
 }
@@ -141,11 +151,9 @@ func (m *FastRegexMatcher) compileMatchStringFunction() func(string) bool {
 	}
 }
 
-// isOptimized returns true if any fast-path optimization is applied to the
+// IsOptimized returns true if any fast-path optimization is applied to the
 // regex matcher.
-//
-//nolint:unused
-func (m *FastRegexMatcher) isOptimized() bool {
+func (m *FastRegexMatcher) IsOptimized() bool {
 	return len(m.setMatches) > 0 || m.stringMatcher != nil || m.prefix != "" || m.suffix != "" || m.contains != ""
 }
 
@@ -187,7 +195,7 @@ func findSetMatchesInternal(re *syntax.Regexp, base string) (matches []string, c
 		}
 		var matches []string
 		var totalSet int
-		for i := 0; i+1 < len(re.Rune); i = i + 2 {
+		for i := 0; i+1 < len(re.Rune); i += 2 {
 			totalSet += int(re.Rune[i+1]-re.Rune[i]) + 1
 		}
 		// limits the total characters that can be used to create matches.
@@ -196,7 +204,7 @@ func findSetMatchesInternal(re *syntax.Regexp, base string) (matches []string, c
 		if totalSet > maxSetMatches {
 			return nil, false
 		}
-		for i := 0; i+1 < len(re.Rune); i = i + 2 {
+		for i := 0; i+1 < len(re.Rune); i += 2 {
 			lo, hi := re.Rune[i], re.Rune[i+1]
 			for c := lo; c <= hi; c++ {
 				matches = append(matches, base+string(c))
@@ -322,8 +330,8 @@ func isCaseSensitive(reg *syntax.Regexp) bool {
 }
 
 // tooManyMatches guards against creating too many set matches
-func tooManyMatches(matches []string, new ...string) bool {
-	return len(matches)+len(new) > maxSetMatches
+func tooManyMatches(matches []string, added ...string) bool {
+	return len(matches)+len(added) > maxSetMatches
 }
 
 func (m *FastRegexMatcher) MatchString(s string) bool {
@@ -558,7 +566,8 @@ type containsStringMatcher struct {
 
 func (m *containsStringMatcher) Matches(s string) bool {
 	for _, substr := range m.substrings {
-		if m.right != nil && m.left != nil {
+		switch {
+		case m.right != nil && m.left != nil:
 			searchStartPos := 0
 
 			for {
@@ -580,12 +589,12 @@ func (m *containsStringMatcher) Matches(s string) bool {
 				// Continue searching for another occurrence of the substring inside the text.
 				searchStartPos = pos + 1
 			}
-		} else if m.left != nil {
+		case m.left != nil:
 			// If we have to check for characters on the left then we need to match a suffix.
 			if strings.HasSuffix(s, substr) && m.left.Matches(s[:len(s)-len(substr)]) {
 				return true
 			}
-		} else if m.right != nil {
+		case m.right != nil:
 			if strings.HasPrefix(s, substr) && m.right.Matches(s[len(substr):]) {
 				return true
 			}

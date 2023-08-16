@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/hashcache"
+	"github.com/prometheus/prometheus/tsdb/index"
 )
 
 // Make entries ~50B in size, to emulate real-world high cardinality.
@@ -49,7 +50,7 @@ func BenchmarkQuerier(b *testing.B) {
 
 	for n := 0; n < 10; n++ {
 		for i := 0; i < 100000; i++ {
-			addSeries(labels.FromStrings("i", strconv.Itoa(i)+postingsBenchSuffix, "n", strconv.Itoa(n)+postingsBenchSuffix, "j", "foo"))
+			addSeries(labels.FromStrings("i", strconv.Itoa(i)+postingsBenchSuffix, "n", strconv.Itoa(n)+postingsBenchSuffix, "j", "foo", "i_times_n", strconv.Itoa(i*n)))
 			// Have some series that won't be matched, to properly test inverted matches.
 			addSeries(labels.FromStrings("i", strconv.Itoa(i)+postingsBenchSuffix, "n", strconv.Itoa(n)+postingsBenchSuffix, "j", "bar"))
 			addSeries(labels.FromStrings("i", strconv.Itoa(i)+postingsBenchSuffix, "n", "0_"+strconv.Itoa(n)+postingsBenchSuffix, "j", "bar"))
@@ -114,7 +115,9 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 	jXplus := labels.MustNewMatcher(labels.MatchRegexp, "j", "X.+")
 	iCharSet := labels.MustNewMatcher(labels.MatchRegexp, "i", "1[0-9]")
 	iAlternate := labels.MustNewMatcher(labels.MatchRegexp, "i", "(1|2|3|4|5|6|20|55)")
+	iNotAlternate := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "(1|2|3|4|5|6|20|55)")
 	iXYZ := labels.MustNewMatcher(labels.MatchRegexp, "i", "X|Y|Z")
+	iNotXYZ := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "X|Y|Z")
 	cases := []struct {
 		name     string
 		matchers []*labels.Matcher
@@ -125,13 +128,16 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 		{`n="X",j="foo"`, []*labels.Matcher{nX, jFoo}},
 		{`j="foo",n="1"`, []*labels.Matcher{jFoo, n1}},
 		{`n="1",j!="foo"`, []*labels.Matcher{n1, jNotFoo}},
+		{`n="1",i!="2"`, []*labels.Matcher{n1, iNot2}},
 		{`n="X",j!="foo"`, []*labels.Matcher{nX, jNotFoo}},
 		{`i=~"1[0-9]",j=~"foo|bar"`, []*labels.Matcher{iCharSet, jFooBar}},
 		{`j=~"foo|bar"`, []*labels.Matcher{jFooBar}},
 		{`j=~"XXX|YYY"`, []*labels.Matcher{jXXXYYY}},
 		{`j=~"X.+"`, []*labels.Matcher{jXplus}},
 		{`i=~"(1|2|3|4|5|6|20|55)"`, []*labels.Matcher{iAlternate}},
+		{`i!~"(1|2|3|4|5|6|20|55)"`, []*labels.Matcher{iNotAlternate}},
 		{`i=~"X|Y|Z"`, []*labels.Matcher{iXYZ}},
+		{`i!~"X|Y|Z"`, []*labels.Matcher{iNotXYZ}},
 		{`i=~".*"`, []*labels.Matcher{iStar}},
 		{`i=~"1.*"`, []*labels.Matcher{i1Star}},
 		{`i=~".*1"`, []*labels.Matcher{iStar1}},
@@ -147,6 +153,7 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 		{`n="1",i!="",j=~"X.+"`, []*labels.Matcher{n1, iNotEmpty, jXplus}},
 		{`n="1",i!="",j=~"XXX|YYY"`, []*labels.Matcher{n1, iNotEmpty, jXXXYYY}},
 		{`n="1",i=~"X|Y|Z",j="foo"`, []*labels.Matcher{n1, iXYZ, jFoo}},
+		{`n="1",i!~"X|Y|Z",j="foo"`, []*labels.Matcher{n1, iNotXYZ, jFoo}},
 		{`n="1",i=~".+",j="foo"`, []*labels.Matcher{n1, iPlus, jFoo}},
 		{`n="1",i=~"1.+",j="foo"`, []*labels.Matcher{n1, i1Plus, jFoo}},
 		{`n="1",i=~".*1.*",j="foo"`, []*labels.Matcher{n1, iStar1Star, jFoo}},
@@ -158,6 +165,8 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				_, err := PostingsForMatchers(ir, c.matchers...)
 				require.NoError(b, err)
@@ -175,12 +184,16 @@ func benchmarkLabelValuesWithMatchers(b *testing.B, ir IndexReader) {
 	n1 := labels.MustNewMatcher(labels.MatchEqual, "n", "1"+postingsBenchSuffix)
 	nX := labels.MustNewMatcher(labels.MatchNotEqual, "n", "X"+postingsBenchSuffix)
 	nPlus := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.+$")
+	primesTimes := labels.MustNewMatcher(labels.MatchEqual, "i_times_n", "533701") // = 76243*7, ie. multiplication of primes. It will match single i*n combination.
+	nonPrimesTimes := labels.MustNewMatcher(labels.MatchEqual, "i_times_n", "20")  // 1*20, 2*10, 4*5, 5*4
+	times12 := labels.MustNewMatcher(labels.MatchRegexp, "i_times_n", "12.*")
 
 	cases := []struct {
 		name      string
 		labelName string
 		matchers  []*labels.Matcher
 	}{
+		{`i with i="1"`, "i", []*labels.Matcher{i1}},
 		// i has 100k values.
 		{`i with n="1"`, "i", []*labels.Matcher{n1}},
 		{`i with n="^.+$"`, "i", []*labels.Matcher{nPlus}},
@@ -189,6 +202,9 @@ func benchmarkLabelValuesWithMatchers(b *testing.B, ir IndexReader) {
 		{`i with n="1",j=~"XXX|YYY"`, "i", []*labels.Matcher{n1, jXXXYYY}},
 		{`i with n="X",j!="foo"`, "i", []*labels.Matcher{nX, jNotFoo}},
 		{`i with n="1",i=~"^.*$",j!="foo"`, "i", []*labels.Matcher{n1, iStar, jNotFoo}},
+		{`i with i_times_n=533701`, "i", []*labels.Matcher{primesTimes}},
+		{`i with i_times_n=20`, "i", []*labels.Matcher{nonPrimesTimes}},
+		{`i with i_times_n=~"12.*""`, "i", []*labels.Matcher{times12}},
 		// n has 10 values.
 		{`n with j!="foo"`, "n", []*labels.Matcher{jNotFoo}},
 		{`n with i="1"`, "n", []*labels.Matcher{i1}},
@@ -202,6 +218,28 @@ func benchmarkLabelValuesWithMatchers(b *testing.B, ir IndexReader) {
 			}
 		})
 	}
+}
+
+func BenchmarkMergedStringIter(b *testing.B) {
+	numSymbols := 100000
+	s := make([]string, numSymbols)
+	for i := 0; i < numSymbols; i++ {
+		s[i] = fmt.Sprintf("symbol%v", i)
+	}
+
+	for i := 0; i < b.N; i++ {
+		it := NewMergedStringIter(index.NewStringListIter(s), index.NewStringListIter(s))
+		for j := 0; j < 100; j++ {
+			it = NewMergedStringIter(it, index.NewStringListIter(s))
+		}
+
+		for it.Next() {
+			require.NotNil(b, it.At())
+			require.NoError(b, it.Err())
+		}
+	}
+
+	b.ReportAllocs()
 }
 
 func BenchmarkQuerierSelect(b *testing.B) {
@@ -241,7 +279,7 @@ func BenchmarkQuerierSelect(b *testing.B) {
 					}
 
 					ss := q.Select(sorted, hints, matcher)
-					for ss.Next() {
+					for ss.Next() { // nolint:revive
 					}
 					require.NoError(b, ss.Err())
 				}

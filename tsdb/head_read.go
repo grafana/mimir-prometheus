@@ -16,7 +16,6 @@ package tsdb
 import (
 	"context"
 	"math"
-	"sort"
 	"sync"
 
 	"github.com/go-kit/log/level"
@@ -141,8 +140,8 @@ func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
 		return index.ErrPostings(errors.Wrap(err, "expand postings"))
 	}
 
-	sort.Slice(series, func(i, j int) bool {
-		return labels.Compare(series[i].lset, series[j].lset) < 0
+	slices.SortFunc(series, func(a, b *memSeries) bool {
+		return labels.Compare(a.lset, b.lset) < 0
 	})
 
 	// Convert back to list.
@@ -360,7 +359,7 @@ func (h *headChunkReader) chunk(meta chunks.Meta, copyLastChunk bool) (chunkenc.
 	}
 	s.Unlock()
 
-	return &safeChunk{
+	return &safeHeadChunk{
 		Chunk:    chk,
 		s:        s,
 		cid:      cid,
@@ -369,7 +368,7 @@ func (h *headChunkReader) chunk(meta chunks.Meta, copyLastChunk bool) (chunkenc.
 }
 
 // chunk returns the chunk for the HeadChunkID from memory or by m-mapping it from the disk.
-// If headChunk is true, it means that the returned *memChunk
+// If headChunk is false, it means that the returned *memChunk
 // (and not the chunkenc.Chunk inside it) can be garbage collected after its usage.
 func (s *memSeries) chunk(id chunks.HeadChunkID, cdm chunkDiskMapper, memChunkPool *sync.Pool) (chunk *memChunk, headChunk bool, err error) {
 	// ix represents the index of chunk in the s.mmappedChunks slice. The chunk id's are
@@ -453,7 +452,8 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 			break
 		}
 
-		if chunkRef == meta.OOOLastRef {
+		switch {
+		case chunkRef == meta.OOOLastRef:
 			tmpChks = append(tmpChks, chunkMetaAndChunkDiskMapperRef{
 				meta: chunks.Meta{
 					MinTime: meta.OOOLastMinTime,
@@ -464,7 +464,7 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 				origMinT: c.minTime,
 				origMaxT: c.maxTime,
 			})
-		} else if c.OverlapsClosedInterval(mint, maxt) {
+		case c.OverlapsClosedInterval(mint, maxt):
 			tmpChks = append(tmpChks, chunkMetaAndChunkDiskMapperRef{
 				meta: chunks.Meta{
 					MinTime: c.minTime,
@@ -478,7 +478,7 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 
 	// Next we want to sort all the collected chunks by min time so we can find
 	// those that overlap and stop when we know the rest don't.
-	sort.Sort(byMinTimeAndMinRef(tmpChks))
+	slices.SortFunc(tmpChks, refLessByMinTimeAndMinRef)
 
 	mc := &mergedOOOChunks{}
 	absoluteMax := int64(math.MinInt64)
@@ -623,12 +623,14 @@ type boundedIterator struct {
 func (b boundedIterator) Next() chunkenc.ValueType {
 	for b.Iterator.Next() == chunkenc.ValFloat {
 		t, _ := b.Iterator.At()
-		if t < b.minT {
+		switch {
+		case t < b.minT:
 			continue
-		} else if t > b.maxT {
+		case t > b.maxT:
 			return chunkenc.ValNone
+		default:
+			return chunkenc.ValFloat
 		}
-		return chunkenc.ValFloat
 	}
 	return chunkenc.ValNone
 }
@@ -653,15 +655,15 @@ func (b boundedIterator) Seek(t int64) chunkenc.ValueType {
 	return b.Iterator.Seek(t)
 }
 
-// safeChunk makes sure that the chunk can be accessed without a race condition
-type safeChunk struct {
+// safeHeadChunk makes sure that the chunk can be accessed without a race condition
+type safeHeadChunk struct {
 	chunkenc.Chunk
 	s        *memSeries
 	cid      chunks.HeadChunkID
 	isoState *isolationState
 }
 
-func (c *safeChunk) Iterator(reuseIter chunkenc.Iterator) chunkenc.Iterator {
+func (c *safeHeadChunk) Iterator(reuseIter chunkenc.Iterator) chunkenc.Iterator {
 	c.s.Lock()
 	it := c.s.iterator(c.cid, c.Chunk, c.isoState, reuseIter)
 	c.s.Unlock()

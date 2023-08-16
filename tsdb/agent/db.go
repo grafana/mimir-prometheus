@@ -65,8 +65,8 @@ type Options struct {
 	// WALSegmentSize > 0, segment size is WALSegmentSize.
 	WALSegmentSize int
 
-	// WALCompression will turn on Snappy compression for records on the WAL.
-	WALCompression bool
+	// WALCompression configures the compression type to use on records in the WAL.
+	WALCompression wlog.CompressionType
 
 	// StripeSize is the size (power of 2) in entries of the series hash map. Reducing the size will save memory but impact performance.
 	StripeSize int
@@ -87,7 +87,7 @@ type Options struct {
 func DefaultOptions() *Options {
 	return &Options{
 		WALSegmentSize:    wlog.DefaultSegmentSize,
-		WALCompression:    false,
+		WALCompression:    wlog.CompressionNone,
 		StripeSize:        tsdb.DefaultStripeSize,
 		TruncateFrequency: DefaultTruncateFrequency,
 		MinWALTime:        DefaultMinWALTime,
@@ -316,6 +316,10 @@ func validateOptions(opts *Options) *Options {
 	}
 	if opts.WALSegmentSize <= 0 {
 		opts.WALSegmentSize = wlog.DefaultSegmentSize
+	}
+
+	if opts.WALCompression == "" {
+		opts.WALCompression = wlog.CompressionNone
 	}
 
 	// Revert Stripesize to DefaultStripsize if Stripsize is either 0 or not a power of 2.
@@ -665,7 +669,7 @@ func (db *DB) truncate(mint int64) error {
 		}
 
 		seg, ok := db.deleted[id]
-		return ok && seg >= first
+		return ok && seg > last
 	}
 
 	db.metrics.checkpointCreationTotal.Inc()
@@ -687,7 +691,7 @@ func (db *DB) truncate(mint int64) error {
 	// The checkpoint is written and segments before it are truncated, so we
 	// no longer need to track deleted series that were being kept around.
 	for ref, segment := range db.deleted {
-		if segment < first {
+		if segment <= last {
 			delete(db.deleted, ref)
 		}
 	}
@@ -732,22 +736,22 @@ func (db *DB) StartTime() (int64, error) {
 }
 
 // Querier implements the Storage interface.
-func (db *DB) Querier(ctx context.Context, mint, maxt int64) (storage.Querier, error) {
+func (db *DB) Querier(context.Context, int64, int64) (storage.Querier, error) {
 	return nil, ErrUnsupported
 }
 
 // ChunkQuerier implements the Storage interface.
-func (db *DB) ChunkQuerier(ctx context.Context, mint, maxt int64) (storage.ChunkQuerier, error) {
+func (db *DB) ChunkQuerier(context.Context, int64, int64) (storage.ChunkQuerier, error) {
 	return nil, ErrUnsupported
 }
 
 // ExemplarQuerier implements the Storage interface.
-func (db *DB) ExemplarQuerier(ctx context.Context) (storage.ExemplarQuerier, error) {
+func (db *DB) ExemplarQuerier(context.Context) (storage.ExemplarQuerier, error) {
 	return nil, ErrUnsupported
 }
 
 // Appender implements storage.Storage.
-func (db *DB) Appender(_ context.Context) storage.Appender {
+func (db *DB) Appender(context.Context) storage.Appender {
 	return db.appenderPool.Get().(storage.Appender)
 }
 
@@ -823,7 +827,7 @@ func (a *appender) Append(ref storage.SeriesRef, l labels.Labels, t int64, v flo
 		return 0, storage.ErrOutOfOrderSample
 	}
 
-	// NOTE: always modify pendingSamples and sampleSeries together
+	// NOTE: always modify pendingSamples and sampleSeries together.
 	a.pendingSamples = append(a.pendingSamples, record.RefSample{
 		Ref: series.ref,
 		T:   t,
@@ -849,8 +853,8 @@ func (a *appender) getOrCreate(l labels.Labels) (series *memSeries, created bool
 	return series, true
 }
 
-func (a *appender) AppendExemplar(ref storage.SeriesRef, l labels.Labels, e exemplar.Exemplar) (storage.SeriesRef, error) {
-	// series references and chunk references are identical for agent mode.
+func (a *appender) AppendExemplar(ref storage.SeriesRef, _ labels.Labels, e exemplar.Exemplar) (storage.SeriesRef, error) {
+	// Series references and chunk references are identical for agent mode.
 	headRef := chunks.HeadSeriesRef(ref)
 
 	s := a.series.GetByID(headRef)
@@ -951,7 +955,8 @@ func (a *appender) AppendHistogram(ref storage.SeriesRef, l labels.Labels, t int
 		return 0, storage.ErrOutOfOrderSample
 	}
 
-	if h != nil {
+	switch {
+	case h != nil:
 		// NOTE: always modify pendingHistograms and histogramSeries together
 		a.pendingHistograms = append(a.pendingHistograms, record.RefHistogramSample{
 			Ref: series.ref,
@@ -959,7 +964,7 @@ func (a *appender) AppendHistogram(ref storage.SeriesRef, l labels.Labels, t int
 			H:   h,
 		})
 		a.histogramSeries = append(a.histogramSeries, series)
-	} else if fh != nil {
+	case fh != nil:
 		// NOTE: always modify pendingFloatHistograms and floatHistogramSeries together
 		a.pendingFloatHistograms = append(a.pendingFloatHistograms, record.RefFloatHistogramSample{
 			Ref: series.ref,
@@ -973,18 +978,32 @@ func (a *appender) AppendHistogram(ref storage.SeriesRef, l labels.Labels, t int
 	return storage.SeriesRef(series.ref), nil
 }
 
-func (a *appender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m metadata.Metadata) (storage.SeriesRef, error) {
+func (a *appender) UpdateMetadata(storage.SeriesRef, labels.Labels, metadata.Metadata) (storage.SeriesRef, error) {
 	// TODO: Wire metadata in the Agent's appender.
 	return 0, nil
 }
 
 // Commit submits the collected samples and purges the batch.
 func (a *appender) Commit() error {
+	if err := a.log(); err != nil {
+		return err
+	}
+
+	a.clearData()
+	a.appenderPool.Put(a)
+	return nil
+}
+
+// log logs all pending data to the WAL.
+func (a *appender) log() error {
 	a.mtx.RLock()
 	defer a.mtx.RUnlock()
 
 	var encoder record.Encoder
 	buf := a.bufPool.Get().([]byte)
+	defer func() {
+		a.bufPool.Put(buf) //nolint:staticcheck
+	}()
 
 	if len(a.pendingSeries) > 0 {
 		buf = encoder.Series(a.pendingSeries, buf)
@@ -1046,12 +1065,11 @@ func (a *appender) Commit() error {
 		}
 	}
 
-	//nolint:staticcheck
-	a.bufPool.Put(buf)
-	return a.Rollback()
+	return nil
 }
 
-func (a *appender) Rollback() error {
+// clearData clears all pending data.
+func (a *appender) clearData() {
 	a.pendingSeries = a.pendingSeries[:0]
 	a.pendingSamples = a.pendingSamples[:0]
 	a.pendingHistograms = a.pendingHistograms[:0]
@@ -1060,6 +1078,39 @@ func (a *appender) Rollback() error {
 	a.sampleSeries = a.sampleSeries[:0]
 	a.histogramSeries = a.histogramSeries[:0]
 	a.floatHistogramSeries = a.floatHistogramSeries[:0]
+}
+
+func (a *appender) Rollback() error {
+	// Series are created in-memory regardless of rollback. This means we must
+	// log them to the WAL, otherwise subsequent commits may reference a series
+	// which was never written to the WAL.
+	if err := a.logSeries(); err != nil {
+		return err
+	}
+
+	a.clearData()
 	a.appenderPool.Put(a)
+	return nil
+}
+
+// logSeries logs only pending series records to the WAL.
+func (a *appender) logSeries() error {
+	a.mtx.RLock()
+	defer a.mtx.RUnlock()
+
+	if len(a.pendingSeries) > 0 {
+		buf := a.bufPool.Get().([]byte)
+		defer func() {
+			a.bufPool.Put(buf) //nolint:staticcheck
+		}()
+
+		var encoder record.Encoder
+		buf = encoder.Series(a.pendingSeries, buf)
+		if err := a.wal.Log(buf); err != nil {
+			return err
+		}
+		buf = buf[:0]
+	}
+
 	return nil
 }

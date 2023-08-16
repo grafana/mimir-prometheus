@@ -197,13 +197,14 @@ func mergeStrings(a, b []string) []string {
 	res := make([]string, 0, maxl*10/9)
 
 	for len(a) > 0 && len(b) > 0 {
-		if a[0] == b[0] {
+		switch {
+		case a[0] == b[0]:
 			res = append(res, a[0])
 			a, b = a[1:], b[1:]
-		} else if a[0] < b[0] {
+		case a[0] < b[0]:
 			res = append(res, a[0])
 			a = a[1:]
-		} else {
+		default:
 			res = append(res, b[0])
 			b = b[1:]
 		}
@@ -657,20 +658,40 @@ func NewCompactingChunkSeriesMerger(mergeFunc VerticalSeriesMergeFunc) VerticalC
 		if len(series) == 0 {
 			return nil
 		}
+
+		chunkIteratorFn := func(chunks.Iterator) chunks.Iterator {
+			iterators := make([]chunks.Iterator, 0, len(series))
+			for _, s := range series {
+				iterators = append(iterators, s.Iterator(nil))
+			}
+			return &compactChunkIterator{
+				mergeFunc: mergeFunc,
+				iterators: iterators,
+			}
+		}
+
 		return &ChunkSeriesEntry{
-			Lset: series[0].Labels(),
-			ChunkIteratorFn: func(chunks.Iterator) chunks.Iterator {
-				iterators := make([]chunks.Iterator, 0, len(series))
-				for _, s := range series {
-					iterators = append(iterators, s.Iterator(nil))
-				}
-				return &compactChunkIterator{
-					mergeFunc: mergeFunc,
-					iterators: iterators,
-				}
+			Lset:            series[0].Labels(),
+			ChunkIteratorFn: chunkIteratorFn,
+			ChunkCountFn: func() (int, error) {
+				// This method is expensive, but we don't expect to ever actually use this on the ingester query path in Mimir -
+				// it's just here to ensure things don't break if this assumption ever changes.
+				// Ingesters return uncompacted chunks to queriers, so this method is never called.
+				return countChunks(chunkIteratorFn)
 			},
 		}
 	}
+}
+
+func countChunks(chunkIteratorFn func(chunks.Iterator) chunks.Iterator) (int, error) {
+	chunkCount := 0
+	it := chunkIteratorFn(nil)
+
+	for it.Next() {
+		chunkCount++
+	}
+
+	return chunkCount, it.Err()
 }
 
 // compactChunkIterator is responsible to compact chunks from different iterators of the same time series into single chainSeries.
@@ -722,12 +743,11 @@ func (c *compactChunkIterator) Next() bool {
 			break
 		}
 
-		if next.MinTime == prev.MinTime &&
-			next.MaxTime == prev.MaxTime &&
-			bytes.Equal(next.Chunk.Bytes(), prev.Chunk.Bytes()) {
-			// 1:1 duplicates, skip it.
-		} else {
-			// We operate on same series, so labels does not matter here.
+		// Only do something if it is not a perfect duplicate.
+		if next.MinTime != prev.MinTime ||
+			next.MaxTime != prev.MaxTime ||
+			!bytes.Equal(next.Chunk.Bytes(), prev.Chunk.Bytes()) {
+			// We operate on same series, so labels do not matter here.
 			overlapping = append(overlapping, newChunkToSeriesDecoder(labels.EmptyLabels(), next))
 			if next.MaxTime > oMaxTime {
 				oMaxTime = next.MaxTime
@@ -801,6 +821,7 @@ func NewConcatenatingChunkSeriesMerger() VerticalChunkSeriesMergeFunc {
 		if len(series) == 0 {
 			return nil
 		}
+
 		return &ChunkSeriesEntry{
 			Lset: series[0].Labels(),
 			ChunkIteratorFn: func(chunks.Iterator) chunks.Iterator {
@@ -811,6 +832,20 @@ func NewConcatenatingChunkSeriesMerger() VerticalChunkSeriesMergeFunc {
 				return &concatenatingChunkIterator{
 					iterators: iterators,
 				}
+			},
+			ChunkCountFn: func() (int, error) {
+				chunkCount := 0
+
+				for _, series := range series {
+					c, err := series.ChunkCount()
+					if err != nil {
+						return 0, err
+					}
+
+					chunkCount += c
+				}
+
+				return chunkCount, nil
 			},
 		}
 	}

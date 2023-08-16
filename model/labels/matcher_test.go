@@ -118,12 +118,12 @@ func TestInverse(t *testing.T) {
 			expected: &Matcher{Type: MatchEqual, Name: "name2", Value: "value2"},
 		},
 		{
-			matcher:  &Matcher{Type: MatchRegexp, Name: "name3", Value: "value3"},
-			expected: &Matcher{Type: MatchNotRegexp, Name: "name3", Value: "value3"},
+			matcher:  &Matcher{Type: MatchRegexp, Name: "name3", Value: "value3.*"},
+			expected: &Matcher{Type: MatchNotRegexp, Name: "name3", Value: "value3.*"},
 		},
 		{
-			matcher:  &Matcher{Type: MatchNotRegexp, Name: "name4", Value: "value4"},
-			expected: &Matcher{Type: MatchRegexp, Name: "name4", Value: "value4"},
+			matcher:  &Matcher{Type: MatchNotRegexp, Name: "name4", Value: "value4.*"},
+			expected: &Matcher{Type: MatchRegexp, Name: "name4", Value: "value4.*"},
 		},
 	}
 
@@ -186,8 +186,42 @@ func TestPrefix(t *testing.T) {
 	}
 }
 
+func TestIsRegexOptimized(t *testing.T) {
+	for i, tc := range []struct {
+		matcher          *Matcher
+		isRegexOptimized bool
+	}{
+		{
+			matcher:          mustNewMatcher(t, MatchEqual, "abc"),
+			isRegexOptimized: false,
+		},
+		{
+			matcher:          mustNewMatcher(t, MatchRegexp, "."),
+			isRegexOptimized: false,
+		},
+		{
+			matcher:          mustNewMatcher(t, MatchRegexp, "abc.+"),
+			isRegexOptimized: true,
+		},
+	} {
+		t.Run(fmt.Sprintf("%d: %s", i, tc.matcher), func(t *testing.T) {
+			require.Equal(t, tc.isRegexOptimized, tc.matcher.IsRegexOptimized())
+		})
+	}
+}
+
 func BenchmarkMatchType_String(b *testing.B) {
 	for i := 0; i <= b.N; i++ {
 		_ = MatchType(i % int(MatchNotRegexp+1)).String()
 	}
+}
+
+func BenchmarkNewMatcher(b *testing.B) {
+	b.Run("regex matcher with literal", func(b *testing.B) {
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i <= b.N; i++ {
+			NewMatcher(MatchRegexp, "foo", "bar")
+		}
+	})
 }

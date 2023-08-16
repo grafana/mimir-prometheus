@@ -22,13 +22,13 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/goleak"
 
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	testutil.TolerantVerifyLeak(m)
 }
 
 func TestWriteAndReadbackTombstones(t *testing.T) {
@@ -79,6 +79,22 @@ func TestDeletingTombstones(t *testing.T) {
 	intervals, err = stones.Get(ref)
 	require.NoError(t, err)
 	require.Empty(t, intervals)
+}
+
+func TestTombstonesGetWithCopy(t *testing.T) {
+	stones := NewMemTombstones()
+	stones.AddInterval(1, Intervals{{Mint: 1, Maxt: 2}, {Mint: 7, Maxt: 8}, {Mint: 11, Maxt: 12}}...)
+
+	intervals0, err := stones.Get(1)
+	require.NoError(t, err)
+	require.Equal(t, Intervals{{Mint: 1, Maxt: 2}, {Mint: 7, Maxt: 8}, {Mint: 11, Maxt: 12}}, intervals0)
+	intervals1 := intervals0.Add(Interval{Mint: 4, Maxt: 6})
+	require.Equal(t, Intervals{{Mint: 1, Maxt: 2}, {Mint: 4, Maxt: 8}, {Mint: 11, Maxt: 12}}, intervals0) // Original slice changed.
+	require.Equal(t, Intervals{{Mint: 1, Maxt: 2}, {Mint: 4, Maxt: 8}, {Mint: 11, Maxt: 12}}, intervals1)
+
+	intervals2, err := stones.Get(1)
+	require.NoError(t, err)
+	require.Equal(t, Intervals{{Mint: 1, Maxt: 2}, {Mint: 7, Maxt: 8}, {Mint: 11, Maxt: 12}}, intervals2)
 }
 
 func TestTruncateBefore(t *testing.T) {
@@ -209,6 +225,26 @@ func TestAddingNewIntervals(t *testing.T) {
 			exist: Intervals{{9, math.MaxInt64}},
 			new:   Interval{math.MinInt64, 10},
 			exp:   Intervals{{math.MinInt64, math.MaxInt64}},
+		},
+		{
+			exist: Intervals{{9, 10}},
+			new:   Interval{math.MinInt64, 7},
+			exp:   Intervals{{math.MinInt64, 7}, {9, 10}},
+		},
+		{
+			exist: Intervals{{9, 10}},
+			new:   Interval{12, math.MaxInt64},
+			exp:   Intervals{{9, 10}, {12, math.MaxInt64}},
+		},
+		{
+			exist: Intervals{{9, 10}},
+			new:   Interval{math.MinInt64, 8},
+			exp:   Intervals{{math.MinInt64, 10}},
+		},
+		{
+			exist: Intervals{{9, 10}},
+			new:   Interval{11, math.MaxInt64},
+			exp:   Intervals{{9, math.MaxInt64}},
 		},
 	}
 
