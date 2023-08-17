@@ -339,87 +339,59 @@ func (p *PromParser) Next() (Entry, error) {
 		}
 		return EntryComment, nil
 	case tMQuotedName:
-		t2 := p.nextToken()
+		// Skip the { token.
+		_ = p.nextToken()
 		p.offsets = append(p.offsets, p.l.start+1, p.l.i-1)
 		p.series = p.l.b[p.l.start : p.l.i-1]
-		t2 = p.nextToken()
-		if t2 == tComma {
-			if err := p.parseLVals(); err != nil {
-				return EntryInvalid, err
-			}
-			p.series = p.l.b[p.start:p.l.i]
-			t2 = p.nextToken()
-		}
-		if t2 != tValue {
-			return EntryInvalid, p.parseError("expected value after metric", t2)
-		}
-		if p.val, err = parseFloat(yoloString(p.l.buf())); err != nil {
-			return EntryInvalid, fmt.Errorf("%v while parsing: %q", err, p.l.b[p.start:p.l.i])
-		}
-		// Ensure canonical NaN value.
-		if math.IsNaN(p.val) {
-			p.val = math.Float64frombits(value.NormalNaN)
-		}
-		p.hasTS = false
-		switch t := p.nextToken(); t {
-		case tLinebreak:
-			break
-		case tTimestamp:
-			p.hasTS = true
-			if p.ts, err = strconv.ParseInt(yoloString(p.l.buf()), 10, 64); err != nil {
-				return EntryInvalid, fmt.Errorf("%v while parsing: %q", err, p.l.b[p.start:p.l.i])
-			}
-			if t2 := p.nextToken(); t2 != tLinebreak {
-				return EntryInvalid, p.parseError("expected next entry after timestamp", t2)
-			}
-		default:
-			return EntryInvalid, p.parseError("expected timestamp or new record", t)
-		}
-		return EntrySeries, nil
+		return p.parseMetricSuffix(tComma)
 
 	case tMName:
 		p.offsets = append(p.offsets, p.start, p.l.i)
 		p.series = p.l.b[p.start:p.l.i]
-
-		t2 := p.nextToken()
-		if t2 == tBraceOpen {
-			if err := p.parseLVals(); err != nil {
-				return EntryInvalid, err
-			}
-			p.series = p.l.b[p.start:p.l.i]
-			t2 = p.nextToken()
-		}
-		if t2 != tValue {
-			return EntryInvalid, p.parseError("expected value after metric", t2)
-		}
-		if p.val, err = parseFloat(yoloString(p.l.buf())); err != nil {
-			return EntryInvalid, fmt.Errorf("%v while parsing: %q", err, p.l.b[p.start:p.l.i])
-		}
-		// Ensure canonical NaN value.
-		if math.IsNaN(p.val) {
-			p.val = math.Float64frombits(value.NormalNaN)
-		}
-		p.hasTS = false
-		switch t := p.nextToken(); t {
-		case tLinebreak:
-			break
-		case tTimestamp:
-			p.hasTS = true
-			if p.ts, err = strconv.ParseInt(yoloString(p.l.buf()), 10, 64); err != nil {
-				return EntryInvalid, fmt.Errorf("%v while parsing: %q", err, p.l.b[p.start:p.l.i])
-			}
-			if t2 := p.nextToken(); t2 != tLinebreak {
-				return EntryInvalid, p.parseError("expected next entry after timestamp", t2)
-			}
-		default:
-			return EntryInvalid, p.parseError("expected timestamp or new record", t)
-		}
-		return EntrySeries, nil
+		return p.parseMetricSuffix(tBraceOpen)
 
 	default:
 		err = p.parseError("expected a valid start token", t)
 	}
 	return EntryInvalid, err
+}
+
+func (p *PromParser) parseMetricSuffix(expectNextTok token) (Entry, error) {
+	t2 := p.nextToken()
+	if t2 == expectNextTok {
+		if err := p.parseLVals(); err != nil {
+			return EntryInvalid, err
+		}
+		p.series = p.l.b[p.start:p.l.i]
+		t2 = p.nextToken()
+	}
+	if t2 != tValue {
+		return EntryInvalid, p.parseError(fmt.Sprintf("expected %v after metric", expectNextTok), t2)
+	}
+	var err error
+	if p.val, err = parseFloat(yoloString(p.l.buf())); err != nil {
+		return EntryInvalid, fmt.Errorf("%v while parsing: %q", err, p.l.b[p.start:p.l.i])
+	}
+	// Ensure canonical NaN value.
+	if math.IsNaN(p.val) {
+		p.val = math.Float64frombits(value.NormalNaN)
+	}
+	p.hasTS = false
+	switch t := p.nextToken(); t {
+	case tLinebreak:
+		break
+	case tTimestamp:
+		p.hasTS = true
+		if p.ts, err = strconv.ParseInt(yoloString(p.l.buf()), 10, 64); err != nil {
+			return EntryInvalid, fmt.Errorf("%v while parsing: %q", err, p.l.b[p.start:p.l.i])
+		}
+		if t2 := p.nextToken(); t2 != tLinebreak {
+			return EntryInvalid, p.parseError("expected next entry after timestamp", t2)
+		}
+	default:
+		return EntryInvalid, p.parseError("expected timestamp or new record", t)
+	}
+	return EntrySeries, nil
 }
 
 func (p *PromParser) parseLVals() error {
