@@ -219,11 +219,14 @@ func (p *PromParser) Metric(l *labels.Labels) string {
 	fmt.Println("the whole series!", s)
 	fmt.Println("offsets", p.offsets)
 
+	// the problem here is that this code assumes that the metric name begins
+	// at zero. so we need to add another offset to everything that will be the
+	// offset at which the metric starts.  The second one will be what's
 	p.builder.Reset()
-	p.builder.Add(labels.MetricName, s[:p.offsets[0]-p.start])
-	fmt.Println("metric name???", s[:p.offsets[0]-p.start])
+	p.builder.Add(labels.MetricName, s[p.offsets[0]-p.start:p.offsets[1]-p.start])
+	fmt.Println("metric name???", s[p.offsets[0]-p.start:p.offsets[1]-p.start])
 
-	for i := 1; i < len(p.offsets); i += 4 {
+	for i := 2; i < len(p.offsets); i += 4 {
 		fmt.Println("offsets thing:", p.offsets, i, p.start)
 		a := p.offsets[i] - p.start
 		b := p.offsets[i+1] - p.start
@@ -345,8 +348,7 @@ func (p *PromParser) Next() (Entry, error) {
 	case tMQuotedName:
 		t2 := p.nextToken()
 		fmt.Println("t2 is now", t2)
-		p.start = p.l.start+1
-		p.offsets = append(p.offsets, p.l.i-1)
+		p.offsets = append(p.offsets, p.l.start+1, p.l.i-1)
 		fmt.Println("offsets", p.offsets)
 		p.series = p.l.b[p.l.start:p.l.i-1]
 		fmt.Println("p.series", string(p.series), "p.offsets", p.offsets)
@@ -386,7 +388,7 @@ func (p *PromParser) Next() (Entry, error) {
 		return EntrySeries, nil
 
 	case tMName:
-		p.offsets = append(p.offsets, p.l.i)
+		p.offsets = append(p.offsets, p.start, p.l.i)
 		fmt.Println("offsets", p.offsets)
 		p.series = p.l.b[p.start:p.l.i]
 		fmt.Println("p.series", string(p.series), "p.offsets", p.offsets)
