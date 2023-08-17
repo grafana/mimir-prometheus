@@ -152,6 +152,12 @@ type PromParser struct {
 	ts      int64
 	hasTS   bool
 	start   int
+	// offsets is a list of offsets into series that describe the positions
+	// of the metric name and label names and values for this series.
+	// p.offsets[0] is the start character of the metric name
+	// p.offsets[1] is the end of the metric name
+	// subsequently, p.offsets is a pair of offsets for the positions of the
+	// label name and value start and end characters.
 	offsets []int
 }
 
@@ -216,24 +222,14 @@ func (p *PromParser) Metric(l *labels.Labels) string {
 	// Copy the buffer to a string: this is only necessary for the return value.
 	s := string(p.series)
 
-	fmt.Println("the whole series!", s)
-	fmt.Println("offsets", p.offsets)
-
-	// the problem here is that this code assumes that the metric name begins
-	// at zero. so we need to add another offset to everything that will be the
-	// offset at which the metric starts.  The second one will be what's
 	p.builder.Reset()
 	p.builder.Add(labels.MetricName, s[p.offsets[0]-p.start:p.offsets[1]-p.start])
-	fmt.Println("metric name???", s[p.offsets[0]-p.start:p.offsets[1]-p.start])
 
 	for i := 2; i < len(p.offsets); i += 4 {
-		fmt.Println("offsets thing:", p.offsets, i, p.start)
 		a := p.offsets[i] - p.start
 		b := p.offsets[i+1] - p.start
 		c := p.offsets[i+2] - p.start
 		d := p.offsets[i+3] - p.start
-		fmt.Println("a",a,"b",b,"c",c,"d",d)
-		fmt.Println("wat", s[a:b], s[c:d])
 
 		value := s[c:d]
 		// Replacer causes allocations. Replace only when necessary.
@@ -279,11 +275,8 @@ func (p *PromParser) parseError(exp string, got token) error {
 func (p *PromParser) Next() (Entry, error) {
 	var err error
 
-
-
 	p.start = p.l.i
 	p.offsets = p.offsets[:0]
-	fmt.Println("\nahhhh", p.start, p.offsets)
 
 	switch t := p.nextToken(); t {
 	case tEOF:
@@ -347,11 +340,8 @@ func (p *PromParser) Next() (Entry, error) {
 		return EntryComment, nil
 	case tMQuotedName:
 		t2 := p.nextToken()
-		fmt.Println("t2 is now", t2)
 		p.offsets = append(p.offsets, p.l.start+1, p.l.i-1)
-		fmt.Println("offsets", p.offsets)
-		p.series = p.l.b[p.l.start:p.l.i-1]
-		fmt.Println("p.series", string(p.series), "p.offsets", p.offsets)
+		p.series = p.l.b[p.l.start : p.l.i-1]
 		t2 = p.nextToken()
 		if t2 == tComma {
 			if err := p.parseLVals(); err != nil {
@@ -389,16 +379,14 @@ func (p *PromParser) Next() (Entry, error) {
 
 	case tMName:
 		p.offsets = append(p.offsets, p.start, p.l.i)
-		fmt.Println("offsets", p.offsets)
 		p.series = p.l.b[p.start:p.l.i]
-		fmt.Println("p.series", string(p.series), "p.offsets", p.offsets)
+
 		t2 := p.nextToken()
 		if t2 == tBraceOpen {
 			if err := p.parseLVals(); err != nil {
 				return EntryInvalid, err
 			}
 			p.series = p.l.b[p.start:p.l.i]
-			fmt.Println("pseries again?", string(p.series))
 			t2 = p.nextToken()
 		}
 		if t2 != tValue {

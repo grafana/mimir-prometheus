@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -37,7 +36,9 @@ go_gc_duration_seconds{quantile="0.25",} 7.424100000000001e-05
 go_gc_duration_seconds{quantile="0.5",a="b"} 8.3835e-05
 go_gc_duration_seconds{quantile="0.8", a="b"} 8.3835e-05
 go_gc_duration_seconds{ quantile="0.9", a="b"} 8.3835e-05
-{"urmam", q="0.9", a="b"}  8.3835e-05
+{"http.status", q="0.9", a="b"}  8.3835e-05
+{ "http.status", q="0.9", a="b"}  8.3835e-05
+{ "http.status" , q="0.9", a="b"}  8.3835e-05
 # Hrandom comment starting with prefix of HELP
 #
 wind_speed{A="2",c="3"} 12345
@@ -98,9 +99,17 @@ testmetric{label="\"bar\""} 1`
 			v:    8.3835e-05,
 			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.9", "a", "b"),
 		}, {
-			m:    `{"urmam", q="0.9", a="b"}`,
+			m:    `{"http.status", q="0.9", a="b"}`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "urmam", "q", "0.9", "a", "b"),
+			lset: labels.FromStrings("__name__", "http.status", "q", "0.9", "a", "b"),
+		}, {
+			m:    `{ "http.status", q="0.9", a="b"}`,
+			v:    8.3835e-05,
+			lset: labels.FromStrings("__name__", "http.status", "q", "0.9", "a", "b"),
+		}, {
+			m:    `{ "http.status" , q="0.9", a="b"}`,
+			v:    8.3835e-05,
+			lset: labels.FromStrings("__name__", "http.status", "q", "0.9", "a", "b"),
 		}, {
 			comment: "# Hrandom comment starting with prefix of HELP",
 		}, {
@@ -191,7 +200,6 @@ testmetric{label="\"bar\""} 1`
 		switch et {
 		case EntrySeries:
 			m, ts, v := p.Series()
-			fmt.Println("final m:", string(m))
 
 			p.Metric(&res)
 
