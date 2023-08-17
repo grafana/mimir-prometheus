@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -190,6 +191,7 @@ testmetric{label="\"bar\""} 1`
 		switch et {
 		case EntrySeries:
 			m, ts, v := p.Series()
+			fmt.Println("final m:", string(m))
 
 			p.Metric(&res)
 
