@@ -268,6 +268,9 @@ func (p *PromParser) parseError(exp string, got token) error {
 func (p *PromParser) Next() (Entry, error) {
 	var err error
 
+	fmt.Println("next:", string(p.series))
+
+
 	p.start = p.l.i
 	p.offsets = p.offsets[:0]
 
@@ -335,13 +338,20 @@ func (p *PromParser) Next() (Entry, error) {
 	case tMName:
 		p.offsets = append(p.offsets, p.l.i)
 		p.series = p.l.b[p.start:p.l.i]
+		fmt.Println("series??", string(p.series))
 
 		t2 := p.nextToken()
-		if t2 == tBraceOpen {
+		// ah ok so it will only parse lvals if there was an open brace token. we
+		// need a way to say "hey it's cool there's no brace but it's time for
+		// labels.
+		fmt.Println("t2", t2)
+		if t2 == tBraceOpen  || t2 == tLName {
+			fmt.Println("WAT")
 			if err := p.parseLVals(); err != nil {
 				return EntryInvalid, err
 			}
 			p.series = p.l.b[p.start:p.l.i]
+			fmt.Println("and then", string(p.series))
 			t2 = p.nextToken()
 		}
 		if t2 != tValue {
