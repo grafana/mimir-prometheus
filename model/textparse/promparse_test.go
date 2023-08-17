@@ -97,7 +97,7 @@ testmetric{label="\"bar\""} 1`
 			v:    8.3835e-05,
 			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.9", "a", "b"),
 		}, {
-			m:    `"urmam"{ q="0.9", a="b"}`,
+			m:    `urmam", q="0.9", a="b"}`,
 			v:    8.3835e-05,
 			lset: labels.FromStrings("__name__", "urmam", "q", "0.9", "a", "b"),
 		}, {

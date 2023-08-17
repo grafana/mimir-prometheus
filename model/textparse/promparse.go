@@ -55,6 +55,7 @@ const (
 	tComment
 	tBlank
 	tMName
+	tMQuotedName
 	tBraceOpen
 	tBraceClose
 	tLName
@@ -215,14 +216,21 @@ func (p *PromParser) Metric(l *labels.Labels) string {
 	// Copy the buffer to a string: this is only necessary for the return value.
 	s := string(p.series)
 
+	fmt.Println("the whole series!", s)
+	fmt.Println("offsets", p.offsets)
+
 	p.builder.Reset()
 	p.builder.Add(labels.MetricName, s[:p.offsets[0]-p.start])
+	fmt.Println("metric name???", s[:p.offsets[0]-p.start])
 
 	for i := 1; i < len(p.offsets); i += 4 {
+		fmt.Println("offsets thing:", p.offsets, i, p.start)
 		a := p.offsets[i] - p.start
 		b := p.offsets[i+1] - p.start
 		c := p.offsets[i+2] - p.start
 		d := p.offsets[i+3] - p.start
+		fmt.Println("a",a,"b",b,"c",c,"d",d)
+		fmt.Println("wat", s[a:b], s[c:d])
 
 		value := s[c:d]
 		// Replacer causes allocations. Replace only when necessary.
@@ -268,11 +276,11 @@ func (p *PromParser) parseError(exp string, got token) error {
 func (p *PromParser) Next() (Entry, error) {
 	var err error
 
-	fmt.Println("next:", string(p.series))
 
 
 	p.start = p.l.i
 	p.offsets = p.offsets[:0]
+	fmt.Println("\nahhhh", p.start, p.offsets)
 
 	switch t := p.nextToken(); t {
 	case tEOF:
@@ -334,24 +342,61 @@ func (p *PromParser) Next() (Entry, error) {
 			return EntryInvalid, p.parseError("linebreak expected after comment", t)
 		}
 		return EntryComment, nil
-
-	case tMName:
-		p.offsets = append(p.offsets, p.l.i)
-		p.series = p.l.b[p.start:p.l.i]
-		fmt.Println("series??", string(p.series))
-
+	case tMQuotedName:
 		t2 := p.nextToken()
-		// ah ok so it will only parse lvals if there was an open brace token. we
-		// need a way to say "hey it's cool there's no brace but it's time for
-		// labels.
-		fmt.Println("t2", t2)
-		if t2 == tBraceOpen  || t2 == tLName {
-			fmt.Println("WAT")
+		fmt.Println("t2 is now", t2)
+		p.start = p.l.start+1
+		p.offsets = append(p.offsets, p.l.i-1)
+		fmt.Println("offsets", p.offsets)
+		p.series = p.l.b[p.l.start:p.l.i-1]
+		fmt.Println("p.series", string(p.series), "p.offsets", p.offsets)
+		t2 = p.nextToken()
+		if t2 == tComma {
 			if err := p.parseLVals(); err != nil {
 				return EntryInvalid, err
 			}
 			p.series = p.l.b[p.start:p.l.i]
-			fmt.Println("and then", string(p.series))
+			t2 = p.nextToken()
+		}
+		if t2 != tValue {
+			return EntryInvalid, p.parseError("expected value after metric", t2)
+		}
+		if p.val, err = parseFloat(yoloString(p.l.buf())); err != nil {
+			return EntryInvalid, fmt.Errorf("%v while parsing: %q", err, p.l.b[p.start:p.l.i])
+		}
+		// Ensure canonical NaN value.
+		if math.IsNaN(p.val) {
+			p.val = math.Float64frombits(value.NormalNaN)
+		}
+		p.hasTS = false
+		switch t := p.nextToken(); t {
+		case tLinebreak:
+			break
+		case tTimestamp:
+			p.hasTS = true
+			if p.ts, err = strconv.ParseInt(yoloString(p.l.buf()), 10, 64); err != nil {
+				return EntryInvalid, fmt.Errorf("%v while parsing: %q", err, p.l.b[p.start:p.l.i])
+			}
+			if t2 := p.nextToken(); t2 != tLinebreak {
+				return EntryInvalid, p.parseError("expected next entry after timestamp", t2)
+			}
+		default:
+			return EntryInvalid, p.parseError("expected timestamp or new record", t)
+		}
+		return EntrySeries, nil
+
+	case tMName:
+		p.offsets = append(p.offsets, p.l.i)
+		fmt.Println("offsets", p.offsets)
+		p.series = p.l.b[p.start:p.l.i]
+		fmt.Println("p.series", string(p.series), "p.offsets", p.offsets)
+		t2 := p.nextToken()
+		if t2 == tBraceOpen {
+			if err := p.parseLVals(); err != nil {
+				return EntryInvalid, err
+			}
+			p.series = p.l.b[p.start:p.l.i]
+			fmt.Println("pseries again?", string(p.series))
 			t2 = p.nextToken()
 		}
 		if t2 != tValue {

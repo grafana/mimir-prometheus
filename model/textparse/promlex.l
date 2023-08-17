@@ -23,6 +23,7 @@ const (
     sComment
     sMeta1
     sMeta2
+    sQMetric
     sLabels
     sLValue
     sValue
@@ -49,7 +50,7 @@ L     [a-zA-Z_]
 M     [a-zA-Z_:]
 C     [^\n]
 
-%x sComment sMeta1 sMeta2 sLabels sLValue sValue sTimestamp
+%x sComment sMeta1 sMeta2 sQMetric sLabels sLValue sValue sTimestamp
 
 %yyc c
 %yyn c = l.next()
@@ -70,7 +71,8 @@ C     [^\n]
 <sMeta2>{C}*                          l.state = sInit; return tText
 
 {M}({M}|{D})*                         l.state = sValue; return tMName
-\{\"(\\.|[^\\"])*\",                  l.state = sLabels; return tMName
+\{                                    l.state = sQMetric; return tMQuotedName
+<sQMetric>\"[^\\"]*\"                 l.state = sLabels; return tBraceOpen
 <sValue>\{                            l.state = sLabels; return tBraceOpen
 <sLabels>{L}({L}|{D})*                return tLName
 <sLabels>\}                           l.state = sValue; return tBraceClose
