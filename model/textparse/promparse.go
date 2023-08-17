@@ -156,8 +156,8 @@ type PromParser struct {
 	// of the metric name and label names and values for this series.
 	// p.offsets[0] is the start character of the metric name
 	// p.offsets[1] is the end of the metric name
-	// subsequently, p.offsets is a pair of offsets for the positions of the
-	// label name and value start and end characters.
+	// Subsequently, p.offsets is a pair of pair of offsets for the positions
+	// of the label name and value start and end characters.
 	offsets []int
 }
 
