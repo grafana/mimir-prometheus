@@ -1548,6 +1548,10 @@ func (m mockIndex) Postings(name string, values ...string) (index.Postings, erro
 	return index.Merge(res...), nil
 }
 
+func (m mockIndex) PostingsWithLabel(name string) (index.Postings, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 	ep, err := index.ExpandPostings(p)
 	if err != nil {
@@ -2410,6 +2414,10 @@ func (m mockMatcherIndex) Postings(name string, values ...string) (index.Posting
 }
 
 func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {
+	return index.EmptyPostings(), nil
+}
+
+func (m mockMatcherIndex) PostingsWithLabel(name string) (index.Postings, error) {
 	return index.EmptyPostings(), nil
 }
 

@@ -269,6 +269,10 @@ func (idx indexForPostingsMock) Postings(string, ...string) (index.Postings, err
 	panic("implement me")
 }
 
+func (idx indexForPostingsMock) PostingsWithLabel(string) (index.Postings, error) {
+	panic("implement me")
+}
+
 // timeNowMock offers a mockable time.Now() implementation
 // empty value is ready to be used, and it should not be copied (use a reference)
 type timeNowMock struct {
