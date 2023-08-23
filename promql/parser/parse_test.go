@@ -1763,7 +1763,19 @@ var testExpr = []struct {
 	{
 		input: `{"foo.bar", "bar.cpu"=~"baz"}`,
 		expected: &VectorSelector{
-			Name: "foo.bar",
+			LabelMatchers: []*labels.Matcher{
+				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "foo.bar"),
+				MustLabelMatcher(labels.MatchRegexp, "bar.cpu", "baz"),
+			},
+			PosRange: PositionRange{
+				Start: 0,
+				End:   29,
+			},
+		},
+	},
+	{
+		input: `{"bar.cpu"=~"baz", "foo.bar"}`,
+		expected: &VectorSelector{
 			LabelMatchers: []*labels.Matcher{
 				MustLabelMatcher(labels.MatchRegexp, "bar.cpu", "baz"),
 				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "foo.bar"),

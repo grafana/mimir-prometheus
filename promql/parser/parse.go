@@ -713,6 +713,15 @@ func (p *parser) newLabelMatcher(label, operator, value Item) *labels.Matcher {
 	return m
 }
 
+func (p *parser) newMetricNameMatcher(value Item) *labels.Matcher {
+	m, err := labels.NewMatcher(labels.MatchEqual, labels.MetricName, value.Val)
+	if err != nil {
+		p.addParseErr(value.PositionRange(), err)
+	}
+
+	return m
+}
+
 // addOffset is used to set the offset in the generated parser.
 func (p *parser) addOffset(e Node, offset time.Duration) {
 	var orgoffsetp *time.Duration
