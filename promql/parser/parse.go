@@ -714,6 +714,8 @@ func (p *parser) newLabelMatcher(label, operator, value Item) *labels.Matcher {
 }
 
 func (p *parser) newMetricNameMatcher(value Item) *labels.Matcher {
+	// TODO we should check whether this has already happened and return error
+	// if so. (look for .Name and look for other __name__).
 	m, err := labels.NewMatcher(labels.MatchEqual, labels.MetricName, value.Val)
 	if err != nil {
 		p.addParseErr(value.PositionRange(), err)
