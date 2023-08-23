@@ -160,6 +160,22 @@ groups:
 `,
 			shouldPass: false,
 		},
+		{
+			// quoting the label name.
+			ruleString: `
+groups:
+- name: example
+  rules:
+  - alert: InstanceDown
+    expr: up == 0
+    for: 5m
+    labels:
+      severity: "page"
+    annotations:
+      summary: "Instance {{ index $labels \"label with spaces.and.dots\" }} down"
+`,
+			shouldPass: true,
+		},
 	}
 
 	for _, tst := range tests {
