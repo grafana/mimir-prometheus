@@ -1787,6 +1787,11 @@ var testExpr = []struct {
 		},
 	},
 	{
+		input: `{"foo", "bar"}`,
+		fail: true,
+		errMsg: "metric name must not be set twice",
+	},
+	{
 		input:  `{`,
 		fail:   true,
 		errMsg: "unexpected end of input inside braces",

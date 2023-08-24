@@ -68,6 +68,7 @@ C     [^\n]
 <sComment>TYPE[\t ]+                  l.state = sMeta1; return tType
 <sMeta1>{M}({M}|{D})*                 l.state = sMeta2; return tMName
 <sMeta2>{C}*                          l.state = sInit; return tText
+
 {M}({M}|{D})*                         l.state = sValue; return tMName
 <sValue>\{                            l.state = sLabels; return tBraceOpen
 \{                                    l.state = sLabels; return tBraceOpen
