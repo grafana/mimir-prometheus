@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -192,7 +191,6 @@ testmetric{label="\"bar\""} 1`
 	var res labels.Labels
 
 	for {
-		fmt.Println("-----------")
 		et, err := p.Next()
 		if errors.Is(err, io.EOF) {
 			break
@@ -255,6 +253,18 @@ func TestPromParseErrors(t *testing.T) {
 			err:   "invalid UTF-8 label value: \"\\\"\\xff\\\"\"",
 		},
 		{
+			input: "a{\"b\"} 1\n",
+			err:   "metric name already set while parsing: \"a{\\\"b\\\"}\"",
+		},
+		{
+			input: "a{\"b\", \"d\"} 1\n",
+			err:   "metric name already set while parsing: \"a{\\\"b\\\",\"",
+		},
+		{
+			input: "{\"b\", \"d\"} 1\n",
+			err:   "metric name already set while parsing: \"{\\\"b\\\", \\\"d\\\"}\"",
+		},
+		{
 			input: "a true\n",
 			err:   "strconv.ParseFloat: parsing \"true\": invalid syntax while parsing: \"a true\"",
 		},
@@ -282,7 +292,6 @@ func TestPromParseErrors(t *testing.T) {
 			input: "foo 0 1_2\n",
 			err:   "expected next entry after timestamp, got \"_\" (\"INVALID\") while parsing: \"foo 0 1_\"",
 		},
-		// This needs to return a new "didn't set metric name" error
 		{
 			input: `{a="ok"} 1`,
 			err:   "metric name not set while parsing: \"{a=\\\"ok\\\"} 1\\n\"",
@@ -298,7 +307,6 @@ func TestPromParseErrors(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		fmt.Println("-------", c.input)
 		p := NewPromParser([]byte(c.input))
 		var err error
 		for err == nil {

@@ -92,6 +92,8 @@ func (t token) String() string {
 		return "BLANK"
 	case tMName:
 		return "MNAME"
+	case tQString:
+		return "QSTRING"
 	case tBraceOpen:
 		return "BOPEN"
 	case tBraceClose:
@@ -222,14 +224,8 @@ func (p *PromParser) Metric(l *labels.Labels) string {
 	// Copy the buffer to a string: this is only necessary for the return value.
 	s := string(p.series)
 
-	// XXXXXXXXXXXXXX Need to be able to return an error if the
-	// metric name was never set.
-	fmt.Println("hey let's not crash", p.offsets, p.start, s)
-
 	p.builder.Reset()
 	p.builder.Add(labels.MetricName, s[p.offsets[0]-p.start:p.offsets[1]-p.start])
-
-	fmt.Println("ok?")
 
 	for i := 2; i < len(p.offsets); i += 4 {
 		a := p.offsets[i] - p.start
@@ -242,7 +238,6 @@ func (p *PromParser) Metric(l *labels.Labels) string {
 		if strings.IndexByte(s[c:d], byte('\\')) >= 0 {
 			value = lvalReplacer.Replace(value)
 		}
-		fmt.Println("adding", s[a:b], value)
 		p.builder.Add(s[a:b], value)
 	}
 
@@ -346,10 +341,9 @@ func (p *PromParser) Next() (Entry, error) {
 		}
 		return EntryComment, nil
 	case tBraceOpen:
-		fmt.Println("BRACE OPEN (toplevel)")
-		// We found a brace! Make room for the eventual metric name.
-		// Is this going to get called when we nextToken after tMName? I don't think
-		// so because we don't recurse.
+		// We found a brace, so make room for the eventual metric name. If these
+		// values aren't updated, then the metric name was not set inside the
+		// braces and we can return an error.
 		if len(p.offsets) == 0 {
 			p.offsets = []int{-1, -1}
 		}
@@ -358,23 +352,16 @@ func (p *PromParser) Next() (Entry, error) {
 		}
 
 		p.series = p.l.b[p.start:p.l.i]
-		t2 := p.nextToken()
-		// if t2 == tBraceClose {
-		// 	t2 = p.nextToken()
-		// }
-		return p.parseMetricSuffix(t2)
+		return p.parseMetricSuffix(p.nextToken())
 	case tMName:
-		fmt.Println("METRIC NAME (toplevel): ", string(p.l.b[p.start:p.l.i]), p.l.state)
 		p.offsets = append(p.offsets, p.start, p.l.i)
 		p.series = p.l.b[p.start:p.l.i]
 		t2 := p.nextToken()
-		fmt.Println("next token is:", t2)
+		// If there's a brace, consume and parse the label values
 		if t2 == tBraceOpen {
 			if err := p.parseLVals(); err != nil {
 				return EntryInvalid, err
 			}
-			// ok I think this is saying, the series (not including suffix) is from
-			// the start to the end of the last thing we parsed in parseLVals
 			p.series = p.l.b[p.start:p.l.i]
 			t2 = p.nextToken()
 		}
@@ -386,26 +373,10 @@ func (p *PromParser) Next() (Entry, error) {
 	return EntryInvalid, err
 }
 
-// So I think how this works is that when you call nextToken, you get:
-// * the return value: the thing returned from promlex.l for that token type.
-//   It's saying hey what type of token did I just read?
-// * p.l holds information about what was just read. p.l.start/end are the
-//   start/end positions, and you can extract the string information from the
-//   buf.So I think when we see a quote, we have to record the
-//
-// Ah so the sLValue token gets us the quoted bit, including the quotes.
-// So if we see things that are quoted, we grab them, and then look at the next
-// token.  If it's a comma then it was a metric name, if it is an = then it was
-// a label name. (It looks like you don't get to use any other operators.
-// It's all about "tell me what the next token is" and then do stuff with it.
-//
-// I am basically right that { needs to be a start token, but instead we just
-// add emptyness to the offsets and hope we fill it later.
-
+// parseLVals parses the contents inside the braces.
 func (p *PromParser) parseLVals() error {
 	t := p.nextToken()
 	for {
-		fmt.Println("parselvals tok", t)
 		curTStart := p.l.start
 		curTI := p.l.i
 		switch t {
@@ -420,17 +391,16 @@ func (p *PromParser) parseLVals() error {
 		t = p.nextToken()
 		// A quoted string followed by a comma is a metric name. Set the
 		// offsets and continue processing.
-		fmt.Println("nexttok ", t)
-		if t == tComma {
-			fmt.Println("comma! was that a metric name???", curTStart, curTI)
+		if t == tComma || t == tBraceClose {
 			if p.offsets[0] != -1 || p.offsets[1] != -1 {
-				return p.parseError("metric name already set", t)
+				return fmt.Errorf("metric name already set while parsing: %q", p.l.b[p.start:p.l.i])
 			}
 			p.offsets[0] = curTStart + 1
 			p.offsets[1] = curTI - 1
 			t = p.nextToken()
 			continue
 		}
+		// We have a label name.
 		p.offsets = append(p.offsets, curTStart, curTI)
 		if t != tEqual {
 			return p.parseError("expected equal", t)
@@ -453,11 +423,11 @@ func (p *PromParser) parseLVals() error {
 	}
 }
 
-// XXXXXX this should JUST parse the floats and whatever after the close brace.
-func (p *PromParser) parseMetricSuffix(t2 token) (Entry, error) {
-	// t2 := p.nextToken()
-	if t2 != tValue {
-		return EntryInvalid, p.parseError("expected value after metric", t2)
+// parseMetricSuffix parses the end of the line after the metric name and
+// labels. It starts parsing with the provided token.
+func (p *PromParser) parseMetricSuffix(t token) (Entry, error) {
+	if t != tValue {
+		return EntryInvalid, p.parseError("expected value after metric", t)
 	}
 	var err error
 	if p.val, err = parseFloat(yoloString(p.l.buf())); err != nil {
