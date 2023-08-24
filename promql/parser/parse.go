@@ -726,7 +726,6 @@ func (p *parser) newLabelMatcher(label, operator, value Item) *labels.Matcher {
 }
 
 func (p *parser) newMetricNameMatcher(value Item) *labels.Matcher {
-	fmt.Println("new metric name please", value.Val)
 	m, err := labels.NewMatcher(labels.MatchEqual, labels.MetricName, value.Val)
 	if err != nil {
 		p.addParseErr(value.PositionRange(), err)

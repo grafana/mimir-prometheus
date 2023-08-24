@@ -389,7 +389,7 @@ func (p *PromParser) parseLVals() error {
 		}
 
 		t = p.nextToken()
-		// A quoted string followed by a comma is a metric name. Set the
+		// A quoted string followed by a comma or brace is a metric name. Set the
 		// offsets and continue processing.
 		if t == tComma || t == tBraceClose {
 			if p.offsets[0] != -1 || p.offsets[1] != -1 {
