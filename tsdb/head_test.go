@@ -5175,12 +5175,35 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 }
 
 func TestHeadMinOOOTimeUpdate(t *testing.T) {
-	// TODO(fionaliao): share this function across tests
-	appendSample := func(appender storage.Appender, ts int64) (storage.SeriesRef, error) {
-		lbls := labels.FromStrings("foo", "bar")
-		return appender.Append(0, lbls, ts*time.Minute.Milliseconds(), float64(ts))
+	scenarios := map[string]struct {
+		sampleType string
+		appendFunc func(appender storage.Appender, i int64) (storage.SeriesRef, error)
+	}{
+		// TODO(fionaliao): deduplicate this code - very similar to TestOutOfOrderSamplesMetric
+		"float": {
+			sampleType: sampleMetricTypeFloat,
+			appendFunc: func(appender storage.Appender, i int64) (storage.SeriesRef, error) {
+				return appender.Append(0, labels.FromStrings("a", "b"), i, 99.0)
+			},
+		},
+		"integer histogram": {
+			sampleType: sampleMetricTypeHistogram,
+			appendFunc: func(appender storage.Appender, i int64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, labels.FromStrings("a", "b"), i, tsdbutil.GenerateTestHistogram(99), nil)
+			},
+		},
+		"float histogram": {
+			sampleType: sampleMetricTypeHistogram,
+			appendFunc: func(appender storage.Appender, i int64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, labels.FromStrings("a", "b"), i, nil, tsdbutil.GenerateTestFloatHistogram(99))
+			},
+		},
 	}
-	testHeadMinOOOTimeUpdate(t, "float", appendSample)
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testHeadMinOOOTimeUpdate(t, scenario.sampleType, scenario.appendFunc)
+		})
+	}
 }
 
 func testHeadMinOOOTimeUpdate(t *testing.T, sampleType string, appendFunc func(appender storage.Appender, ts int64) (storage.SeriesRef, error)) {
@@ -5193,6 +5216,7 @@ func testHeadMinOOOTimeUpdate(t *testing.T, sampleType string, appendFunc func(a
 	opts := DefaultHeadOptions()
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderTimeWindow.Store(10 * time.Minute.Milliseconds())
+	opts.EnableNativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -5201,14 +5225,14 @@ func testHeadMinOOOTimeUpdate(t *testing.T, sampleType string, appendFunc func(a
 	})
 	require.NoError(t, h.Init(0))
 
-	app := h.Appender(context.Background()) //TODO(fionaliao): Reduce duplication
-	_, err = appendFunc(app, 300)           // In-order sample.
+	app := h.Appender(context.Background())                  //TODO(fionaliao): Reduce duplication
+	_, err = appendFunc(app, 300*time.Minute.Milliseconds()) // In-order sample.
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
 	require.Equal(t, int64(math.MaxInt64), h.MinOOOTime())
 
 	app = h.Appender(context.Background())
-	_, err = appendFunc(app, 295) // OOO sample.
+	_, err = appendFunc(app, 295*time.Minute.Milliseconds()) // OOO sample.
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
 	require.Equal(t, 295*time.Minute.Milliseconds(), h.MinOOOTime())
@@ -5218,12 +5242,12 @@ func testHeadMinOOOTimeUpdate(t *testing.T, sampleType string, appendFunc func(a
 	require.Equal(t, 290*time.Minute.Milliseconds(), h.MinOOOTime())
 
 	app = h.Appender(context.Background())
-	_, err = appendFunc(app, 310) // In-order sample.
+	_, err = appendFunc(app, 310*time.Minute.Milliseconds()) // In-order sample.
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
 
 	app = h.Appender(context.Background())
-	_, err = appendFunc(app, 305) // OOO sample.
+	_, err = appendFunc(app, 305*time.Minute.Milliseconds()) // OOO sample.
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
 	require.Equal(t, 290*time.Minute.Milliseconds(), h.MinOOOTime())
