@@ -1787,8 +1787,8 @@ var testExpr = []struct {
 		},
 	},
 	{
-		input: `{"foo", "bar"}`,
-		fail: true,
+		input:  `{"foo", "bar"}`,
+		fail:   true,
 		errMsg: "metric name must not be set twice",
 	},
 	{
