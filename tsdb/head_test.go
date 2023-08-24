@@ -4724,6 +4724,34 @@ func TestWBLReplay(t *testing.T) {
 
 // TestOOOMmapReplay checks the replay at a low level.
 func TestOOOMmapReplay(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error)
+	}{
+		// diff with other appendFunc is that value is set, histograms are set a bit hackily though (float to int cast)
+		"float": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.Append(0, lbls, i, value)
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, lbls, i, tsdbutil.GenerateTestHistogram(int(value)), nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, lbls, i, nil, tsdbutil.GenerateTestFloatHistogram(int(value)))
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOMmapReplay(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testOOOMmapReplay(t *testing.T, appendFunc func(appender storage.Appender, lbls labels.Labels, ts int64, value float64) (storage.SeriesRef, error)) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
@@ -4735,6 +4763,7 @@ func TestOOOMmapReplay(t *testing.T) {
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderCapMax.Store(30)
 	opts.OutOfOrderTimeWindow.Store(1000 * time.Minute.Milliseconds())
+	opts.EnableNativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -4744,7 +4773,7 @@ func TestOOOMmapReplay(t *testing.T) {
 	appendSample := func(mins int64) {
 		app := h.Appender(context.Background())
 		ts, v := mins*time.Minute.Milliseconds(), float64(mins)
-		_, err := app.Append(0, l, ts, v)
+		_, err := appendFunc(app, l, ts, v)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 	}
@@ -5019,6 +5048,34 @@ func TestReplayAfterMmapReplayError(t *testing.T) {
 }
 
 func TestOOOAppendWithNoSeries(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error)
+	}{
+		// diff with other appendFunc is that value is set, histograms are set a bit hackily though (float to int cast)
+		"float": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.Append(0, lbls, i, value)
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, lbls, i, tsdbutil.GenerateTestHistogram(int(value)), nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, lbls, i, nil, tsdbutil.GenerateTestFloatHistogram(int(value)))
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOAppendWithNoSeries(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Appender, lbls labels.Labels, ts int64, value float64) (storage.SeriesRef, error)) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
@@ -5029,6 +5086,7 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderCapMax.Store(30)
 	opts.OutOfOrderTimeWindow.Store(120 * time.Minute.Milliseconds())
+	opts.EnableNativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -5039,7 +5097,8 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 
 	appendSample := func(lbls labels.Labels, ts int64) {
 		app := h.Appender(context.Background())
-		_, err := app.Append(0, lbls, ts*time.Minute.Milliseconds(), float64(ts))
+		_, err := appendFunc(app, lbls, ts*time.Minute.Milliseconds(), float64(ts)) //TODO: check if we should set sample value to timestamp? doesn't seem to make much of a diff to the test since it just looks at samples
+		//_, err := app.Append(0, lbls, ts*time.Minute.Milliseconds(), float64(ts))
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 	}
@@ -5087,10 +5146,10 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 	// Now 179m is too old.
 	s4 := newLabels(4)
 	app := h.Appender(context.Background())
-	_, err = app.Append(0, s4, 179*time.Minute.Milliseconds(), float64(179))
+	_, err = appendFunc(app, s4, 179*time.Minute.Milliseconds(), float64(179))
 	require.Equal(t, storage.ErrTooOldSample, err)
 	require.NoError(t, app.Rollback())
-	verifyOOOSamples(s3, 1)
+	verifyOOOSamples(s3, 1) //TODO: should we be testing s4 (has no samples) instead? this is copied from the original test
 
 	// Samples still go into in-order chunk for samples within
 	// appendable minValidTime.
@@ -5100,6 +5159,38 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 }
 
 func TestHeadMinOOOTimeUpdate(t *testing.T) {
+	scenarios := map[string]struct {
+		sampleType string
+		appendFunc func(appender storage.Appender, i int64) (storage.SeriesRef, error)
+	}{
+		// TODO(fionaliao): deduplicate this code - very similar to TestOutOfOrderSamplesMetric
+		"float": {
+			sampleType: sampleMetricTypeFloat,
+			appendFunc: func(appender storage.Appender, i int64) (storage.SeriesRef, error) {
+				return appender.Append(0, labels.FromStrings("a", "b"), i, 99.0)
+			},
+		},
+		"integer histogram": {
+			sampleType: sampleMetricTypeHistogram,
+			appendFunc: func(appender storage.Appender, i int64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, labels.FromStrings("a", "b"), i, tsdbutil.GenerateTestHistogram(99), nil)
+			},
+		},
+		"float histogram": {
+			sampleType: sampleMetricTypeHistogram,
+			appendFunc: func(appender storage.Appender, i int64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, labels.FromStrings("a", "b"), i, nil, tsdbutil.GenerateTestFloatHistogram(99))
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testHeadMinOOOTimeUpdate(t, scenario.sampleType, scenario.appendFunc)
+		})
+	}
+}
+
+func testHeadMinOOOTimeUpdate(t *testing.T, sampleType string, appendFunc func(appender storage.Appender, ts int64) (storage.SeriesRef, error)) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
@@ -5109,6 +5200,7 @@ func TestHeadMinOOOTimeUpdate(t *testing.T) {
 	opts := DefaultHeadOptions()
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderTimeWindow.Store(10 * time.Minute.Milliseconds())
+	opts.EnableNativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -5117,27 +5209,33 @@ func TestHeadMinOOOTimeUpdate(t *testing.T) {
 	})
 	require.NoError(t, h.Init(0))
 
-	appendSample := func(ts int64) {
-		lbls := labels.FromStrings("foo", "bar")
-		app := h.Appender(context.Background())
-		_, err := app.Append(0, lbls, ts*time.Minute.Milliseconds(), float64(ts))
-		require.NoError(t, err)
-		require.NoError(t, app.Commit())
-	}
+	//TODO: wrap appendFunc with appendFunc with h.Appender and commit
 
-	appendSample(300) // In-order sample.
-
+	app := h.Appender(context.Background())                  //TODO(fionaliao): Reduce duplication
+	_, err = appendFunc(app, 300*time.Minute.Milliseconds()) // In-order sample.
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
 	require.Equal(t, int64(math.MaxInt64), h.MinOOOTime())
 
-	appendSample(295) // OOO sample.
+	app = h.Appender(context.Background())
+	_, err = appendFunc(app, 295*time.Minute.Milliseconds()) // OOO sample.
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
 	require.Equal(t, 295*time.Minute.Milliseconds(), h.MinOOOTime())
 
 	// Allowed window for OOO is >=290, which is before the earliest ooo sample 295, so it gets set to the lower value.
 	require.NoError(t, h.truncateOOO(0, 1))
 	require.Equal(t, 290*time.Minute.Milliseconds(), h.MinOOOTime())
 
-	appendSample(310) // In-order sample.
-	appendSample(305) // OOO sample.
+	app = h.Appender(context.Background())
+	_, err = appendFunc(app, 310*time.Minute.Milliseconds()) // In-order sample.
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	app = h.Appender(context.Background())
+	_, err = appendFunc(app, 305*time.Minute.Milliseconds()) // OOO sample.
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
 	require.Equal(t, 290*time.Minute.Milliseconds(), h.MinOOOTime())
 
 	// Now the OOO sample 295 was not gc'ed yet. And allowed window for OOO is now >=300.
