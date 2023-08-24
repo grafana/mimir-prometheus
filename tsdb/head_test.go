@@ -5175,6 +5175,15 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 }
 
 func TestHeadMinOOOTimeUpdate(t *testing.T) {
+	// TODO(fionaliao): share this function across tests
+	appendSample := func(appender storage.Appender, ts int64) (storage.SeriesRef, error) {
+		lbls := labels.FromStrings("foo", "bar")
+		return appender.Append(0, lbls, ts*time.Minute.Milliseconds(), float64(ts))
+	}
+	testHeadMinOOOTimeUpdate(t, "float", appendSample)
+}
+
+func testHeadMinOOOTimeUpdate(t *testing.T, sampleType string, appendFunc func(appender storage.Appender, ts int64) (storage.SeriesRef, error)) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
@@ -5192,27 +5201,31 @@ func TestHeadMinOOOTimeUpdate(t *testing.T) {
 	})
 	require.NoError(t, h.Init(0))
 
-	appendSample := func(ts int64) {
-		lbls := labels.FromStrings("foo", "bar")
-		app := h.Appender(context.Background())
-		_, err := app.Append(0, lbls, ts*time.Minute.Milliseconds(), float64(ts))
-		require.NoError(t, err)
-		require.NoError(t, app.Commit())
-	}
-
-	appendSample(300) // In-order sample.
-
+	app := h.Appender(context.Background()) //TODO(fionaliao): Reduce duplication
+	_, err = appendFunc(app, 300)           // In-order sample.
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
 	require.Equal(t, int64(math.MaxInt64), h.MinOOOTime())
 
-	appendSample(295) // OOO sample.
+	app = h.Appender(context.Background())
+	_, err = appendFunc(app, 295) // OOO sample.
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
 	require.Equal(t, 295*time.Minute.Milliseconds(), h.MinOOOTime())
 
 	// Allowed window for OOO is >=290, which is before the earliest ooo sample 295, so it gets set to the lower value.
 	require.NoError(t, h.truncateOOO(0, 1))
 	require.Equal(t, 290*time.Minute.Milliseconds(), h.MinOOOTime())
 
-	appendSample(310) // In-order sample.
-	appendSample(305) // OOO sample.
+	app = h.Appender(context.Background())
+	_, err = appendFunc(app, 310) // In-order sample.
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	app = h.Appender(context.Background())
+	_, err = appendFunc(app, 305) // OOO sample.
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
 	require.Equal(t, 290*time.Minute.Milliseconds(), h.MinOOOTime())
 
 	// Now the OOO sample 295 was not gc'ed yet. And allowed window for OOO is now >=300.
