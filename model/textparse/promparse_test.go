@@ -17,6 +17,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"testing"
@@ -38,7 +39,7 @@ go_gc_duration_seconds{quantile="0.8", a="b"} 8.3835e-05
 go_gc_duration_seconds{ quantile="0.9", a="b"} 8.3835e-05
 {"http.status", q="0.9", a="b"}  8.3835e-05
 { "http.status", q="0.9", a="b"}  8.3835e-05
-{ "http.status" , q="0.9", a="b"}  8.3835e-05
+{q="0.9",  "http.status" , a="b"}  8.3835e-05
 # Hrandom comment starting with prefix of HELP
 #
 wind_speed{A="2",c="3"} 12345
@@ -107,7 +108,7 @@ testmetric{label="\"bar\""} 1`
 			v:    8.3835e-05,
 			lset: labels.FromStrings("__name__", "http.status", "q", "0.9", "a", "b"),
 		}, {
-			m:    `{ "http.status" , q="0.9", a="b"}`,
+			m:    `{q="0.9",  "http.status" , a="b"}`,
 			v:    8.3835e-05,
 			lset: labels.FromStrings("__name__", "http.status", "q", "0.9", "a", "b"),
 		}, {
@@ -191,6 +192,7 @@ testmetric{label="\"bar\""} 1`
 	var res labels.Labels
 
 	for {
+		fmt.Println("-----------")
 		et, err := p.Next()
 		if errors.Is(err, io.EOF) {
 			break
@@ -280,9 +282,10 @@ func TestPromParseErrors(t *testing.T) {
 			input: "foo 0 1_2\n",
 			err:   "expected next entry after timestamp, got \"_\" (\"INVALID\") while parsing: \"foo 0 1_\"",
 		},
+		// This needs to return a new "didn't set metric name" error
 		{
 			input: `{a="ok"} 1`,
-			err:   "expected a valid start token, got \"{\" (\"INVALID\") while parsing: \"{\"",
+			err:   "metric name not set while parsing: \"{a=\\\"ok\\\"} 1\\n\"",
 		},
 		{
 			input: "# TYPE #\n#EOF\n",
@@ -295,6 +298,7 @@ func TestPromParseErrors(t *testing.T) {
 	}
 
 	for i, c := range cases {
+		fmt.Println("-------", c.input)
 		p := NewPromParser([]byte(c.input))
 		var err error
 		for err == nil {

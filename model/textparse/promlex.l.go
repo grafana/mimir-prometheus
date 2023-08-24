@@ -24,7 +24,6 @@ const (
 	sComment
 	sMeta1
 	sMeta2
-	sQMetric
 	sLabels
 	sLValue
 	sValue
@@ -57,15 +56,13 @@ yystate0:
 		goto yystart20
 	case 3: // start condition: sMeta2
 		goto yystart22
-	case 4: // start condition: sQMetric
+	case 4: // start condition: sLabels
 		goto yystart25
-	case 5: // start condition: sLabels
-		goto yystart28
-	case 6: // start condition: sLValue
+	case 5: // start condition: sLValue
 		goto yystart33
-	case 7: // start condition: sValue
+	case 6: // start condition: sValue
 		goto yystart37
-	case 8: // start condition: sTimestamp
+	case 7: // start condition: sTimestamp
 		goto yystart40
 	}
 
@@ -135,7 +132,7 @@ yystate7:
 
 yystate8:
 	c = l.next()
-	goto yyrule11
+	goto yyrule12
 
 yystate9:
 	c = l.next()
@@ -302,31 +299,6 @@ yystart25:
 		goto yyabort
 	case c == '"':
 		goto yystate26
-	case c == '\t' || c == ' ':
-		goto yystate3
-	}
-
-yystate26:
-	c = l.next()
-	switch {
-	default:
-		goto yyabort
-	case c == '"':
-		goto yystate27
-	case c >= '\x01' && c <= '!' || c >= '#' && c <= '[' || c >= ']' && c <= 'ÿ':
-		goto yystate26
-	}
-
-yystate27:
-	c = l.next()
-	goto yyrule12
-
-yystate28:
-	c = l.next()
-yystart28:
-	switch {
-	default:
-		goto yyabort
 	case c == ',':
 		goto yystate29
 	case c == '=':
@@ -337,6 +309,32 @@ yystart28:
 		goto yystate32
 	case c >= 'A' && c <= 'Z' || c == '_' || c >= 'a' && c <= 'z':
 		goto yystate31
+	}
+
+yystate26:
+	c = l.next()
+	switch {
+	default:
+		goto yyabort
+	case c == '"':
+		goto yystate27
+	case c == '\\':
+		goto yystate28
+	case c >= '\x01' && c <= '!' || c >= '#' && c <= '[' || c >= ']' && c <= 'ÿ':
+		goto yystate26
+	}
+
+yystate27:
+	c = l.next()
+	goto yyrule14
+
+yystate28:
+	c = l.next()
+	switch {
+	default:
+		goto yyabort
+	case c >= '\x01' && c <= '\t' || c >= '\v' && c <= 'ÿ':
+		goto yystate26
 	}
 
 yystate29:
@@ -351,7 +349,7 @@ yystate31:
 	c = l.next()
 	switch {
 	default:
-		goto yyrule14
+		goto yyrule13
 	case c >= '0' && c <= '9' || c >= 'A' && c <= 'Z' || c == '_' || c >= 'a' && c <= 'z':
 		goto yystate31
 	}
@@ -423,7 +421,7 @@ yystate38:
 
 yystate39:
 	c = l.next()
-	goto yyrule13
+	goto yyrule11
 
 yystate40:
 	c = l.next()
@@ -507,25 +505,25 @@ yyrule10: // {M}({M}|{D})*
 	}
 yyrule11: // \{
 	{
-		l.state = sQMetric
-		return tMQuotedName
+		l.state = sLabels
+		return tBraceOpen
 		goto yystate0
 	}
-yyrule12: // \"[^\\"]*\"
+yyrule12: // \{
 	{
 		l.state = sLabels
 		return tBraceOpen
 		goto yystate0
 	}
-yyrule13: // \{
-	{
-		l.state = sLabels
-		return tBraceOpen
-		goto yystate0
-	}
-yyrule14: // {L}({L}|{D})*
+yyrule13: // {L}({L}|{D})*
 	{
 		return tLName
+	}
+yyrule14: // \"(\\.|[^\\"])*\"
+	{
+		l.state = sLabels
+		return tQString
+		goto yystate0
 	}
 yyrule15: // \}
 	{
@@ -590,9 +588,6 @@ yyabort: // no lexem recognized
 		}
 		if false {
 			goto yystate25
-		}
-		if false {
-			goto yystate28
 		}
 		if false {
 			goto yystate33
