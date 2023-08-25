@@ -19,6 +19,7 @@ import (
 
 	"github.com/oklog/ulid"
 	"github.com/pkg/errors"
+	"golang.org/x/exp/maps"
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -196,6 +197,16 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 				return nil, err
 			}
 			its = append(its, allPostings)
+		case m.Type == labels.MatchSet:
+			// This is the special case of a label that must be set for the posting
+			it, err := ix.PostingsWithLabel(m.Name)
+			if err != nil {
+				return nil, err
+			}
+			if index.IsEmptyPostingsType(it) {
+				return index.EmptyPostings(), nil
+			}
+			its = append(its, it)
 		case labelMustBeSet[m.Name]:
 			// If this matcher must be non-empty, we can be smarter.
 			matchesEmpty := m.Matches("")
@@ -242,7 +253,7 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 				its = append(its, it)
 			}
 		default: // l=""
-			// If the matchers for a labelname selects an empty value, it selects all
+			// If a matcher for a labelname selects an empty value, it selects all
 			// the series which don't have the label name set too. See:
 			// https://github.com/prometheus/prometheus/issues/3575 and
 			// https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
@@ -349,110 +360,23 @@ func inversePostingsForMatcher(ix IndexPostingsReader, m *labels.Matcher) (index
 const maxExpandedPostingsFactor = 100 // Division factor for maximum number of matched series.
 
 func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Matcher) ([]string, error) {
+	// Make sure to intersect with series containing the label name
+	matchers = append(matchers, labels.MustNewMatcher(labels.MatchSet, name, ""))
 	p, err := PostingsForMatchers(r, matchers...)
 	if err != nil {
 		return nil, errors.Wrap(err, "fetching postings for matchers")
 	}
 
-	allValues, err := r.LabelValues(name)
-	if err != nil {
-		return nil, errors.Wrapf(err, "fetching values of label %s", name)
-	}
-
-	// If we have a matcher for the label name, we can filter out values that don't match
-	// before we fetch postings. This is especially useful for labels with many values.
-	// e.g. __name__ with a selector like {__name__="xyz"}
-	for _, m := range matchers {
-		if m.Name != name {
-			continue
-		}
-
-		// re-use the allValues slice to avoid allocations
-		// this is safe because the iteration is always ahead of the append
-		filteredValues := allValues[:0]
-		for _, v := range allValues {
-			if m.Matches(v) {
-				filteredValues = append(filteredValues, v)
-			}
-		}
-		allValues = filteredValues
-	}
-
-	// Let's see if expanded postings for matchers have smaller cardinality than label values.
-	// Since computing label values from series is expensive, we apply a limit on number of expanded
-	// postings (and series).
-	maxExpandedPostings := len(allValues) / maxExpandedPostingsFactor
-	if maxExpandedPostings > 0 {
-		// Add space for one extra posting when checking if we expanded all postings.
-		expanded := make([]storage.SeriesRef, 0, maxExpandedPostings+1)
-
-		// Call p.Next() even if len(expanded) == maxExpandedPostings. This tells us if there are more postings or not.
-		for len(expanded) <= maxExpandedPostings && p.Next() {
-			expanded = append(expanded, p.At())
-		}
-
-		if len(expanded) <= maxExpandedPostings {
-			// When we're here, p.Next() must have returned false, so we need to check for errors.
-			if err := p.Err(); err != nil {
-				return nil, errors.Wrap(err, "expanding postings for matchers")
-			}
-
-			// We have expanded all the postings -- all returned label values will be from these series only.
-			// (We supply allValues as a buffer for storing results. It should be big enough already, since it holds all possible label values.)
-			return labelValuesFromSeries(r, name, expanded, allValues)
-		}
-
-		// If we haven't reached end of postings, we prepend our expanded postings to "p", and continue.
-		p = newPrependPostings(expanded, p)
-	}
-
-	valuesPostings := make([]index.Postings, len(allValues))
-	for i, value := range allValues {
-		valuesPostings[i], err = r.Postings(name, value)
-		if err != nil {
-			return nil, errors.Wrapf(err, "fetching postings for %s=%q", name, value)
-		}
-	}
-	indexes, err := index.FindIntersectingPostings(p, valuesPostings)
-	if err != nil {
-		return nil, errors.Wrap(err, "intersecting postings")
-	}
-
-	values := make([]string, 0, len(indexes))
-	for _, idx := range indexes {
-		values = append(values, allValues[idx])
-	}
-
-	return values, nil
-}
-
-// labelValuesFromSeries returns all unique label values from for given label name from supplied series. Values are not sorted.
-// buf is space for holding result (if it isn't big enough, it will be ignored), may be nil.
-func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
 	values := map[string]struct{}{}
-
-	var builder labels.ScratchBuilder
-	for _, ref := range refs {
-		err := r.Series(ref, &builder, nil)
+	for p.Next() {
+		v, err := r.LabelValueFor(p.At(), name)
 		if err != nil {
-			return nil, errors.Wrapf(err, "label values for label %s", labelName)
+			return nil, errors.Wrapf(err, "getting value for label %s from series %d", name, p.At())
 		}
-
-		v := builder.Labels().Get(labelName)
-		if v != "" {
-			values[v] = struct{}{}
-		}
+		values[v] = struct{}{}
 	}
 
-	if cap(buf) >= len(values) {
-		buf = buf[:0]
-	} else {
-		buf = make([]string, 0, len(values))
-	}
-	for v := range values {
-		buf = append(buf, v)
-	}
-	return buf, nil
+	return maps.Keys(values), nil
 }
 
 func newPrependPostings(a []storage.SeriesRef, b index.Postings) index.Postings {

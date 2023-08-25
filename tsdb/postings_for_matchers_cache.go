@@ -25,6 +25,12 @@ type IndexPostingsReader interface {
 	// Found IDs are not strictly required to point to a valid Series, e.g.
 	// during background garbage collections. Input values must be sorted.
 	Postings(name string, values ...string) (index.Postings, error)
+
+	// PostingsWithLabel returns the postings list iterator for the label name.
+	// The Postings here contain the offsets to the series inside the index.
+	// Found IDs are not strictly required to point to a valid Series, e.g.
+	// during background garbage collections.
+	PostingsWithLabel(name string) (index.Postings, error)
 }
 
 // NewPostingsForMatchersCache creates a new PostingsForMatchersCache.
