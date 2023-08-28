@@ -364,7 +364,7 @@ func TestCheckMetricsExtended(t *testing.T) {
 			percentage:  float64(15) / float64(27),
 		},
 		{
-			name:        "go_gc_duration_seconds",
+			name:        "go.gc_duration_seconds",
 			cardinality: 7,
 			percentage:  float64(7) / float64(27),
 		},
