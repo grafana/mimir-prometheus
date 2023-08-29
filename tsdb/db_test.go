@@ -4603,6 +4603,54 @@ func TestMetadataAssertInMemoryData(t *testing.T) {
 //
 //	are not included in this compaction.
 func TestOOOCompaction(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error)
+		sampleFunc func(ts int64, val float64) chunks.Sample
+	}{
+		"float": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				return app.Append(0, lbls, ts, val)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, f: val}
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(val))
+				if counterReset {
+					h.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, lbls, ts, h, nil)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(val))}
+			},
+		},
+		"float histogram": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(val))
+				if counterReset {
+					fh.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(val))}
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOcompaction(t, scenario.appendFunc, scenario.sampleFunc)
+		})
+	}
+}
+
+func testOOOcompaction(t *testing.T,
+	appendFunc func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error),
+	sampleFunc func(ts int64, val float64) chunks.Sample,
+) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -4613,6 +4661,7 @@ func TestOOOCompaction(t *testing.T) {
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
 	db.DisableCompactions() // We want to manually call it.
+	db.EnableNativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -4624,9 +4673,9 @@ func TestOOOCompaction(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err := appendFunc(app, series1, ts, float64(ts), false)
 			require.NoError(t, err)
-			_, err = app.Append(0, series2, ts, float64(2*ts))
+			_, err = appendFunc(app, series2, ts, float64(2*ts), false)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -4642,6 +4691,7 @@ func TestOOOCompaction(t *testing.T) {
 		require.False(t, created)
 		require.Nil(t, ms.ooo)
 	}
+
 	checkEmptyOOOChunk(series1)
 	checkEmptyOOOChunk(series2)
 
@@ -4659,8 +4709,8 @@ func TestOOOCompaction(t *testing.T) {
 			fromMins, toMins := r[0], r[1]
 			for min := fromMins; min <= toMins; min++ {
 				ts := min * time.Minute.Milliseconds()
-				series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
-				series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
+				series1Samples = append(series1Samples, sampleFunc(ts, float64(ts)))
+				series2Samples = append(series2Samples, sampleFunc(ts, float64(2*ts)))
 			}
 		}
 		expRes := map[string][]chunks.Sample{
@@ -4670,9 +4720,25 @@ func TestOOOCompaction(t *testing.T) {
 
 		q, err := db.Querier(math.MinInt64, math.MaxInt64)
 		require.NoError(t, err)
-
+		gotSamples := make(map[string][]chunks.Sample)
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		for k, v := range actRes {
+			var samples []chunks.Sample
+			for _, sample := range v {
+				switch sample.Type() {
+				case chunkenc.ValFloat:
+					samples = append(samples, sample)
+				case chunkenc.ValHistogram:
+					sample.H().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				case chunkenc.ValFloatHistogram:
+					sample.FH().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				}
+			}
+			gotSamples[k] = samples
+		}
+		require.Equal(t, expRes, gotSamples)
 	}
 
 	verifyDBSamples() // Before any compaction.
@@ -4727,8 +4793,8 @@ func TestOOOCompaction(t *testing.T) {
 		series2Samples := make([]chunks.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
+			series1Samples = append(series1Samples, sampleFunc(ts, float64(ts)))
+			series2Samples = append(series2Samples, sampleFunc(ts, float64(2*ts)))
 		}
 		expRes := map[string][]chunks.Sample{
 			series1.String(): series1Samples,
@@ -4739,6 +4805,24 @@ func TestOOOCompaction(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		gotSamples := make(map[string][]chunks.Sample)
+		for k, v := range actRes {
+			var samples []chunks.Sample
+			for _, sample := range v {
+				switch sample.Type() {
+				case chunkenc.ValFloat:
+					samples = append(samples, sample)
+				case chunkenc.ValHistogram:
+					sample.H().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				case chunkenc.ValFloatHistogram:
+					sample.FH().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				}
+			}
+			gotSamples[k] = samples
+		}
+		require.Equal(t, expRes, gotSamples)
 		require.Equal(t, expRes, actRes)
 	}
 
@@ -4783,6 +4867,54 @@ func TestOOOCompaction(t *testing.T) {
 // TestOOOCompactionWithNormalCompaction tests if OOO compaction is performed
 // when the normal head's compaction is done.
 func TestOOOCompactionWithNormalCompaction(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error)
+		sampleFunc func(ts int64, val float64) chunks.Sample
+	}{
+		"float": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				return app.Append(0, lbls, ts, val)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, f: val}
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(val))
+				if counterReset {
+					h.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, lbls, ts, h, nil)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(val))}
+			},
+		},
+		"float histogram": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(val))
+				if counterReset {
+					fh.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(val))}
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOCompactionWithNormalCompaction(t, scenario.appendFunc, scenario.sampleFunc)
+		})
+	}
+}
+
+func testOOOCompactionWithNormalCompaction(t *testing.T,
+	appendFunc func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error),
+	sampleFunc func(ts int64, val float64) chunks.Sample,
+) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -4793,6 +4925,7 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
 	db.DisableCompactions() // We want to manually call it.
+	db.EnableNativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -4804,9 +4937,9 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err := appendFunc(app, series1, ts, float64(ts), false)
 			require.NoError(t, err)
-			_, err = app.Append(0, series2, ts, float64(2*ts))
+			_, err = appendFunc(app, series2, ts, float64(2*ts), false)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -4859,8 +4992,8 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 		series2Samples := make([]chunks.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
+			series1Samples = append(series1Samples, sampleFunc(ts, float64(ts)))
+			series2Samples = append(series2Samples, sampleFunc(ts, float64(2*ts)))
 		}
 		expRes := map[string][]chunks.Sample{
 			series1.String(): series1Samples,
@@ -4883,6 +5016,54 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 // configured to not have wal and wbl but its able to compact both the in-order
 // and out-of-order head.
 func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error)
+		sampleFunc func(ts int64, val float64) chunks.Sample
+	}{
+		"float": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				return app.Append(0, lbls, ts, val)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, f: val}
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(val))
+				if counterReset {
+					h.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, lbls, ts, h, nil)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(val))}
+			},
+		},
+		"float histogram": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(val))
+				if counterReset {
+					fh.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(val))}
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOCompactionWithDisabledWriteLog(t, scenario.appendFunc, scenario.sampleFunc)
+		})
+	}
+}
+
+func testOOOCompactionWithDisabledWriteLog(t *testing.T,
+	appendFunc func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error),
+	sampleFunc func(ts int64, val float64) chunks.Sample,
+) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -4890,10 +5071,12 @@ func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 300 * time.Minute.Milliseconds()
 	opts.WALSegmentSize = -1 // disabled WAL and WBL
+	opts.EnableNativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
 	db.DisableCompactions() // We want to manually call it.
+	db.EnableNativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -4905,9 +5088,9 @@ func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err := appendFunc(app, series1, ts, float64(ts), false)
 			require.NoError(t, err)
-			_, err = app.Append(0, series2, ts, float64(2*ts))
+			_, err = appendFunc(app, series2, ts, float64(2*ts), false)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -4960,8 +5143,8 @@ func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
 		series2Samples := make([]chunks.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
+			series1Samples = append(series1Samples, sampleFunc(ts, float64(ts)))
+			series2Samples = append(series2Samples, sampleFunc(ts, float64(2*ts)))
 		}
 		expRes := map[string][]chunks.Sample{
 			series1.String(): series1Samples,
@@ -4972,7 +5155,24 @@ func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		gotSamples := make(map[string][]chunks.Sample)
+		for k, v := range actRes {
+			var samples []chunks.Sample
+			for _, sample := range v {
+				switch sample.Type() {
+				case chunkenc.ValFloat:
+					samples = append(samples, sample)
+				case chunkenc.ValHistogram:
+					sample.H().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				case chunkenc.ValFloatHistogram:
+					sample.FH().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				}
+			}
+			gotSamples[k] = samples
+		}
+		require.Equal(t, expRes, gotSamples)
 	}
 
 	// Checking for expected data in the blocks.
@@ -5091,20 +5291,86 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 }
 
 func Test_Querier_OOOQuery(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error)
+		sampleFunc func(ts int64) chunks.Sample
+	}{
+		"float": {
+			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+				return app.Append(0, labels.FromStrings("foo", "bar1"), ts, float64(ts))
+			},
+			sampleFunc: func(ts int64) chunks.Sample {
+				return sample{t: ts, f: float64(ts)}
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(ts))
+				if counterReset {
+					h.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, h, nil)
+			},
+			sampleFunc: func(ts int64) chunks.Sample {
+				return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(ts))}
+			},
+		},
+		"float histogram": {
+			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(ts))
+				if counterReset {
+					fh.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, nil, fh)
+			},
+			sampleFunc: func(ts int64) chunks.Sample {
+				return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(ts))}
+			},
+		},
+		"integer histogram counter resets": {
+			// Adding counter reset to all histograms means each histogram will have its own chunk.
+			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(ts))
+				h.CounterResetHint = histogram.CounterReset // for this scenario, ignore the counterReset argument
+				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, h, nil)
+			},
+			sampleFunc: func(ts int64) chunks.Sample {
+				return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(ts))}
+			},
+		},
+	}
+
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			test_Querier_OOOQuery(t, scenario.appendFunc, scenario.sampleFunc)
+		})
+	}
+}
+
+func test_Querier_OOOQuery(t *testing.T,
+	appendFunc func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error),
+	sampleFunc func(ts int64) chunks.Sample,
+) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 24 * time.Hour.Milliseconds()
 
 	series1 := labels.FromStrings("foo", "bar1")
 
+	type filterFunc func(t int64) bool
+	defaultFilterFunc := func(t int64) bool { return true }
+
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
-	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample) ([]chunks.Sample, int) {
+	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
 		app := db.Appender(context.Background())
 		totalAppended := 0
 		for min := fromMins; min <= toMins; min += time.Minute.Milliseconds() {
-			_, err := app.Append(0, series1, min, float64(min))
+			if !filter(min) {
+				continue
+			}
+			_, err := appendFunc(app, min, counterReset)
 			if min >= queryMinT && min <= queryMaxT {
-				expSamples = append(expSamples, sample{t: min, f: float64(min)})
+				expSamples = append(expSamples, sampleFunc(min))
 			}
 			require.NoError(t, err)
 			totalAppended++
@@ -5113,50 +5379,100 @@ func Test_Querier_OOOQuery(t *testing.T) {
 		return expSamples, totalAppended
 	}
 
+	type sampleBatch struct {
+		minT         int64
+		maxT         int64
+		filter       filterFunc
+		counterReset bool
+		isOOO        bool
+	}
+
 	tests := []struct {
-		name        string
-		queryMinT   int64
-		queryMaxT   int64
-		inOrderMinT int64
-		inOrderMaxT int64
-		oooMinT     int64
-		oooMaxT     int64
+		name      string
+		queryMinT int64
+		queryMaxT int64
+		batches   []sampleBatch
 	}{
 		{
-			name:        "query interval covering ooomint and inordermaxt returns all ingested samples",
-			queryMinT:   minutes(0),
-			queryMaxT:   minutes(200),
-			inOrderMinT: minutes(100),
-			inOrderMaxT: minutes(200),
-			oooMinT:     minutes(0),
-			oooMaxT:     minutes(99),
+			name:      "query interval covering ooomint and inordermaxt returns all ingested samples",
+			queryMinT: minutes(0),
+			queryMaxT: minutes(200),
+			batches: []sampleBatch{
+				{
+					minT:   minutes(100),
+					maxT:   minutes(200),
+					filter: defaultFilterFunc,
+				},
+				{
+					minT:   minutes(0),
+					maxT:   minutes(99),
+					filter: defaultFilterFunc,
+					isOOO:  true,
+				},
+			},
 		},
 		{
-			name:        "partial query interval returns only samples within interval",
-			queryMinT:   minutes(20),
-			queryMaxT:   minutes(180),
-			inOrderMinT: minutes(100),
-			inOrderMaxT: minutes(200),
-			oooMinT:     minutes(0),
-			oooMaxT:     minutes(99),
+			name:      "partial query interval returns only samples within interval",
+			queryMinT: minutes(20),
+			queryMaxT: minutes(180),
+			batches: []sampleBatch{
+				{
+					minT:   minutes(100),
+					maxT:   minutes(200),
+					filter: defaultFilterFunc,
+				},
+				{
+					minT:   minutes(0),
+					maxT:   minutes(99),
+					filter: defaultFilterFunc,
+					isOOO:  true,
+				},
+			},
+		},
+		{
+			name:      "alternating OOO batches", // in order: 100-200 normal. out of order first path: 0, 2, 4, ... 98 (no counter reset), second pass: 1, 3, 5, ... 99 (with counter reset)
+			queryMinT: minutes(0),
+			queryMaxT: minutes(200),
+			batches: []sampleBatch{
+				{
+					minT:   minutes(100),
+					maxT:   minutes(200),
+					filter: defaultFilterFunc,
+				},
+				{
+					minT:   minutes(0),
+					maxT:   minutes(99),
+					filter: func(t int64) bool { return t%2 == 0 },
+					isOOO:  true,
+				},
+				{
+					minT:         minutes(0),
+					maxT:         minutes(99),
+					filter:       func(t int64) bool { return t%2 == 1 },
+					counterReset: true,
+					isOOO:        true,
+				},
+			},
 		},
 	}
 	for _, tc := range tests {
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			db := openTestDB(t, opts, nil)
 			db.DisableCompactions()
+			db.EnableNativeHistograms()
 			defer func() {
 				require.NoError(t, db.Close())
 			}()
 
 			var expSamples []chunks.Sample
+			var oooSamples, appendedCount int
 
-			// Add in-order samples.
-			expSamples, _ = addSample(db, tc.inOrderMinT, tc.inOrderMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
-
-			// Add out-of-order samples.
-			expSamples, oooSamples := addSample(db, tc.oooMinT, tc.oooMaxT, tc.queryMinT, tc.queryMaxT, expSamples)
-
+			for _, batch := range tc.batches {
+				expSamples, appendedCount = addSample(db, batch.minT, batch.maxT, tc.queryMinT, tc.queryMaxT, expSamples, batch.filter, batch.counterReset)
+				if batch.isOOO {
+					oooSamples += appendedCount
+				}
+			}
 			sort.Slice(expSamples, func(i, j int) bool {
 				return expSamples[i].T() < expSamples[j].T()
 			})
@@ -5168,7 +5484,21 @@ func Test_Querier_OOOQuery(t *testing.T) {
 			seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
 			require.NotNil(t, seriesSet[series1.String()])
 			require.Len(t, seriesSet, 1)
-			require.Equal(t, expSamples, seriesSet[series1.String()])
+			var gotSamples []chunks.Sample
+			for _, sample := range seriesSet[series1.String()] {
+				switch sample.Type() {
+				case chunkenc.ValFloat:
+					gotSamples = append(gotSamples, sample)
+				case chunkenc.ValHistogram:
+					sample.H().CounterResetHint = histogram.UnknownCounterReset
+					gotSamples = append(gotSamples, sample)
+				case chunkenc.ValFloatHistogram:
+					sample.FH().CounterResetHint = histogram.UnknownCounterReset
+					gotSamples = append(gotSamples, sample)
+				}
+			}
+			require.Equal(t, expSamples, gotSamples)
+>>>>>>> 3606213f1 (Add OOO histogram cases to db_test.go)
 			require.GreaterOrEqual(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 		})
 	}
@@ -5525,10 +5855,58 @@ func TestOOOAppendAndQuery(t *testing.T) {
 }
 
 func TestOOODisabled(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(app storage.Appender, ts int64) (storage.SeriesRef, error)
+		sampleFunc func(ts int64) chunks.Sample
+		metricType string
+	}{
+		"float": {
+			appendFunc: func(app storage.Appender, ts int64) (storage.SeriesRef, error) {
+				return app.Append(0, labels.FromStrings("foo", "bar1"), ts, float64(ts))
+			},
+			sampleFunc: func(ts int64) chunks.Sample {
+				return sample{t: ts, f: float64(ts)}
+			},
+			metricType: sampleMetricTypeFloat,
+		},
+		"integer histogram": {
+			appendFunc: func(app storage.Appender, ts int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(ts))
+				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, h, nil)
+			},
+			sampleFunc: func(ts int64) chunks.Sample {
+				return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(ts))}
+			},
+			metricType: sampleMetricTypeHistogram,
+		},
+		"float histogram": {
+			appendFunc: func(app storage.Appender, ts int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(ts))
+				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, nil, fh)
+			},
+			sampleFunc: func(ts int64) chunks.Sample {
+				return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(ts))}
+			},
+			metricType: sampleMetricTypeHistogram,
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOODisabled(t, scenario.appendFunc, scenario.sampleFunc, scenario.metricType)
+		})
+	}
+}
+
+func testOOODisabled(t *testing.T,
+	appendFunc func(app storage.Appender, ts int64) (storage.SeriesRef, error),
+	sampleFunc func(ts int64) chunks.Sample,
+	metricType string,
+) {
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 0
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
+	db.EnableNativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -5538,19 +5916,19 @@ func TestOOODisabled(t *testing.T) {
 	expSamples := make(map[string][]chunks.Sample)
 	totalSamples := 0
 	failedSamples := 0
-	addSample := func(lbls labels.Labels, fromMins, toMins int64, faceError bool) {
+
+	addSample := func(db *DB, lbls labels.Labels, fromMins, toMins int64, faceError bool) {
 		app := db.Appender(context.Background())
 		key := lbls.String()
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
-			val := rand.Float64()
-			_, err := app.Append(0, lbls, min, val)
+			_, err := appendFunc(app, min)
 			if faceError {
 				require.Error(t, err)
 				failedSamples++
 			} else {
 				require.NoError(t, err)
-				expSamples[key] = append(expSamples[key], sample{t: min, f: val})
+				expSamples[key] = append(expSamples[key], sampleFunc(min))
 				totalSamples++
 			}
 		}
@@ -5561,21 +5939,38 @@ func TestOOODisabled(t *testing.T) {
 		}
 	}
 
-	addSample(s1, 300, 300, false) // In-order samples.
-	addSample(s1, 250, 260, true)  // Some ooo samples.
-	addSample(s1, 59, 59, true)    // Out of time window.
-	addSample(s1, 60, 65, true)    // At the edge of time window, also it would be "out of bound" without the ooo support.
-	addSample(s1, 59, 59, true)    // Out of time window again.
-	addSample(s1, 301, 310, false) // More in-order samples.
+	addSample(db, s1, 300, 300, false) // In-order samples.
+	addSample(db, s1, 250, 260, true)  // Some ooo samples.
+	addSample(db, s1, 59, 59, true)    // Out of time window.
+	addSample(db, s1, 60, 65, true)    // At the edge of time window, also it would be "out of bound" without the ooo support.
+	addSample(db, s1, 59, 59, true)    // Out of time window again.
+	addSample(db, s1, 301, 310, false) // More in-order samples.
 
 	querier, err := db.Querier(math.MinInt64, math.MaxInt64)
 	require.NoError(t, err)
 
 	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
-	require.Equal(t, expSamples, seriesSet)
+	gotSamples := make(map[string][]chunks.Sample)
+	var samples []chunks.Sample
+	for k, v := range seriesSet {
+		for _, sample := range v {
+			switch sample.Type() {
+			case chunkenc.ValFloat:
+				samples = append(samples, sample)
+			case chunkenc.ValHistogram:
+				sample.H().CounterResetHint = histogram.UnknownCounterReset
+				samples = append(samples, sample)
+			case chunkenc.ValFloatHistogram:
+				sample.FH().CounterResetHint = histogram.UnknownCounterReset
+				samples = append(samples, sample)
+			}
+		}
+		gotSamples[k] = samples
+	}
+	require.Equal(t, expSamples, gotSamples)
 	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 	require.Equal(t, float64(failedSamples),
-		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat))+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat)),
+		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples.WithLabelValues(metricType))+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples.WithLabelValues(metricType)),
 		"number of ooo/oob samples mismatch")
 
 	// Verifying that no OOO artifacts were generated.
@@ -5775,6 +6170,54 @@ func TestWBLAndMmapReplay(t *testing.T) {
 }
 
 func TestOOOCompactionFailure(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error)
+		sampleFunc func(ts int64, val float64) chunks.Sample
+	}{
+		"float": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				return app.Append(0, lbls, ts, val)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, f: val}
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(val))
+				if counterReset {
+					h.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, lbls, ts, h, nil)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(val))}
+			},
+		},
+		"float histogram": {
+			appendFunc: func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(val))
+				if counterReset {
+					fh.CounterResetHint = histogram.CounterReset
+				}
+				return app.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+			sampleFunc: func(ts int64, val float64) chunks.Sample {
+				return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(val))}
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOCompactionFailure(t, scenario.appendFunc, scenario.sampleFunc)
+		})
+	}
+}
+
+func testOOOCompactionFailure(t *testing.T,
+	appendFunc func(app storage.Appender, lbls labels.Labels, ts int64, val float64, counterReset bool) (storage.SeriesRef, error),
+	sampleFunc func(ts int64, val float64) chunks.Sample,
+) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -5785,6 +6228,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
 	db.DisableCompactions() // We want to manually call it.
+	db.EnableNativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -5795,7 +6239,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err := appendFunc(app, series1, ts, float64(ts), false)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -5883,7 +6327,7 @@ func TestOOOCompactionFailure(t *testing.T) {
 		series1Samples := make([]chunks.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
+			series1Samples = append(series1Samples, sampleFunc(ts, float64(ts)))
 		}
 		expRes := map[string][]chunks.Sample{
 			series1.String(): series1Samples,
@@ -5891,9 +6335,25 @@ func TestOOOCompactionFailure(t *testing.T) {
 
 		q, err := NewBlockQuerier(block, math.MinInt64, math.MaxInt64)
 		require.NoError(t, err)
-
+		gotSamples := make(map[string][]chunks.Sample)
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		for k, v := range actRes {
+			var samples []chunks.Sample
+			for _, sample := range v {
+				switch sample.Type() {
+				case chunkenc.ValFloat:
+					samples = append(samples, sample)
+				case chunkenc.ValHistogram:
+					sample.H().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				case chunkenc.ValFloatHistogram:
+					sample.FH().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				}
+			}
+			gotSamples[k] = samples
+		}
+		require.Equal(t, expRes, gotSamples)
 	}
 
 	// Checking for expected data in the blocks.
