@@ -5491,7 +5491,6 @@ func test_Querier_OOOQuery(t *testing.T,
 				}
 			}
 			require.Equal(t, expSamples, gotSamples)
->>>>>>> 3606213f1 (Add OOO histogram cases to db_test.go)
 			require.GreaterOrEqual(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 		})
 	}
