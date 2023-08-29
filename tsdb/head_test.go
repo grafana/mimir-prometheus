@@ -4635,6 +4635,34 @@ func TestOOOWalReplay(t *testing.T) {
 
 // TestOOOMmapReplay checks the replay at a low level.
 func TestOOOMmapReplay(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error)
+	}{
+		// diff with other appendFunc is that value is set, histograms are set a bit hackily though (float to int cast)
+		"float": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.Append(0, lbls, i, value)
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, lbls, i, tsdbutil.GenerateTestHistogram(int(value)), nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, lbls, i, nil, tsdbutil.GenerateTestFloatHistogram(int(value)))
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOMmapReplay(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testOOOMmapReplay(t *testing.T, appendFunc func(appender storage.Appender, lbls labels.Labels, ts int64, value float64) (storage.SeriesRef, error)) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
@@ -4646,6 +4674,7 @@ func TestOOOMmapReplay(t *testing.T) {
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderCapMax.Store(30)
 	opts.OutOfOrderTimeWindow.Store(1000 * time.Minute.Milliseconds())
+	opts.EnableNativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -4655,7 +4684,7 @@ func TestOOOMmapReplay(t *testing.T) {
 	appendSample := func(mins int64) {
 		app := h.Appender(context.Background())
 		ts, v := mins*time.Minute.Milliseconds(), float64(mins)
-		_, err := app.Append(0, l, ts, v)
+		_, err := appendFunc(app, l, ts, v)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 	}
