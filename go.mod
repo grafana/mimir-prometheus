@@ -208,7 +208,7 @@ replace (
 	k8s.io/klog/v2 => github.com/simonpasquier/klog-gokit/v3 v3.3.0
 )
 
-replace github.com/prometheus/client_golang => github.com/ywwg/client_golang v0.0.0-20230828181822-6a5f8b222cd3
+replace github.com/prometheus/client_golang => /home/owilliams/src/grafana/client_golang
 
 // Exclude linodego v1.0.0 as it is no longer published on github.
 exclude github.com/linode/linodego v1.0.0

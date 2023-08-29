@@ -29,16 +29,13 @@ import (
 )
 
 func TestPromParse(t *testing.T) {
-	input := `# HELP go.gc_duration_seconds A summary of the GC invocation durations.
-# 	TYPE go.gc_duration_seconds summary
-go.gc_duration_seconds{quantile="0"} 4.9351e-05
-go.gc_duration_seconds{quantile="0.25",} 7.424100000000001e-05
-go.gc_duration_seconds{quantile="0.5",a="b"} 8.3835e-05
-go.gc_duration_seconds{quantile="0.8", a="b"} 8.3835e-05
-go.gc_duration_seconds{ quantile="0.9", a="b"} 8.3835e-05
-{"http.status", q="0.9", a="b"}  8.3835e-05
-{ "http.status", q="0.9", a="b"}  8.3835e-05
-{q="0.9",  "http.status" , a="b"}  8.3835e-05
+	input := `# HELP "go_gc_duration_seconds" A summary of the GC invocation durations.
+# 	TYPE go_gc_duration_seconds summary
+go_gc_duration_seconds{quantile="0"} 4.9351e-05
+go_gc_duration_seconds{quantile="0.25",} 7.424100000000001e-05
+go_gc_duration_seconds{quantile="0.5",a="b"} 8.3835e-05
+go_gc_duration_seconds{quantile="0.8", a="b"} 8.3835e-05
+go_gc_duration_seconds{ quantile="0.9", a="b"} 8.3835e-05
 # Hrandom comment starting with prefix of HELP
 #
 wind_speed{A="2",c="3"} 12345
@@ -46,11 +43,11 @@ wind_speed{A="2",c="3"} 12345
 # comment with escaped \ escape character
 # HELP nohelp1
 # HELP nohelp2
-go.gc_duration_seconds{ quantile="1.0", a="b" } 8.3835e-05
-go.gc_duration_seconds { quantile="1.0", a="b" } 8.3835e-05
-go.gc_duration_seconds { quantile= "1.0", a= "b", } 8.3835e-05
-go.gc_duration_seconds { quantile = "1.0", a = "b" } 8.3835e-05
-go.gc_duration_seconds_count 99
+go_gc_duration_seconds{ quantile="1.0", a="b" } 8.3835e-05
+go_gc_duration_seconds { quantile="1.0", a="b" } 8.3835e-05
+go_gc_duration_seconds { quantile= "1.0", a= "b", } 8.3835e-05
+go_gc_duration_seconds { quantile = "1.0", a = "b" } 8.3835e-05
+go_gc_duration_seconds_count 99
 some:aggregate:rate5m{a_b="c"}	1
 # HELP go_goroutines Number of goroutines that currently exist.
 # TYPE go_goroutines gauge
@@ -73,43 +70,31 @@ testmetric{label="\"bar\""} 1`
 		comment string
 	}{
 		{
-			m:    "go.gc_duration_seconds",
+			m:    "go_gc_duration_seconds",
 			help: "A summary of the GC invocation durations.",
 		}, {
-			m:   "go.gc_duration_seconds",
+			m:   "go_gc_duration_seconds",
 			typ: MetricTypeSummary,
 		}, {
-			m:    `go.gc_duration_seconds{quantile="0"}`,
+			m:    `go_gc_duration_seconds{quantile="0"}`,
 			v:    4.9351e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "0"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0"),
 		}, {
-			m:    `go.gc_duration_seconds{quantile="0.25",}`,
+			m:    `go_gc_duration_seconds{quantile="0.25",}`,
 			v:    7.424100000000001e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "0.25"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.25"),
 		}, {
-			m:    `go.gc_duration_seconds{quantile="0.5",a="b"}`,
+			m:    `go_gc_duration_seconds{quantile="0.5",a="b"}`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "0.5", "a", "b"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.5", "a", "b"),
 		}, {
-			m:    `go.gc_duration_seconds{quantile="0.8", a="b"}`,
+			m:    `go_gc_duration_seconds{quantile="0.8", a="b"}`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "0.8", "a", "b"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.8", "a", "b"),
 		}, {
-			m:    `go.gc_duration_seconds{ quantile="0.9", a="b"}`,
+			m:    `go_gc_duration_seconds{ quantile="0.9", a="b"}`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "0.9", "a", "b"),
-		}, {
-			m:    `{"http.status", q="0.9", a="b"}`,
-			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "http.status", "q", "0.9", "a", "b"),
-		}, {
-			m:    `{ "http.status", q="0.9", a="b"}`,
-			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "http.status", "q", "0.9", "a", "b"),
-		}, {
-			m:    `{q="0.9",  "http.status" , a="b"}`,
-			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "http.status", "q", "0.9", "a", "b"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.9", "a", "b"),
 		}, {
 			comment: "# Hrandom comment starting with prefix of HELP",
 		}, {
@@ -129,25 +114,25 @@ testmetric{label="\"bar\""} 1`
 			m:    "nohelp2",
 			help: "",
 		}, {
-			m:    `go.gc_duration_seconds{ quantile="1.0", a="b" }`,
+			m:    `go_gc_duration_seconds{ quantile="1.0", a="b" }`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "1.0", "a", "b"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "1.0", "a", "b"),
 		}, {
-			m:    `go.gc_duration_seconds { quantile="1.0", a="b" }`,
+			m:    `go_gc_duration_seconds { quantile="1.0", a="b" }`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "1.0", "a", "b"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "1.0", "a", "b"),
 		}, {
-			m:    `go.gc_duration_seconds { quantile= "1.0", a= "b", }`,
+			m:    `go_gc_duration_seconds { quantile= "1.0", a= "b", }`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "1.0", "a", "b"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "1.0", "a", "b"),
 		}, {
-			m:    `go.gc_duration_seconds { quantile = "1.0", a = "b" }`,
+			m:    `go_gc_duration_seconds { quantile = "1.0", a = "b" }`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "1.0", "a", "b"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "1.0", "a", "b"),
 		}, {
-			m:    `go.gc_duration_seconds_count`,
+			m:    `go_gc_duration_seconds_count`,
 			v:    99,
-			lset: labels.FromStrings("__name__", "go.gc_duration_seconds_count"),
+			lset: labels.FromStrings("__name__", "go_gc_duration_seconds_count"),
 		}, {
 			m:    `some:aggregate:rate5m{a_b="c"}`,
 			v:    1,
@@ -253,18 +238,6 @@ func TestPromParseErrors(t *testing.T) {
 			err:   "invalid UTF-8 label value: \"\\\"\\xff\\\"\"",
 		},
 		{
-			input: "a{\"b\"} 1\n",
-			err:   "metric name already set while parsing: \"a{\\\"b\\\"}\"",
-		},
-		{
-			input: "a{\"b\", \"d\"} 1\n",
-			err:   "metric name already set while parsing: \"a{\\\"b\\\",\"",
-		},
-		{
-			input: "{\"b\", \"d\"} 1\n",
-			err:   "metric name already set while parsing: \"{\\\"b\\\", \\\"d\\\"}\"",
-		},
-		{
 			input: "a true\n",
 			err:   "strconv.ParseFloat: parsing \"true\": invalid syntax while parsing: \"a true\"",
 		},
@@ -294,7 +267,7 @@ func TestPromParseErrors(t *testing.T) {
 		},
 		{
 			input: `{a="ok"} 1`,
-			err:   "metric name not set while parsing: \"{a=\\\"ok\\\"} 1\\n\"",
+			err:   "expected a valid start token, got \"{\" (\"INVALID\") while parsing: \"{\"",
 		},
 		{
 			input: "# TYPE #\n#EOF\n",

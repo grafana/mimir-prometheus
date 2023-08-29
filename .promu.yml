@@ -13,10 +13,8 @@ build:
     tags:
         all:
             - netgo
-            - builtinassets
             - stringlabels
         windows:
-            - builtinassets
             - stringlabels
     flags: -a
     ldflags: |
