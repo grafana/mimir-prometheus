@@ -4550,6 +4550,34 @@ func TestChunkSnapshotTakenAfterIncompleteSnapshot(t *testing.T) {
 // TestOOOWalReplay checks the replay at a low level.
 // TODO(codesome): Needs test for ooo WAL repair.
 func TestOOOWalReplay(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error)
+	}{
+		// diff with other appendFunc is that value is set, histograms are set a bit hackily though (float to int cast)
+		"float": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.Append(0, lbls, i, value)
+			},
+		},
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, lbls, i, tsdbutil.GenerateTestHistogram(int(value)), nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, i int64, value float64) (storage.SeriesRef, error) {
+				return appender.AppendHistogram(0, lbls, i, nil, tsdbutil.GenerateTestFloatHistogram(int(value)))
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOWalReplay(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testOOOWalReplay(t *testing.T, appendFunc func(appender storage.Appender, lbls labels.Labels, ts int64, value float64) (storage.SeriesRef, error)) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
@@ -4560,6 +4588,7 @@ func TestOOOWalReplay(t *testing.T) {
 	opts.ChunkRange = 1000
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderTimeWindow.Store(30 * time.Minute.Milliseconds())
+	opts.EnableNativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -4570,7 +4599,7 @@ func TestOOOWalReplay(t *testing.T) {
 	appendSample := func(mins int64, isOOO bool) {
 		app := h.Appender(context.Background())
 		ts, v := mins*time.Minute.Milliseconds(), float64(mins)
-		_, err := app.Append(0, l, ts, v)
+		_, err := appendFunc(app, l, ts, v)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 
@@ -4612,6 +4641,7 @@ func TestOOOWalReplay(t *testing.T) {
 	require.False(t, ok)
 	require.NotNil(t, ms)
 
+	//FIXME: for histograms ms.ooo == nil
 	chks, err := ms.ooo.oooHeadChunk.chunk.ToEncodedChunks(math.MinInt64, math.MaxInt64)
 	require.NoError(t, err)
 	require.Len(t, chks, 1)

@@ -730,6 +730,7 @@ func (h *Head) loadWBL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 					return
 				}
 				decodedCh <- markers
+			//FIXME: add histogram sample types
 			default:
 				// Noop.
 			}
