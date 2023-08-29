@@ -5253,10 +5253,58 @@ func TestOOOAppendAndQuery(t *testing.T) {
 }
 
 func TestOOODisabled(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(app storage.Appender, ts int64) (storage.SeriesRef, error)
+		sampleFunc func(ts int64) tsdbutil.Sample
+		metricType string
+	}{
+		"float": {
+			appendFunc: func(app storage.Appender, ts int64) (storage.SeriesRef, error) {
+				return app.Append(0, labels.FromStrings("foo", "bar1"), ts, float64(ts))
+			},
+			sampleFunc: func(ts int64) tsdbutil.Sample {
+				return sample{t: ts, f: float64(ts)}
+			},
+			metricType: sampleMetricTypeFloat,
+		},
+		"integer histogram": {
+			appendFunc: func(app storage.Appender, ts int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(ts))
+				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, h, nil)
+			},
+			sampleFunc: func(ts int64) tsdbutil.Sample {
+				return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(ts))}
+			},
+			metricType: sampleMetricTypeHistogram,
+		},
+		"float histogram": {
+			appendFunc: func(app storage.Appender, ts int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(ts))
+				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, nil, fh)
+			},
+			sampleFunc: func(ts int64) tsdbutil.Sample {
+				return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(ts))}
+			},
+			metricType: sampleMetricTypeHistogram,
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOODisabled(t, scenario.appendFunc, scenario.sampleFunc, scenario.metricType)
+		})
+	}
+}
+
+func testOOODisabled(t *testing.T,
+	appendFunc func(app storage.Appender, ts int64) (storage.SeriesRef, error),
+	sampleFunc func(ts int64) tsdbutil.Sample,
+	metricType string,
+) {
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 0
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
+	db.EnableNativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -5266,19 +5314,19 @@ func TestOOODisabled(t *testing.T) {
 	expSamples := make(map[string][]chunks.Sample)
 	totalSamples := 0
 	failedSamples := 0
-	addSample := func(lbls labels.Labels, fromMins, toMins int64, faceError bool) {
+
+	addSample := func(db *DB, lbls labels.Labels, fromMins, toMins int64, faceError bool) {
 		app := db.Appender(context.Background())
 		key := lbls.String()
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
-			val := rand.Float64()
-			_, err := app.Append(0, lbls, min, val)
+			_, err := appendFunc(app, min)
 			if faceError {
 				require.Error(t, err)
 				failedSamples++
 			} else {
 				require.NoError(t, err)
-				expSamples[key] = append(expSamples[key], sample{t: min, f: val})
+				expSamples[key] = append(expSamples[key], sampleFunc(min))
 				totalSamples++
 			}
 		}
@@ -5289,21 +5337,38 @@ func TestOOODisabled(t *testing.T) {
 		}
 	}
 
-	addSample(s1, 300, 300, false) // In-order samples.
-	addSample(s1, 250, 260, true)  // Some ooo samples.
-	addSample(s1, 59, 59, true)    // Out of time window.
-	addSample(s1, 60, 65, true)    // At the edge of time window, also it would be "out of bound" without the ooo support.
-	addSample(s1, 59, 59, true)    // Out of time window again.
-	addSample(s1, 301, 310, false) // More in-order samples.
+	addSample(db, s1, 300, 300, false) // In-order samples.
+	addSample(db, s1, 250, 260, true)  // Some ooo samples.
+	addSample(db, s1, 59, 59, true)    // Out of time window.
+	addSample(db, s1, 60, 65, true)    // At the edge of time window, also it would be "out of bound" without the ooo support.
+	addSample(db, s1, 59, 59, true)    // Out of time window again.
+	addSample(db, s1, 301, 310, false) // More in-order samples.
 
 	querier, err := db.Querier(math.MinInt64, math.MaxInt64)
 	require.NoError(t, err)
 
 	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
-	require.Equal(t, expSamples, seriesSet)
+	gotSamples := make(map[string][]tsdbutil.Sample)
+	var samples []tsdbutil.Sample
+	for k, v := range seriesSet {
+		for _, sample := range v {
+			switch sample.Type() {
+			case chunkenc.ValFloat:
+				samples = append(samples, sample)
+			case chunkenc.ValHistogram:
+				sample.H().CounterResetHint = histogram.UnknownCounterReset
+				samples = append(samples, sample)
+			case chunkenc.ValFloatHistogram:
+				sample.FH().CounterResetHint = histogram.UnknownCounterReset
+				samples = append(samples, sample)
+			}
+		}
+		gotSamples[k] = samples
+	}
+	require.Equal(t, expSamples, gotSamples)
 	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 	require.Equal(t, float64(failedSamples),
-		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat))+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat)),
+		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples.WithLabelValues(metricType))+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples.WithLabelValues(metricType)),
 		"number of ooo/oob samples mismatch")
 
 	// Verifying that no OOO artifacts were generated.
