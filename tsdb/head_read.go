@@ -525,7 +525,7 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 	// those that overlap and stop when we know the rest don't.
 	slices.SortFunc(tmpChks, refLessByMinTimeAndMinRef)
 
-	mc := &mergedOOOChunks{}
+	mc := &mergedOOOChunks{encoding: chunkenc.EncXOR}
 	absoluteMax := int64(math.MinInt64)
 	for _, c := range tmpChks {
 		if c.meta.Ref != meta.Ref && (len(mc.chunks) == 0 || c.meta.MinTime > absoluteMax) {
@@ -562,6 +562,7 @@ func (s *memSeries) oooMergedChunk(meta chunks.Meta, cdm chunkDiskMapper, mint, 
 			} else {
 				c.meta.Chunk = chk
 			}
+			mc.encoding = c.meta.Chunk.Encoding() // Update the oooMergedChunk encoding depending on the chunk's encoding type
 			mc.chunks = append(mc.chunks, c.meta)
 		}
 		if c.meta.MaxTime > absoluteMax {
@@ -577,28 +578,52 @@ var _ chunkenc.Chunk = &mergedOOOChunks{}
 // mergedOOOChunks holds the list of overlapping chunks. This struct satisfies
 // chunkenc.Chunk.
 type mergedOOOChunks struct {
-	chunks []chunks.Meta
+	chunks   []chunks.Meta
+	encoding chunkenc.Encoding
 }
 
 // Bytes is a very expensive method because its calling the iterator of all the
 // chunks in the mergedOOOChunk and building a new chunk with the samples.
 func (o mergedOOOChunks) Bytes() []byte {
-	xc := chunkenc.NewXORChunk()
+	var xc chunkenc.Chunk
+
+	switch o.encoding {
+	case chunkenc.EncXOR:
+		xc = chunkenc.NewXORChunk()
+	case chunkenc.EncHistogram:
+		xc = chunkenc.NewHistogramChunk()
+	case chunkenc.EncFloatHistogram:
+		xc = chunkenc.NewFloatHistogramChunk()
+	}
 	app, err := xc.Appender()
 	if err != nil {
 		panic(err)
 	}
 	it := o.Iterator(nil)
-	for it.Next() == chunkenc.ValFloat {
-		t, v := it.At()
-		app.Append(t, v)
+	for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
+		switch typ {
+		case chunkenc.ValFloat:
+			t, v := it.At()
+			app.Append(t, v)
+		case chunkenc.ValHistogram:
+			prevHApp, _ := app.(*chunkenc.HistogramAppender)
+			t, v := it.AtHistogram()
+			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
+			app.AppendHistogram(prevHApp, t, v, false)
+		case chunkenc.ValFloatHistogram:
+			prevHApp, _ := app.(*chunkenc.FloatHistogramAppender)
+			t, v := it.AtFloatHistogram()
+			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
+			app.AppendFloatHistogram(prevHApp, t, v, false)
+		}
 	}
 
 	return xc.Bytes()
 }
 
 func (o mergedOOOChunks) Encoding() chunkenc.Encoding {
-	return chunkenc.EncXOR
+	// TODO(carrieedwards) Handle cases where chunks have different encoding types due to samples being of different types
+	return o.encoding
 }
 
 func (o mergedOOOChunks) Appender() (chunkenc.Appender, error) {
@@ -631,14 +656,36 @@ type boundedChunk struct {
 }
 
 func (b boundedChunk) Bytes() []byte {
-	xor := chunkenc.NewXORChunk()
-	a, _ := xor.Appender()
-	it := b.Iterator(nil)
-	for it.Next() == chunkenc.ValFloat {
-		t, v := it.At()
-		a.Append(t, v)
+	var xc chunkenc.Chunk
+
+	switch b.Encoding() {
+	case chunkenc.EncXOR:
+		xc = chunkenc.NewXORChunk()
+	case chunkenc.EncHistogram:
+		xc = chunkenc.NewHistogramChunk()
+	case chunkenc.EncFloatHistogram:
+		xc = chunkenc.NewFloatHistogramChunk()
 	}
-	return xor.Bytes()
+	app, _ := xc.Appender()
+	it := b.Iterator(nil)
+	for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
+		switch typ {
+		case chunkenc.ValFloat:
+			t, v := it.At()
+			app.Append(t, v)
+		case chunkenc.ValHistogram:
+			prevHApp, _ := app.(*chunkenc.HistogramAppender)
+			t, v := it.AtHistogram()
+			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
+			app.AppendHistogram(prevHApp, t, v, false)
+		case chunkenc.ValFloatHistogram:
+			prevHApp, _ := app.(*chunkenc.FloatHistogramAppender)
+			t, v := it.AtFloatHistogram()
+			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
+			app.AppendFloatHistogram(prevHApp, t, v, false)
+		}
+	}
+	return xc.Bytes()
 }
 
 func (b boundedChunk) Iterator(iterator chunkenc.Iterator) chunkenc.Iterator {
@@ -664,7 +711,7 @@ type boundedIterator struct {
 // If there are samples within bounds it will advance one by one amongst them.
 // If there are no samples within bounds it will return false.
 func (b boundedIterator) Next() chunkenc.ValueType {
-	for b.Iterator.Next() == chunkenc.ValFloat {
+	for typ := b.Iterator.Next(); typ != chunkenc.ValNone; typ = b.Iterator.Next() {
 		t, _ := b.Iterator.At()
 		switch {
 		case t < b.minT:
@@ -672,7 +719,7 @@ func (b boundedIterator) Next() chunkenc.ValueType {
 		case t > b.maxT:
 			return chunkenc.ValNone
 		default:
-			return chunkenc.ValFloat
+			return typ
 		}
 	}
 	return chunkenc.ValNone
@@ -681,13 +728,13 @@ func (b boundedIterator) Next() chunkenc.ValueType {
 func (b boundedIterator) Seek(t int64) chunkenc.ValueType {
 	if t < b.minT {
 		// We must seek at least up to b.minT if it is asked for something before that.
-		val := b.Iterator.Seek(b.minT)
-		if !(val == chunkenc.ValFloat) {
+		valType := b.Iterator.Seek(b.minT)
+		if valType == chunkenc.ValNone {
 			return chunkenc.ValNone
 		}
 		t, _ := b.Iterator.At()
 		if t <= b.maxT {
-			return chunkenc.ValFloat
+			return valType
 		}
 	}
 	if t > b.maxT {
