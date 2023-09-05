@@ -113,7 +113,7 @@ func (q *blockQuerier) Select(sortSeries bool, hints *storage.SelectHints, ms ..
 	maxt := q.maxt
 	disableTrimming := false
 	sharded := hints != nil && hints.ShardCount > 0
-	p, err := q.index.PostingsForMatchers(sharded, ms...)
+	p, _, err := q.index.PostingsForMatchers(sharded, ms...) // TODO dimitarvdimitrov handle pendingMatchers
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
@@ -161,7 +161,7 @@ func (q *blockChunkQuerier) Select(sortSeries bool, hints *storage.SelectHints, 
 		disableTrimming = hints.DisableTrimming
 	}
 	sharded := hints != nil && hints.ShardCount > 0
-	p, err := q.index.PostingsForMatchers(sharded, ms...)
+	p, _, err := q.index.PostingsForMatchers(sharded, ms...) // TODO dimitarvdimitrov handle pendingMatchers
 	if err != nil {
 		return storage.ErrChunkSeriesSet(err)
 	}
@@ -176,7 +176,7 @@ func (q *blockChunkQuerier) Select(sortSeries bool, hints *storage.SelectHints, 
 
 // PostingsForMatchers assembles a single postings iterator against the index reader
 // based on the given matchers. The resulting postings are not ordered by series.
-func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	var its, notIts []index.Postings
 	// See which label must be non-empty.
 	// Optimization for case like {l=~".", l!="1"}.
@@ -193,7 +193,7 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 			k, v := index.AllPostingsKey()
 			allPostings, err := ix.Postings(k, v)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			its = append(its, allPostings)
 		case labelMustBeSet[m.Name]:
@@ -206,12 +206,12 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 				// doesn't match empty, then subtract it out at the end.
 				inverse, err := m.Inverse()
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 
 				it, err := postingsForMatcher(ix, inverse)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				notIts = append(notIts, it)
 			case isNot && !matchesEmpty: // l!=""
@@ -219,25 +219,25 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 				// be empty we need to use inversePostingsForMatcher.
 				inverse, err := m.Inverse()
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 
 				it, err := inversePostingsForMatcher(ix, inverse)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if index.IsEmptyPostingsType(it) {
-					return index.EmptyPostings(), nil
+					return index.EmptyPostings(), nil, nil
 				}
 				its = append(its, it)
 			default: // l="a"
 				// Non-Not matcher, use normal postingsForMatcher.
 				it, err := postingsForMatcher(ix, m)
 				if err != nil {
-					return nil, err
+					return nil, nil, err
 				}
 				if index.IsEmptyPostingsType(it) {
-					return index.EmptyPostings(), nil
+					return index.EmptyPostings(), nil, nil
 				}
 				its = append(its, it)
 			}
@@ -248,7 +248,7 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 			// https://github.com/prometheus/prometheus/pull/3578#issuecomment-351653555
 			it, err := inversePostingsForMatcher(ix, m)
 			if err != nil {
-				return nil, err
+				return nil, nil, err
 			}
 			notIts = append(notIts, it)
 		}
@@ -259,7 +259,7 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 		k, v := index.AllPostingsKey()
 		allPostings, err := ix.Postings(k, v)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		its = append(its, allPostings)
 	}
@@ -270,7 +270,7 @@ func PostingsForMatchers(ix IndexPostingsReader, ms ...*labels.Matcher) (index.P
 		it = index.Without(it, n)
 	}
 
-	return it, nil
+	return it, nil, nil
 }
 
 func postingsForMatcher(ix IndexPostingsReader, m *labels.Matcher) (index.Postings, error) {
@@ -349,7 +349,7 @@ func inversePostingsForMatcher(ix IndexPostingsReader, m *labels.Matcher) (index
 const maxExpandedPostingsFactor = 100 // Division factor for maximum number of matched series.
 
 func labelValuesWithMatchers(r IndexReader, name string, matchers ...*labels.Matcher) ([]string, error) {
-	p, err := PostingsForMatchers(r, matchers...)
+	p, _, err := PostingsForMatchers(r, matchers...)
 	if err != nil {
 		return nil, errors.Wrap(err, "fetching postings for matchers")
 	}
@@ -504,7 +504,7 @@ func (p *prependPostings) Err() error {
 }
 
 func labelNamesWithMatchers(r IndexReader, matchers ...*labels.Matcher) ([]string, error) {
-	p, err := r.PostingsForMatchers(false, matchers...)
+	p, _, err := r.PostingsForMatchers(false, matchers...) // TODO dimitarvdimitrov handle pendingMatchers
 	if err != nil {
 		return nil, err
 	}

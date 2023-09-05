@@ -156,7 +156,7 @@ func (oh *OOOHeadIndexReader) series(ref storage.SeriesRef, builder *labels.Scra
 
 // PostingsForMatchers needs to be overridden so that the right IndexReader
 // implementation gets passed down to the PostingsForMatchers call.
-func (oh *OOOHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (oh *OOOHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	return oh.head.pfmc.PostingsForMatchers(oh, concurrent, ms...)
 }
 
@@ -439,8 +439,8 @@ func (ir *OOOCompactionHeadIndexReader) LabelValues(name string, matchers ...*la
 	return nil, errors.New("not implemented")
 }
 
-func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return nil, errors.New("not implemented")
+func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
+	return nil, nil, errors.New("not implemented")
 }
 
 func (ir *OOOCompactionHeadIndexReader) LabelNames(matchers ...*labels.Matcher) ([]string, error) {

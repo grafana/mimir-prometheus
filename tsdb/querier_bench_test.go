@@ -168,8 +168,8 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := PostingsForMatchers(ir, c.matchers...)
-				require.NoError(b, err)
+				_, _, err := PostingsForMatchers(ir, c.matchers...)
+				require.NoError(b, err) // TODO dimitarvdimitrov if there are matchers returned, then fetch series and apply the matchers
 			}
 		})
 	}

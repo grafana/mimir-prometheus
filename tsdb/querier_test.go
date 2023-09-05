@@ -1569,7 +1569,7 @@ func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 	return index.NewListPostings(ep)
 }
 
-func (m mockIndex) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (m mockIndex) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {
 		if matches(ms, s.l) {
@@ -1577,7 +1577,7 @@ func (m mockIndex) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (
 		}
 	}
 	sort.Slice(ps, func(i, j int) bool { return ps[i] < ps[j] })
-	return index.NewListPostings(ps), nil
+	return index.NewListPostings(ps), nil, nil
 }
 
 func matches(ms []*labels.Matcher, lbls labels.Labels) bool {
@@ -2201,7 +2201,7 @@ func TestPostingsForMatchers(t *testing.T) {
 			for _, l := range c.exp {
 				exp[l.String()] = struct{}{}
 			}
-			p, err := PostingsForMatchers(ir, c.matchers...)
+			p, _, err := PostingsForMatchers(ir, c.matchers...)
 			require.NoError(t, err)
 
 			var builder labels.ScratchBuilder
@@ -2422,8 +2422,8 @@ func (m mockMatcherIndex) PostingsSizeEstimation(name string, values ...string) 
 	return 0, nil
 }
 
-func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {
-	return index.EmptyPostings(), nil
+func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
+	return index.EmptyPostings(), nil, nil
 }
 
 func (m mockMatcherIndex) SortedPostings(p index.Postings) index.Postings {
