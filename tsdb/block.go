@@ -81,6 +81,7 @@ type IndexReader interface {
 	// If concurrent hint is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
 	// avoiding same calculations twice, however this implementation may lead to a worse performance when called once.
 	PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error)
+	PostingsSizeEstimation(name string, values ...string) (int, error)
 
 	// SortedPostings returns a postings list that is reordered to be sorted
 	// by the label set of the underlying series.
@@ -519,6 +520,10 @@ func (r blockIndexReader) Postings(name string, values ...string) (index.Posting
 
 func (r blockIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	return r.ir.PostingsForMatchers(concurrent, ms...)
+}
+
+func (r blockIndexReader) PostingsSizeEstimation(name string, values ...string) (int, error) {
+	return r.ir.PostingsSizeEstimation(name, values...)
 }
 
 func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {

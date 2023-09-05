@@ -25,6 +25,8 @@ type IndexPostingsReader interface {
 	// Found IDs are not strictly required to point to a valid Series, e.g.
 	// during background garbage collections. Input values must be sorted.
 	Postings(name string, values ...string) (index.Postings, error)
+
+	PostingsSizeEstimation(name string, values ...string) (int, error)
 }
 
 // NewPostingsForMatchersCache creates a new PostingsForMatchersCache.
