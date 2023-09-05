@@ -1548,6 +1548,15 @@ func (m mockIndex) Postings(name string, values ...string) (index.Postings, erro
 	return index.Merge(res...), nil
 }
 
+func (m mockIndex) PostingsSizeEstimation(name string, values ...string) (int, error) {
+	res := 0
+	for _, value := range values {
+		l := labels.Label{Name: name, Value: value}
+		res += len(m.postings[l])
+	}
+	return res, nil
+}
+
 func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 	ep, err := index.ExpandPostings(p)
 	if err != nil {
@@ -2407,6 +2416,10 @@ func (m mockMatcherIndex) LabelNamesFor(ids ...storage.SeriesRef) ([]string, err
 
 func (m mockMatcherIndex) Postings(name string, values ...string) (index.Postings, error) {
 	return index.EmptyPostings(), nil
+}
+
+func (m mockMatcherIndex) PostingsSizeEstimation(name string, values ...string) (int, error) {
+	return 0, nil
 }
 
 func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {

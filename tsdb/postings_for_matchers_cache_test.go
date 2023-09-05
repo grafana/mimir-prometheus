@@ -265,6 +265,10 @@ func (idx indexForPostingsMock) LabelValues(string, ...*labels.Matcher) ([]strin
 	panic("implement me")
 }
 
+func (idx indexForPostingsMock) PostingsSizeEstimation(name string, values ...string) (int, error) {
+	panic("implement me")
+}
+
 func (idx indexForPostingsMock) Postings(string, ...string) (index.Postings, error) {
 	panic("implement me")
 }

@@ -124,6 +124,22 @@ func (h *headIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Mat
 	return h.head.pfmc.PostingsForMatchers(h, concurrent, ms...)
 }
 
+func (h *headIndexReader) PostingsSizeEstimation(name string, values ...string) (int, error) {
+	total := 0
+	switch len(values) {
+	case 0:
+		return total, nil
+	case 1:
+		return h.head.postings.Count(name, values[0]), nil
+	default:
+		res := 0
+		for _, value := range values {
+			res += h.head.postings.Count(name, value)
+		}
+		return res, nil
+	}
+}
+
 func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
 	series := make([]*memSeries, 0, 128)
 
