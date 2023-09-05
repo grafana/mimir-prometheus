@@ -120,7 +120,7 @@ func (h *headIndexReader) Postings(name string, values ...string) (index.Posting
 	}
 }
 
-func (h *headIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (h *headIndexReader) PostingsForMatchers(concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	return h.head.pfmc.PostingsForMatchers(h, concurrent, ms...)
 }
 
