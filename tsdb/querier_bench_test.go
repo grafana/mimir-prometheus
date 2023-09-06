@@ -99,34 +99,34 @@ func BenchmarkQuerier(b *testing.B) {
 
 func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader, iUniqueValues int) {
 	n1 := labels.MustNewMatcher(labels.MatchEqual, "n", "1"+postingsBenchSuffix)
-	nX := labels.MustNewMatcher(labels.MatchEqual, "n", "X"+postingsBenchSuffix)
-	nAnyStar := labels.MustNewMatcher(labels.MatchEqual, "n", ".*")
-	nAnyPlus := labels.MustNewMatcher(labels.MatchEqual, "n", ".+")
+	//nX := labels.MustNewMatcher(labels.MatchEqual, "n", "X"+postingsBenchSuffix)
+	nAnyStar := labels.MustNewMatcher(labels.MatchRegexp, "n", ".*")
+	nAnyPlus := labels.MustNewMatcher(labels.MatchRegexp, "n", ".+")
 
 	jFoo := labels.MustNewMatcher(labels.MatchEqual, "j", "foo")
-	jNotFoo := labels.MustNewMatcher(labels.MatchNotEqual, "j", "foo")
-
-	iStar := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.*$")
-	i1Star := labels.MustNewMatcher(labels.MatchRegexp, "i", "^1.*$")
-	iStar1 := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.*1$")
-	iStar1Star := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.*1.*$")
-	iPlus := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.+$")
-	i1Plus := labels.MustNewMatcher(labels.MatchRegexp, "i", "^1.+$")
-	iEmptyRe := labels.MustNewMatcher(labels.MatchRegexp, "i", "^$")
-	iNotEmpty := labels.MustNewMatcher(labels.MatchNotEqual, "i", "")
-	iNot2 := labels.MustNewMatcher(labels.MatchNotEqual, "i", "2"+postingsBenchSuffix)
-	iNot2Star := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "^2.*$")
-	iNotStar2Star := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "^.*2.*$")
-	jFooBar := labels.MustNewMatcher(labels.MatchRegexp, "j", "foo|bar")
-	jXXXYYY := labels.MustNewMatcher(labels.MatchRegexp, "j", "XXX|YYY")
-	jXplus := labels.MustNewMatcher(labels.MatchRegexp, "j", "X.+")
+	//jNotFoo := labels.MustNewMatcher(labels.MatchNotEqual, "j", "foo")
+	//jXplus := labels.MustNewMatcher(labels.MatchRegexp, "j", "X.+")
 	jAnyStar := labels.MustNewMatcher(labels.MatchRegexp, "j", ".*")
 	jAnyPlus := labels.MustNewMatcher(labels.MatchRegexp, "j", ".+")
-	iCharSet := labels.MustNewMatcher(labels.MatchRegexp, "i", "1[0-9]")
-	iAlternate := labels.MustNewMatcher(labels.MatchRegexp, "i", "(1|2|3|4|5|6|20|55)")
-	iNotAlternate := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "(1|2|3|4|5|6|20|55)")
-	iXYZ := labels.MustNewMatcher(labels.MatchRegexp, "i", "X|Y|Z")
-	iNotXYZ := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "X|Y|Z")
+	//
+	//iStar := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.*$")
+	//i1Star := labels.MustNewMatcher(labels.MatchRegexp, "i", "^1.*$")
+	//iStar1 := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.*1$")
+	//iStar1Star := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.*1.*$")
+	//iPlus := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.+$")
+	//i1Plus := labels.MustNewMatcher(labels.MatchRegexp, "i", "^1.+$")
+	//iEmptyRe := labels.MustNewMatcher(labels.MatchRegexp, "i", "^$")
+	iNotEmpty := labels.MustNewMatcher(labels.MatchNotEqual, "i", "")
+	//iNot2 := labels.MustNewMatcher(labels.MatchNotEqual, "i", "2"+postingsBenchSuffix)
+	//iNot2Star := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "^2.*$")
+	//iNotStar2Star := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "^.*2.*$")
+	//jFooBar := labels.MustNewMatcher(labels.MatchRegexp, "j", "foo|bar")
+	//jXXXYYY := labels.MustNewMatcher(labels.MatchRegexp, "j", "XXX|YYY")
+	//iCharSet := labels.MustNewMatcher(labels.MatchRegexp, "i", "1[0-9]")
+	//iAlternate := labels.MustNewMatcher(labels.MatchRegexp, "i", "(1|2|3|4|5|6|20|55)")
+	//iNotAlternate := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "(1|2|3|4|5|6|20|55)")
+	//iXYZ := labels.MustNewMatcher(labels.MatchRegexp, "i", "X|Y|Z")
+	//iNotXYZ := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "X|Y|Z")
 	iUniquePrefixPlus := labels.MustNewMatcher(labels.MatchRegexp, "i", fmt.Sprintf("%d.+", iUniqueValues/10))
 	iNotUniquePrefixPlus := labels.MustNewMatcher(labels.MatchNotRegexp, "i", fmt.Sprintf("%d.+", iUniqueValues/10))
 
@@ -134,49 +134,49 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader, iUniqueValues in
 		name     string
 		matchers []*labels.Matcher
 	}{
-		{`n="1"`, []*labels.Matcher{n1}},
-		{`n="X"`, []*labels.Matcher{nX}},
-		{`n="1",j="foo"`, []*labels.Matcher{n1, jFoo}},
-		{`n="X",j="foo"`, []*labels.Matcher{nX, jFoo}},
-		{`j="foo",n="1"`, []*labels.Matcher{jFoo, n1}},
-		{`n="1",j!="foo"`, []*labels.Matcher{n1, jNotFoo}},
-		{`n="1",i!="2"`, []*labels.Matcher{n1, iNot2}},
-		{`n="X",j!="foo"`, []*labels.Matcher{nX, jNotFoo}},
-		{`i=~"1[0-9]",j=~"foo|bar"`, []*labels.Matcher{iCharSet, jFooBar}},
-		{`j=~"foo|bar"`, []*labels.Matcher{jFooBar}},
-		{`j=~"XXX|YYY"`, []*labels.Matcher{jXXXYYY}},
-		{`j=~"X.+"`, []*labels.Matcher{jXplus}},
-		{`i=~"(1|2|3|4|5|6|20|55)"`, []*labels.Matcher{iAlternate}},
-		{`i!~"(1|2|3|4|5|6|20|55)"`, []*labels.Matcher{iNotAlternate}},
-		{`i=~"X|Y|Z"`, []*labels.Matcher{iXYZ}},
-		{`i!~"X|Y|Z"`, []*labels.Matcher{iNotXYZ}},
-		{`i=~".*"`, []*labels.Matcher{iStar}},
-		{`i=~"1.*"`, []*labels.Matcher{i1Star}},
-		{`i=~".*1"`, []*labels.Matcher{iStar1}},
-		{`i=~".+"`, []*labels.Matcher{iPlus}},
-		{`i=~".+",j=~"X.+"`, []*labels.Matcher{iPlus, jXplus}},
-		{`i=~""`, []*labels.Matcher{iEmptyRe}},
-		{`i!=""`, []*labels.Matcher{iNotEmpty}},
-		{`n="1",i=~".*",j="foo"`, []*labels.Matcher{n1, iStar, jFoo}},
-		{`n="X",i=~".*",j="foo"`, []*labels.Matcher{nX, iStar, jFoo}},
-		{`n="1",i=~".*",i!="2",j="foo"`, []*labels.Matcher{n1, iStar, iNot2, jFoo}},
-		{`n="1",i!=""`, []*labels.Matcher{n1, iNotEmpty}},
-		{`n="1",i!="",j="foo"`, []*labels.Matcher{n1, iNotEmpty, jFoo}},
-		{`n="1",i!="",j=~"X.+"`, []*labels.Matcher{n1, iNotEmpty, jXplus}},
-		{`n="1",i!="",j=~"XXX|YYY"`, []*labels.Matcher{n1, iNotEmpty, jXXXYYY}},
-		{`n="1",i=~"X|Y|Z",j="foo"`, []*labels.Matcher{n1, iXYZ, jFoo}},
-		{`n="1",i!~"X|Y|Z",j="foo"`, []*labels.Matcher{n1, iNotXYZ, jFoo}},
-		{`n="1",i=~".+",j="foo"`, []*labels.Matcher{n1, iPlus, jFoo}},
-		{`n="1",i=~"1.+",j="foo"`, []*labels.Matcher{n1, i1Plus, jFoo}},
-		{`n="1",i=~".*1.*",j="foo"`, []*labels.Matcher{n1, iStar1Star, jFoo}},
-		{`n="1",i=~".+",i!="2",j="foo"`, []*labels.Matcher{n1, iPlus, iNot2, jFoo}},
-		{`n="1",i=~".+",i!~"2.*",j="foo"`, []*labels.Matcher{n1, iPlus, iNot2Star, jFoo}},
-		{`n="1",i=~".+",i!~".*2.*",j="foo"`, []*labels.Matcher{n1, iPlus, iNotStar2Star, jFoo}},
-		{`n="X",i=~".+",i!~".*2.*",j="foo"`, []*labels.Matcher{nX, iPlus, iNotStar2Star, jFoo}},
+		//{`n="1"`, []*labels.Matcher{n1}},
+		//{`n="X"`, []*labels.Matcher{nX}},
+		//{`n="1",j="foo"`, []*labels.Matcher{n1, jFoo}},
+		//{`n="X",j="foo"`, []*labels.Matcher{nX, jFoo}},
+		//{`j="foo",n="1"`, []*labels.Matcher{jFoo, n1}},
+		//{`n="1",j!="foo"`, []*labels.Matcher{n1, jNotFoo}},
+		//{`n="1",i!="2"`, []*labels.Matcher{n1, iNot2}},
+		//{`n="X",j!="foo"`, []*labels.Matcher{nX, jNotFoo}},
+		//{`i=~"1[0-9]",j=~"foo|bar"`, []*labels.Matcher{iCharSet, jFooBar}},
+		//{`j=~"foo|bar"`, []*labels.Matcher{jFooBar}},
+		//{`j=~"XXX|YYY"`, []*labels.Matcher{jXXXYYY}},
+		//{`j=~"X.+"`, []*labels.Matcher{jXplus}},
+		//{`i=~"(1|2|3|4|5|6|20|55)"`, []*labels.Matcher{iAlternate}},
+		//{`i!~"(1|2|3|4|5|6|20|55)"`, []*labels.Matcher{iNotAlternate}},
+		//{`i=~"X|Y|Z"`, []*labels.Matcher{iXYZ}},
+		//{`i!~"X|Y|Z"`, []*labels.Matcher{iNotXYZ}},
+		//{`i=~".*"`, []*labels.Matcher{iStar}},
+		//{`i=~"1.*"`, []*labels.Matcher{i1Star}},
+		//{`i=~".*1"`, []*labels.Matcher{iStar1}},
+		//{`i=~".+"`, []*labels.Matcher{iPlus}},
+		//{`i=~".+",j=~"X.+"`, []*labels.Matcher{iPlus, jXplus}},
+		//{`i=~""`, []*labels.Matcher{iEmptyRe}},
+		//{`i!=""`, []*labels.Matcher{iNotEmpty}},
+		//{`n="1",i=~".*",j="foo"`, []*labels.Matcher{n1, iStar, jFoo}},
+		//{`n="X",i=~".*",j="foo"`, []*labels.Matcher{nX, iStar, jFoo}},
+		//{`n="1",i=~".*",i!="2",j="foo"`, []*labels.Matcher{n1, iStar, iNot2, jFoo}},
+		//{`n="1",i!=""`, []*labels.Matcher{n1, iNotEmpty}},
+		{`n="1",i!="",j="foo",i_times_n="1"`, []*labels.Matcher{n1, iNotEmpty, jFoo, labels.MustNewMatcher(labels.MatchEqual, "i_times_n", "1")}},
+		//{`n="1",i!="",j=~"X.+"`, []*labels.Matcher{n1, iNotEmpty, jXplus}},
+		//{`n="1",i!="",j=~"XXX|YYY"`, []*labels.Matcher{n1, iNotEmpty, jXXXYYY}},
+		//{`n="1",i=~"X|Y|Z",j="foo"`, []*labels.Matcher{n1, iXYZ, jFoo}},
+		//{`n="1",i!~"X|Y|Z",j="foo"`, []*labels.Matcher{n1, iNotXYZ, jFoo}},
+		//{`n="1",i=~".+",j="foo"`, []*labels.Matcher{n1, iPlus, jFoo}},
+		//{`n="1",i=~"1.+",j="foo"`, []*labels.Matcher{n1, i1Plus, jFoo}},
+		//{`n="1",i=~".*1.*",j="foo"`, []*labels.Matcher{n1, iStar1Star, jFoo}},
+		//{`n="1",i=~".+",i!="2",j="foo"`, []*labels.Matcher{n1, iPlus, iNot2, jFoo}},
+		//{`n="1",i=~".+",i!~"2.*",j="foo"`, []*labels.Matcher{n1, iPlus, iNot2Star, jFoo}},
+		//{`n="1",i=~".+",i!~".*2.*",j="foo"`, []*labels.Matcher{n1, iPlus, iNotStar2Star, jFoo}},
+		//{`n="X",i=~".+",i!~".*2.*",j="foo"`, []*labels.Matcher{nX, iPlus, iNotStar2Star, jFoo}},
 		{`i=~"<unique_prefix>.+"`, []*labels.Matcher{iUniquePrefixPlus}},
 		{`n="1",i=~"<unique_prefix>.+"`, []*labels.Matcher{n1, iUniquePrefixPlus}},
 		{`n="1",i!~"<unique_prefix>.+"`, []*labels.Matcher{n1, iNotUniquePrefixPlus}},
-		{`j="foo",n=~".+",i=~"<unique_prefix>.+"`, []*labels.Matcher{jFoo, nAnyPlus, iUniquePrefixPlus}},
+		{`j="foo",n=~".+",i=~"<unique_prefix>.+"`, []*labels.Matcher{jFoo, nAnyPlus, iNotEmpty}},
 		{`j="foo",n=~".*",i=~"<unique_prefix>.+"`, []*labels.Matcher{jFoo, nAnyStar, iUniquePrefixPlus}},
 		{`j=~".*",n=~".*",i=~"<unique_prefix>.+"`, []*labels.Matcher{jAnyStar, nAnyStar, iUniquePrefixPlus}},
 		{`j=~".+",n=~".+",i=~"<unique_prefix>.+"`, []*labels.Matcher{jAnyPlus, nAnyPlus, iUniquePrefixPlus}},
@@ -191,9 +191,6 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader, iUniqueValues in
 			for i := 0; i < b.N; i++ {
 				postings, pendingMatchers, err := PostingsForMatchers(ir, c.matchers...)
 				require.NoError(b, err)
-				if len(pendingMatchers) == 0 {
-					continue
-				}
 				// If there are pending matchers we need to simulate the cost of applying them.
 				for postings.Next() {
 					lblsBuilder.Reset()

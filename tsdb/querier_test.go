@@ -2201,13 +2201,16 @@ func TestPostingsForMatchers(t *testing.T) {
 			for _, l := range c.exp {
 				exp[l.String()] = struct{}{}
 			}
-			p, _, err := PostingsForMatchers(ir, c.matchers...)
+			p, pendingMatchers, err := PostingsForMatchers(ir, c.matchers...)
 			require.NoError(t, err)
 
 			var builder labels.ScratchBuilder
 			for p.Next() {
 				require.NoError(t, ir.Series(p.At(), &builder, &[]chunks.Meta{}))
 				lbls := builder.Labels()
+				if !matchesMatcherSet(lbls, pendingMatchers) {
+					continue
+				}
 				if _, ok := exp[lbls.String()]; !ok {
 					t.Errorf("Evaluating %v, unexpected result %s", c.matchers, lbls.String())
 				} else {
