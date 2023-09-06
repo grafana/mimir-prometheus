@@ -712,7 +712,15 @@ type boundedIterator struct {
 // If there are no samples within bounds it will return false.
 func (b boundedIterator) Next() chunkenc.ValueType {
 	for typ := b.Iterator.Next(); typ != chunkenc.ValNone; typ = b.Iterator.Next() {
-		t, _ := b.Iterator.At()
+		var t int64
+		switch typ {
+		case chunkenc.ValFloat:
+			t, _ = b.Iterator.At()
+		case chunkenc.ValHistogram:
+			t, _ = b.Iterator.AtHistogram()
+		case chunkenc.ValFloatHistogram:
+			t, _ = b.Iterator.AtFloatHistogram()
+		}
 		switch {
 		case t < b.minT:
 			continue
