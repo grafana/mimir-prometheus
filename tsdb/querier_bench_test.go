@@ -23,6 +23,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/hashcache"
 	"github.com/prometheus/prometheus/tsdb/index"
 )
@@ -48,8 +49,12 @@ func BenchmarkQuerier(b *testing.B) {
 		app.Append(0, l, 0, 0)
 	}
 
-	for n := 0; n < 10; n++ {
-		for i := 0; i < 100000; i++ {
+	const (
+		nVals = 10
+		iVals = 100000
+	)
+	for n := 0; n < nVals; n++ {
+		for i := 0; i < iVals; i++ {
 			addSeries(labels.FromStrings("i", strconv.Itoa(i)+postingsBenchSuffix, "n", strconv.Itoa(n)+postingsBenchSuffix, "j", "foo", "i_times_n", strconv.Itoa(i*n)))
 			// Have some series that won't be matched, to properly test inverted matches.
 			addSeries(labels.FromStrings("i", strconv.Itoa(i)+postingsBenchSuffix, "n", strconv.Itoa(n)+postingsBenchSuffix, "j", "bar"))
@@ -64,7 +69,7 @@ func BenchmarkQuerier(b *testing.B) {
 	require.NoError(b, err)
 	b.Run("Head", func(b *testing.B) {
 		b.Run("PostingsForMatchers", func(b *testing.B) {
-			benchmarkPostingsForMatchers(b, ir)
+			benchmarkPostingsForMatchers(b, ir, iVals)
 		})
 		b.Run("labelValuesWithMatchers", func(b *testing.B) {
 			benchmarkLabelValuesWithMatchers(b, ir)
@@ -84,7 +89,7 @@ func BenchmarkQuerier(b *testing.B) {
 	defer ir.Close()
 	b.Run("Block", func(b *testing.B) {
 		b.Run("PostingsForMatchers", func(b *testing.B) {
-			benchmarkPostingsForMatchers(b, ir)
+			benchmarkPostingsForMatchers(b, ir, iVals)
 		})
 		b.Run("labelValuesWithMatchers", func(b *testing.B) {
 			benchmarkLabelValuesWithMatchers(b, ir)
@@ -92,9 +97,11 @@ func BenchmarkQuerier(b *testing.B) {
 	})
 }
 
-func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
+func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader, iUniqueValues int) {
 	n1 := labels.MustNewMatcher(labels.MatchEqual, "n", "1"+postingsBenchSuffix)
 	nX := labels.MustNewMatcher(labels.MatchEqual, "n", "X"+postingsBenchSuffix)
+	nAnyStar := labels.MustNewMatcher(labels.MatchEqual, "n", ".*")
+	nAnyPlus := labels.MustNewMatcher(labels.MatchEqual, "n", ".+")
 
 	jFoo := labels.MustNewMatcher(labels.MatchEqual, "j", "foo")
 	jNotFoo := labels.MustNewMatcher(labels.MatchNotEqual, "j", "foo")
@@ -113,11 +120,16 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 	jFooBar := labels.MustNewMatcher(labels.MatchRegexp, "j", "foo|bar")
 	jXXXYYY := labels.MustNewMatcher(labels.MatchRegexp, "j", "XXX|YYY")
 	jXplus := labels.MustNewMatcher(labels.MatchRegexp, "j", "X.+")
+	jAnyStar := labels.MustNewMatcher(labels.MatchRegexp, "j", ".*")
+	jAnyPlus := labels.MustNewMatcher(labels.MatchRegexp, "j", ".+")
 	iCharSet := labels.MustNewMatcher(labels.MatchRegexp, "i", "1[0-9]")
 	iAlternate := labels.MustNewMatcher(labels.MatchRegexp, "i", "(1|2|3|4|5|6|20|55)")
 	iNotAlternate := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "(1|2|3|4|5|6|20|55)")
 	iXYZ := labels.MustNewMatcher(labels.MatchRegexp, "i", "X|Y|Z")
 	iNotXYZ := labels.MustNewMatcher(labels.MatchNotRegexp, "i", "X|Y|Z")
+	iUniquePrefixPlus := labels.MustNewMatcher(labels.MatchRegexp, "i", fmt.Sprintf("%d.+", iUniqueValues/10))
+	iNotUniquePrefixPlus := labels.MustNewMatcher(labels.MatchNotRegexp, "i", fmt.Sprintf("%d.+", iUniqueValues/10))
+
 	cases := []struct {
 		name     string
 		matchers []*labels.Matcher
@@ -161,15 +173,41 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 		{`n="1",i=~".+",i!~"2.*",j="foo"`, []*labels.Matcher{n1, iPlus, iNot2Star, jFoo}},
 		{`n="1",i=~".+",i!~".*2.*",j="foo"`, []*labels.Matcher{n1, iPlus, iNotStar2Star, jFoo}},
 		{`n="X",i=~".+",i!~".*2.*",j="foo"`, []*labels.Matcher{nX, iPlus, iNotStar2Star, jFoo}},
+		{`i=~"<unique_prefix>.+"`, []*labels.Matcher{iUniquePrefixPlus}},
+		{`n="1",i=~"<unique_prefix>.+"`, []*labels.Matcher{n1, iUniquePrefixPlus}},
+		{`n="1",i!~"<unique_prefix>.+"`, []*labels.Matcher{n1, iNotUniquePrefixPlus}},
+		{`j="foo",n=~".+",i=~"<unique_prefix>.+"`, []*labels.Matcher{jFoo, nAnyPlus, iUniquePrefixPlus}},
+		{`j="foo",n=~".*",i=~"<unique_prefix>.+"`, []*labels.Matcher{jFoo, nAnyStar, iUniquePrefixPlus}},
+		{`j=~".*",n=~".*",i=~"<unique_prefix>.+"`, []*labels.Matcher{jAnyStar, nAnyStar, iUniquePrefixPlus}},
+		{`j=~".+",n=~".+",i=~"<unique_prefix>.+"`, []*labels.Matcher{jAnyPlus, nAnyPlus, iUniquePrefixPlus}},
 	}
 
+	chks := &[]chunks.Meta{}
+	lblsBuilder := labels.NewScratchBuilder(6)
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, _, err := PostingsForMatchers(ir, c.matchers...)
-				require.NoError(b, err) // TODO dimitarvdimitrov if there are matchers returned, then fetch series and apply the matchers
+				postings, pendingMatchers, err := PostingsForMatchers(ir, c.matchers...)
+				require.NoError(b, err)
+				if len(pendingMatchers) == 0 {
+					continue
+				}
+				// If there are pending matchers we need to simulate the cost of applying them.
+				for postings.Next() {
+					lblsBuilder.Reset()
+					err = ir.Series(postings.At(), &lblsBuilder, chks)
+					if err != nil {
+						require.NoError(b, err)
+					}
+					lbls := lblsBuilder.Labels()
+					for _, m := range pendingMatchers {
+						if !m.Matches(lbls.Get(m.Name)) {
+							break
+						}
+					}
+				}
 			}
 		})
 	}
