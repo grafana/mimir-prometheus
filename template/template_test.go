@@ -162,6 +162,22 @@ func TestTemplateExpansion(t *testing.T) {
 			output: "a:11: b:21: ",
 		},
 		{
+			// Range over query and sort by label, quoting a complex label name
+			text: "{{ range query \"metric\" | sortByLabel \"label.with dots and spaces\" }}{{index .Labels \"label.with dots and spaces\"}}:{{.Value}}: {{end}}",
+			queryResult: promql.Vector{
+				{
+					Metric: labels.FromStrings(labels.MetricName, "metric", "label.with dots and spaces", "b"),
+					T:      0,
+					F:      21,
+				}, {
+					Metric: labels.FromStrings(labels.MetricName, "metric", "label.with dots and spaces", "a"),
+					T:      0,
+					F:      11,
+				},
+			},
+			output: "a:11: b:21: ",
+		},
+		{
 			// Simple hostname.
 			text:   "{{ \"foo.example.com\" | stripPort }}",
 			output: "foo.example.com",

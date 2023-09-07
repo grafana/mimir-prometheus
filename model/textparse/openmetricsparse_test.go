@@ -25,17 +25,17 @@ import (
 )
 
 func TestOpenMetricsParse(t *testing.T) {
-	input := `# HELP go_gc_duration_seconds A summary of the GC invocation durations.
-# TYPE go_gc_duration_seconds summary
-# UNIT go_gc_duration_seconds seconds
-go_gc_duration_seconds{quantile="0"} 4.9351e-05
-go_gc_duration_seconds{quantile="0.25"} 7.424100000000001e-05
-go_gc_duration_seconds{quantile="0.5",a="b"} 8.3835e-05
-# HELP nohelp1 
+	input := `# HELP go.gc_duration_seconds A summary of the GC invocation durations.
+# TYPE go.gc_duration_seconds summary
+# UNIT go.gc_duration_seconds seconds
+go.gc_duration_seconds{quantile="0"} 4.9351e-05
+go.gc_duration_seconds{quantile="0.25"} 7.424100000000001e-05
+go.gc_duration_seconds{quantile="0.5",a="b"} 8.3835e-05
+# HELP nohelp1
 # HELP help2 escape \ \n \\ \" \x chars
-# UNIT nounit 
-go_gc_duration_seconds{quantile="1.0",a="b"} 8.3835e-05
-go_gc_duration_seconds_count 99
+# UNIT nounit
+go.gc_duration_seconds{quantile="1.0",a="b"} 8.3835e-05
+go.gc_duration_seconds_count 99
 some:aggregate:rate5m{a_b="c"} 1
 # HELP go_goroutines Number of goroutines that currently exist.
 # TYPE go_goroutines gauge
@@ -84,26 +84,26 @@ foo_total 17.0 1520879607.789 # {id="counter-test"} 5`
 		e       *exemplar.Exemplar
 	}{
 		{
-			m:    "go_gc_duration_seconds",
+			m:    "go.gc_duration_seconds",
 			help: "A summary of the GC invocation durations.",
 		}, {
-			m:   "go_gc_duration_seconds",
+			m:   "go.gc_duration_seconds",
 			typ: MetricTypeSummary,
 		}, {
-			m:    "go_gc_duration_seconds",
+			m:    "go.gc_duration_seconds",
 			unit: "seconds",
 		}, {
-			m:    `go_gc_duration_seconds{quantile="0"}`,
+			m:    `go.gc_duration_seconds{quantile="0"}`,
 			v:    4.9351e-05,
-			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0"),
+			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "0"),
 		}, {
-			m:    `go_gc_duration_seconds{quantile="0.25"}`,
+			m:    `go.gc_duration_seconds{quantile="0.25"}`,
 			v:    7.424100000000001e-05,
-			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.25"),
+			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "0.25"),
 		}, {
-			m:    `go_gc_duration_seconds{quantile="0.5",a="b"}`,
+			m:    `go.gc_duration_seconds{quantile="0.5",a="b"}`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.5", "a", "b"),
+			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "0.5", "a", "b"),
 		}, {
 			m:    "nohelp1",
 			help: "",
@@ -114,13 +114,13 @@ foo_total 17.0 1520879607.789 # {id="counter-test"} 5`
 			m:    "nounit",
 			unit: "",
 		}, {
-			m:    `go_gc_duration_seconds{quantile="1.0",a="b"}`,
+			m:    `go.gc_duration_seconds{quantile="1.0",a="b"}`,
 			v:    8.3835e-05,
-			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "1.0", "a", "b"),
+			lset: labels.FromStrings("__name__", "go.gc_duration_seconds", "quantile", "1.0", "a", "b"),
 		}, {
-			m:    `go_gc_duration_seconds_count`,
+			m:    `go.gc_duration_seconds_count`,
 			v:    99,
-			lset: labels.FromStrings("__name__", "go_gc_duration_seconds_count"),
+			lset: labels.FromStrings("__name__", "go.gc_duration_seconds_count"),
 		}, {
 			m:    `some:aggregate:rate5m{a_b="c"}`,
 			v:    1,

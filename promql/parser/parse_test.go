@@ -1761,6 +1761,37 @@ var testExpr = []struct {
 		},
 	},
 	{
+		input: `{"foo.bar", "bar.cpu"=~"baz"}`,
+		expected: &VectorSelector{
+			LabelMatchers: []*labels.Matcher{
+				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "foo.bar"),
+				MustLabelMatcher(labels.MatchRegexp, "bar.cpu", "baz"),
+			},
+			PosRange: PositionRange{
+				Start: 0,
+				End:   29,
+			},
+		},
+	},
+	{
+		input: `{"bar.cpu"=~"baz", "foo.bar"}`,
+		expected: &VectorSelector{
+			LabelMatchers: []*labels.Matcher{
+				MustLabelMatcher(labels.MatchRegexp, "bar.cpu", "baz"),
+				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "foo.bar"),
+			},
+			PosRange: PositionRange{
+				Start: 0,
+				End:   29,
+			},
+		},
+	},
+	{
+		input:  `{"foo", "bar"}`,
+		fail:   true,
+		errMsg: "metric name must not be set twice",
+	},
+	{
 		input:  `{`,
 		fail:   true,
 		errMsg: "unexpected end of input inside braces",

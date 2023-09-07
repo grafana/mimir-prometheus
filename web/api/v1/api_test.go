@@ -1765,7 +1765,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					identifier: "blackbox",
 					metadata: []scrape.MetricMetadata{
 						{
-							Metric: "go_gc_duration_seconds",
+							Metric: "go.gc_duration_seconds",
 							Type:   textparse.MetricTypeSummary,
 							Help:   "A summary of the GC invocation durations.",
 							Unit:   "",
@@ -1796,7 +1796,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 							Unit:   "",
 						},
 						{
-							Metric: "go_gc_duration_seconds",
+							Metric: "go.gc_duration_seconds",
 							Type:   textparse.MetricTypeSummary,
 							Help:   "A summary of the GC invocation durations.",
 							Unit:   "",
@@ -1808,7 +1808,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 				"go_threads": {
 					{textparse.MetricTypeGauge, "Number of OS threads created", ""},
 				},
-				"go_gc_duration_seconds": {
+				"go.gc_duration_seconds": {
 					{textparse.MetricTypeSummary, "A summary of the GC invocation durations.", ""},
 				},
 			},
@@ -1834,7 +1834,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 							Unit:   "",
 						},
 						{
-							Metric: "go_gc_duration_seconds",
+							Metric: "go.gc_duration_seconds",
 							Type:   textparse.MetricTypeSummary,
 							Help:   "A summary of the GC invocation durations.",
 							Unit:   "",
@@ -1867,7 +1867,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 							Unit:   "",
 						},
 						{
-							Metric: "go_gc_duration_seconds",
+							Metric: "go.gc_duration_seconds",
 							Type:   textparse.MetricTypeSummary,
 							Help:   "A summary of the GC invocation durations.",
 							Unit:   "",
@@ -1884,7 +1884,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 							Unit:   "",
 						},
 						{
-							Metric: "go_gc_duration_seconds",
+							Metric: "go.gc_duration_seconds",
 							Type:   textparse.MetricTypeSummary,
 							Help:   "A summary of the GC invocation durations, but from a different target.",
 							Unit:   "",
@@ -1915,7 +1915,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					identifier: "blackbox",
 					metadata: []scrape.MetricMetadata{
 						{
-							Metric: "go_gc_duration_seconds",
+							Metric: "go.gc_duration_seconds",
 							Type:   textparse.MetricTypeSummary,
 							Help:   "A summary of the GC invocation durations.",
 							Unit:   "",
@@ -1946,7 +1946,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 		// With a specific metric that is not present.
 		{
 			endpoint: api.metricMetadata,
-			query:    url.Values{"metric": []string{"go_gc_duration_seconds"}},
+			query:    url.Values{"metric": []string{"go.gc_duration_seconds"}},
 			metadata: []targetMetadata{
 				{
 					identifier: "test",
