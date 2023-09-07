@@ -672,7 +672,7 @@ func (b boundedIterator) Seek(t int64) chunkenc.ValueType {
 		if valType == chunkenc.ValNone {
 			return chunkenc.ValNone
 		}
-		t, _ := b.Iterator.At()
+		t := b.Iterator.AtT()
 		if t <= b.maxT {
 			return valType
 		}
