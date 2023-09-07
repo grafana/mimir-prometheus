@@ -585,40 +585,8 @@ type mergedOOOChunks struct {
 // Bytes is a very expensive method because its calling the iterator of all the
 // chunks in the mergedOOOChunk and building a new chunk with the samples.
 func (o mergedOOOChunks) Bytes() []byte {
-	var xc chunkenc.Chunk
-
-	switch o.encoding {
-	case chunkenc.EncXOR:
-		xc = chunkenc.NewXORChunk()
-	case chunkenc.EncHistogram:
-		xc = chunkenc.NewHistogramChunk()
-	case chunkenc.EncFloatHistogram:
-		xc = chunkenc.NewFloatHistogramChunk()
-	}
-	app, err := xc.Appender()
-	if err != nil {
-		panic(err)
-	}
 	it := o.Iterator(nil)
-	for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
-		switch typ {
-		case chunkenc.ValFloat:
-			t, v := it.At()
-			app.Append(t, v)
-		case chunkenc.ValHistogram:
-			prevHApp, _ := app.(*chunkenc.HistogramAppender)
-			t, v := it.AtHistogram()
-			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
-			app.AppendHistogram(prevHApp, t, v, false)
-		case chunkenc.ValFloatHistogram:
-			prevHApp, _ := app.(*chunkenc.FloatHistogramAppender)
-			t, v := it.AtFloatHistogram()
-			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
-			app.AppendFloatHistogram(prevHApp, t, v, false)
-		}
-	}
-
-	return xc.Bytes()
+	return GetBytes(o.Encoding(), it)
 }
 
 func (o mergedOOOChunks) Encoding() chunkenc.Encoding {
@@ -656,36 +624,8 @@ type boundedChunk struct {
 }
 
 func (b boundedChunk) Bytes() []byte {
-	var xc chunkenc.Chunk
-
-	switch b.Encoding() {
-	case chunkenc.EncXOR:
-		xc = chunkenc.NewXORChunk()
-	case chunkenc.EncHistogram:
-		xc = chunkenc.NewHistogramChunk()
-	case chunkenc.EncFloatHistogram:
-		xc = chunkenc.NewFloatHistogramChunk()
-	}
-	app, _ := xc.Appender()
 	it := b.Iterator(nil)
-	for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
-		switch typ {
-		case chunkenc.ValFloat:
-			t, v := it.At()
-			app.Append(t, v)
-		case chunkenc.ValHistogram:
-			prevHApp, _ := app.(*chunkenc.HistogramAppender)
-			t, v := it.AtHistogram()
-			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
-			app.AppendHistogram(prevHApp, t, v, false)
-		case chunkenc.ValFloatHistogram:
-			prevHApp, _ := app.(*chunkenc.FloatHistogramAppender)
-			t, v := it.AtFloatHistogram()
-			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
-			app.AppendFloatHistogram(prevHApp, t, v, false)
-		}
-	}
-	return xc.Bytes()
+	return GetBytes(b.Encoding(), it)
 }
 
 func (b boundedChunk) Iterator(iterator chunkenc.Iterator) chunkenc.Iterator {
@@ -712,15 +652,7 @@ type boundedIterator struct {
 // If there are no samples within bounds it will return false.
 func (b boundedIterator) Next() chunkenc.ValueType {
 	for typ := b.Iterator.Next(); typ != chunkenc.ValNone; typ = b.Iterator.Next() {
-		var t int64
-		switch typ {
-		case chunkenc.ValFloat:
-			t, _ = b.Iterator.At()
-		case chunkenc.ValHistogram:
-			t, _ = b.Iterator.AtHistogram()
-		case chunkenc.ValFloatHistogram:
-			t, _ = b.Iterator.AtFloatHistogram()
-		}
+		t := b.Iterator.AtT()
 		switch {
 		case t < b.minT:
 			continue
@@ -866,4 +798,40 @@ func makeStopIterator(c chunkenc.Chunk, it chunkenc.Iterator, stopAfter int) chu
 		i:         -1,
 		stopAfter: stopAfter,
 	}
+}
+
+func GetBytes(encoding chunkenc.Encoding, it chunkenc.Iterator) []byte {
+	var xc chunkenc.Chunk
+
+	switch encoding {
+	case chunkenc.EncXOR:
+		xc = chunkenc.NewXORChunk()
+	case chunkenc.EncHistogram:
+		xc = chunkenc.NewHistogramChunk()
+	case chunkenc.EncFloatHistogram:
+		xc = chunkenc.NewFloatHistogramChunk()
+	}
+	app, err := xc.Appender()
+	if err != nil {
+		panic(err)
+	}
+
+	for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
+		switch typ {
+		case chunkenc.ValFloat:
+			t, v := it.At()
+			app.Append(t, v)
+		case chunkenc.ValHistogram:
+			prevHApp, _ := app.(*chunkenc.HistogramAppender)
+			t, v := it.AtHistogram()
+			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
+			app.AppendHistogram(prevHApp, t, v, false)
+		case chunkenc.ValFloatHistogram:
+			prevHApp, _ := app.(*chunkenc.FloatHistogramAppender)
+			t, v := it.AtFloatHistogram()
+			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
+			app.AppendFloatHistogram(prevHApp, t, v, false)
+		}
+	}
+	return xc.Bytes()
 }
