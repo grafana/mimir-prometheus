@@ -188,7 +188,11 @@ func rangeQueryCases() []benchCase {
 			expr:  "count({__name__!=\"\",l=\"\"})",
 			steps: 1,
 		},
+<<<<<<< HEAD
 		// Functions which have special handling inside eval()
+=======
+		// timestamp() function
+>>>>>>> main
 		{
 			expr: "timestamp(a_X)",
 		},

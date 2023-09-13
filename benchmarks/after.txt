@@ -1,0 +1,69 @@
+GOROOT=/usr/local/go #gosetup
+GOPATH=/Users/dimitar/go #gosetup
+/usr/local/go/bin/go test -c -o /Users/dimitar/Library/Caches/JetBrains/GoLand2023.2/tmp/GoLand/___BenchmarkQuerier_Block_PostingsForMatchers_in_github_com_prometheus_prometheus_tsdb.test github.com/prometheus/prometheus/tsdb #gosetup
+/Users/dimitar/Library/Caches/JetBrains/GoLand2023.2/tmp/GoLand/___BenchmarkQuerier_Block_PostingsForMatchers_in_github_com_prometheus_prometheus_tsdb.test -test.v -test.paniconexit0 -test.bench ^\QBenchmarkQuerier\E$/^\QBlock\E$/^\QPostingsForMatchers\E$ -test.run ^$ -test.benchmem=true -test.count=6 -test.memprofilerate=1000
+goos: darwin
+goarch: arm64
+pkg: github.com/prometheus/prometheus/tsdb
+BenchmarkQuerier
+BenchmarkQuerier/Block
+BenchmarkQuerier/Block/PostingsForMatchers
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!="",j="foo",i_times_n="1"
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!="",j="foo",i_times_n="1"-10         	      72	  14866269 ns/op	17924443 B/op	      49 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!="",j="foo",i_times_n="1"-10         	      81	  14764618 ns/op	17924443 B/op	      49 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!="",j="foo",i_times_n="1"-10         	      85	  14832390 ns/op	17924443 B/op	      49 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!="",j="foo",i_times_n="1"-10         	      85	  14843991 ns/op	17924443 B/op	      49 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!="",j="foo",i_times_n="1"-10         	      85	  14554302 ns/op	17924443 B/op	      49 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!="",j="foo",i_times_n="1"-10         	      85	  14492825 ns/op	17924443 B/op	      49 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/i=~"<unique_prefix>.+"
+BenchmarkQuerier/Block/PostingsForMatchers/i=~"<unique_prefix>.+"-10                    	     688	   1829444 ns/op	 1615904 B/op	     216 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/i=~"<unique_prefix>.+"-10                    	     679	   1833634 ns/op	 1615904 B/op	     216 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/i=~"<unique_prefix>.+"-10                    	     668	   1828979 ns/op	 1615904 B/op	     216 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/i=~"<unique_prefix>.+"-10                    	     680	   1856917 ns/op	 1615904 B/op	     216 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/i=~"<unique_prefix>.+"-10                    	     675	   1815892 ns/op	 1615904 B/op	     216 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/i=~"<unique_prefix>.+"-10                    	     680	   1829792 ns/op	 1615904 B/op	     216 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i=~"<unique_prefix>.+"
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i=~"<unique_prefix>.+"-10              	     566	   1910427 ns/op	 1617528 B/op	     220 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i=~"<unique_prefix>.+"-10              	     638	   1932080 ns/op	 1617528 B/op	     220 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i=~"<unique_prefix>.+"-10              	     644	   1927964 ns/op	 1617528 B/op	     220 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i=~"<unique_prefix>.+"-10              	     633	   1931985 ns/op	 1617528 B/op	     220 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i=~"<unique_prefix>.+"-10              	     638	   2135791 ns/op	 1617528 B/op	     220 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i=~"<unique_prefix>.+"-10              	     628	   1928527 ns/op	 1617528 B/op	     220 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!~"<unique_prefix>.+"
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!~"<unique_prefix>.+"-10              	       5	 206550358 ns/op	44404049 B/op	  899997 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!~"<unique_prefix>.+"-10              	       5	 205692283 ns/op	44404161 B/op	  899997 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!~"<unique_prefix>.+"-10              	       5	 207899133 ns/op	44404049 B/op	  899997 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!~"<unique_prefix>.+"-10              	       5	 206232792 ns/op	44404049 B/op	  899997 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!~"<unique_prefix>.+"-10              	       5	 207265875 ns/op	44404161 B/op	  899997 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/n="1",i!~"<unique_prefix>.+"-10              	       5	 207343600 ns/op	44404161 B/op	  899997 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".+",i=~"<unique_prefix>.+"
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".+",i=~"<unique_prefix>.+"-10    	       1	2603410334 ns/op	445396272 B/op	 9000066 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".+",i=~"<unique_prefix>.+"-10    	       1	2575489541 ns/op	445396272 B/op	 9000066 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".+",i=~"<unique_prefix>.+"-10    	       1	2583204792 ns/op	445396272 B/op	 9000066 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".+",i=~"<unique_prefix>.+"-10    	       1	2613295292 ns/op	445396272 B/op	 9000066 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".+",i=~"<unique_prefix>.+"-10    	       1	2583597250 ns/op	445396272 B/op	 9000066 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".+",i=~"<unique_prefix>.+"-10    	       1	2862071500 ns/op	445396272 B/op	 9000066 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".*",i=~"<unique_prefix>.+"
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".*",i=~"<unique_prefix>.+"-10    	     421	   3018939 ns/op	 1618723 B/op	     226 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".*",i=~"<unique_prefix>.+"-10    	     430	   2835995 ns/op	 1618723 B/op	     226 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".*",i=~"<unique_prefix>.+"-10    	     424	   2836110 ns/op	 1618723 B/op	     226 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".*",i=~"<unique_prefix>.+"-10    	     428	   2806027 ns/op	 1618723 B/op	     226 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".*",i=~"<unique_prefix>.+"-10    	     432	   2807922 ns/op	 1618723 B/op	     226 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j="foo",n=~".*",i=~"<unique_prefix>.+"-10    	     434	   2814258 ns/op	 1618723 B/op	     226 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".*",n=~".*",i=~"<unique_prefix>.+"
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".*",n=~".*",i=~"<unique_prefix>.+"-10    	     673	   2048808 ns/op	 1618818 B/op	     228 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".*",n=~".*",i=~"<unique_prefix>.+"-10    	     676	   1832237 ns/op	 1618818 B/op	     228 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".*",n=~".*",i=~"<unique_prefix>.+"-10    	     670	   1827500 ns/op	 1618818 B/op	     228 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".*",n=~".*",i=~"<unique_prefix>.+"-10    	     662	   1843392 ns/op	 1618818 B/op	     228 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".*",n=~".*",i=~"<unique_prefix>.+"-10    	     673	   1840535 ns/op	 1618818 B/op	     228 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".*",n=~".*",i=~"<unique_prefix>.+"-10    	     682	   1834307 ns/op	 1618818 B/op	     228 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".+",n=~".+",i=~"<unique_prefix>.+"
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".+",n=~".+",i=~"<unique_prefix>.+"-10    	     177	   6751092 ns/op	 1620688 B/op	     230 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".+",n=~".+",i=~"<unique_prefix>.+"-10    	     154	   8132771 ns/op	 1620688 B/op	     230 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".+",n=~".+",i=~"<unique_prefix>.+"-10    	     120	   8543403 ns/op	 1620688 B/op	     230 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".+",n=~".+",i=~"<unique_prefix>.+"-10    	     120	  10651466 ns/op	 1620688 B/op	     230 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".+",n=~".+",i=~"<unique_prefix>.+"-10    	     100	  13040670 ns/op	 1620688 B/op	     230 allocs/op
+BenchmarkQuerier/Block/PostingsForMatchers/j=~".+",n=~".+",i=~"<unique_prefix>.+"-10    	      94	  13245731 ns/op	 1620688 B/op	     230 allocs/op
+PASS
+
+Process finished with the exit code 0
