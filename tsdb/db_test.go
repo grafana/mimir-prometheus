@@ -5185,6 +5185,14 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T,
 // missing after a restart while snapshot was enabled, but the query still returns the right
 // data from the mmap chunks.
 func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t, scenario)
+		})
+	}
+}
+
+func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -5192,6 +5200,7 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 	opts.OutOfOrderCapMax = 10
 	opts.OutOfOrderTimeWindow = 300 * time.Minute.Milliseconds()
 	opts.EnableMemorySnapshotOnShutdown = true
+	opts.EnableNativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -5207,9 +5216,9 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err = app.Append(0, series2, ts, float64(2*ts))
+			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -5255,8 +5264,8 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 		series2Samples := make([]chunks.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
+			series1Samples = append(series1Samples, scenario.sampleFunc(ts, ts))
+			series2Samples = append(series2Samples, scenario.sampleFunc(ts, ts*2))
 		}
 		expRes := map[string][]chunks.Sample{
 			series1.String(): series1Samples,
@@ -5267,7 +5276,7 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes)
 	}
 
 	// Checking for expected ooo data from mmap chunks.
@@ -5732,6 +5741,14 @@ func test_ChunkQuerier_OOOQuery(t *testing.T,
 }
 
 func TestOOOAppendAndQuery(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOAppendAndQuery(t, scenario)
+		})
+	}
+}
+
+func testOOOAppendAndQuery(t *testing.T, scenario sampleTypeScenario) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 4 * time.Hour.Milliseconds()
@@ -5753,13 +5770,13 @@ func TestOOOAppendAndQuery(t *testing.T) {
 		key := lbls.String()
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
-			val := rand.Float64()
-			_, err := app.Append(0, lbls, min, val)
+			val := rand.Intn(1000)
+			_, err, s := scenario.appendFunc(app, lbls, min, int64(val))
 			if faceError {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				appendedSamples[key] = append(appendedSamples[key], sample{t: min, f: val})
+				appendedSamples[key] = append(appendedSamples[key], s)
 				totalSamples++
 			}
 		}
@@ -5795,7 +5812,7 @@ func TestOOOAppendAndQuery(t *testing.T) {
 				expSamples[k] = append(expSamples[k], s)
 			}
 		}
-		require.Equal(t, expSamples, seriesSet)
+		requireEqualSamples(t, expSamples, seriesSet)
 		require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 	}
 
@@ -5987,9 +6004,18 @@ func testOOODisabled(t *testing.T,
 }
 
 func TestWBLAndMmapReplay(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testWBLAndMmapReplay(t, scenario)
+		})
+	}
+}
+
+func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 4 * time.Hour.Milliseconds()
+	opts.EnableNativeHistograms = true
 
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
@@ -6007,10 +6033,10 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		key := lbls.String()
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
-			val := rand.Float64()
-			_, err := app.Append(0, lbls, min, val)
+			val := rand.Intn(1000)
+			_, err, s := scenario.appendFunc(app, lbls, min, int64(val))
 			require.NoError(t, err)
-			expSamples[key] = append(expSamples[key], sample{t: min, f: val})
+			expSamples[key] = append(expSamples[key], s)
 			totalSamples++
 		}
 		require.NoError(t, app.Commit())
@@ -6028,7 +6054,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 			})
 			exp[k] = v
 		}
-		require.Equal(t, exp, seriesSet)
+		requireEqualSamples(t, exp, seriesSet)
 	}
 
 	// In-order samples.
@@ -6051,9 +6077,20 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		chk, err := db.head.chunkDiskMapper.Chunk(mc.ref)
 		require.NoError(t, err)
 		it := chk.Iterator(nil)
-		for it.Next() == chunkenc.ValFloat {
-			ts, val := it.At()
-			s1MmapSamples = append(s1MmapSamples, sample{t: ts, f: val})
+		for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
+			switch typ {
+			case chunkenc.ValFloat:
+				ts, val := it.At()
+				s1MmapSamples = append(s1MmapSamples, sample{t: ts, f: val})
+			case chunkenc.ValHistogram:
+				ts, val := it.AtHistogram()
+				s1MmapSamples = append(s1MmapSamples, sample{t: ts, h: val})
+			case chunkenc.ValFloatHistogram:
+				ts, val := it.AtFloatHistogram()
+				s1MmapSamples = append(s1MmapSamples, sample{t: ts, fh: val})
+			default:
+				t.Fatalf("unknown type %s", typ)
+			}
 		}
 	}
 	require.Greater(t, len(s1MmapSamples), 0)
@@ -6522,11 +6559,20 @@ func TestWBLCorruption(t *testing.T) {
 }
 
 func TestOOOMmapCorruption(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOMmapCorruption(t, scenario)
+		})
+	}
+}
+
+func testOOOMmapCorruption(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 10
 	opts.OutOfOrderTimeWindow = 300 * time.Minute.Milliseconds()
+	opts.EnableNativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -6541,11 +6587,11 @@ func TestOOOMmapCorruption(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, s := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			allSamples = append(allSamples, sample{t: ts, f: float64(ts)})
+			allSamples = append(allSamples, s)
 			if inMmapAfterCorruption {
-				expInMmapChunks = append(expInMmapChunks, sample{t: ts, f: float64(ts)})
+				expInMmapChunks = append(expInMmapChunks, s)
 			}
 		}
 		require.NoError(t, app.Commit())
@@ -6583,7 +6629,7 @@ func TestOOOMmapCorruption(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes)
 	}
 
 	verifySamples(allSamples)
@@ -6645,6 +6691,14 @@ func TestOOOMmapCorruption(t *testing.T) {
 }
 
 func TestOutOfOrderRuntimeConfig(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testOutOfOrderRuntimeConfig(t, scenario)
+		})
+	}
+}
+
+func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 	ctx := context.Background()
 
 	getDB := func(oooTimeWindow int64) *DB {
@@ -6652,6 +6706,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 
 		opts := DefaultOptions()
 		opts.OutOfOrderTimeWindow = oooTimeWindow
+		opts.EnableNativeHistograms = true
 
 		db, err := Open(dir, nil, nil, opts, nil)
 		require.NoError(t, err)
@@ -6678,10 +6733,10 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, s := scenario.appendFunc(app, series1, ts, ts)
 			if success {
 				require.NoError(t, err)
-				allSamples = append(allSamples, sample{t: ts, f: float64(ts)})
+				allSamples = append(allSamples, s)
 			} else {
 				require.Error(t, err)
 			}
@@ -6703,7 +6758,7 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes)
 	}
 
 	doOOOCompaction := func(t *testing.T, db *DB) {
@@ -6876,12 +6931,20 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 }
 
 func TestNoGapAfterRestartWithOOO(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testNoGapAfterRestartWithOOO(t, scenario)
+		})
+	}
+}
+
+func testNoGapAfterRestartWithOOO(t *testing.T, scenario sampleTypeScenario) {
 	series1 := labels.FromStrings("foo", "bar1")
 	addSamples := func(t *testing.T, db *DB, fromMins, toMins int64, success bool) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
 			if success {
 				require.NoError(t, err)
 			} else {
@@ -6895,7 +6958,7 @@ func TestNoGapAfterRestartWithOOO(t *testing.T) {
 		var expSamples []chunks.Sample
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			expSamples = append(expSamples, sample{t: ts, f: float64(ts)})
+			expSamples = append(expSamples, scenario.sampleFunc(ts, ts))
 		}
 
 		expRes := map[string][]chunks.Sample{
@@ -6906,7 +6969,7 @@ func TestNoGapAfterRestartWithOOO(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes)
 	}
 
 	cases := []struct {
@@ -6937,6 +7000,7 @@ func TestNoGapAfterRestartWithOOO(t *testing.T) {
 
 			opts := DefaultOptions()
 			opts.OutOfOrderTimeWindow = 30 * time.Minute.Milliseconds()
+			opts.EnableNativeHistograms = true
 
 			db, err := Open(dir, nil, nil, opts, nil)
 			require.NoError(t, err)
@@ -6983,10 +7047,19 @@ func TestNoGapAfterRestartWithOOO(t *testing.T) {
 }
 
 func TestWblReplayAfterOOODisableAndRestart(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testWblReplayAfterOOODisableAndRestart(t, scenario)
+		})
+	}
+}
+
+func testWblReplayAfterOOODisableAndRestart(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 60 * time.Minute.Milliseconds()
+	opts.EnableNativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -7001,9 +7074,9 @@ func TestWblReplayAfterOOODisableAndRestart(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, s := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			allSamples = append(allSamples, sample{t: ts, f: float64(ts)})
+			allSamples = append(allSamples, s)
 		}
 		require.NoError(t, app.Commit())
 	}
@@ -7026,7 +7099,7 @@ func TestWblReplayAfterOOODisableAndRestart(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes)
 	}
 
 	verifySamples(allSamples)
@@ -7042,10 +7115,19 @@ func TestWblReplayAfterOOODisableAndRestart(t *testing.T) {
 }
 
 func TestPanicOnApplyConfig(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testPanicOnApplyConfig(t, scenario)
+		})
+	}
+}
+
+func testPanicOnApplyConfig(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 60 * time.Minute.Milliseconds()
+	opts.EnableNativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -7060,9 +7142,9 @@ func TestPanicOnApplyConfig(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, s := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			allSamples = append(allSamples, sample{t: ts, f: float64(ts)})
+			allSamples = append(allSamples, s)
 		}
 		require.NoError(t, app.Commit())
 	}
@@ -7090,11 +7172,20 @@ func TestPanicOnApplyConfig(t *testing.T) {
 }
 
 func TestDiskFillingUpAfterDisablingOOO(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testDiskFillingUpAfterDisablingOOO(t, scenario)
+		})
+	}
+}
+
+func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 60 * time.Minute.Milliseconds()
+	opts.EnableNativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -7109,9 +7200,9 @@ func TestDiskFillingUpAfterDisablingOOO(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, s := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			allSamples = append(allSamples, sample{t: ts, f: float64(ts)})
+			allSamples = append(allSamples, s)
 		}
 		require.NoError(t, app.Commit())
 	}
@@ -7762,4 +7853,38 @@ Outer:
 	}
 
 	require.NoError(t, writerErr)
+}
+
+// requireEqualSamples checks that the actual series are equal to the expected ones. It ignores the counter reset hints for histograms.
+// TODO(fionaliao): understand counter reset behaviour, might want to unignore hints later
+func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Sample) {
+	for name, expectedItem := range expected {
+		actualItem, ok := actual[name]
+		require.True(t, ok, "Expected series %s not found", name)
+		require.Equal(t, len(expectedItem), len(actualItem), "Length not expected for %s", name)
+		for i, s := range expectedItem {
+			expectedSample := s
+			actualSample := actualItem[i]
+			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d]", name, i)
+			if s.H() != nil {
+				expectedHist := expectedSample.H()
+				actualHist := actualSample.H()
+				expectedHist.CounterResetHint = histogram.UnknownCounterReset
+				actualHist.CounterResetHint = histogram.UnknownCounterReset
+				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
+			} else if s.FH() != nil {
+				expectedHist := expectedSample.FH()
+				actualHist := actualSample.FH()
+				expectedHist.CounterResetHint = histogram.UnknownCounterReset
+				actualHist.CounterResetHint = histogram.UnknownCounterReset
+				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
+			} else {
+				require.Equal(t, expectedSample, expectedSample, "Unexpected sample for %s[%d]", name, i)
+			}
+		}
+	}
+	for name := range actual {
+		_, ok := expected[name]
+		require.True(t, ok, "Unexpected series %s", name)
+	}
 }
