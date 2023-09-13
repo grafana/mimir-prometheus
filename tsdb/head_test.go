@@ -5985,6 +5985,7 @@ func TestHeadAppender_AppendCTZeroSample(t *testing.T) {
 type sampleTypeScenario struct {
 	sampleType string
 	appendFunc func(appender storage.Appender, lbls labels.Labels, ts int64, value int64) (storage.SeriesRef, error, sample)
+	sampleFunc func(ts, value int64) sample
 }
 
 var sampleTypeScenarios = map[string]sampleTypeScenario{
@@ -5995,6 +5996,9 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 			ref, err := appender.Append(0, lbls, ts, s.f)
 			return ref, err, s
 		},
+		sampleFunc: func(ts, value int64) sample {
+			return sample{t: ts, f: float64(value)}
+		},
 	},
 	"integer histogram": {
 		sampleType: sampleMetricTypeHistogram,
@@ -6003,6 +6007,9 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 			ref, err := appender.AppendHistogram(0, lbls, ts, s.h, nil)
 			return ref, err, s
 		},
+		sampleFunc: func(ts, value int64) sample {
+			return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(value))}
+		},
 	},
 	"float histogram": {
 		sampleType: sampleMetricTypeHistogram,
@@ -6010,6 +6017,9 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 			s := sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(value))}
 			ref, err := appender.AppendHistogram(0, lbls, ts, nil, s.fh)
 			return ref, err, s
+		},
+		sampleFunc: func(ts, value int64) sample {
+			return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(value))}
 		},
 	},
 }
