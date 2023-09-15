@@ -5457,6 +5457,14 @@ func test_ChunkQuerier_OOOQuery(t *testing.T,
 }
 
 func TestOOOAppendAndQuery(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOAppendAndQuery(t, scenario)
+		})
+	}
+}
+
+func testOOOAppendAndQuery(t *testing.T, scenario sampleTypeScenario) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 4 * time.Hour.Milliseconds()
@@ -5478,13 +5486,13 @@ func TestOOOAppendAndQuery(t *testing.T) {
 		key := lbls.String()
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
-			val := rand.Float64()
-			_, err := app.Append(0, lbls, min, val)
+			val := rand.Intn(1000)
+			_, err, s := scenario.appendFunc(app, lbls, min, int64(val))
 			if faceError {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				appendedSamples[key] = append(appendedSamples[key], sample{t: min, f: val})
+				appendedSamples[key] = append(appendedSamples[key], s)
 				totalSamples++
 			}
 		}
@@ -5520,7 +5528,7 @@ func TestOOOAppendAndQuery(t *testing.T) {
 				expSamples[k] = append(expSamples[k], s)
 			}
 		}
-		require.Equal(t, expSamples, seriesSet)
+		requireEqualSamples(t, expSamples, seriesSet)
 		require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 	}
 
