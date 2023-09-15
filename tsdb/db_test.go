@@ -5712,9 +5712,18 @@ func testOOODisabled(t *testing.T,
 }
 
 func TestWBLAndMmapReplay(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testWBLAndMmapReplay(t, scenario)
+		})
+	}
+}
+
+func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 4 * time.Hour.Milliseconds()
+	opts.EnableNativeHistograms = true
 
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
@@ -5732,10 +5741,10 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		key := lbls.String()
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
-			val := rand.Float64()
-			_, err := app.Append(0, lbls, min, val)
+			val := rand.Intn(1000)
+			_, err, s := scenario.appendFunc(app, lbls, min, int64(val))
 			require.NoError(t, err)
-			expSamples[key] = append(expSamples[key], sample{t: min, f: val})
+			expSamples[key] = append(expSamples[key], s)
 			totalSamples++
 		}
 		require.NoError(t, app.Commit())
@@ -5753,7 +5762,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 			})
 			exp[k] = v
 		}
-		require.Equal(t, exp, seriesSet)
+		requireEqualSamples(t, exp, seriesSet)
 	}
 
 	// In-order samples.
@@ -5776,9 +5785,20 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		chk, err := db.head.chunkDiskMapper.Chunk(mc.ref)
 		require.NoError(t, err)
 		it := chk.Iterator(nil)
-		for it.Next() == chunkenc.ValFloat {
-			ts, val := it.At()
-			s1MmapSamples = append(s1MmapSamples, sample{t: ts, f: val})
+		for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
+			switch typ {
+			case chunkenc.ValFloat:
+				ts, val := it.At()
+				s1MmapSamples = append(s1MmapSamples, sample{t: ts, f: val})
+			case chunkenc.ValHistogram:
+				ts, val := it.AtHistogram()
+				s1MmapSamples = append(s1MmapSamples, sample{t: ts, h: val})
+			case chunkenc.ValFloatHistogram:
+				ts, val := it.AtFloatHistogram()
+				s1MmapSamples = append(s1MmapSamples, sample{t: ts, fh: val})
+			default:
+				t.Fatalf("unknown type %s", typ)
+			}
 		}
 	}
 	require.Greater(t, len(s1MmapSamples), 0)
