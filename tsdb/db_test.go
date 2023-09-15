@@ -4910,6 +4910,14 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T,
 // missing after a restart while snapshot was enabled, but the query still returns the right
 // data from the mmap chunks.
 func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t, scenario)
+		})
+	}
+}
+
+func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -4917,6 +4925,7 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 	opts.OutOfOrderCapMax = 10
 	opts.OutOfOrderTimeWindow = 300 * time.Minute.Milliseconds()
 	opts.EnableMemorySnapshotOnShutdown = true
+	opts.EnableNativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -4932,9 +4941,9 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err = app.Append(0, series2, ts, float64(2*ts))
+			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -4980,8 +4989,8 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 		series2Samples := make([]chunks.Sample, 0, toMins-fromMins+1)
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			series1Samples = append(series1Samples, sample{ts, float64(ts), nil, nil})
-			series2Samples = append(series2Samples, sample{ts, float64(2 * ts), nil, nil})
+			series1Samples = append(series1Samples, scenario.sampleFunc(ts, ts))
+			series2Samples = append(series2Samples, scenario.sampleFunc(ts, ts*2))
 		}
 		expRes := map[string][]chunks.Sample{
 			series1.String(): series1Samples,
@@ -4992,7 +5001,7 @@ func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes)
 	}
 
 	// Checking for expected ooo data from mmap chunks.
@@ -7580,7 +7589,7 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 		for i, s := range expectedItem {
 			expectedSample := s
 			actualSample := actualItem[i]
-			require.Equal(t, expectedSample.Type(), actualSample.Type(), "Different types for %s[%d]", name, i)
+			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d]", name, i)
 			if s.H() != nil {
 				expectedHist := expectedSample.H()
 				actualHist := actualSample.H()
