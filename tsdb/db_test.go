@@ -6601,12 +6601,20 @@ func TestOutOfOrderRuntimeConfig(t *testing.T) {
 }
 
 func TestNoGapAfterRestartWithOOO(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testNoGapAfterRestartWithOOO(t, scenario)
+		})
+	}
+}
+
+func testNoGapAfterRestartWithOOO(t *testing.T, scenario sampleTypeScenario) {
 	series1 := labels.FromStrings("foo", "bar1")
 	addSamples := func(t *testing.T, db *DB, fromMins, toMins int64, success bool) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
 			if success {
 				require.NoError(t, err)
 			} else {
@@ -6620,7 +6628,7 @@ func TestNoGapAfterRestartWithOOO(t *testing.T) {
 		var expSamples []chunks.Sample
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			expSamples = append(expSamples, sample{t: ts, f: float64(ts)})
+			expSamples = append(expSamples, scenario.sampleFunc(ts, ts))
 		}
 
 		expRes := map[string][]chunks.Sample{
@@ -6631,7 +6639,7 @@ func TestNoGapAfterRestartWithOOO(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes)
 	}
 
 	cases := []struct {
@@ -6662,6 +6670,7 @@ func TestNoGapAfterRestartWithOOO(t *testing.T) {
 
 			opts := DefaultOptions()
 			opts.OutOfOrderTimeWindow = 30 * time.Minute.Milliseconds()
+			opts.EnableNativeHistograms = true
 
 			db, err := Open(dir, nil, nil, opts, nil)
 			require.NoError(t, err)
@@ -6708,10 +6717,19 @@ func TestNoGapAfterRestartWithOOO(t *testing.T) {
 }
 
 func TestWblReplayAfterOOODisableAndRestart(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testWblReplayAfterOOODisableAndRestart(t, scenario)
+		})
+	}
+}
+
+func testWblReplayAfterOOODisableAndRestart(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 60 * time.Minute.Milliseconds()
+	opts.EnableNativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -6726,9 +6744,9 @@ func TestWblReplayAfterOOODisableAndRestart(t *testing.T) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err := app.Append(0, series1, ts, float64(ts))
+			_, err, s := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			allSamples = append(allSamples, sample{t: ts, f: float64(ts)})
+			allSamples = append(allSamples, s)
 		}
 		require.NoError(t, app.Commit())
 	}
@@ -6751,7 +6769,7 @@ func TestWblReplayAfterOOODisableAndRestart(t *testing.T) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes)
 	}
 
 	verifySamples(allSamples)
@@ -7504,4 +7522,38 @@ Outer:
 	}
 
 	require.NoError(t, writerErr)
+}
+
+// requireEqualSamples checks that the actual series are equal to the expected ones. It ignores the counter reset hints for histograms.
+// TODO(fionaliao): understand counter reset behaviour, might want to unignore hints later
+func requireEqualSamples(t *testing.T, expected, actual map[string][]tsdbutil.Sample) {
+	for name, expectedItem := range expected {
+		actualItem, ok := actual[name]
+		require.True(t, ok, "Expected series %s not found", name)
+		require.Equal(t, len(expectedItem), len(actualItem), "Length not expected for %s", name)
+		for i, s := range expectedItem {
+			expectedSample := s
+			actualSample := actualItem[i]
+			require.Equal(t, expectedSample.Type(), actualSample.Type(), "Different types for %s[%d]", name, i)
+			if s.H() != nil {
+				expectedHist := expectedSample.H()
+				actualHist := actualSample.H()
+				expectedHist.CounterResetHint = histogram.UnknownCounterReset
+				actualHist.CounterResetHint = histogram.UnknownCounterReset
+				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
+			} else if s.FH() != nil {
+				expectedHist := expectedSample.FH()
+				actualHist := actualSample.FH()
+				expectedHist.CounterResetHint = histogram.UnknownCounterReset
+				actualHist.CounterResetHint = histogram.UnknownCounterReset
+				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
+			} else {
+				require.Equal(t, expectedSample, expectedSample, "Unexpected sample for %s[%d]", name, i)
+			}
+		}
+	}
+	for name := range actual {
+		_, ok := expected[name]
+		require.True(t, ok, "Unexpected series %s", name)
+	}
 }
