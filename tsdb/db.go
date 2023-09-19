@@ -1343,6 +1343,7 @@ func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead) (_ []ulid.ULID
 // compactHead compacts the given RangeHead.
 // The compaction mutex should be held before calling this method.
 func (db *DB) compactHead(head *RangeHead) error {
+	db.logger.Log("msg", "compacting DB head", "tag", "overlapping_chunks")
 	uid, err := db.compactor.Write(db.dir, head, head.MinTime(), head.BlockMaxTime(), nil)
 	if err != nil {
 		return errors.Wrap(err, "persist head block")
