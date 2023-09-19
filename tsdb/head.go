@@ -2030,7 +2030,7 @@ func doLog(args ...any) {
 }
 
 func (s *memSeries) doLog(args ...any) {
-	doLog(append([]any{"series", s.lset.String(), "series_addr", unsafe.Pointer(s)}, args...)...)
+	doLog(append([]any{"series_addr", unsafe.Pointer(s)}, args...)...)
 }
 
 func (s *memSeries) checkOverlappingChunks() {
@@ -2044,6 +2044,7 @@ func (s *memSeries) checkOverlappingChunks() {
 			s.doLog(
 				"msg", "overlapping mmapped chunks",
 				"chunk", fmt.Sprintf("%#v", *c),
+				"prev_chunk", fmt.Sprintf("%#v", *(s.mmappedChunks[i-1])),
 				"i", i, "num_chunks", len(s.mmappedChunks),
 			)
 		}
@@ -2056,6 +2057,7 @@ func (s *memSeries) checkOverlappingChunks() {
 			s.doLog(
 				"msg", "overlapping head chunk",
 				"chunk", fmt.Sprintf("%#v", *c),
+				"prev_chunk", fmt.Sprintf("%#v", *(s.headChunks.atOffset(i + 1))),
 				"i", i, "num_chunks", s.headChunks.len(),
 			)
 		}
