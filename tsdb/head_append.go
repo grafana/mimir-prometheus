@@ -1019,6 +1019,7 @@ func (a *headAppender) Commit() (err error) {
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
 		series.pendingCommit = false
+		series.checkOverlappingChunks()
 		series.Unlock()
 	}
 
@@ -1155,6 +1156,10 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, o chunkOpts) (sa
 
 	if appendID > 0 {
 		s.txs.add(appendID)
+	}
+	if chunkCreated {
+		s.doLog("msg", "created new head chunk", "t", t, "v", v)
+		s.checkOverlappingChunks()
 	}
 
 	return true, chunkCreated
@@ -1377,6 +1382,7 @@ func (s *memSeries) cutNewHeadChunk(
 ) *memChunk {
 	s.mmapCurrentHeadChunk(chunkDiskMapper)
 
+	s.checkOverlappingChunks()
 	s.headChunk = &memChunk{
 		minTime: mint,
 		maxTime: math.MinInt64,

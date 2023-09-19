@@ -17,10 +17,12 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
 	"time"
+	"unsafe"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -1975,6 +1977,45 @@ type memSeries struct {
 	txs *txRing
 
 	pendingCommit bool // Whether there are samples waiting to be committed to this series.
+}
+
+var logger = log.With(log.NewLogfmtLogger(os.Stdout), "tag", "overlapping_chunks")
+
+func doLog(args ...any) {
+	logger.Log(args...)
+}
+
+func (s *memSeries) doLog(args ...any) {
+	doLog(append([]any{"series_addr", unsafe.Pointer(s)}, args...)...)
+}
+
+func (s *memSeries) checkOverlappingChunks() {
+	// memSeries {
+	//   mmappedChunks: [t0, t1, t2]
+	//   headChunk:     {t5}->{t4}->{t3}
+	// }
+	var prevMaxTime int64
+	for i, c := range s.mmappedChunks {
+		if c.minTime == prevMaxTime {
+			s.doLog(
+				"msg", "overlapping mmapped chunks",
+				"chunk", fmt.Sprintf("%#v", *c),
+				"prev_chunk", fmt.Sprintf("%#v", *(s.mmappedChunks[i-1])),
+				"i", i, "num_chunks", len(s.mmappedChunks),
+			)
+		}
+		prevMaxTime = c.maxTime
+	}
+
+	c := s.headChunk
+	if c != nil && c.minTime == prevMaxTime {
+		s.doLog(
+			"msg", "overlapping head chunk",
+			"chunk", fmt.Sprintf("%#v", *c),
+			"prev_chunk", fmt.Sprintf("%#v", *(s.mmappedChunks[len(s.mmappedChunks)-1])),
+		)
+		prevMaxTime = c.maxTime
+	}
 }
 
 // memSeriesOOOFields contains the fields required by memSeries
