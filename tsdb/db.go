@@ -620,8 +620,8 @@ func (db *DBReadOnly) Blocks() ([]BlockReader, error) {
 		return nil, nil
 	}
 
-	slices.SortFunc(loadable, func(a, b *Block) bool {
-		return a.Meta().MinTime < b.Meta().MinTime
+	slices.SortFunc(loadable, func(a, b *Block) int {
+		return int(a.Meta().MinTime - b.Meta().MinTime)
 	})
 
 	blockMetas := make([]BlockMeta, 0, len(loadable))
@@ -1495,8 +1495,8 @@ func (db *DB) reloadBlocks() (err error) {
 	}
 	db.metrics.blocksBytes.Set(float64(blocksSize))
 
-	slices.SortFunc(toLoad, func(a, b *Block) bool {
-		return a.Meta().MinTime < b.Meta().MinTime
+	slices.SortFunc(toLoad, func(a, b *Block) int {
+		return int(a.Meta().MinTime - b.Meta().MinTime)
 	})
 
 	// Swap new blocks first for subsequently created readers to be seen.
@@ -1570,8 +1570,8 @@ func deletableBlocks(db *DB, blocks []*Block) map[ulid.ULID]struct{} {
 
 	// Sort the blocks by time - newest to oldest (largest to smallest timestamp).
 	// This ensures that the retentions will remove the oldest  blocks.
-	slices.SortFunc(blocks, func(a, b *Block) bool {
-		return a.Meta().MaxTime > b.Meta().MaxTime
+	slices.SortFunc(blocks, func(a, b *Block) int {
+		return int(b.Meta().MaxTime - a.Meta().MaxTime)
 	})
 
 	for _, block := range blocks {
