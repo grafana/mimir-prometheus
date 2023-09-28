@@ -789,12 +789,18 @@ func GetBytes(encoding chunkenc.Encoding, it chunkenc.Iterator) []byte {
 			prevHApp, _ := app.(*chunkenc.HistogramAppender)
 			t, v := it.AtHistogram()
 			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
-			app.AppendHistogram(prevHApp, t, v, false)
+			_, _, _, err := app.AppendHistogram(prevHApp, t, v, false)
+			if err != nil {
+				panic(err)
+			}
 		case chunkenc.ValFloatHistogram:
 			prevHApp, _ := app.(*chunkenc.FloatHistogramAppender)
 			t, v := it.AtFloatHistogram()
 			// TODO(carrieedwards): check if logic for new chunk allocation is needed (see ToEncodedChunks method)
-			app.AppendFloatHistogram(prevHApp, t, v, false)
+			_, _, _, err := app.AppendFloatHistogram(prevHApp, t, v, false)
+			if err != nil {
+				panic(err)
+			}
 		}
 	}
 	return xc.Bytes()
