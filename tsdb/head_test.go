@@ -35,6 +35,8 @@ import (
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
+	"golang.org/x/exp/constraints"
+	"golang.org/x/exp/slices"
 	"golang.org/x/sync/errgroup"
 
 	"github.com/prometheus/prometheus/config"
@@ -5623,4 +5625,158 @@ func TestHeadDetectsDuplicateSampleAtSizeLimit(t *testing.T) {
 	}
 
 	require.Equal(t, numSamples/2, storedSampleCount)
+}
+
+type tokenFunc[T constraints.Ordered] func() T
+
+// taken from dskit's RandomTokenGenerator.GenerateTokens
+// https://github.com/grafana/dskit/blob/98f431c981b2644feab274a76e4ba72cc08e6b2b/ring/token_generator.go#L33
+func generateTokens[T constraints.Ordered](requestedTokenCount int, newToken tokenFunc[T]) []T {
+	if requestedTokenCount <= 0 {
+		return []T{}
+	}
+
+	used := make(map[T]bool, requestedTokenCount)
+	tokens := make([]T, 0, requestedTokenCount)
+	for i := 0; i < requestedTokenCount; {
+		candidate := newToken()
+		if used[candidate] {
+			continue
+		}
+		used[candidate] = true
+		tokens = append(tokens, candidate)
+		i++
+	}
+
+	// Ensure returned tokens are sorted.
+	sort.Slice(tokens, func(i, j int) bool {
+		return tokens[i] < tokens[j]
+	})
+
+	return tokens
+}
+
+// N token ranges are represented as a slice of 2N tokens, where each pair of tokens represents the start and end of a range
+// ranges are closed [start, end], disjoint, and sorted in ascending order
+func generateTokenRanges[T constraints.Ordered](requestedRangeCount int, newToken tokenFunc[T]) []T {
+	return generateTokens(requestedRangeCount*2, newToken)
+}
+
+func hashInRanges[T constraints.Ordered](hash T, ranges []T) bool {
+	switch {
+	case len(ranges) == 0:
+		return false
+	case hash < ranges[0]:
+		// hash comes before the first range
+		return false
+	case hash > ranges[len(ranges)-1]:
+		// hash comes after the last range
+		return false
+	}
+
+	index, found := slices.BinarySearch(ranges, hash)
+	switch {
+	case found:
+		// ranges are closed
+		return true
+	case index%2 == 1:
+		// hash would be inserted after the start of a range (even index)
+		return true
+	default:
+		return false
+	}
+}
+
+func TestHashInRanges(t *testing.T) {
+	ranges := []int{4, 8, 12, 16}
+
+	require.False(t, hashInRanges(0, ranges))
+	require.True(t, hashInRanges(4, ranges))
+	require.True(t, hashInRanges(6, ranges))
+	require.True(t, hashInRanges(8, ranges))
+	require.False(t, hashInRanges(10, ranges))
+	require.False(t, hashInRanges(20, ranges))
+}
+
+func benchmarkHashesInRanges[T constraints.Ordered](b *testing.B, numRanges, numHashes int, newToken tokenFunc[T]) {
+	hashes := generateTokens(numHashes, newToken)
+
+	b.ResetTimer()
+
+	for n := 0; n < b.N; n++ {
+		b.StopTimer()
+		ranges := generateTokenRanges(numRanges, newToken)
+		b.StartTimer()
+
+		for _, hash := range hashes {
+			hashInRanges(hash, ranges)
+		}
+	}
+}
+
+func BenchmarkHashesInRanges(b *testing.B) {
+	numRanges := 512 // 512 is the number of tokens per ingester at GL -- https://github.com/grafana/deployment_tools/blob/e534639371a86af6a99d9c73916efa6b3454fb55/ksonnet/vendor/github.com/grafana/mimir/operations/mimir/ingester.libsonnet#L22
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	hashCounts := []int{1, 100, 1e3, 1e4, 1e5, 1e6, 2e6}
+
+	for _, numHashes := range hashCounts {
+		// the ring tokens are Uint32, but the existing shardHash is Uint64, so benchmark both to verify there isn't a huge performance difference between the two
+		b.Run(fmt.Sprintf("%d_Uint32_hashes", numHashes), func(b *testing.B) {
+			benchmarkHashesInRanges(b, numRanges, numHashes, r.Uint32)
+		})
+
+		b.Run(fmt.Sprintf("%d_Uint64_hashes", numHashes), func(b *testing.B) {
+			benchmarkHashesInRanges(b, numRanges, numHashes, r.Uint64)
+		})
+	}
+}
+
+// to get a realistic benchmark, initialize a test head and iterate over all the series it contains, taking stripe/series read locks as required
+func benchmarkSeriesHashesInRanges(b *testing.B, numRanges, numSeries int) {
+	series := genSeries(numSeries, 10, 0, 0)
+
+	h, _ := newTestHead(b, DefaultBlockDuration, wlog.CompressionNone, false)
+	defer func() {
+		require.NoError(b, h.Close())
+	}()
+
+	for _, s := range series {
+		h.getOrCreate(s.Labels().Hash(), s.Labels())
+	}
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	b.ResetTimer()
+
+	for n := 0; n < b.N; n++ {
+		b.StopTimer()
+		ranges := generateTokenRanges(numRanges, r.Uint64)
+		b.StartTimer()
+
+		for i := 0; i < h.series.size; i++ {
+			h.series.locks[i].RLock()
+			for _, all := range h.series.hashes[i] {
+				for _, s := range all {
+					s.RLock()
+					hashInRanges(s.shardHash, ranges)
+					s.RUnlock()
+				}
+			}
+			h.series.locks[i].RUnlock()
+		}
+	}
+}
+
+func BenchmarkSeriesHashesInRanges(b *testing.B) {
+	numRanges := 512 // 512 is the number of tokens per ingester at GL -- https://github.com/grafana/deployment_tools/blob/e534639371a86af6a99d9c73916efa6b3454fb55/ksonnet/vendor/github.com/grafana/mimir/operations/mimir/ingester.libsonnet#L22
+
+	seriesCounts := []int{1, 100, 1e3, 1e4, 1e5, 1e6, 2e6}
+
+	for _, numSeries := range seriesCounts {
+		b.Run(fmt.Sprintf("%d_series", numSeries), func(b *testing.B) {
+			benchmarkSeriesHashesInRanges(b, numRanges, numSeries)
+		})
+	}
 }
