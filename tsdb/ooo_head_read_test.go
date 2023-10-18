@@ -16,11 +16,12 @@ package tsdb
 import (
 	"context"
 	"fmt"
-	"github.com/prometheus/prometheus/model/histogram"
 	"math"
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/prometheus/prometheus/model/histogram"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"

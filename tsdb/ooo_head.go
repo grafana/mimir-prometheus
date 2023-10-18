@@ -99,6 +99,10 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64) (chks []memChunk, err error
 		} else if s.fh != nil {
 			encoding = chunkenc.EncFloatHistogram
 		}
+
+		// prevApp is the appender for the previous sample.
+		prevApp := app
+
 		if encoding != prevEncoding { // For the first sample, this will always be true as EncNone != EncXOR | EncHistogram | EncFloatHistogram
 			if prevEncoding != chunkenc.EncNone {
 				chks = append(chks, memChunk{chunk, cmint, cmaxt, nil})
@@ -123,7 +127,8 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64) (chks []memChunk, err error
 		case chunkenc.EncXOR:
 			app.Append(s.t, s.f)
 		case chunkenc.EncHistogram:
-			prevHApp, _ := app.(*chunkenc.HistogramAppender)
+			// Ignoring ok is ok, since we don't want to compare to the wrong previous appender anyway.
+			prevHApp, _ := prevApp.(*chunkenc.HistogramAppender)
 			var (
 				newChunk chunkenc.Chunk
 				recoded  bool
@@ -134,9 +139,11 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64) (chks []memChunk, err error
 					chks = append(chks, memChunk{chunk, cmint, cmaxt, nil})
 				}
 				chunk = newChunk
+				cmint = s.t
 			}
 		case chunkenc.EncFloatHistogram:
-			prevHApp, _ := app.(*chunkenc.FloatHistogramAppender)
+			// Ignoring ok is ok, since we don't want to compare to the wrong previous appender anyway.
+			prevHApp, _ := prevApp.(*chunkenc.FloatHistogramAppender)
 			var (
 				newChunk chunkenc.Chunk
 				recoded  bool
@@ -147,6 +154,7 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64) (chks []memChunk, err error
 					chks = append(chks, memChunk{chunk, cmint, cmaxt, nil})
 				}
 				chunk = newChunk
+				cmint = s.t
 			}
 		}
 		cmaxt = s.t
