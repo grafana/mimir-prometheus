@@ -5127,7 +5127,7 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 	}
 }
 
-func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Appender, lbls labels.Labels, ts int64, value int64) (storage.SeriesRef, error, sample)) {
+func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample)) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
@@ -5702,14 +5702,14 @@ func TestHeadDetectsDuplicateSampleAtSizeLimit(t *testing.T) {
 
 type sampleTypeScenario struct {
 	sampleType string
-	appendFunc func(appender storage.Appender, lbls labels.Labels, ts int64, value int64) (storage.SeriesRef, error, sample)
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample)
 	sampleFunc func(ts, value int64) sample
 }
 
 var sampleTypeScenarios = map[string]sampleTypeScenario{
 	"float": {
 		sampleType: sampleMetricTypeFloat,
-		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts int64, value int64) (storage.SeriesRef, error, sample) {
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
 			s := sample{t: ts, f: float64(value)}
 			ref, err := appender.Append(0, lbls, ts, s.f)
 			return ref, err, s
@@ -5720,7 +5720,7 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 	},
 	"integer histogram": {
 		sampleType: sampleMetricTypeHistogram,
-		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts int64, value int64) (storage.SeriesRef, error, sample) {
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
 			s := sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(value))}
 			ref, err := appender.AppendHistogram(0, lbls, ts, s.h, nil)
 			return ref, err, s
@@ -5731,7 +5731,7 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 	},
 	"float histogram": {
 		sampleType: sampleMetricTypeHistogram,
-		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts int64, value int64) (storage.SeriesRef, error, sample) {
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
 			s := sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(value))}
 			ref, err := appender.AppendHistogram(0, lbls, ts, nil, s.fh)
 			return ref, err, s

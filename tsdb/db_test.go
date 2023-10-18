@@ -7323,19 +7323,20 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 			expectedSample := s
 			actualSample := actualItem[i]
 			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d]", name, i)
-			if s.H() != nil {
+			switch {
+			case s.H() != nil:
 				expectedHist := expectedSample.H()
 				actualHist := actualSample.H()
 				expectedHist.CounterResetHint = histogram.UnknownCounterReset
 				actualHist.CounterResetHint = histogram.UnknownCounterReset
 				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
-			} else if s.FH() != nil {
+			case s.FH() != nil:
 				expectedHist := expectedSample.FH()
 				actualHist := actualSample.FH()
 				expectedHist.CounterResetHint = histogram.UnknownCounterReset
 				actualHist.CounterResetHint = histogram.UnknownCounterReset
 				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
-			} else {
+			default:
 				require.Equal(t, expectedSample, expectedSample, "Unexpected sample for %s[%d]", name, i)
 			}
 		}

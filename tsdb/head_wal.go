@@ -861,7 +861,7 @@ func (h *Head) loadWBL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 				}
 				samples = samples[m:]
 			}
-			histogramSamplesPool.Put(v)
+			histogramSamplesPool.Put(&v)
 		case []record.RefFloatHistogramSample:
 			samples := v
 			// We split up the samples into chunks of 5000 samples or less.
@@ -893,7 +893,7 @@ func (h *Head) loadWBL(r *wlog.Reader, multiRef map[chunks.HeadSeriesRef]chunks.
 				}
 				samples = samples[m:]
 			}
-			floatHistogramSamplesPool.Put(v)
+			floatHistogramSamplesPool.Put(&v)
 		default:
 			panic(fmt.Errorf("unexpected decodedCh type: %T", d))
 		}
