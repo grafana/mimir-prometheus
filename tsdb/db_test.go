@@ -4752,6 +4752,59 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScen
 	verifySamples(db.Blocks()[1], 250, 350)
 }
 
+func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	opts := DefaultOptions()
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderTimeWindow = 500 * time.Minute.Milliseconds()
+
+	db, err := Open(dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	db.DisableCompactions() // We want to manually call it.
+	db.EnableNativeHistograms()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	series1 := labels.FromStrings("foo", "bar1")
+
+	addSample := func(ts int64, l labels.Labels, val int, hint histogram.CounterResetHint) {
+		app := db.Appender(context.Background())
+		h := tsdbutil.GenerateTestHistogram(val)
+		h.CounterResetHint = hint
+		tsMs := ts * time.Minute.Milliseconds()
+		_, err := app.AppendHistogram(0, l, tsMs, h, nil)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+	}
+
+	// Add an in-order sample.
+	addSample(500, series1, 1000000, histogram.UnknownCounterReset)
+
+	// Make a "chunk" - has one counter reset that should be detected at ts 165
+	// This will actually be split into two chunks when mmapping due to the counter reset
+	// Add six OOO samples
+	for i := 105; i < 165; i += 10 {
+		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+	}
+
+	// detected counter reset
+	addSample(165, series1, 100000, histogram.UnknownCounterReset)
+
+	// Add 23 more samples to complete a standard chunk
+	for i := 175; i < 405; i += 10 {
+		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+	}
+
+	// No blocks before compaction.
+	require.Equal(t, len(db.Blocks()), 0)
+
+	// OOO compaction happens here.
+	require.NoError(t, db.CompactOOOHead(ctx)) //FIXME: This is failing because of "populate block: chunk iter: iterate chunk while re-encoding: histogram counter reset" I think the iterator is treating a sequence of samples, including a counter reset, as a single chunk so that fails here
+}
+
 // TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL tests the scenario where the WBL goes
 // missing after a restart while snapshot was enabled, but the query still returns the right
 // data from the mmap chunks.
