@@ -4770,7 +4770,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 
 	series1 := labels.FromStrings("foo", "bar1")
 
-	addSample := func(ts int64, l labels.Labels, val int, hint histogram.CounterResetHint) sample {
+	addSample := func(ts int64, l labels.Labels, val int, hint histogram.CounterResetHint) {
 		app := db.Appender(context.Background())
 		h := tsdbutil.GenerateTestHistogram(val)
 		h.CounterResetHint = hint
@@ -4778,7 +4778,6 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 		_, err := app.AppendHistogram(0, l, tsMs, h, nil)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
-		return sample{t: tsMs, h: &(*h)}
 	}
 
 	// Add an in-order sample.
