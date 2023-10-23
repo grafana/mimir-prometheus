@@ -4783,13 +4783,8 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	// Add an in-order sample.
 	addSample(500, series1, 1000000, histogram.UnknownCounterReset)
 
-	// Chunk 1
-	// Add 30 OOO samples
-	for i := 100; i < 400; i += 10 {
-		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
-	}
-
-	// Chunk 2 - overlaps with Chunk 1 and has one counter reset that should be detected at ts 165
+	// Make a "chunk" - has one counter reset that should be detected at ts 165
+	// This will actually be split into two chunks when mmapping due to the counter reset
 	// Add six OOO samples
 	for i := 105; i < 165; i += 10 {
 		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
@@ -4798,7 +4793,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	// detected counter reset
 	addSample(165, series1, 100000, histogram.UnknownCounterReset)
 
-	// Add 23 more samples to complete a chunk
+	// Add 23 more samples to complete a standard chunk
 	for i := 175; i < 405; i += 10 {
 		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
 	}
