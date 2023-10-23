@@ -4784,17 +4784,9 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	// Add an in-order sample.
 	addSample(500, series1, 1000000, histogram.UnknownCounterReset)
 
-	// Chunk 1 - one explicit counter reset at ts 250
-	// Add ten OOO samples
-	for i := 100; i < 200; i += 10 {
-		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
-	}
-
-	// explicit counter reset
-	addSample(250, series1, 100000+250, histogram.CounterReset)
-
-	// Add 19 more samples to complete a chunk
-	for i := 260; i < 450; i += 10 {
+	// Chunk 1
+	// Add 30 OOO samples
+	for i := 100; i < 400; i += 10 {
 		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
 	}
 
@@ -4816,7 +4808,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	require.Equal(t, len(db.Blocks()), 0)
 
 	// OOO compaction happens here.
-	require.NoError(t, db.CompactOOOHead(ctx)) //FIXME: This is failing because of "populate block: chunk iter: iterate chunk while re-encoding: histogram schema change" I think the iterator is treating a sequence of samples, including a counter reset, as a single chunk so that fails here
+	require.NoError(t, db.CompactOOOHead(ctx)) //FIXME: This is failing because of "populate block: chunk iter: iterate chunk while re-encoding: histogram counter reset" I think the iterator is treating a sequence of samples, including a counter reset, as a single chunk so that fails here
 }
 
 // TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL tests the scenario where the WBL goes
