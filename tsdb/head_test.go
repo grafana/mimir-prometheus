@@ -4606,12 +4606,12 @@ func TestChunkSnapshotTakenAfterIncompleteSnapshot(t *testing.T) {
 func TestWBLReplay(t *testing.T) {
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
-			testOOOWalReplay(t, scenario)
+			testWBLReplay(t, scenario)
 		})
 	}
 }
 
-func testOOOWalReplay(t *testing.T, scenario sampleTypeScenario) {
+func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
