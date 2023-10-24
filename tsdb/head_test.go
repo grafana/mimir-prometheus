@@ -4611,7 +4611,7 @@ func TestWBLReplay(t *testing.T) {
 	}
 }
 
-func testWBLReplay(t *testing.T) {
+func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
