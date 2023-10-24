@@ -108,6 +108,7 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 	if c.calls[key] != nil {
 		// A promise has been injected into the cache in the meantime
 		promise = c.calls[key]
+		promise.waiting.Inc()
 		c.cachedMtx.Unlock()
 
 		return c.waitOnPromise(ctx, promise, key)
