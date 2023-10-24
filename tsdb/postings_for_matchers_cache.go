@@ -3,6 +3,7 @@ package tsdb
 import (
 	"container/list"
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -114,7 +115,7 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 		return c.waitOnPromise(ctx, promise, key)
 	}
 
-	queryCtx, cancel := context.WithCancel(context.Background())
+	queryCtx, cancel := context.WithCancelCause(context.Background())
 	promise = &postingsForMatchersPromise{
 		done:    make(chan struct{}),
 		waiting: atomic.NewInt32(1),
@@ -155,7 +156,7 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 type postingsForMatchersPromise struct {
 	done    chan struct{}
 	waiting *atomic.Int32
-	cancel  context.CancelFunc
+	cancel  context.CancelCauseFunc
 
 	cloner *index.PostingsCloner
 	err    error
@@ -173,11 +174,11 @@ func (c *PostingsForMatchersCache) waitOnPromise(ctx context.Context, promise *p
 		if waiting > 0 {
 			// Promise is in use by other goroutines
 			c.cachedMtx.Unlock()
-			return nil, ctx.Err()
+			return nil, errors.Wrap(ctx.Err(), "PostingsForMatchers context error")
 		}
 
 		// There are no more waiting goroutines, cancel the promise and remove it from the cache
-		promise.cancel()
+		promise.cancel(fmt.Errorf("no remaining callers interested in query"))
 		delete(c.calls, key)
 		for elem := c.cached.Front(); elem != nil; elem = elem.Next() {
 			cc := elem.Value.(*postingsForMatchersCachedCall)
@@ -191,15 +192,12 @@ func (c *PostingsForMatchersCache) waitOnPromise(ctx context.Context, promise *p
 
 		// Wait for query execution goroutine to finish
 		<-promise.done
-		return nil, ctx.Err()
+		return nil, errors.Wrap(ctx.Err(), "PostingsForMatchers context error")
 	case <-promise.done:
 		// Checking context error is necessary for deterministic tests,
 		// as channel selection order is random
 		if ctx.Err() != nil {
-			span.AddEvent("completed postingsForMatchers promise, but context has error", trace.WithAttributes(
-				attribute.String("err", ctx.Err().Error()),
-			))
-			return nil, ctx.Err()
+			return nil, errors.Wrap(ctx.Err(), "PostingsForMatchers context error")
 		}
 
 		if promise.err != nil {
