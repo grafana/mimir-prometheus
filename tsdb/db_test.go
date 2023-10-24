@@ -4769,8 +4769,9 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	})
 
 	series1 := labels.FromStrings("foo", "bar1")
+	var series1ExpectedSamples []chunks.Sample
 
-	addSample := func(ts int64, l labels.Labels, val int, hint histogram.CounterResetHint) {
+	addSample := func(ts int64, l labels.Labels, val int, hint histogram.CounterResetHint) sample {
 		app := db.Appender(context.Background())
 		h := tsdbutil.GenerateTestHistogram(val)
 		h.CounterResetHint = hint
@@ -4778,31 +4779,65 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 		_, err := app.AppendHistogram(0, l, tsMs, h, nil)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
+		return sample{t: tsMs, h: h}
 	}
 
 	// Add an in-order sample.
-	addSample(500, series1, 1000000, histogram.UnknownCounterReset)
+	s := addSample(500, series1, 1000000, histogram.UnknownCounterReset)
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
 
 	// Make a "chunk" - has one counter reset that should be detected at ts 165
 	// This will actually be split into two chunks when mmapping due to the counter reset
 	// Add six OOO samples
 	for i := 105; i < 165; i += 10 {
-		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		s = addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		if i > 105 {
+			s.h.CounterResetHint = histogram.NotCounterReset
+		}
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
 	}
 
 	// detected counter reset
-	addSample(165, series1, 100000, histogram.UnknownCounterReset)
+	s = addSample(165, series1, 100000, histogram.UnknownCounterReset)
+	// Even though this is a counter reset, it's reset as unknown as chainsampleiterator will keep setting non-consecutive samples to unknown
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
 
 	// Add 23 more samples to complete a standard chunk
 	for i := 175; i < 405; i += 10 {
-		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		s = addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		s.h.CounterResetHint = histogram.NotCounterReset
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
 	}
+
+	// add another sample to force chunks to be mmapped
+	s = addSample(405, series1, 100405, histogram.UnknownCounterReset)
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
 
 	// No blocks before compaction.
 	require.Equal(t, len(db.Blocks()), 0)
 
+	// sort expected samples (as samples not added in time-order)
+	sort.Slice(series1ExpectedSamples, func(i, j int) bool {
+		return series1ExpectedSamples[i].T() < series1ExpectedSamples[j].T()
+	})
+
+	// Before compaction
+	verifyDBSamples := func() {
+		expRes := map[string][]chunks.Sample{
+			series1.String(): series1ExpectedSamples,
+		}
+
+		q, err := db.Querier(math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		requireEqualSamples(t, expRes, actRes)
+	}
+
+	verifyDBSamples()
+
 	// OOO compaction happens here.
 	require.NoError(t, db.CompactOOOHead(ctx)) //FIXME: This is failing because of "populate block: chunk iter: iterate chunk while re-encoding: histogram counter reset" I think the iterator is treating a sequence of samples, including a counter reset, as a single chunk so that fails here
+
 }
 
 // TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL tests the scenario where the WBL goes
@@ -7366,7 +7401,6 @@ Outer:
 }
 
 // requireEqualSamples checks that the actual series are equal to the expected ones. It ignores the counter reset hints for histograms.
-// TODO(fionaliao): understand counter reset behaviour, might want to unignore hints later
 func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Sample) {
 	for name, expectedItem := range expected {
 		actualItem, ok := actual[name]
@@ -7375,22 +7409,18 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 		for i, s := range expectedItem {
 			expectedSample := s
 			actualSample := actualItem[i]
-			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d]", name, i)
-			switch {
-			case s.H() != nil:
+			require.Equal(t, expectedSample.T(), expectedSample.T(), "Different timestamps for %s[%d]", name, i)
+			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d] at ts %d", name, i, expectedSample.T())
+			if s.H() != nil {
 				expectedHist := expectedSample.H()
 				actualHist := actualSample.H()
-				expectedHist.CounterResetHint = histogram.UnknownCounterReset
-				actualHist.CounterResetHint = histogram.UnknownCounterReset
-				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
-			case s.FH() != nil:
+				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
+			} else if s.FH() != nil {
 				expectedHist := expectedSample.FH()
 				actualHist := actualSample.FH()
-				expectedHist.CounterResetHint = histogram.UnknownCounterReset
-				actualHist.CounterResetHint = histogram.UnknownCounterReset
-				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
-			default:
-				require.Equal(t, expectedSample, expectedSample, "Unexpected sample for %s[%d]", name, i)
+				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
+			} else {
+				require.Equal(t, expectedSample, expectedSample, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 			}
 		}
 	}
