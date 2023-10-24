@@ -3849,14 +3849,14 @@ func TestOOOWALWrite(t *testing.T) {
 
 				// Single commit but multiple OOO records.
 				[]record.RefMmapMarker{
-					{Ref: 2, MmapRef: 0x100000000 + 347},
+					{Ref: 2, MmapRef: 0x100000000 + 348},
 				},
 				[]record.RefFloatHistogramSample{
 					{Ref: 2, T: minutes(50), FH: tsdbutil.GenerateTestFloatHistogram(50)},
 					{Ref: 2, T: minutes(51), FH: tsdbutil.GenerateTestFloatHistogram(51)},
 				},
 				[]record.RefMmapMarker{
-					{Ref: 2, MmapRef: 0x100000000 + 520},
+					{Ref: 2, MmapRef: 0x100000000 + 521},
 				},
 				[]record.RefFloatHistogramSample{
 					{Ref: 2, T: minutes(52), FH: tsdbutil.GenerateTestFloatHistogram(52)},
