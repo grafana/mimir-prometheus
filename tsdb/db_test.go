@@ -7576,37 +7576,3 @@ Outer:
 
 	require.NoError(t, writerErr)
 }
-
-// requireEqualSamples checks that the actual series are equal to the expected ones. It ignores the counter reset hints for histograms.
-// TODO(fionaliao): understand counter reset behaviour, might want to unignore hints later
-func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Sample) {
-	for name, expectedItem := range expected {
-		actualItem, ok := actual[name]
-		require.True(t, ok, "Expected series %s not found", name)
-		require.Equal(t, len(expectedItem), len(actualItem), "Length not expected for %s", name)
-		for i, s := range expectedItem {
-			expectedSample := s
-			actualSample := actualItem[i]
-			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d]", name, i)
-			if s.H() != nil {
-				expectedHist := expectedSample.H()
-				actualHist := actualSample.H()
-				expectedHist.CounterResetHint = histogram.UnknownCounterReset
-				actualHist.CounterResetHint = histogram.UnknownCounterReset
-				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
-			} else if s.FH() != nil {
-				expectedHist := expectedSample.FH()
-				actualHist := actualSample.FH()
-				expectedHist.CounterResetHint = histogram.UnknownCounterReset
-				actualHist.CounterResetHint = histogram.UnknownCounterReset
-				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
-			} else {
-				require.Equal(t, expectedSample, expectedSample, "Unexpected sample for %s[%d]", name, i)
-			}
-		}
-	}
-	for name := range actual {
-		_, ok := expected[name]
-		require.True(t, ok, "Unexpected series %s", name)
-	}
-}
