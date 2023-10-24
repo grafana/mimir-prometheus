@@ -16,11 +16,12 @@ package tsdb
 import (
 	"context"
 	"fmt"
-	"github.com/prometheus/prometheus/model/histogram"
 	"math"
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/prometheus/prometheus/model/histogram"
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
@@ -31,12 +32,6 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/wlog"
 )
-
-type tsValue struct {
-	Ts                 int64
-	V                  int64
-	CounterResetHeader histogram.CounterResetHint
-}
 
 type chunkInterval struct {
 	// because we permutate the order of chunks, we cannot determine at test declaration time which chunkRefs we expect in the Output.
