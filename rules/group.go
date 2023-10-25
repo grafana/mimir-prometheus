@@ -21,9 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prometheus/prometheus/promql/parser"
 	"go.uber.org/atomic"
 	"golang.org/x/exp/slices"
+
+	"github.com/prometheus/prometheus/promql/parser"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
