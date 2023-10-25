@@ -117,7 +117,7 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 
 	queryCtx, cancel := context.WithCancelCause(context.Background())
 	promise = &postingsForMatchersPromise{
-		done:    make(chan struct{}),
+		done:    make(chan int64),
 		waiting: atomic.NewInt32(1),
 		cancel:  cancel,
 	}
@@ -147,14 +147,15 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 		}
 
 		sizeBytes := int64(len(key) + size.Of(promise))
-		c.created(key, c.timeNow(), sizeBytes)
+		promise.done <- sizeBytes
 	}()
 
 	return c.waitOnPromise(ctx, promise, key)
 }
 
 type postingsForMatchersPromise struct {
-	done    chan struct{}
+	// done signals when the promise is fulfilled, sending the cache entry size for storing by a consumer
+	done    chan int64
 	waiting *atomic.Int32
 	cancel  context.CancelCauseFunc
 
@@ -180,24 +181,21 @@ func (c *PostingsForMatchersCache) waitOnPromise(ctx context.Context, promise *p
 		// There are no more waiting goroutines, cancel the promise and remove it from the cache
 		promise.cancel(fmt.Errorf("no remaining callers interested in query"))
 		delete(c.calls, key)
-		for elem := c.cached.Front(); elem != nil; elem = elem.Next() {
-			cc := elem.Value.(*postingsForMatchersCachedCall)
-			if cc.key == key {
-				c.cached.Remove(elem)
-				c.cachedBytes -= cc.sizeBytes
-				break
-			}
-		}
 		c.cachedMtx.Unlock()
 
 		// Wait for query execution goroutine to finish
 		<-promise.done
 		return nil, errors.Wrap(ctx.Err(), "PostingsForMatchers context error")
-	case <-promise.done:
+	case sizeBytes := <-promise.done:
 		// Checking context error is necessary for deterministic tests,
 		// as channel selection order is random
 		if ctx.Err() != nil {
 			return nil, errors.Wrap(ctx.Err(), "PostingsForMatchers context error")
+		}
+
+		if sizeBytes > 0 {
+			// Got the promise cache entry's size, store it
+			c.created(key, c.timeNow(), sizeBytes)
 		}
 
 		if promise.err != nil {
