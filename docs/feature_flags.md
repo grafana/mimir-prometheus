@@ -134,3 +134,13 @@ notable exception of exemplars, which are always ingested.
 The OTLP receiver allows Prometheus to accept [OpenTelemetry](https://opentelemetry.io/) metrics writes.
 Prometheus is best used as a Pull based system, and staleness, `up` metric, and other Pull enabled features 
 won't work when you push OTLP metrics.
+
+## Concurrent evaluation of independent rules
+
+`--enable-feature=concurrent-rule-eval`
+
+Rule groups execute concurrently, but the rules within a group execute sequentially; this is because rules can use the
+output of a preceding rule as its input. However, if there is no detectable relationship between rules then there is no
+reason to run them sequentially. This can improve rule reliability at the expense of adding more concurrent query
+load. The number of concurrent rule evaluations can be configured with `--rules.max-concurrent-rule-evals` which is set
+to `4` by default.
