@@ -434,11 +434,12 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 		}
 
 		eval := func(i int, rule Rule, async bool) {
-			if async {
-				defer func() {
-					g.opts.ConcurrentEvalSema.Release(1)
-				}()
-			}
+			defer func() {
+				if async {
+					g.opts.ConcurrencyController.Done()
+				}
+			}()
+
 			ctx, sp := otel.Tracer("").Start(ctx, "rule")
 			sp.SetAttributes(attribute.String("name", rule.Name()))
 			defer func(t time.Time) {
@@ -562,7 +563,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 
 		// If the rule has no dependencies, it can run concurrently because no other rules in this group depend on its output.
 		// Try run concurrently if there are slots available.
-		if g.dependencyMap.isIndependent(rule) && g.opts.ConcurrentEvalSema != nil && g.opts.ConcurrentEvalSema.TryAcquire(1) {
+		if g.dependencyMap.isIndependent(rule) && g.opts.ConcurrencyController.Allow() {
 			go eval(i, rule, true)
 		} else {
 			eval(i, rule, false)
