@@ -13,6 +13,7 @@ func TestBucketQuantile_ForcedMonotonicity(t *testing.T) {
 	for name, tc := range map[string]struct {
 		getInput       func() buckets // The buckets can be modified in-place so return a new one each time.
 		expectedForced bool
+		expectedFixed  bool
 		expectedValues map[float64]float64
 	}{
 		"simple - monotonic": {
@@ -37,6 +38,7 @@ func TestBucketQuantile_ForcedMonotonicity(t *testing.T) {
 				}
 			},
 			expectedForced: false,
+			expectedFixed:  false,
 			expectedValues: map[float64]float64{
 				1:    15.,
 				0.99: 14.85,
@@ -65,7 +67,8 @@ func TestBucketQuantile_ForcedMonotonicity(t *testing.T) {
 					},
 				}
 			},
-			expectedForced: true,
+			expectedForced: false,
+			expectedFixed:  true,
 			expectedValues: map[float64]float64{
 				1:    15.,
 				0.99: 14.85,
@@ -113,6 +116,7 @@ func TestBucketQuantile_ForcedMonotonicity(t *testing.T) {
 				}
 			},
 			expectedForced: false,
+			expectedFixed:  false,
 			expectedValues: map[float64]float64{
 				1:    64.,
 				0.99: 49.64475715376406,
@@ -159,7 +163,8 @@ func TestBucketQuantile_ForcedMonotonicity(t *testing.T) {
 					},
 				}
 			},
-			expectedForced: true,
+			expectedForced: false,
+			expectedFixed:  true,
 			expectedValues: map[float64]float64{
 				1:    64.,
 				0.99: 49.64475715376406,
@@ -219,6 +224,7 @@ func TestBucketQuantile_ForcedMonotonicity(t *testing.T) {
 				}
 			},
 			expectedForced: false,
+			expectedFixed:  false,
 			expectedValues: map[float64]float64{
 				1:    0.1,
 				0.99: 0.03468750000281261,
@@ -277,7 +283,8 @@ func TestBucketQuantile_ForcedMonotonicity(t *testing.T) {
 					},
 				}
 			},
-			expectedForced: true,
+			expectedForced: false,
+			expectedFixed:  true,
 			expectedValues: map[float64]float64{
 				1:    0.1,
 				0.99: 0.03468750000281261,
@@ -288,8 +295,9 @@ func TestBucketQuantile_ForcedMonotonicity(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			for q, v := range tc.expectedValues {
-				res, forced := bucketQuantile(q, tc.getInput())
+				res, forced, fixed := bucketQuantile(q, tc.getInput())
 				assert.Equal(t, tc.expectedForced, forced)
+				assert.Equal(t, tc.expectedFixed, fixed)
 				assert.InEpsilon(t, v, res, eps)
 			}
 		})
