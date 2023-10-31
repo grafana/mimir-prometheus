@@ -28,6 +28,7 @@ import (
 	"github.com/oklog/ulid"
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
+	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -2275,4 +2276,49 @@ func (h *Head) updateWALReplayStatusRead(current int) {
 	defer h.stats.WALReplayStatus.Unlock()
 
 	h.stats.WALReplayStatus.Current = current
+}
+
+func (h *Head) CountSecondaryHashesInRanges(ranges []uint32) int {
+	count := 0
+
+	for i := 0; i < h.series.size; i++ {
+		h.series.locks[i].RLock()
+		for _, all := range h.series.hashes[i] {
+			for _, s := range all {
+				s.RLock()
+				if hashInRanges(s.secondaryHash, ranges) {
+					count++
+				}
+				s.RUnlock()
+			}
+		}
+		h.series.locks[i].RUnlock()
+	}
+
+	return count
+}
+
+func hashInRanges(hash uint32, ranges []uint32) bool {
+	switch {
+	case len(ranges) == 0:
+		return false
+	case hash < ranges[0]:
+		// hash comes before the first range
+		return false
+	case hash > ranges[len(ranges)-1]:
+		// hash comes after the last range
+		return false
+	}
+
+	index, found := slices.BinarySearch(ranges, hash)
+	switch {
+	case found:
+		// ranges are closed
+		return true
+	case index%2 == 1:
+		// hash would be inserted after the start of a range (even index)
+		return true
+	default:
+		return false
+	}
 }

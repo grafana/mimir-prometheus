@@ -5695,3 +5695,129 @@ func TestHeadDetectsDuplicateSampleAtSizeLimit(t *testing.T) {
 
 	require.Equal(t, numSamples/2, storedSampleCount)
 }
+
+func TestHashInRanges(t *testing.T) {
+	ranges := []uint32{4, 8, 12, 16}
+
+	require.False(t, hashInRanges(0, ranges))
+	require.True(t, hashInRanges(4, ranges))
+	require.True(t, hashInRanges(6, ranges))
+	require.True(t, hashInRanges(8, ranges))
+	require.False(t, hashInRanges(10, ranges))
+	require.False(t, hashInRanges(20, ranges))
+}
+
+func TestSecondaryHashesInRanges(t *testing.T) {
+	series := genSeries(10, 10, 0, 0)
+
+	h, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
+	defer func() {
+		require.NoError(t, h.Close())
+	}()
+
+	i := uint32(0)
+	h.secondaryHashFunc = func(labels.Labels) uint32 {
+		i++
+		return i
+	}
+
+	for idx, s := range series {
+		ms, _, _ := h.getOrCreate(s.Labels().Hash(), s.Labels())
+		require.Equal(t, uint32(idx+1), ms.secondaryHash)
+	}
+
+	testCases := map[string]struct {
+		ranges []uint32
+		count  int
+	}{
+		"full range": {
+			ranges: []uint32{0, math.MaxUint32},
+			count:  len(series),
+		},
+		"all out of range": {
+			ranges: []uint32{1000, math.MaxUint32},
+			count:  0,
+		},
+		"some in range": {
+			ranges: []uint32{1, 5},
+			count:  5,
+		},
+	}
+
+	for testName, tc := range testCases {
+		t.Run(testName, func(t *testing.T) {
+			require.Equal(t, tc.count, h.CountSecondaryHashesInRanges(tc.ranges))
+
+		})
+	}
+}
+
+// N token ranges are represented as a slice of 2N tokens, where each pair of tokens represents the start and end of a range
+// ranges are closed [start, end], disjoint, and sorted in ascending order
+func generateTokenRanges(numRanges int, newToken func() uint32) []uint32 {
+	// taken from dskit's RandomTokenGenerator.GenerateTokens
+	// https://github.com/grafana/dskit/blob/98f431c981b2644feab274a76e4ba72cc08e6b2b/ring/token_generator.go#L33
+	if numRanges <= 0 {
+		return []uint32{}
+	}
+
+	used := make(map[uint32]bool, numRanges*2)
+	ranges := make([]uint32, 0, numRanges*2)
+	for i := 0; i < numRanges*2; {
+		candidate := newToken()
+		if used[candidate] {
+			continue
+		}
+		used[candidate] = true
+		ranges = append(ranges, candidate)
+		i++
+	}
+
+	// Ensure returned ranges are sorted.
+	sort.Slice(ranges, func(i, j int) bool {
+		return ranges[i] < ranges[j]
+	})
+
+	return ranges
+}
+
+func benchmarkSecondaryHashesInRanges(b *testing.B, numRanges, numSeries int) {
+	series := genSeries(numSeries, 10, 0, 0)
+
+	h, _ := newTestHead(b, DefaultBlockDuration, wlog.CompressionNone, false)
+	defer func() {
+		require.NoError(b, h.Close())
+	}()
+
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+
+	h.secondaryHashFunc = func(l labels.Labels) uint32 {
+		return r.Uint32()
+	}
+
+	for _, s := range series {
+		h.getOrCreate(s.Labels().Hash(), s.Labels())
+	}
+
+	b.ResetTimer()
+
+	for n := 0; n < b.N; n++ {
+		b.StopTimer()
+		ranges := generateTokenRanges(numRanges, r.Uint32)
+		b.StartTimer()
+
+		h.CountSecondaryHashesInRanges(ranges)
+	}
+}
+
+func BenchmarkSecondaryHashesInRanges(b *testing.B) {
+	numRanges := 512
+
+	seriesCounts := []int{1, 100, 1e3, 1e4, 1e5, 1e6, 2e6}
+
+	for _, numSeries := range seriesCounts {
+		b.Run(fmt.Sprintf("%d_series", numSeries), func(b *testing.B) {
+			benchmarkSecondaryHashesInRanges(b, numRanges, numSeries)
+		})
+	}
+}
