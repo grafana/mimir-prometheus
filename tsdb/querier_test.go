@@ -11,7 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// nolint:revive // Many unsued function arguments in this file by design.
 package tsdb
 
 import (
@@ -101,8 +100,8 @@ type seriesSamples struct {
 	chunks [][]sample
 }
 
-// Index: labels -> postings -> chunkMetas -> chunkRef
-// ChunkReader: ref -> vals
+// Index: labels -> postings -> chunkMetas -> chunkRef.
+// ChunkReader: ref -> vals.
 func createIdxChkReaders(t *testing.T, tc []seriesSamples) (IndexReader, ChunkReader, int64, int64) {
 	sort.Slice(tc, func(i, j int) bool {
 		return labels.Compare(labels.FromMap(tc[i].lset), labels.FromMap(tc[i].lset)) < 0

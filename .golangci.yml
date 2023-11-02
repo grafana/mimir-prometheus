@@ -15,9 +15,11 @@ linters:
     - depguard
     - errorlint
     - gocritic
+    - godot
     - gofumpt
     - goimports
     - misspell
+    - nolintlint
     - predeclared
     - revive
     - unconvert
@@ -32,15 +34,6 @@ issues:
     - path: _test.go
       linters:
         - errcheck
-    - path: discovery/
-      linters:
-        - errorlint
-    - path: scrape/
-      linters:
-        - errorlint
-    - path: storage/
-      linters:
-        - errorlint
     - path: tsdb/
       linters:
         - errorlint
@@ -50,6 +43,9 @@ issues:
     - path: web/
       linters:
         - errorlint
+    - linters:
+        - godot
+      source: "^// ==="
 
 linters-settings:
   depguard:

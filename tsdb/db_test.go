@@ -1946,7 +1946,8 @@ func TestQuerierWithBoundaryChunks(t *testing.T) {
 	// The requested interval covers 2 blocks, so the querier's label values for blockID should give us 2 values, one from each block.
 	b, ws, err := q.LabelValues(ctx, "blockID")
 	require.NoError(t, err)
-	require.Equal(t, annotations.Annotations{}, ws)
+	var nilAnnotations annotations.Annotations
+	require.Equal(t, nilAnnotations, ws)
 	require.Equal(t, []string{"1", "2"}, b)
 }
 
@@ -4403,7 +4404,7 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 
 // TestOOOCompactionWithDisabledWriteLog tests the scenario where the TSDB is
 // configured to not have wal and wbl but its able to compact both the in-order
-// and out-of-order head
+// and out-of-order head.
 func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()

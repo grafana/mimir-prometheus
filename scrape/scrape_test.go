@@ -18,6 +18,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -31,7 +32,6 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/gogo/protobuf/proto"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
 	config_util "github.com/prometheus/common/config"
@@ -650,6 +650,7 @@ func TestScrapeLoopStopBeforeRun(t *testing.T) {
 		nopMutator,
 		nil, nil, 0,
 		true,
+		false,
 		0, 0,
 		nil,
 		1,
@@ -724,6 +725,7 @@ func TestScrapeLoopStop(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		10*time.Millisecond,
@@ -802,6 +804,7 @@ func TestScrapeLoopRun(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		time.Second,
@@ -859,6 +862,7 @@ func TestScrapeLoopRun(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		time.Second,
@@ -878,7 +882,7 @@ func TestScrapeLoopRun(t *testing.T) {
 
 	select {
 	case err := <-errc:
-		if err != context.DeadlineExceeded {
+		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Fatalf("Expected timeout error but got: %s", err)
 		}
 	case <-time.After(3 * time.Second):
@@ -920,6 +924,7 @@ func TestScrapeLoopForcedErr(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		time.Second,
@@ -947,7 +952,7 @@ func TestScrapeLoopForcedErr(t *testing.T) {
 
 	select {
 	case err := <-errc:
-		if err != forcedErr {
+		if !errors.Is(err, forcedErr) {
 			t.Fatalf("Expected forced error but got: %s", err)
 		}
 	case <-time.After(3 * time.Second):
@@ -980,6 +985,7 @@ func TestScrapeLoopMetadata(t *testing.T) {
 		cache,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -1039,6 +1045,7 @@ func simpleTestScrapeLoop(t testing.TB) (context.Context, *scrapeLoop) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -1101,6 +1108,7 @@ func TestScrapeLoopFailWithInvalidLabelsAfterRelabel(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -1181,6 +1189,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnFailedScrape(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		10*time.Millisecond,
@@ -1246,6 +1255,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnParseFailure(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		10*time.Millisecond,
@@ -1314,6 +1324,7 @@ func TestScrapeLoopCache(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		10*time.Millisecond,
@@ -1399,6 +1410,7 @@ func TestScrapeLoopCacheMemoryExhaustionProtection(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		10*time.Millisecond,
@@ -1515,6 +1527,7 @@ func TestScrapeLoopAppend(t *testing.T) {
 			nil,
 			0,
 			true,
+			false,
 			0, 0,
 			nil,
 			0,
@@ -1613,7 +1626,7 @@ func TestScrapeLoopAppendForConflictingPrefixedLabels(t *testing.T) {
 				},
 				nil,
 				func(ctx context.Context) storage.Appender { return app },
-				nil, 0, true, 0, 0, nil, 0, 0, false, false, false, nil, false, newTestScrapeMetrics(t),
+				nil, 0, true, false, 0, 0, nil, 0, 0, false, false, false, nil, false, newTestScrapeMetrics(t),
 			)
 			slApp := sl.appender(context.Background())
 			_, _, _, err := sl.append(slApp, []byte(tc.exposedLabels), "", time.Date(2000, 1, 1, 1, 0, 0, 0, time.UTC))
@@ -1644,6 +1657,7 @@ func TestScrapeLoopAppendCacheEntryButErrNotFound(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -1704,6 +1718,7 @@ func TestScrapeLoopAppendSampleLimit(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		app.limit, 0,
 		nil,
 		0,
@@ -1726,7 +1741,7 @@ func TestScrapeLoopAppendSampleLimit(t *testing.T) {
 	now := time.Now()
 	slApp := sl.appender(context.Background())
 	total, added, seriesAdded, err := sl.append(app, []byte("metric_a 1\nmetric_b 1\nmetric_c 1\n"), "", now)
-	if err != errSampleLimit {
+	if !errors.Is(err, errSampleLimit) {
 		t.Fatalf("Did not see expected sample limit error: %s", err)
 	}
 	require.NoError(t, slApp.Rollback())
@@ -1757,7 +1772,7 @@ func TestScrapeLoopAppendSampleLimit(t *testing.T) {
 	now = time.Now()
 	slApp = sl.appender(context.Background())
 	total, added, seriesAdded, err = sl.append(slApp, []byte("metric_a 1\nmetric_b 1\nmetric_c{deleteme=\"yes\"} 1\nmetric_d 1\nmetric_e 1\nmetric_f 1\nmetric_g 1\nmetric_h{deleteme=\"yes\"} 1\nmetric_i{deleteme=\"yes\"} 1\n"), "", now)
-	if err != errSampleLimit {
+	if !errors.Is(err, errSampleLimit) {
 		t.Fatalf("Did not see expected sample limit error: %s", err)
 	}
 	require.NoError(t, slApp.Rollback())
@@ -1783,6 +1798,7 @@ func TestScrapeLoop_HistogramBucketLimit(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		app.limit, 0,
 		nil,
 		0,
@@ -1852,7 +1868,7 @@ func TestScrapeLoop_HistogramBucketLimit(t *testing.T) {
 
 	now = time.Now()
 	total, added, seriesAdded, err = sl.append(app, msg, "application/vnd.google.protobuf", now)
-	if err != errBucketLimit {
+	if !errors.Is(err, errBucketLimit) {
 		t.Fatalf("Did not see expected histogram bucket limit error: %s", err)
 	}
 	require.NoError(t, app.Rollback())
@@ -1883,6 +1899,7 @@ func TestScrapeLoop_ChangingMetricString(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -1933,6 +1950,7 @@ func TestScrapeLoopAppendStaleness(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -1986,6 +2004,7 @@ func TestScrapeLoopAppendNoStalenessIfTimestamp(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -2313,6 +2332,7 @@ metric: <
 				nil,
 				0,
 				true,
+				false,
 				0, 0,
 				nil,
 				0,
@@ -2402,6 +2422,7 @@ func TestScrapeLoopAppendExemplarSeries(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -2456,6 +2477,7 @@ func TestScrapeLoopRunReportsTargetDownOnScrapeError(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		10*time.Millisecond,
@@ -2494,6 +2516,7 @@ func TestScrapeLoopRunReportsTargetDownOnInvalidUTF8(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		10*time.Millisecond,
@@ -2545,6 +2568,7 @@ func TestScrapeLoopAppendGracefullyIfAmendOrOutOfOrderOrOutOfBounds(t *testing.T
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -2592,6 +2616,7 @@ func TestScrapeLoopOutOfBoundsTimeError(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -2713,8 +2738,8 @@ func TestTargetScrapeScrapeCancel(t *testing.T) {
 		switch {
 		case err == nil:
 			errc <- errors.New("Expected error but got nil")
-		case ctx.Err() != context.Canceled:
-			errc <- errors.Errorf("Expected context cancellation error but got: %s", ctx.Err())
+		case !errors.Is(ctx.Err(), context.Canceled):
+			errc <- fmt.Errorf("Expected context cancellation error but got: %w", ctx.Err())
 		default:
 			close(errc)
 		}
@@ -2883,6 +2908,7 @@ func TestScrapeLoop_RespectTimestamps(t *testing.T) {
 		func(ctx context.Context) storage.Appender { return capp },
 		nil, 0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -2926,6 +2952,7 @@ func TestScrapeLoop_DiscardTimestamps(t *testing.T) {
 		func(ctx context.Context) storage.Appender { return capp },
 		nil, 0,
 		false,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -2968,6 +2995,7 @@ func TestScrapeLoopDiscardDuplicateLabels(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -3028,6 +3056,7 @@ func TestScrapeLoopDiscardUnnamedMetrics(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -3293,6 +3322,7 @@ func TestScrapeAddFast(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		0,
@@ -3381,6 +3411,7 @@ func TestScrapeReportSingleAppender(t *testing.T) {
 		nil,
 		0,
 		true,
+		false,
 		0, 0,
 		nil,
 		10*time.Millisecond,
@@ -3585,6 +3616,7 @@ func TestScrapeLoopLabelLimit(t *testing.T) {
 			nil,
 			0,
 			true,
+			false,
 			0, 0,
 			&test.labelLimits,
 			0,
@@ -3645,4 +3677,194 @@ func TestTargetScrapeIntervalAndTimeoutRelabel(t *testing.T) {
 
 	require.Equal(t, "3s", sp.ActiveTargets()[0].labels.Get(model.ScrapeIntervalLabel))
 	require.Equal(t, "750ms", sp.ActiveTargets()[0].labels.Get(model.ScrapeTimeoutLabel))
+}
+
+// Testing whether we can remove trailing .0 from histogram 'le' and summary 'quantile' labels.
+func TestLeQuantileReLabel(t *testing.T) {
+	simpleStorage := teststorage.New(t)
+	defer simpleStorage.Close()
+
+	config := &config.ScrapeConfig{
+		JobName: "test",
+		MetricRelabelConfigs: []*relabel.Config{
+			{
+				SourceLabels: model.LabelNames{"le", "__name__"},
+				Regex:        relabel.MustNewRegexp("(\\d+)\\.0+;.*_bucket"),
+				Replacement:  relabel.DefaultRelabelConfig.Replacement,
+				Separator:    relabel.DefaultRelabelConfig.Separator,
+				TargetLabel:  "le",
+				Action:       relabel.Replace,
+			},
+			{
+				SourceLabels: model.LabelNames{"quantile"},
+				Regex:        relabel.MustNewRegexp("(\\d+)\\.0+"),
+				Replacement:  relabel.DefaultRelabelConfig.Replacement,
+				Separator:    relabel.DefaultRelabelConfig.Separator,
+				TargetLabel:  "quantile",
+				Action:       relabel.Replace,
+			},
+		},
+		SampleLimit:    100,
+		Scheme:         "http",
+		ScrapeInterval: model.Duration(100 * time.Millisecond),
+		ScrapeTimeout:  model.Duration(100 * time.Millisecond),
+	}
+
+	metricsText := `
+# HELP test_histogram This is a histogram with default buckets
+# TYPE test_histogram histogram
+test_histogram_bucket{address="0.0.0.0",port="5001",le="0.005"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="0.01"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="0.025"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="0.05"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="0.1"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="0.25"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="0.5"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="1.0"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="2.5"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="5.0"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="10.0"} 0
+test_histogram_bucket{address="0.0.0.0",port="5001",le="+Inf"} 0
+test_histogram_sum{address="0.0.0.0",port="5001"} 0
+test_histogram_count{address="0.0.0.0",port="5001"} 0
+# HELP test_summary Number of inflight requests sampled at a regular interval. Quantile buckets keep track of inflight requests over the last 60s.
+# TYPE test_summary summary
+test_summary{quantile="0.5"} 0
+test_summary{quantile="0.9"} 0
+test_summary{quantile="0.95"} 0
+test_summary{quantile="0.99"} 0
+test_summary{quantile="1.0"} 1
+test_summary_sum 1
+test_summary_count 199
+`
+
+	// The expected "le" values do not have the trailing ".0".
+	expectedLeValues := []string{"0.005", "0.01", "0.025", "0.05", "0.1", "0.25", "0.5", "1", "2.5", "5", "10", "+Inf"}
+
+	// The expected "quantile" values do not have the trailing ".0".
+	expectedQuantileValues := []string{"0.5", "0.9", "0.95", "0.99", "1"}
+
+	scrapeCount := 0
+	scraped := make(chan bool)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, metricsText)
+		scrapeCount++
+		if scrapeCount > 2 {
+			close(scraped)
+		}
+	}))
+	defer ts.Close()
+
+	sp, err := newScrapePool(config, simpleStorage, 0, nil, &Options{}, newTestScrapeMetrics(t))
+	require.NoError(t, err)
+	defer sp.stop()
+
+	testURL, err := url.Parse(ts.URL)
+	require.NoError(t, err)
+	sp.Sync([]*targetgroup.Group{
+		{
+			Targets: []model.LabelSet{{model.AddressLabel: model.LabelValue(testURL.Host)}},
+		},
+	})
+	require.Equal(t, 1, len(sp.ActiveTargets()))
+
+	select {
+	case <-time.After(5 * time.Second):
+		t.Fatalf("target was not scraped")
+	case <-scraped:
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	q, err := simpleStorage.Querier(time.Time{}.UnixNano(), time.Now().UnixNano())
+	require.NoError(t, err)
+	defer q.Close()
+
+	checkValues := func(labelName string, expectedValues []string, series storage.SeriesSet) {
+		foundLeValues := map[string]bool{}
+
+		for series.Next() {
+			s := series.At()
+			v := s.Labels().Get(labelName)
+			require.NotContains(t, foundLeValues, v, "duplicate label value found")
+			foundLeValues[v] = true
+		}
+
+		require.Equal(t, len(expectedValues), len(foundLeValues), "number of label values not as expected")
+		for _, v := range expectedValues {
+			require.Contains(t, foundLeValues, v, "label value not found")
+		}
+	}
+
+	series := q.Select(ctx, false, nil, labels.MustNewMatcher(labels.MatchRegexp, "__name__", "test_histogram_bucket"))
+	checkValues("le", expectedLeValues, series)
+
+	series = q.Select(ctx, false, nil, labels.MustNewMatcher(labels.MatchRegexp, "__name__", "test_summary"))
+	checkValues("quantile", expectedQuantileValues, series)
+}
+
+func TestScrapeLoopRunCreatesStaleMarkersOnFailedScrapeForTimestampedMetrics(t *testing.T) {
+	appender := &collectResultAppender{}
+	var (
+		signal  = make(chan struct{}, 1)
+		scraper = &testScraper{}
+		app     = func(ctx context.Context) storage.Appender { return appender }
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sl := newScrapeLoop(ctx,
+		scraper,
+		nil, nil,
+		nopMutator,
+		nopMutator,
+		app,
+		nil,
+		0,
+		true,
+		true,
+		0, 0,
+		nil,
+		10*time.Millisecond,
+		time.Hour,
+		false,
+		false,
+		false,
+		nil,
+		false,
+		newTestScrapeMetrics(t),
+	)
+	// Succeed once, several failures, then stop.
+	numScrapes := 0
+
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
+		numScrapes++
+
+		switch numScrapes {
+		case 1:
+			w.Write([]byte(fmt.Sprintf("metric_a 42 %d\n", time.Now().UnixNano()/int64(time.Millisecond))))
+			return nil
+		case 5:
+			cancel()
+		}
+		return errors.New("scrape failed")
+	}
+
+	go func() {
+		sl.run(nil)
+		signal <- struct{}{}
+	}()
+
+	select {
+	case <-signal:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("Scrape wasn't stopped.")
+	}
+
+	// 1 successfully scraped sample, 1 stale marker after first fail, 5 report samples for
+	// each scrape successful or not.
+	require.Equal(t, 27, len(appender.resultFloats), "Appended samples not as expected:\n%s", appender)
+	require.Equal(t, 42.0, appender.resultFloats[0].f, "Appended first sample not as expected")
+	require.True(t, value.IsStaleNaN(appender.resultFloats[6].f),
+		"Appended second sample not as expected. Wanted: stale NaN Got: %x", math.Float64bits(appender.resultFloats[6].f))
 }

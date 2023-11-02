@@ -12,7 +12,6 @@
 // limitations under the License.
 
 // The main package for the Prometheus server executable.
-// nolint:revive // Many unsued function arguments in this file by design.
 package main
 
 import (
@@ -1294,7 +1293,7 @@ func startsOrEndsWithQuote(s string) bool {
 		strings.HasSuffix(s, "\"") || strings.HasSuffix(s, "'")
 }
 
-// compileCORSRegexString compiles given string and adds anchors
+// compileCORSRegexString compiles given string and adds anchors.
 func compileCORSRegexString(s string) (*regexp.Regexp, error) {
 	r, err := relabel.NewRegexp(s)
 	if err != nil {

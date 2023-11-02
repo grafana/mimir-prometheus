@@ -11,7 +11,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// nolint:revive // Many unsued function arguments in this file by design.
 package promql
 
 import (
@@ -77,7 +76,7 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 		resultHistogram    *histogram.FloatHistogram
 		firstT, lastT      int64
 		numSamplesMinusOne int
-		annos              = annotations.Annotations{}
+		annos              annotations.Annotations
 	)
 
 	// We need either at least two Histograms and no Floats, or at least two
@@ -86,14 +85,6 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	metricName := samples.Metric.Get(labels.MetricName)
 	if len(samples.Histograms) > 0 && len(samples.Floats) > 0 {
 		return enh.Out, annos.Add(annotations.NewMixedFloatsHistogramsWarning(metricName, args[0].PositionRange()))
-	}
-
-	if isCounter && metricName != "" && len(samples.Floats) > 0 &&
-		!strings.HasSuffix(metricName, "_total") &&
-		!strings.HasSuffix(metricName, "_sum") &&
-		!strings.HasSuffix(metricName, "_count") &&
-		!strings.HasSuffix(metricName, "_bucket") {
-		annos.Add(annotations.NewPossibleNonCounterInfo(metricName, args[0].PositionRange()))
 	}
 
 	switch {
@@ -642,7 +633,7 @@ func funcQuantileOverTime(vals []parser.Value, args parser.Expressions, enh *Eva
 		return enh.Out, nil
 	}
 
-	annos := annotations.Annotations{}
+	var annos annotations.Annotations
 	if math.IsNaN(q) || q < 0 || q > 1 {
 		annos.Add(annotations.NewInvalidQuantileWarning(q, args[0].PositionRange()))
 	}
@@ -795,47 +786,47 @@ func funcTan(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) 
 	return simpleFunc(vals, enh, math.Tan), nil
 }
 
-// == asin(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === asin(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcAsin(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Asin), nil
 }
 
-// == acos(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === acos(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcAcos(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Acos), nil
 }
 
-// == atan(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === atan(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcAtan(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Atan), nil
 }
 
-// == sinh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === sinh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcSinh(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Sinh), nil
 }
 
-// == cosh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === cosh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcCosh(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Cosh), nil
 }
 
-// == tanh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === tanh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcTanh(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Tanh), nil
 }
 
-// == asinh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === asinh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcAsinh(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Asinh), nil
 }
 
-// == acosh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === acosh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcAcosh(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Acosh), nil
 }
 
-// == atanh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
+// === atanh(Vector parser.ValueTypeVector) (Vector, Annotations) ===
 func funcAtanh(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	return simpleFunc(vals, enh, math.Atanh), nil
 }
@@ -1105,7 +1096,7 @@ func funcHistogramFraction(vals []parser.Value, args parser.Expressions, enh *Ev
 func funcHistogramQuantile(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	q := vals[0].(Vector)[0].F
 	inVec := vals[1].(Vector)
-	annos := annotations.Annotations{}
+	var annos annotations.Annotations
 
 	if math.IsNaN(q) || q < 0 || q > 1 {
 		annos.Add(annotations.NewInvalidQuantileWarning(q, args[0].PositionRange()))
