@@ -4829,7 +4829,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	require.NoError(t, err)
 	require.NoError(t, h.Init(0))
 
-	var expOOOSamples []sample
+	var expOOOSamples []chunks.Sample
 	l := labels.FromStrings("foo", "bar")
 	appendSample := func(mins int64, isOOO bool) {
 		app := h.Appender(context.Background())
@@ -4880,7 +4880,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	require.Len(t, chks, 1)
 
 	it := chks[0].chunk.Iterator(nil)
-	actOOOSamples := make([]sample, 0, len(expOOOSamples))
+	actOOOSamples := make([]chunks.Sample, 0, len(expOOOSamples))
 	for {
 		valType := it.Next()
 		if valType == chunkenc.ValNone {
@@ -4903,23 +4903,13 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 
 	// OOO chunk will be sorted. Hence sort the expected samples.
 	sort.Slice(expOOOSamples, func(i, j int) bool {
-		return expOOOSamples[i].t < expOOOSamples[j].t
+		return expOOOSamples[i].T() < expOOOSamples[j].T()
 	})
 
-	// Sets the counter reset hint to the values currently returned (first sample has counter reset unknown, others have not counter reset)
+	// Passing in true for the 'ignoreCounterResets' parameter prevents differences in counter reset headers
+	// from being factored in to the sample comparison
 	// TODO(fionaliao): understand counter reset behaviour, might want to modify this later
-	for i := range expOOOSamples {
-		if i != 0 {
-			if expOOOSamples[i].h != nil {
-				expOOOSamples[i].h.CounterResetHint = histogram.NotCounterReset
-			}
-			if expOOOSamples[i].fh != nil {
-				expOOOSamples[i].fh.CounterResetHint = histogram.NotCounterReset
-			}
-		}
-	}
-
-	require.Equal(t, expOOOSamples, actOOOSamples)
+	compareSamples(t, l.String(), expOOOSamples, actOOOSamples, true)
 
 	require.NoError(t, h.Close())
 }
