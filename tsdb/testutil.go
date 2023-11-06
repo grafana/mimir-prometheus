@@ -58,6 +58,28 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 			return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(value))}
 		},
 	},
+	"gauge int histogram": {
+		sampleType: sampleMetricTypeHistogram,
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
+			s := sample{t: ts, h: tsdbutil.GenerateTestGaugeHistogram(int(value))}
+			ref, err := appender.AppendHistogram(0, lbls, ts, s.h, nil)
+			return ref, err, s
+		},
+		sampleFunc: func(ts, value int64) sample {
+			return sample{t: ts, h: tsdbutil.GenerateTestGaugeHistogram(int(value))}
+		},
+	},
+	"gauge float histogram": {
+		sampleType: sampleMetricTypeHistogram,
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
+			s := sample{t: ts, fh: tsdbutil.GenerateTestGaugeFloatHistogram(int(value))}
+			ref, err := appender.AppendHistogram(0, lbls, ts, nil, s.fh)
+			return ref, err, s
+		},
+		sampleFunc: func(ts, value int64) sample {
+			return sample{t: ts, fh: tsdbutil.GenerateTestGaugeFloatHistogram(int(value))}
+		},
+	},
 }
 
 // requireEqualSamples checks that the actual series are equal to the expected ones. It ignores the counter reset hints for histograms.
@@ -76,7 +98,7 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 				{
 					expectedHist := expectedSample.H()
 					actualHist := actualSample.H()
-					if ignoreCounterResets {
+					if ignoreCounterResets && expectedHist.CounterResetHint != histogram.GaugeType {
 						expectedHist.CounterResetHint = histogram.UnknownCounterReset
 						actualHist.CounterResetHint = histogram.UnknownCounterReset
 					}
@@ -86,7 +108,7 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 				{
 					expectedHist := expectedSample.FH()
 					actualHist := actualSample.FH()
-					if ignoreCounterResets {
+					if ignoreCounterResets && expectedHist.CounterResetHint != histogram.GaugeType {
 						expectedHist.CounterResetHint = histogram.UnknownCounterReset
 						actualHist.CounterResetHint = histogram.UnknownCounterReset
 					}

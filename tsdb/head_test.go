@@ -4893,10 +4893,10 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	// TODO(fionaliao): understand counter reset behaviour, might want to modify this later
 	for i := range expOOOSamples {
 		if i != 0 {
-			if expOOOSamples[i].h != nil {
+			if expOOOSamples[i].h != nil && expOOOSamples[i].h.CounterResetHint != histogram.GaugeType {
 				expOOOSamples[i].h.CounterResetHint = histogram.NotCounterReset
 			}
-			if expOOOSamples[i].fh != nil {
+			if expOOOSamples[i].fh != nil && expOOOSamples[i].fh.CounterResetHint != histogram.GaugeType {
 				expOOOSamples[i].fh.CounterResetHint = histogram.NotCounterReset
 			}
 		}

@@ -4474,25 +4474,7 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario) {
 		require.NoError(t, err)
 
 		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
-		gotSamples := make(map[string][]chunks.Sample)
-		for k, v := range actRes {
-			var samples []chunks.Sample
-			for _, sample := range v {
-				switch sample.Type() {
-				case chunkenc.ValFloat:
-					samples = append(samples, sample)
-				case chunkenc.ValHistogram:
-					sample.H().CounterResetHint = histogram.UnknownCounterReset
-					samples = append(samples, sample)
-				case chunkenc.ValFloatHistogram:
-					sample.FH().CounterResetHint = histogram.UnknownCounterReset
-					samples = append(samples, sample)
-				}
-			}
-			gotSamples[k] = samples
-		}
-		require.Equal(t, expRes, gotSamples)
-		require.Equal(t, expRes, actRes)
+		requireEqualSamples(t, expRes, actRes, true)
 	}
 
 	// Checking for expected data in the blocks.
