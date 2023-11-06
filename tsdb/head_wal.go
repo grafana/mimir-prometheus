@@ -252,7 +252,7 @@ Outer:
 				idx := uint64(mSeries.ref) % uint64(concurrency)
 				processors[idx].input <- walSubsetProcessorInputItem{walSeriesRef: walSeries.Ref, existingSeries: mSeries}
 			}
-			seriesPool.Put(v)
+			seriesPool.Put(v) //nolint:staticcheck
 		case []record.RefSample:
 			samples := v
 			minValidTime := h.minValidTime.Load()
@@ -288,7 +288,7 @@ Outer:
 				}
 				samples = samples[m:]
 			}
-			samplesPool.Put(v)
+			samplesPool.Put(v) //nolint:staticcheck
 		case []tombstones.Stone:
 			for _, s := range v {
 				for _, itv := range s.Intervals {
@@ -302,12 +302,12 @@ Outer:
 					h.tombstones.AddInterval(s.Ref, itv)
 				}
 			}
-			tstonesPool.Put(v)
+			tstonesPool.Put(v) //nolint:staticcheck
 		case []record.RefExemplar:
 			for _, e := range v {
 				exemplarsInput <- e
 			}
-			exemplarsPool.Put(v)
+			exemplarsPool.Put(v) //nolint:staticcheck
 		case []record.RefHistogramSample:
 			samples := v
 			minValidTime := h.minValidTime.Load()
@@ -343,7 +343,7 @@ Outer:
 				}
 				samples = samples[m:]
 			}
-			histogramsPool.Put(v)
+			histogramsPool.Put(v) //nolint:staticcheck
 		case []record.RefFloatHistogramSample:
 			samples := v
 			minValidTime := h.minValidTime.Load()
@@ -379,7 +379,7 @@ Outer:
 				}
 				samples = samples[m:]
 			}
-			floatHistogramsPool.Put(v)
+			floatHistogramsPool.Put(v) //nolint:staticcheck
 		case []record.RefMetadata:
 			for _, m := range v {
 				s := h.series.getByID(m.Ref)
@@ -393,7 +393,7 @@ Outer:
 					Help: m.Help,
 				}
 			}
-			metadataPool.Put(v)
+			metadataPool.Put(v) //nolint:staticcheck
 		default:
 			panic(fmt.Errorf("unexpected decoded type: %T", d))
 		}
