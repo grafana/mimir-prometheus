@@ -898,20 +898,25 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 		return false
 	}
 
-	// Re-encode the chunk if iterator is provider. This means that it has
+	// Re-encode the chunk if iterator is provided. This means that it has
 	// some samples to be deleted or chunk is opened.
 	var (
-		newChunk chunkenc.Chunk
-		app      chunkenc.Appender
-		t        int64
-		err      error
+		newChunk                 chunkenc.Chunk
+		reEncodedHistogramChunks []chunks.Meta
+		app                      chunkenc.Appender
+		t                        int64
+		err                      error
 	)
 	switch valueType {
 	case chunkenc.ValHistogram:
-		newChunk = chunkenc.NewHistogramChunk()
-		if app, err = newChunk.Appender(); err != nil {
+		currentChunk := chunkenc.NewHistogramChunk()
+		if app, err = currentChunk.Appender(); err != nil {
 			break
 		}
+
+		var minTime, maxTime int64
+		minTime = math.MinInt64
+		var newlyCreatedChunk chunkenc.Chunk
 
 		for vt := valueType; vt != chunkenc.ValNone; vt = p.currDelIter.Next() {
 			if vt != chunkenc.ValHistogram {
@@ -920,10 +925,31 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 			}
 			var h *histogram.Histogram
 			t, h = p.currDelIter.AtHistogram()
-			_, _, app, err = app.AppendHistogram(nil, t, h, true)
+			if minTime == math.MinInt64 {
+				minTime = t
+			}
+			maxTime = t
+			//TODO: does recoded matter?
+			prevHApp, _ := app.(*chunkenc.HistogramAppender)
+
+			newlyCreatedChunk, _, app, err = app.AppendHistogram(prevHApp, t, h, false)
 			if err != nil {
 				break
 			}
+			// new chunk has been created, store the previous chunk in the re-encoded list
+			if newlyCreatedChunk != nil {
+				newMeta := chunks.Meta{Chunk: currentChunk, MinTime: minTime, MaxTime: maxTime}
+				reEncodedHistogramChunks = append(reEncodedHistogramChunks, newMeta)
+				minTime = math.MinInt64
+				currentChunk = newlyCreatedChunk.(*chunkenc.HistogramChunk)
+			}
+		}
+		if reEncodedHistogramChunks != nil {
+			newMeta := chunks.Meta{Chunk: currentChunk, MinTime: minTime, MaxTime: maxTime}
+			reEncodedHistogramChunks = append(reEncodedHistogramChunks, newMeta)
+		} else {
+			// if not split, set newChunk
+			newChunk = currentChunk
 		}
 	case chunkenc.ValFloat:
 		newChunk = chunkenc.NewXORChunk()
@@ -974,6 +1000,7 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 	}
 
 	p.curr.Chunk = newChunk
+	p.curr.ReEncodedOOOChunks = reEncodedHistogramChunks
 	p.curr.MaxTime = t
 	return true
 }

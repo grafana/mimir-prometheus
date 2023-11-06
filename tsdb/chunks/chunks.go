@@ -125,6 +125,8 @@ type Meta struct {
 	// If Chunk is nil, call ChunkReader.Chunk(Meta.Ref) to get the chunk and assign it to the Chunk field
 	Ref   ChunkRef
 	Chunk chunkenc.Chunk
+	// ReEncodedOOOChunks is a hacky fix when compacting
+	ReEncodedOOOChunks []Meta
 
 	// Time range the data covers.
 	// When MaxTime == math.MaxInt64 the chunk is still open and being appended to.

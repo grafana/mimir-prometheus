@@ -1103,7 +1103,14 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 			// We are not iterating in streaming way over chunk as
 			// it's more efficient to do bulk write for index and
 			// chunk file purposes.
-			chks = append(chks, chksIter.At())
+			chk := chksIter.At()
+			if chk.Chunk != nil {
+				chks = append(chks, chk)
+			} else if chk.ReEncodedOOOChunks != nil {
+				for _, rc := range chk.ReEncodedOOOChunks {
+					chks = append(chks, rc)
+				}
+			}
 		}
 		if chksIter.Err() != nil {
 			return errors.Wrap(chksIter.Err(), "chunk iter")
