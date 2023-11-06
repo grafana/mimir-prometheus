@@ -887,7 +887,7 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 		return false
 	}
 	p.curr = p.currChkMeta
-	if p.currDelIter == nil {
+	if p.currDelIter == nil { //TODO: is this possible to hit with mergedOOOChunk?
 		return true
 	}
 	valueType := p.currDelIter.Next()
@@ -908,6 +908,7 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 		err                      error
 	)
 	switch valueType {
+	//TODO: refactor to deduplicate similar logic here and in ToEncodedChunks
 	case chunkenc.ValHistogram:
 		currentChunk := chunkenc.NewHistogramChunk()
 		if app, err = currentChunk.Appender(); err != nil {
@@ -929,18 +930,20 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 				minTime = t
 			}
 			maxTime = t
-			//TODO: does recoded matter?
 			prevHApp, _ := app.(*chunkenc.HistogramAppender)
 
-			newlyCreatedChunk, _, app, err = app.AppendHistogram(prevHApp, t, h, false)
+			var recoded bool
+			newlyCreatedChunk, recoded, app, err = app.AppendHistogram(prevHApp, t, h, false)
 			if err != nil {
 				break
 			}
 			// new chunk has been created, store the previous chunk in the re-encoded list
 			if newlyCreatedChunk != nil {
-				newMeta := chunks.Meta{Chunk: currentChunk, MinTime: minTime, MaxTime: maxTime}
-				reEncodedHistogramChunks = append(reEncodedHistogramChunks, newMeta)
-				minTime = math.MinInt64
+				if !recoded {
+					newMeta := chunks.Meta{Chunk: currentChunk, MinTime: minTime, MaxTime: maxTime}
+					reEncodedHistogramChunks = append(reEncodedHistogramChunks, newMeta)
+					minTime = math.MinInt64
+				}
 				currentChunk = newlyCreatedChunk.(*chunkenc.HistogramChunk)
 			}
 		}

@@ -1107,9 +1107,7 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 			if chk.Chunk != nil {
 				chks = append(chks, chk)
 			} else if chk.ReEncodedOOOChunks != nil {
-				for _, rc := range chk.ReEncodedOOOChunks {
-					chks = append(chks, rc)
-				}
+				chks = append(chks, chk.ReEncodedOOOChunks...)
 			}
 		}
 		if chksIter.Err() != nil {

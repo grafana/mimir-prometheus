@@ -4768,9 +4768,15 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 		require.NoError(t, db.Close())
 	})
 
-	series1 := labels.FromStrings("foo", "bar1")
+	//TODO: add series two
+	//TODO: check counter reset headers
 
-	addSample := func(ts int64, l labels.Labels, val int, hint histogram.CounterResetHint) {
+	series1 := labels.FromStrings("foo", "bar1")
+	//series2 := labels.FromStrings("foo", "bar2")
+
+	var series1ExpectedSamples []chunks.Sample
+
+	addSample := func(ts int64, l labels.Labels, val int, hint histogram.CounterResetHint) sample {
 		app := db.Appender(context.Background())
 		h := tsdbutil.GenerateTestHistogram(val)
 		h.CounterResetHint = hint
@@ -4778,31 +4784,139 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 		_, err := app.AppendHistogram(0, l, tsMs, h, nil)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
+		return sample{t: tsMs, h: &(*h)} //TODO: make sure all addSample functions are taking a copy of the histogram
 	}
 
 	// Add an in-order sample.
-	addSample(500, series1, 1000000, histogram.UnknownCounterReset)
+	s := addSample(500, series1, 1000000, histogram.UnknownCounterReset)
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
 
-	// Make a "chunk" - has one counter reset that should be detected at ts 165
-	// This will actually be split into two chunks when mmapping due to the counter reset
+	//addSample(500, series2, 1000000, histogram.UnknownCounterReset)
+
+	// Verify that the in-memory ooo chunk is empty.
+	checkEmptyOOOChunk := func(lbls labels.Labels) {
+		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.Nil(t, ms.ooo)
+	}
+
+	checkEmptyOOOChunk(series1)
+	//checkEmptyOOOChunk(series2)
+
+	// Chunk 1 - one explicit counter reset at ts 250
+	// Add ten OOO samples
+	for i := 100; i < 200; i += 10 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+
+	// explicit counter reset
+	s = addSample(250, series1, 100000+250, histogram.CounterReset)
+	// TODO: should this be detected as counter reset? the chainSampleIterator decides to set this as "unknown" and the test query func reads that iterator directly (is this a problem for in-order samples too?)
+	// A proper PromQl query will likely not detect this as a counter reset because all it knows is that the header is "unknown" and the previous sample has a smaller count - is that okay?
+	s.h.CounterResetHint = histogram.UnknownCounterReset
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
+
+	// Add 19 more samples to complete a chunk
+	for i := 260; i < 450; i += 10 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		if i >= 410 {
+			s.h.CounterResetHint = histogram.NotCounterReset
+		}
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+
+	// Chunk 2 - overlaps with Chunk 1 and has one counter reset that should be detected at ts 165
 	// Add six OOO samples
 	for i := 105; i < 165; i += 10 {
-		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
 	}
 
 	// detected counter reset
-	addSample(165, series1, 100000, histogram.UnknownCounterReset)
+	s = addSample(165, series1, 100000, histogram.UnknownCounterReset)
+	// TODO: should this be detected as counter reset? the chainSampleIterator decides to set this as "unknown" and the test query func reads that iterator directly
+	// I think in actual PromQL queries this would be detected as a counter reset since it's unknown and it'll do another calculation
+	//s.h.CounterResetHint = histogram.CounterReset // should be detected as a counter reset
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
 
-	// Add 23 more samples to complete a standard chunk
+	// Add 23 more samples to complete a chunk
 	for i := 175; i < 405; i += 10 {
-		addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		if i >= 205 && i < 255 { //TODO: explain - basically overlapping chunks for a while
+			s.h.CounterResetHint = histogram.NotCounterReset
+		}
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
 	}
+
+	// sort samples (as OOO samples not added in time-order)
+	sort.Slice(series1ExpectedSamples, func(i, j int) bool {
+		return series1ExpectedSamples[i].T() < series1ExpectedSamples[j].T()
+	})
+
+	// Before compaction
+	verifyDBSamples := func() {
+		expRes := map[string][]chunks.Sample{
+			series1.String(): series1ExpectedSamples,
+			//	series2.String(): series2ExpectedSamples,
+		}
+
+		q, err := db.Querier(math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		requireEqualSamples(t, expRes, actRes)
+	}
+
+	verifyDBSamples()
+	//TODO: series2
+
+	// Verify that the in-memory ooo chunk is not empty.
+	checkNonEmptyOOOChunk := func(lbls labels.Labels) {
+		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.Greater(t, ms.ooo.oooHeadChunk.chunk.NumSamples(), 0)
+		//require.Equal(t, 2, len(ms.ooo.oooMmappedChunks)) this won't work until this commit is rebased cause the explicit reset isn't acknowledged
+	}
+
+	checkNonEmptyOOOChunk(series1)
 
 	// No blocks before compaction.
 	require.Equal(t, len(db.Blocks()), 0)
 
+	// There is a 0th WBL file.
+	require.NoError(t, db.head.wbl.Sync()) // syncing to make sure wbl is flushed in windows
+	files, err := os.ReadDir(db.head.wbl.Dir())
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, "00000000", files[0].Name())
+	f, err := files[0].Info()
+	require.NoError(t, err)
+	require.Greater(t, f.Size(), int64(100))
+
 	// OOO compaction happens here.
-	require.NoError(t, db.CompactOOOHead(ctx)) //FIXME: This is failing because of "populate block: chunk iter: iterate chunk while re-encoding: histogram counter reset" I think the iterator is treating a sequence of samples, including a counter reset, as a single chunk so that fails here
+	require.NoError(t, db.CompactOOOHead(ctx)) //FIXME: This is failing because of "populate block: chunk iter: iterate chunk while re-encoding: histogram schema change" I think the iterator is treating a sequence of samples, including a counter reset, as a single chunk so that fails here
+
+	// 3 blocks exist now. [0, 120), [120, 240), [240, 360) - TODO: copied from another test but block ranges have changed for this new test case
+	require.Equal(t, 4, len(db.Blocks()))
+
+	// OOO stuff should not be present in the Head now.
+	checkEmptyOOOChunk(series1)
+
+	verifyDBSamples() // Blocks created out of OOO head now.
+
+	//TODO: check headers
+
+	// five blocks, two counter resets
+	// [] = initial chunk before splitting
+	// [100-200, (explicit reset) 250-300], [105-285, 295-315], [315-400] - haven't added the last block yet
+
+	// original: 100-150 (detected reset) 160-200, (explicit reset) 250-300, (detected reset) 310-400
+
+	//TODO: add final boring block with no resets
+
+	//TODO: compact in-order head and check?
 }
 
 // TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL tests the scenario where the WBL goes
