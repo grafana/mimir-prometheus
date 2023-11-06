@@ -870,11 +870,15 @@ func testOOOHeadChunkReader_Chunk(t *testing.T, scenario sampleTypeScenario) {
 						resultSamples = append(resultSamples, sample{t: t, f: v})
 					case chunkenc.ValHistogram:
 						t, v := it.AtHistogram()
-						v.CounterResetHint = histogram.UnknownCounterReset
+						if v.CounterResetHint != histogram.GaugeType {
+							v.CounterResetHint = histogram.UnknownCounterReset
+						}
 						resultSamples = append(resultSamples, sample{t: t, h: v})
 					case chunkenc.ValFloatHistogram:
 						t, v := it.AtFloatHistogram()
-						v.CounterResetHint = histogram.UnknownCounterReset
+						if v.CounterResetHint != histogram.GaugeType {
+							v.CounterResetHint = histogram.UnknownCounterReset
+						}
 						resultSamples = append(resultSamples, sample{t: t, fh: v})
 					}
 				}
@@ -962,7 +966,7 @@ func testOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 			},
 		},
 		{
-			name:                 "After Series() prev head gets mmapped after getting samples, new head gets new samples also overlapping, none of these should appear in the response.",
+			name:                 "After Series() prev head gets mmapped after getting samples, new head gets new samples also overlapping, none of these should appear in response.",
 			queryMinT:            minutes(0),
 			queryMaxT:            minutes(100),
 			firstInOrderSampleAt: minutes(120),
@@ -1060,11 +1064,15 @@ func testOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 						resultSamples = append(resultSamples, sample{t: t, f: v})
 					case chunkenc.ValHistogram:
 						t, v := it.AtHistogram()
-						v.CounterResetHint = histogram.UnknownCounterReset
+						if v.CounterResetHint != histogram.GaugeType {
+							v.CounterResetHint = histogram.UnknownCounterReset
+						}
 						resultSamples = append(resultSamples, sample{t: t, h: v})
 					case chunkenc.ValFloatHistogram:
 						t, v := it.AtFloatHistogram()
-						v.CounterResetHint = histogram.UnknownCounterReset
+						if v.CounterResetHint != histogram.GaugeType {
+							v.CounterResetHint = histogram.UnknownCounterReset
+						}
 						resultSamples = append(resultSamples, sample{t: t, fh: v})
 					}
 				}
