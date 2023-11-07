@@ -887,7 +887,7 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 		return false
 	}
 	p.curr = p.currChkMeta
-	if p.currDelIter == nil { //TODO: is this possible to hit with mergedOOOChunk?
+	if p.currDelIter == nil { // This possible to hit with mergedOOOChunk but it's fine (as chunks are split earlier when selecting metas)
 		return true
 	}
 	valueType := p.currDelIter.Next()
@@ -909,6 +909,7 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 	)
 	switch valueType {
 	//TODO: refactor to deduplicate similar logic here and in ToEncodedChunks
+	//TODO: write a test for when an oooMergedChunk has different encodings - this will cause the rest of the samples to be dropped silently I think
 	case chunkenc.ValHistogram:
 		currentChunk := chunkenc.NewHistogramChunk()
 		if app, err = currentChunk.Appender(); err != nil {

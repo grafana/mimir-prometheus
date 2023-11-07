@@ -4788,7 +4788,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	}
 
 	// Add an in-order sample.
-	s := addSample(475, series1, 1000000, histogram.UnknownCounterReset)
+	s := addSample(520, series1, 1000000, histogram.UnknownCounterReset)
 	series1ExpectedSamples = append(series1ExpectedSamples, s)
 
 	//addSample(500, series2, 1000000, histogram.UnknownCounterReset)
@@ -4850,6 +4850,18 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 		series1ExpectedSamples = append(series1ExpectedSamples, s)
 	}
 
+	// Chunk 3 - all within one block boundary with one counter reset at 490
+	for i := 480; i < 490; i += 1 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset) //TODO: check counter resets
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+	s = addSample(int64(490), series1, 100000, histogram.UnknownCounterReset) //TODO: check counter resets
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
+	for i := 491; i < 510; i += 1 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset) //TODO: check counter resets
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+
 	// sort samples (as OOO samples not added in time-order)
 	sort.Slice(series1ExpectedSamples, func(i, j int) bool {
 		return series1ExpectedSamples[i].T() < series1ExpectedSamples[j].T()
@@ -4899,7 +4911,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	require.NoError(t, db.CompactOOOHead(ctx))
 
 	// 3 blocks exist now. [0, 120), [120, 240), [240, 360) - TODO: copied from another test but block ranges have changed for this new test case
-	require.Equal(t, 4, len(db.Blocks()))
+	require.Equal(t, 5, len(db.Blocks()))
 
 	verifyDBSamples() // Blocks created out of OOO head now.
 
@@ -4915,7 +4927,6 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	// OOO stuff should not be present in the Head now.
 	checkEmptyOOOChunk(series1)
 
-	//TODO: skip in-order sample?
 	verifySamples := func(block *Block, fromMins, toMins int64) {
 		var series1Samples []chunks.Sample
 
@@ -4961,6 +4972,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	verifySamples(db.Blocks()[1], 120, 239)
 	verifySamples(db.Blocks()[2], 240, 359)
 	verifySamples(db.Blocks()[3], 360, 440)
+	verifySamples(db.Blocks()[4], 480, 509)
 
 	// There should be a single m-map file.
 	mmapDir := mmappedChunksDir(db.head.opts.ChunkDirRoot)
@@ -4970,10 +4982,10 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 
 	// Compact the in-order head and expect another block.
 	// Since this is a forced compaction, this block is not aligned with 2h.
-	err = db.CompactHead(NewRangeHead(db.head, 450*time.Minute.Milliseconds(), 500*time.Minute.Milliseconds()))
+	err = db.CompactHead(NewRangeHead(db.head, 500*time.Minute.Milliseconds(), 550*time.Minute.Milliseconds()))
 	require.NoError(t, err)
-	require.Equal(t, len(db.Blocks()), 5) // [0, 120), [120, 240), [240, 360), [250, 351)
-	verifySamples(db.Blocks()[4], 475, 475)
+	require.Equal(t, len(db.Blocks()), 6) // [0, 120), [120, 240), [240, 360), [250, 351)
+	verifySamples(db.Blocks()[5], 520, 520)
 
 	verifyDBSamples() // Blocks created out of normal and OOO head now. But not merged.
 
@@ -4987,11 +4999,12 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	// This will merge overlapping block.
 	require.NoError(t, db.Compact(ctx))
 
-	require.Equal(t, len(db.Blocks()), 4) // [0, 120), [120, 240), [240, 360)
+	require.Equal(t, len(db.Blocks()), 5) // [0, 120), [120, 240), [240, 360)
 	verifySamples(db.Blocks()[0], 100, 119)
 	verifySamples(db.Blocks()[1], 120, 239)
 	verifySamples(db.Blocks()[2], 240, 359)
-	verifySamples(db.Blocks()[3], 360, 475) //merged block
+	verifySamples(db.Blocks()[3], 360, 479)
+	verifySamples(db.Blocks()[4], 480, 520) //merged block
 
 	verifyDBSamples() // Final state. Blocks from normal and OOO head are merged.
 
