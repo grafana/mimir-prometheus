@@ -918,7 +918,7 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 		var minTime, maxTime int64
 		minTime = math.MinInt64
 		var newlyCreatedChunk chunkenc.Chunk
-
+		var prevHApp *chunkenc.HistogramAppender
 		for vt := valueType; vt != chunkenc.ValNone; vt = p.currDelIter.Next() {
 			if vt != chunkenc.ValHistogram {
 				err = fmt.Errorf("found value type %v in histogram chunk", vt)
@@ -930,13 +930,15 @@ func (p *populateWithDelChunkSeriesIterator) Next() bool {
 				minTime = t
 			}
 			maxTime = t
-			prevHApp, _ := app.(*chunkenc.HistogramAppender)
 
 			var recoded bool
 			newlyCreatedChunk, recoded, app, err = app.AppendHistogram(prevHApp, t, h, false)
 			if err != nil {
 				break
 			}
+
+			prevHApp, _ = app.(*chunkenc.HistogramAppender)
+
 			// new chunk has been created, store the previous chunk in the re-encoded list
 			if newlyCreatedChunk != nil {
 				if !recoded {
