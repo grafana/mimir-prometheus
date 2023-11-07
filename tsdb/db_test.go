@@ -4788,7 +4788,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	}
 
 	// Add an in-order sample.
-	s := addSample(500, series1, 1000000, histogram.UnknownCounterReset)
+	s := addSample(475, series1, 1000000, histogram.UnknownCounterReset)
 	series1ExpectedSamples = append(series1ExpectedSamples, s)
 
 	//addSample(500, series2, 1000000, histogram.UnknownCounterReset)
@@ -4896,27 +4896,111 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 	require.Greater(t, f.Size(), int64(100))
 
 	// OOO compaction happens here.
-	require.NoError(t, db.CompactOOOHead(ctx)) //FIXME: This is failing because of "populate block: chunk iter: iterate chunk while re-encoding: histogram schema change" I think the iterator is treating a sequence of samples, including a counter reset, as a single chunk so that fails here
+	require.NoError(t, db.CompactOOOHead(ctx))
 
 	// 3 blocks exist now. [0, 120), [120, 240), [240, 360) - TODO: copied from another test but block ranges have changed for this new test case
 	require.Equal(t, 4, len(db.Blocks()))
 
+	verifyDBSamples() // Blocks created out of OOO head now.
+
+	// 0th WBL file will be deleted and 1st will be the only present.
+	files, err = os.ReadDir(db.head.wbl.Dir())
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, "00000001", files[0].Name())
+	f, err = files[0].Info()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), f.Size())
+
 	// OOO stuff should not be present in the Head now.
 	checkEmptyOOOChunk(series1)
 
-	verifyDBSamples() // Blocks created out of OOO head now.
+	//TODO: skip in-order sample?
+	verifySamples := func(block *Block, fromMins, toMins int64) {
+		var series1Samples []chunks.Sample
+
+		for _, s := range series1ExpectedSamples {
+			if s.T() >= fromMins*time.Minute.Milliseconds() {
+				// samples should be sorted, so break out of loop when we reach a timestamp that's too big
+				if s.T() > toMins*time.Minute.Milliseconds() {
+					break
+				}
+				series1Samples = append(series1Samples, s)
+			}
+		}
+		expRes := map[string][]chunks.Sample{
+			series1.String(): series1Samples,
+		}
+
+		q, err := NewBlockQuerier(block, math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		gotSamples := make(map[string][]chunks.Sample)
+		for k, v := range actRes {
+			var samples []chunks.Sample
+			for _, sample := range v {
+				switch sample.Type() {
+				case chunkenc.ValFloat:
+					samples = append(samples, sample)
+				case chunkenc.ValHistogram:
+					sample.H().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				case chunkenc.ValFloatHistogram:
+					sample.FH().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				}
+			}
+			gotSamples[k] = samples
+		}
+		requireEqualSamples(t, expRes, actRes)
+	}
+
+	// Checking for expected data in the blocks.
+	verifySamples(db.Blocks()[0], 100, 119)
+	verifySamples(db.Blocks()[1], 120, 239)
+	verifySamples(db.Blocks()[2], 240, 359)
+	verifySamples(db.Blocks()[3], 360, 440)
+
+	// There should be a single m-map file.
+	mmapDir := mmappedChunksDir(db.head.opts.ChunkDirRoot)
+	files, err = os.ReadDir(mmapDir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+
+	// Compact the in-order head and expect another block.
+	// Since this is a forced compaction, this block is not aligned with 2h.
+	err = db.CompactHead(NewRangeHead(db.head, 450*time.Minute.Milliseconds(), 500*time.Minute.Milliseconds()))
+	require.NoError(t, err)
+	require.Equal(t, len(db.Blocks()), 5) // [0, 120), [120, 240), [240, 360), [250, 351)
+	verifySamples(db.Blocks()[4], 475, 475)
+
+	verifyDBSamples() // Blocks created out of normal and OOO head now. But not merged.
+
+	// The compaction also clears out the old m-map files. Including
+	// the file that has ooo chunks.
+	files, err = os.ReadDir(mmapDir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, "000001", files[0].Name())
+
+	// This will merge overlapping block.
+	require.NoError(t, db.Compact(ctx))
+
+	require.Equal(t, len(db.Blocks()), 4) // [0, 120), [120, 240), [240, 360)
+	verifySamples(db.Blocks()[0], 100, 119)
+	verifySamples(db.Blocks()[1], 120, 239)
+	verifySamples(db.Blocks()[2], 240, 359)
+	verifySamples(db.Blocks()[3], 360, 475) //merged block
+
+	verifyDBSamples() // Final state. Blocks from normal and OOO head are merged.
 
 	//TODO: check headers
 
-	// five blocks, two counter resets
 	// [] = initial chunk before splitting
-	// [100-200, (explicit reset) 250-300], [105-285, 295-315], [315-400] - haven't added the last block yet
+	// [100-200, (explicit reset) 250-300], [105-285, 295-315]
 
-	// original: 100-150 (detected reset) 160-200, (explicit reset) 250-300, (detected reset) 310-400
-
-	//TODO: add final boring block with no resets
-
-	//TODO: compact in-order head and check?
+	//TODO: add block with reset in the middle of block, no overlaps in chunk with another block
 }
 
 // TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL tests the scenario where the WBL goes
