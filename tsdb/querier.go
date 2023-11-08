@@ -747,6 +747,13 @@ func (p *populateWithDelGenericSeriesIterator) next(copyHeadChunk bool) bool {
 		p.currChkMeta.Chunk, p.err = p.chunks.Chunk(p.currChkMeta)
 	}
 	if p.err != nil {
+		if errors.Cause(p.err) == storage.ErrNotFound {
+			// Chunk reference is stale (eg. due to head compaction that occurred after retrieving chunk reference).
+			// Clear error and continue to next chunk.
+			p.err = nil
+			return p.next(copyHeadChunk)
+		}
+
 		p.err = errors.Wrapf(p.err, "cannot populate chunk %d from block %s", p.currChkMeta.Ref, p.blockID.String())
 		return false
 	}

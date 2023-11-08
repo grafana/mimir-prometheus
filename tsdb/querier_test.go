@@ -1673,6 +1673,51 @@ func TestPopulateWithDelSeriesIterator_NextWithMinTime(t *testing.T) {
 	}
 }
 
+// This tests the scenario where a query retrieves a list of chunks including a reference to a chunk in the head,
+// then head compaction occurs, and then the query tries to read the chunk that is no longer in the head.
+// In this case, it's expected that storage.ErrNotFound will be returned by the ChunkReader, and we should ignore
+// this error (the data from the chunk from the head will have already been included elsewhere).
+func TestPopulateWithDelGenericSeriesIterator_StaleReference(t *testing.T) {
+	blockID := ulid.ULID{}
+
+	metas := []chunks.Meta{
+		{Ref: 1},
+		{Ref: 2}, // We'll simulate that this chunk is no longer available in the head.
+		{Ref: 3},
+	}
+
+	reader := &staleReferenceChunkReader{}
+
+	it := &populateWithDelChunkSeriesIterator{}
+	it.reset(blockID, reader, metas, nil)
+
+	require.True(t, it.Next())
+	require.NoError(t, it.Err())
+	require.Equal(t, metas[0].Ref, it.At().Ref)
+
+	// Should skip the chunk that is no longer available and return the next one.
+	require.True(t, it.Next())
+	require.NoError(t, it.Err())
+	require.Equal(t, metas[2].Ref, it.At().Ref)
+
+	require.False(t, it.Next())
+	require.NoError(t, it.Err())
+}
+
+type staleReferenceChunkReader struct{}
+
+func (s *staleReferenceChunkReader) Chunk(meta chunks.Meta) (chunkenc.Chunk, error) {
+	if meta.Ref == 2 {
+		return nil, storage.ErrNotFound
+	}
+
+	return nil, nil // A real ChunkReader would return a non-nil Chunk here, but we don't need this for the test.
+}
+
+func (s *staleReferenceChunkReader) Close() error {
+	return nil
+}
+
 // Test the cost of merging series sets for different number of merged sets and their size.
 // The subset are all equivalent so this does not capture merging of partial or non-overlapping sets well.
 // TODO(bwplotka): Merge with storage merged series set benchmark.
