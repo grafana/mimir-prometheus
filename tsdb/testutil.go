@@ -71,23 +71,28 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 			actualSample := actualItem[i]
 			require.Equal(t, expectedSample.T(), expectedSample.T(), "Different timestamps for %s[%d]", name, i)
 			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d] at ts %d", name, i, expectedSample.T())
-			if s.H() != nil {
-				expectedHist := expectedSample.H()
-				actualHist := actualSample.H()
-				if ignoreCounterResets {
-					expectedHist.CounterResetHint = histogram.UnknownCounterReset
-					actualHist.CounterResetHint = histogram.UnknownCounterReset
+			switch {
+			case s.H() != nil:
+				{
+					expectedHist := expectedSample.H()
+					actualHist := actualSample.H()
+					if ignoreCounterResets {
+						expectedHist.CounterResetHint = histogram.UnknownCounterReset
+						actualHist.CounterResetHint = histogram.UnknownCounterReset
+					}
+					require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 				}
-				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
-			} else if s.FH() != nil {
-				expectedHist := expectedSample.FH()
-				actualHist := actualSample.FH()
-				if ignoreCounterResets {
-					expectedHist.CounterResetHint = histogram.UnknownCounterReset
-					actualHist.CounterResetHint = histogram.UnknownCounterReset
+			case s.FH() != nil:
+				{
+					expectedHist := expectedSample.FH()
+					actualHist := actualSample.FH()
+					if ignoreCounterResets {
+						expectedHist.CounterResetHint = histogram.UnknownCounterReset
+						actualHist.CounterResetHint = histogram.UnknownCounterReset
+					}
+					require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 				}
-				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
-			} else {
+			default:
 				require.Equal(t, expectedSample, expectedSample, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 			}
 		}
