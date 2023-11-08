@@ -61,8 +61,7 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 }
 
 // requireEqualSamples checks that the actual series are equal to the expected ones. It ignores the counter reset hints for histograms.
-// TODO(fionaliao): understand counter reset behaviour, might want to unignore hints later
-func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Sample) {
+func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Sample, ignoreCounterResets bool) {
 	for name, expectedItem := range expected {
 		actualItem, ok := actual[name]
 		require.True(t, ok, "Expected series %s not found", name)
@@ -70,22 +69,31 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 		for i, s := range expectedItem {
 			expectedSample := s
 			actualSample := actualItem[i]
-			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d]", name, i)
+			require.Equal(t, expectedSample.T(), expectedSample.T(), "Different timestamps for %s[%d]", name, i)
+			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d] at ts %d", name, i, expectedSample.T())
 			switch {
 			case s.H() != nil:
-				expectedHist := expectedSample.H()
-				actualHist := actualSample.H()
-				expectedHist.CounterResetHint = histogram.UnknownCounterReset
-				actualHist.CounterResetHint = histogram.UnknownCounterReset
-				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
+				{
+					expectedHist := expectedSample.H()
+					actualHist := actualSample.H()
+					if ignoreCounterResets {
+						expectedHist.CounterResetHint = histogram.UnknownCounterReset
+						actualHist.CounterResetHint = histogram.UnknownCounterReset
+					}
+					require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
+				}
 			case s.FH() != nil:
-				expectedHist := expectedSample.FH()
-				actualHist := actualSample.FH()
-				expectedHist.CounterResetHint = histogram.UnknownCounterReset
-				actualHist.CounterResetHint = histogram.UnknownCounterReset
-				require.Equal(t, expectedHist, actualHist, "Unexpected sample for %s[%d]", name, i)
+				{
+					expectedHist := expectedSample.FH()
+					actualHist := actualSample.FH()
+					if ignoreCounterResets {
+						expectedHist.CounterResetHint = histogram.UnknownCounterReset
+						actualHist.CounterResetHint = histogram.UnknownCounterReset
+					}
+					require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
+				}
 			default:
-				require.Equal(t, expectedSample, expectedSample, "Unexpected sample for %s[%d]", name, i)
+				require.Equal(t, expectedSample, expectedSample, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 			}
 		}
 	}
