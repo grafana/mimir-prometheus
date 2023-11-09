@@ -3257,7 +3257,140 @@ func TestNativeFloatHistogramRate(t *testing.T) {
 	require.Equal(t, expectedHistogram, actualHistogram)
 }
 
-func TestOOONativeHistogram_Rate(t *testing.T) {
+func TestNativeHistogramRateWithCounterResets(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
+	}{
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, h, nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testNativeHistogramRateWithCounterResets(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testNativeHistogramRateWithCounterResets(t *testing.T,
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
+) {
+	// TODO(beorn7): Integrate histograms into the PromQL testing framework
+	// and write more tests there.
+	seriesName := "sparse_histogram_series"
+	lbls := labels.FromStrings("__name__", seriesName)
+
+	type filterFunc func(v int) int
+	defaultFilterFunc := func(v int) int { return v }
+
+	tests := []struct {
+		name              string
+		appendFunc        func(appender storage.Appender, lbls labels.Labels, ts, value int64) error
+		counterResetIdx   int
+		filter            filterFunc
+		expectedHistogram *histogram.FloatHistogram
+	}{
+		{
+			name:            "Counter reset at beginning of interval",
+			counterResetIdx: 16,
+			filter:          defaultFilterFunc,
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        1. / 15.,
+				Count:            0.6,
+				Sum:              1.2266666666666666,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name:            "Counter reset in the middle of interval",
+			counterResetIdx: 18,
+			filter:          defaultFilterFunc,
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.226666666666667,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name:            "Counter reset at end of interval",
+			counterResetIdx: 20,
+			filter:          defaultFilterFunc,
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.226666666666667,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			engine := newTestEngine()
+			storage := teststorage.New(t)
+			t.Cleanup(func() { storage.Close() })
+
+			app := storage.Appender(context.Background())
+
+			// Add samples without any counter resets
+			for i := 0; i < tc.counterResetIdx; i++ {
+				val := tc.filter(i)
+				_, err := appendFunc(app, lbls, int64(i)*int64(15*time.Second/time.Millisecond), int64(val))
+				require.NoError(t, err)
+			}
+
+			// Introduce a counter reset
+			var j int
+			for i := tc.counterResetIdx; i < 100; i++ {
+				_, err := appendFunc(app, lbls, int64(i)*int64(15*time.Second/time.Millisecond), int64(j))
+				require.NoError(t, err)
+				j++
+			}
+
+			require.NoError(t, app.Commit())
+
+			queryString := fmt.Sprintf("rate(%s[1m])", seriesName)
+			qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(int64(5*time.Minute/time.Millisecond)))
+			require.NoError(t, err)
+			res := qry.Exec(context.Background())
+			require.NoError(t, res.Err)
+			vector, err := res.Vector()
+			require.NoError(t, err)
+			require.Len(t, vector, 1)
+			actualHistogram := vector[0].H
+			require.Equal(t, tc.expectedHistogram, actualHistogram)
+		})
+	}
+}
+
+func TestOOONativeHistogramRate(t *testing.T) {
 	// TODO(beorn7): Integrate histograms into the PromQL testing framework
 	// and write more tests there.
 	engine := newTestEngine()
@@ -3314,129 +3447,156 @@ func TestOOONativeHistogram_Rate(t *testing.T) {
 	require.Equal(t, expectedHistogram, actualHistogram)
 }
 
-func TestOOONativeHistogramCounterReset_Rate(t *testing.T) {
-	// TODO(beorn7): Integrate histograms into the PromQL testing framework
-	// and write more tests there.
-	engine := newTestEngine()
-	opts := tsdb.Options{
-		EnableNativeHistograms: true,
-		OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
-		OutOfOrderCapMax:       30,
+func TestOOONativeHistogramRateWithCounterResets(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
+	}{
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, h, nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+		},
 	}
-	storage := teststorage.NewTestStorageWithOpts(t, &opts)
-	t.Cleanup(func() { storage.Close() })
-
-	seriesName := "sparse_histogram_series"
-	lbls := labels.FromStrings("__name__", seriesName)
-
-	app := storage.Appender(context.Background())
-
-	// Add in-order samples
-	for i := 50; i < 100; i++ {
-		fh := tsdbutil.GenerateTestFloatHistogram(i)
-		_, err := app.AppendHistogram(0, lbls, int64(i)*int64(15*time.Second/time.Millisecond), nil, fh)
-		require.NoError(t, err)
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOONativeHistogramRateWithCounterResets(t, scenario.appendFunc)
+		})
 	}
-
-	// Add some out-of-order samples, with a counter reset in the middle
-	for i := 0; i < 50; i++ {
-		var fh *histogram.FloatHistogram
-		if i == 25 {
-			fh = tsdbutil.GenerateTestFloatHistogram(1)
-			fh.CounterResetHint = histogram.CounterReset
-		} else {
-			fh = tsdbutil.GenerateTestFloatHistogram(i)
-		}
-		_, err := app.AppendHistogram(0, lbls, int64(i)*int64(15*time.Second/time.Millisecond), nil, fh)
-		require.NoError(t, err)
-	}
-
-	require.NoError(t, app.Commit())
-
-	queryString := fmt.Sprintf("rate(%s[1m])", seriesName)
-	qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(int64(5*time.Minute/time.Millisecond)))
-	require.NoError(t, err)
-	res := qry.Exec(context.Background())
-	require.NoError(t, res.Err)
-	vector, err := res.Vector()
-	require.NoError(t, err)
-	require.Len(t, vector, 1)
-	actualHistogram := vector[0].H
-	expectedHistogram := &histogram.FloatHistogram{
-		CounterResetHint: histogram.GaugeType,
-		Schema:           1,
-		ZeroThreshold:    0.001,
-		ZeroCount:        1. / 15.,
-		Count:            9. / 15.,
-		Sum:              1.226666666666667,
-		PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
-		PositiveBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
-		NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
-		NegativeBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
-	}
-	require.Equal(t, expectedHistogram, actualHistogram)
 }
 
-func TestOOONativeHistogramSimpleCounterReset_Rate(t *testing.T) {
+func testOOONativeHistogramRateWithCounterResets(t *testing.T,
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
+) {
 	// TODO(beorn7): Integrate histograms into the PromQL testing framework
 	// and write more tests there.
-	engine := newTestEngine()
-	opts := tsdb.Options{
-		EnableNativeHistograms: true,
-		OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
-		OutOfOrderCapMax:       30,
-	}
-	storage := teststorage.NewTestStorageWithOpts(t, &opts)
-	t.Cleanup(func() { storage.Close() })
-
 	seriesName := "sparse_histogram_series"
 	lbls := labels.FromStrings("__name__", seriesName)
 
-	app := storage.Appender(context.Background())
+	type filterFunc func(v int) int
+	defaultFilterFunc := func(v int) int { return v }
 
-	// Add some in-order samples
-	for ts := 50; ts < 100; ts += 10 {
-		fh := tsdbutil.GenerateTestFloatHistogram(ts)
-		_, err := app.AppendHistogram(0, lbls, int64(ts), nil, fh)
-		require.NoError(t, err)
+	tests := []struct {
+		name              string
+		appendFunc        func(appender storage.Appender, lbls labels.Labels, ts, value int64) error
+		counterResetIdx   int
+		filter            filterFunc
+		expectedHistogram *histogram.FloatHistogram
+	}{
+		{
+			name:            "Counter reset at beginning of interval",
+			counterResetIdx: 16,
+			filter:          defaultFilterFunc,
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        1. / 15.,
+				Count:            0.6,
+				Sum:              1.2266666666666666,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name:            "Counter reset in the middle of interval",
+			counterResetIdx: 18,
+			filter:          defaultFilterFunc,
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.226666666666667,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name:            "Counter reset at end of interval",
+			counterResetIdx: 20,
+			filter:          defaultFilterFunc,
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.226666666666667,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
 	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			engine := newTestEngine()
+			opts := tsdb.Options{
+				EnableNativeHistograms: true,
+				OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
+				OutOfOrderCapMax:       30,
+			}
+			storage := teststorage.NewTestStorageWithOpts(t, &opts)
+			t.Cleanup(func() { storage.Close() })
 
-	// Add some out-of-order samples
-	for ts := 0; ts < 50; ts += 10 {
-		fh := tsdbutil.GenerateTestFloatHistogram(ts)
-		_, err := app.AppendHistogram(0, lbls, int64(ts), nil, fh)
-		require.NoError(t, err)
+			app := storage.Appender(context.Background())
+
+			// Add in-order samples without any counter resets
+			for i := 5; i < tc.counterResetIdx; i++ {
+				val := tc.filter(i)
+				_, err := appendFunc(app, lbls, int64(i)*int64(15*time.Second/time.Millisecond), int64(val))
+				require.NoError(t, err)
+			}
+
+			// Add out-of-order samples without any counter resets
+			for i := 0; i < 5; i++ {
+				val := tc.filter(i)
+				_, err := appendFunc(app, lbls, int64(i)*int64(15*time.Second/time.Millisecond), int64(val))
+				require.NoError(t, err)
+			}
+
+			// Add more in-order samples without any counter resets
+			for i := 21; i < 100; i++ {
+				val := tc.filter(i)
+				_, err := appendFunc(app, lbls, int64(i)*int64(15*time.Second/time.Millisecond), int64(val))
+				require.NoError(t, err)
+			}
+
+			// Add out-of-order samples with counter reset
+			var j int
+			for i := tc.counterResetIdx; i < 21; i++ {
+				_, err := appendFunc(app, lbls, int64(i)*int64(15*time.Second/time.Millisecond), int64(j))
+				require.NoError(t, err)
+				j++
+			}
+
+			require.NoError(t, app.Commit())
+
+			queryString := fmt.Sprintf("rate(%s[1m])", seriesName)
+			qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(int64(5*time.Minute/time.Millisecond)))
+			require.NoError(t, err)
+			res := qry.Exec(context.Background())
+			require.NoError(t, res.Err)
+			vector, err := res.Vector()
+			require.NoError(t, err)
+			require.Len(t, vector, 1)
+			actualHistogram := vector[0].H
+			require.Equal(t, tc.expectedHistogram, actualHistogram)
+		})
 	}
-
-	// Add a sample that will cause a counter reset
-	fh := tsdbutil.GenerateTestFloatHistogram(1)
-	_, err := app.AppendHistogram(0, lbls, 35, nil, fh)
-	require.NoError(t, err)
-
-	require.NoError(t, app.Commit())
-
-	queryString := fmt.Sprintf("rate(%s[10s])", seriesName)
-	qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(100))
-	require.NoError(t, err)
-	res := qry.Exec(context.Background())
-	require.NoError(t, res.Err)
-	vector, err := res.Vector()
-	require.NoError(t, err)
-	require.Len(t, vector, 1)
-	actualHistogram := vector[0].H
-	expectedHistogram := &histogram.FloatHistogram{
-		CounterResetHint: histogram.GaugeType,
-		Schema:           1,
-		ZeroThreshold:    0.001,
-		ZeroCount:        1. / 15.,
-		Count:            9. / 15.,
-		Sum:              1.226666666666667,
-		PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
-		PositiveBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
-		NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
-		NegativeBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
-	}
-	require.Equal(t, expectedHistogram, actualHistogram)
 }
 
 func TestNativeHistogram_HistogramCountAndSum(t *testing.T) {
