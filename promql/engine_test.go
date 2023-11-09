@@ -3884,6 +3884,216 @@ func testOOONativeHistogramIncreaseWithCounterResets(t *testing.T,
 	}
 }
 
+func TestNativeHistogramResets(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
+	}{
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, h, nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testNativeHistogramResets(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testNativeHistogramResets(t *testing.T,
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
+) {
+	// TODO(beorn7): Integrate histograms into the PromQL testing framework
+	// and write more tests there.
+	seriesName := "sparse_histogram_series"
+	lbls := labels.FromStrings("__name__", seriesName)
+
+	type filterFunc func(v int) (int, bool)
+	defaultFilterFunc := func(v int) (int, bool) { return v, false }
+
+	tests := []struct {
+		name            string
+		appendFunc      func(appender storage.Appender, lbls labels.Labels, ts, value int64) error
+		filter          filterFunc
+		generateSamples func(lbls labels.Labels) error
+		expectedResult  float64
+	}{
+		{
+			name:           "No counter resets",
+			filter:         defaultFilterFunc,
+			expectedResult: 0,
+		},
+		{
+			name: "counter resets before and after interval",
+			filter: func(v int) (int, bool) {
+				if v%12 == 0 {
+					return 0, true
+				}
+				return v, false
+			},
+			expectedResult: 0,
+		},
+		{
+			name: "Counter resets in interval",
+			filter: func(v int) (int, bool) {
+				if v%2 == 0 {
+					return 0, true
+				}
+				return v, false
+			},
+			expectedResult: 2,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			engine := newTestEngine()
+			storage := teststorage.New(t)
+			t.Cleanup(func() { storage.Close() })
+
+			app := storage.Appender(context.Background())
+
+			var j int
+			for i := 0; i < 100; i++ {
+				val, isReset := tc.filter(i)
+				if isReset {
+					j = 0
+				}
+				_, err := appendFunc(app, lbls, int64(i)*int64(60*time.Second/time.Millisecond), int64(val))
+				require.NoError(t, err)
+				j++
+			}
+
+			require.NoError(t, app.Commit())
+
+			queryString := fmt.Sprintf("resets(%s[1h])", seriesName)
+			qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(int64(5*time.Minute/time.Millisecond)))
+			require.NoError(t, err)
+			res := qry.Exec(context.Background())
+			require.NoError(t, res.Err)
+
+			vector, err := res.Vector()
+			require.NoError(t, err)
+
+			require.Len(t, vector, 1)
+
+			require.Equal(t, tc.expectedResult, vector[0].F)
+		})
+	}
+}
+
+func TestOOONativeHistogramResets(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
+	}{
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, h, nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOONativeHistogramResets(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testOOONativeHistogramResets(t *testing.T,
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
+) {
+	// TODO(beorn7): Integrate histograms into the PromQL testing framework
+	// and write more tests there.
+	seriesName := "sparse_histogram_series"
+	lbls := labels.FromStrings("__name__", seriesName)
+
+	type filterFunc func(v int) (int, bool)
+	defaultFilterFunc := func(v int) (int, bool) { return v, false }
+
+	tests := []struct {
+		name            string
+		appendFunc      func(appender storage.Appender, lbls labels.Labels, ts, value int64) error
+		filter          filterFunc
+		generateSamples func(lbls labels.Labels) error
+		expectedResult  float64
+	}{
+		{
+			name:           "No counter resets",
+			filter:         defaultFilterFunc,
+			expectedResult: 0,
+		},
+		{
+			name: "counter resets before and after interval",
+			filter: func(v int) (int, bool) {
+				if v%12 == 0 {
+					return 0, true
+				}
+				return v, false
+			},
+			expectedResult: 0,
+		},
+		{
+			name: "Counter resets in interval",
+			filter: func(v int) (int, bool) {
+				if v%2 == 0 {
+					return 0, true
+				}
+				return v, false
+			},
+			expectedResult: 2,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			engine := newTestEngine()
+			storage := teststorage.New(t)
+			t.Cleanup(func() { storage.Close() })
+
+			app := storage.Appender(context.Background())
+
+			var j int
+			for i := 0; i < 100; i++ {
+				val, isReset := tc.filter(i)
+				if isReset {
+					j = 0
+				}
+				_, err := appendFunc(app, lbls, int64(i)*int64(60*time.Second/time.Millisecond), int64(val))
+				require.NoError(t, err)
+				j++
+			}
+
+			require.NoError(t, app.Commit())
+
+			queryString := fmt.Sprintf("resets(%s[1h])", seriesName)
+			qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(int64(5*time.Minute/time.Millisecond)))
+			require.NoError(t, err)
+			res := qry.Exec(context.Background())
+			require.NoError(t, res.Err)
+
+			vector, err := res.Vector()
+			require.NoError(t, err)
+
+			require.Len(t, vector, 1)
+
+			require.Equal(t, tc.expectedResult, vector[0].F)
+		})
+	}
+}
+
 func TestNativeHistogram_HistogramCountAndSum(t *testing.T) {
 	// TODO(codesome): Integrate histograms into the PromQL testing framework
 	// and write more tests there.
