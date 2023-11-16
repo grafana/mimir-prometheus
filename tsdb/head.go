@@ -27,10 +27,8 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/oklog/ulid"
 	"github.com/pkg/errors"
-	"go.uber.org/atomic"
-	"golang.org/x/exp/slices"
-
 	"github.com/prometheus/client_golang/prometheus"
+	"go.uber.org/atomic"
 
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/exemplar"
@@ -141,7 +139,6 @@ type Head struct {
 
 	memTruncationInProcess atomic.Bool
 
-	// TODO(pprus)
 	secondaryHashFunc func(labels.Labels) uint32
 }
 
@@ -194,7 +191,8 @@ type HeadOptions struct {
 	// If it is set to a negative value or zero, the default value is used.
 	WALReplayConcurrency int
 
-	// TODO(pprus)
+	// Optional hash function applied to each new series. Computed hash value is preserved for each series in the head,
+	// and values can be iterated by using Head.ForEachSecondaryHash method.
 	SecondaryHashFunction func(labels.Labels) uint32
 }
 
@@ -275,7 +273,6 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, wbl *wlog.WL, opts *Hea
 		opts.MaxExemplars.Store(0)
 	}
 
-	// TODO(pprus): set this in DefaultHeadOptions() instead?
 	shf := opts.SecondaryHashFunction
 	if shf == nil {
 		shf = func(labels.Labels) uint32 {
@@ -2278,47 +2275,15 @@ func (h *Head) updateWALReplayStatusRead(current int) {
 	h.stats.WALReplayStatus.Current = current
 }
 
-func (h *Head) CountSecondaryHashesInRanges(ranges []uint32) int {
-	count := 0
-
+func (h *Head) ForEachSecondaryHash(fn func(secondaryHash uint32)) {
 	for i := 0; i < h.series.size; i++ {
 		h.series.locks[i].RLock()
 		for _, all := range h.series.hashes[i] {
 			for _, s := range all {
-				s.RLock()
-				if hashInRanges(s.secondaryHash, ranges) {
-					count++
-				}
-				s.RUnlock()
+				// No need to lock series lock, as we're only accessing its immutable secondary hash.
+				fn(s.secondaryHash)
 			}
 		}
 		h.series.locks[i].RUnlock()
-	}
-
-	return count
-}
-
-func hashInRanges(hash uint32, ranges []uint32) bool {
-	switch {
-	case len(ranges) == 0:
-		return false
-	case hash < ranges[0]:
-		// hash comes before the first range
-		return false
-	case hash > ranges[len(ranges)-1]:
-		// hash comes after the last range
-		return false
-	}
-
-	index, found := slices.BinarySearch(ranges, hash)
-	switch {
-	case found:
-		// ranges are closed
-		return true
-	case index%2 == 1:
-		// hash would be inserted after the start of a range (even index)
-		return true
-	default:
-		return false
 	}
 }
