@@ -2275,7 +2275,7 @@ func (h *Head) updateWALReplayStatusRead(current int) {
 	h.stats.WALReplayStatus.Current = current
 }
 
-// ForEachSecondaryHash iterates over all series in the Head, and passes secondary hash of the series
+// ForEachSecondaryHash iterates over all series in the Head, and passes cached secondary hash of the series
 // to the function. No locks are held when function is called. Series may get deleted while the
 // function is running.
 func (h *Head) ForEachSecondaryHash(fn func(secondaryHash uint32)) {

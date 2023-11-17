@@ -5695,3 +5695,57 @@ func TestHeadDetectsDuplicateSampleAtSizeLimit(t *testing.T) {
 
 	require.Equal(t, numSamples/2, storedSampleCount)
 }
+
+func TestSecondaryHashFunction(t *testing.T) {
+	dir := t.TempDir()
+	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionNone)
+	require.NoError(t, err)
+
+	opts := DefaultHeadOptions()
+	opts.ChunkRange = 1000
+	opts.ChunkDirRoot = dir
+	opts.EnableExemplarStorage = true
+	opts.MaxExemplars.Store(config.DefaultExemplarsConfig.MaxExemplars)
+	opts.EnableNativeHistograms.Store(true)
+	opts.SecondaryHashFunction = func(l labels.Labels) uint32 {
+		return uint32(l.Len())
+	}
+
+	h, err := NewHead(nil, nil, wal, nil, opts, nil)
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		require.NoError(t, h.Close())
+	})
+
+	const seriesCount = 100
+	const labelsCount = 10
+
+	app := h.Appender(context.Background())
+	for ix, s := range genSeries(seriesCount, labelsCount, 0, 0) {
+		_, err := app.Append(0, s.Labels(), int64(100*ix), float64(ix))
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+
+	checkSecondaryHashes := func(expected int) {
+		reportedHashes := 0
+		h.ForEachSecondaryHash(func(secondaryHash uint32) {
+			reportedHashes++
+			require.Equal(t, uint32(labelsCount), secondaryHash)
+		})
+		require.Equal(t, expected, reportedHashes)
+	}
+
+	checkSecondaryHashes(seriesCount)
+
+	// Truncate head, remove half of the series (because their timestamp is before supplied truncation MinT)
+	require.NoError(t, h.Truncate(100*(seriesCount/2)))
+
+	// There should be 50 reported series now.
+	checkSecondaryHashes(50)
+
+	// Truncate head again, remove all series, remove half of the series (because their timestamp is before supplied truncation MinT)
+	require.NoError(t, h.Truncate(100*seriesCount))
+	checkSecondaryHashes(0)
+}
