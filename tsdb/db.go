@@ -237,7 +237,8 @@ type Options struct {
 	// regardless of the `concurrent` param.
 	BlockPostingsForMatchersCacheForce bool
 
-	// TODO(pprus)
+	// This function is applied to each series in the head, and returned value is preserved. Hashes for all series in the Head
+	// are available by calling ForEachSecondaryHash function on the Head.
 	SecondaryHashFunction func(labels.Labels) uint32
 }
 

@@ -1999,7 +1999,7 @@ type memSeries struct {
 	// Series labels hash to use for sharding purposes.
 	shardHash uint64
 
-	// TODO(pprus)
+	// Value returned by secondary hash function.
 	secondaryHash uint32
 
 	// Immutable chunks on disk that have not yet gone into a block, in order of ascending time stamps.
@@ -2275,6 +2275,9 @@ func (h *Head) updateWALReplayStatusRead(current int) {
 	h.stats.WALReplayStatus.Current = current
 }
 
+// ForEachSecondaryHash iterates over all series in the Head, and passes secondary hash of the series
+// to the function. No locks are held when function is called. Series may get deleted while the
+// function is running.
 func (h *Head) ForEachSecondaryHash(fn func(secondaryHash uint32)) {
 	for i := 0; i < h.series.size; i++ {
 		h.series.locks[i].RLock()
