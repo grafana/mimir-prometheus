@@ -17,12 +17,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/prometheus/prometheus/tsdb"
 	"math"
 	"os"
 	"sort"
 	"testing"
 	"time"
+
+	"github.com/prometheus/prometheus/tsdb"
 
 	"github.com/go-kit/log"
 
@@ -3281,6 +3282,9 @@ func TestNativeHistogramRateWithCounterResets(t *testing.T) {
 	}
 }
 
+// The ZeroCount, Count, and Sum values in the expectedHistogram come from multiplying
+// the histogram that results from the histogramRate function by a factor. The factor is
+// determined by the formula: (extrapolateToInterval / sampledInterval) / seconds in interval
 func testNativeHistogramRateWithCounterResets(t *testing.T,
 	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
 ) {
@@ -3303,6 +3307,9 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 			name:            "Counter reset at beginning of interval",
 			counterResetIdx: 16,
 			filter:          defaultFilterFunc,
+			// Since the counter reset is at the first sample in the 5-minute interval
+			// the DetectReset logic is not applied, so the resulting histogram is the same
+			// as it would be if no counter reset was present
 			expectedHistogram: &histogram.FloatHistogram{
 				CounterResetHint: histogram.GaugeType,
 				Schema:           1,
@@ -3561,10 +3568,7 @@ func testOOONativeHistogramRateWithCounterResets(t *testing.T,
 					from:  16,
 					until: 100,
 					filter: func(v int64) bool {
-						if v == 16 {
-							return true
-						}
-						return false
+						return v == 16
 					},
 				},
 			},
@@ -3600,10 +3604,7 @@ func testOOONativeHistogramRateWithCounterResets(t *testing.T,
 					from:  16,
 					until: 21,
 					filter: func(v int64) bool {
-						if v == 18 {
-							return true
-						}
-						return false
+						return v == 18
 					},
 				},
 			},
@@ -3634,10 +3635,7 @@ func testOOONativeHistogramRateWithCounterResets(t *testing.T,
 					from:  17,
 					until: 200,
 					filter: func(v int64) bool {
-						if v == 20 {
-							return true
-						}
-						return false
+						return v == 20
 					},
 				},
 			},
@@ -4031,8 +4029,8 @@ func testNativeHistogramResets(t *testing.T,
 	seriesName := "sparse_histogram_series"
 	lbls := labels.FromStrings("__name__", seriesName)
 
-	type filterFunc func(v int) (int, bool)
-	defaultFilterFunc := func(v int) (int, bool) { return v, false }
+	type filterFunc func(v int) bool
+	defaultFilterFunc := func(v int) bool { return false }
 
 	tests := []struct {
 		name            string
@@ -4048,21 +4046,15 @@ func testNativeHistogramResets(t *testing.T,
 		},
 		{
 			name: "counter resets before and after interval",
-			filter: func(v int) (int, bool) {
-				if v%12 == 0 {
-					return 0, true
-				}
-				return v, false
+			filter: func(v int) bool {
+				return v%12 == 0
 			},
 			expectedResult: 0,
 		},
 		{
 			name: "Counter resets in interval",
-			filter: func(v int) (int, bool) {
-				if v%2 == 0 {
-					return 0, true
-				}
-				return v, false
+			filter: func(v int) bool {
+				return v%2 == 0
 			},
 			expectedResult: 2,
 		},
@@ -4077,11 +4069,11 @@ func testNativeHistogramResets(t *testing.T,
 
 			var j int
 			for i := 0; i < 100; i++ {
-				val, isReset := tc.filter(i)
-				if isReset {
+				resetCount := tc.filter(i)
+				if resetCount {
 					j = 0
 				}
-				_, err := appendFunc(app, lbls, int64(i)*int64(60*time.Second/time.Millisecond), int64(val))
+				_, err := appendFunc(app, lbls, int64(i)*int64(60*time.Second/time.Millisecond), int64(j))
 				require.NoError(t, err)
 				j++
 			}
