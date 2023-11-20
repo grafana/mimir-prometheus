@@ -96,7 +96,7 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 	}
 }
 
-func compareSamples(t *testing.T, name string, expected []chunks.Sample, actual []chunks.Sample, ignoreCounterResets bool) {
+func compareSamples(t *testing.T, name string, expected, actual []chunks.Sample, ignoreCounterResets bool) {
 	for i, s := range expected {
 		expectedSample := s
 		actualSample := actual[i]
