@@ -88,39 +88,43 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 		actualItem, ok := actual[name]
 		require.True(t, ok, "Expected series %s not found", name)
 		require.Equal(t, len(expectedItem), len(actualItem), "Length not expected for %s", name)
-		for i, s := range expectedItem {
-			expectedSample := s
-			actualSample := actualItem[i]
-			require.Equal(t, expectedSample.T(), expectedSample.T(), "Different timestamps for %s[%d]", name, i)
-			require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d] at ts %d", name, i, expectedSample.T())
-			switch {
-			case s.H() != nil:
-				{
-					expectedHist := expectedSample.H()
-					actualHist := actualSample.H()
-					if ignoreCounterResets && expectedHist.CounterResetHint != histogram.GaugeType {
-						expectedHist.CounterResetHint = histogram.UnknownCounterReset
-						actualHist.CounterResetHint = histogram.UnknownCounterReset
-					}
-					require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
-				}
-			case s.FH() != nil:
-				{
-					expectedHist := expectedSample.FH()
-					actualHist := actualSample.FH()
-					if ignoreCounterResets && expectedHist.CounterResetHint != histogram.GaugeType {
-						expectedHist.CounterResetHint = histogram.UnknownCounterReset
-						actualHist.CounterResetHint = histogram.UnknownCounterReset
-					}
-					require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
-				}
-			default:
-				require.Equal(t, expectedSample, expectedSample, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
-			}
-		}
+		compareSamples(t, name, expectedItem, actualItem, ignoreCounterResets)
 	}
 	for name := range actual {
 		_, ok := expected[name]
 		require.True(t, ok, "Unexpected series %s", name)
+	}
+}
+
+func compareSamples(t *testing.T, name string, expected []chunks.Sample, actual []chunks.Sample, ignoreCounterResets bool) {
+	for i, s := range expected {
+		expectedSample := s
+		actualSample := actual[i]
+		require.Equal(t, expectedSample.T(), expectedSample.T(), "Different timestamps for %s[%d]", name, i)
+		require.Equal(t, expectedSample.Type().String(), actualSample.Type().String(), "Different types for %s[%d] at ts %d", name, i, expectedSample.T())
+		switch {
+		case s.H() != nil:
+			{
+				expectedHist := expectedSample.H()
+				actualHist := actualSample.H()
+				if ignoreCounterResets && expectedHist.CounterResetHint != histogram.GaugeType {
+					expectedHist.CounterResetHint = histogram.UnknownCounterReset
+					actualHist.CounterResetHint = histogram.UnknownCounterReset
+				}
+				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
+			}
+		case s.FH() != nil:
+			{
+				expectedHist := expectedSample.FH()
+				actualHist := actualSample.FH()
+				if ignoreCounterResets {
+					expectedHist.CounterResetHint = histogram.UnknownCounterReset
+					actualHist.CounterResetHint = histogram.UnknownCounterReset
+				}
+				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
+			}
+		default:
+			require.Equal(t, expectedSample, expectedSample, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
+		}
 	}
 }
