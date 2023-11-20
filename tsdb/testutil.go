@@ -110,6 +110,8 @@ func compareSamples(t *testing.T, name string, expected, actual []chunks.Sample,
 				if ignoreCounterResets && expectedHist.CounterResetHint != histogram.GaugeType {
 					expectedHist.CounterResetHint = histogram.UnknownCounterReset
 					actualHist.CounterResetHint = histogram.UnknownCounterReset
+				} else {
+					require.Equal(t, expectedHist.CounterResetHint, actualHist.CounterResetHint, "Sample header doesn't match for %s[%d] at ts %d, expected: %s, actual: %s", name, i, expectedSample.T(), counterResetAsString(expectedHist.CounterResetHint), counterResetAsString(actualHist.CounterResetHint))
 				}
 				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 			}
@@ -120,6 +122,8 @@ func compareSamples(t *testing.T, name string, expected, actual []chunks.Sample,
 				if ignoreCounterResets {
 					expectedHist.CounterResetHint = histogram.UnknownCounterReset
 					actualHist.CounterResetHint = histogram.UnknownCounterReset
+				} else {
+					require.Equal(t, expectedHist.CounterResetHint, actualHist.CounterResetHint, "Sample header doesn't match for %s[%d] at ts %d, expected: %s, actual: %s", name, i, expectedSample.T(), counterResetAsString(expectedHist.CounterResetHint), counterResetAsString(actualHist.CounterResetHint))
 				}
 				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 			}
@@ -127,4 +131,18 @@ func compareSamples(t *testing.T, name string, expected, actual []chunks.Sample,
 			require.Equal(t, expectedSample, expectedSample, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 		}
 	}
+}
+
+func counterResetAsString(h histogram.CounterResetHint) string {
+	switch h {
+	case histogram.UnknownCounterReset:
+		return "UnknownCounterReset"
+	case histogram.CounterReset:
+		return "CounterReset"
+	case histogram.NotCounterReset:
+		return "NotCounterReset"
+	case histogram.GaugeType:
+		return "GaugeType"
+	}
+	panic("Unexpected counter reset type")
 }
