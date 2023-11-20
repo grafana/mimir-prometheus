@@ -5723,6 +5723,269 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	})
 }
 
+func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
+	//TODO: float histograms as well
+	dir := t.TempDir()
+	ctx := context.Background()
+
+	opts := DefaultOptions()
+	opts.OutOfOrderCapMax = 30
+	opts.OutOfOrderTimeWindow = 500 * time.Minute.Milliseconds()
+
+	db, err := Open(dir, nil, nil, opts, nil)
+	require.NoError(t, err)
+	db.DisableCompactions() // We want to manually call it.
+	db.EnableNativeHistograms()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	//TODO: add series two
+	//TODO: check counter reset headers
+
+	series1 := labels.FromStrings("foo", "bar1")
+	//series2 := labels.FromStrings("foo", "bar2")
+
+	var series1ExpectedSamples []chunks.Sample
+
+	addSample := func(ts int64, l labels.Labels, val int, hint histogram.CounterResetHint) sample {
+		app := db.Appender(context.Background())
+		h := tsdbutil.GenerateTestHistogram(val)
+		h.CounterResetHint = hint
+		tsMs := ts * time.Minute.Milliseconds()
+		_, err := app.AppendHistogram(0, l, tsMs, h, nil)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		return sample{t: tsMs, h: &(*h)}
+	}
+
+	// Add an in-order sample.
+	s := addSample(520, series1, 1000000, histogram.UnknownCounterReset)
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
+
+	// Verify that the in-memory ooo chunk is empty.
+	checkEmptyOOOChunk := func(lbls labels.Labels) {
+		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.Nil(t, ms.ooo)
+	}
+
+	checkEmptyOOOChunk(series1)
+	//checkEmptyOOOChunk(series2)
+
+	// Chunk 1 - one explicit counter reset at ts 250
+	// Add ten OOO samples
+	for i := 100; i < 200; i += 10 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+
+	// explicit counter reset
+	s = addSample(250, series1, 100000+250, histogram.CounterReset)
+	// TODO: should this be detected as counter reset? the chainSampleIterator decides to set this as "unknown" and the test query func reads that iterator directly (is this a problem for in-order samples too?)
+	// A proper PromQl query will likely not detect this as a counter reset because all it knows is that the header is "unknown" and the previous sample has a smaller count - is that okay?
+	s.h.CounterResetHint = histogram.UnknownCounterReset
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
+
+	// Add 19 more samples to complete a chunk
+	for i := 260; i < 450; i += 10 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		if i >= 410 {
+			s.h.CounterResetHint = histogram.NotCounterReset
+		}
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+
+	// Chunk 2 - overlaps with Chunk 1 and has one counter reset that should be detected at ts 165
+	// Add six OOO samples
+	for i := 105; i < 165; i += 10 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+
+	// detected counter reset
+	s = addSample(165, series1, 100000, histogram.UnknownCounterReset)
+	// TODO: should this be detected as counter reset? the chainSampleIterator decides to set this as "unknown" and the test query func reads that iterator directly
+	// I think in actual PromQL queries this would be detected as a counter reset since it's unknown and it'll do another calculation
+	//s.h.CounterResetHint = histogram.CounterReset // should be detected as a counter reset
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
+
+	// Add 23 more samples to complete a chunk
+	for i := 175; i < 405; i += 10 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset)
+		if i >= 205 && i < 255 { //TODO: explain - basically overlapping chunks for a while
+			s.h.CounterResetHint = histogram.NotCounterReset
+		}
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+
+	// Chunk 3 - all within one block boundary with one counter reset at 490
+	for i := 480; i < 490; i += 1 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset) //TODO: check counter resets
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+	s = addSample(int64(490), series1, 100000, histogram.UnknownCounterReset) //TODO: check counter resets
+	series1ExpectedSamples = append(series1ExpectedSamples, s)
+	for i := 491; i < 510; i += 1 {
+		s := addSample(int64(i), series1, 100000+i, histogram.UnknownCounterReset) //TODO: check counter resets
+		series1ExpectedSamples = append(series1ExpectedSamples, s)
+	}
+
+	// sort samples (as OOO samples not added in time-order)
+	sort.Slice(series1ExpectedSamples, func(i, j int) bool {
+		return series1ExpectedSamples[i].T() < series1ExpectedSamples[j].T()
+	})
+
+	// Before compaction
+	verifyDBSamples := func() {
+		expRes := map[string][]chunks.Sample{
+			series1.String(): series1ExpectedSamples,
+			//	series2.String(): series2ExpectedSamples,
+		}
+
+		q, err := db.Querier(math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		requireEqualSamples(t, expRes, actRes, false)
+	}
+
+	verifyDBSamples()
+	//TODO: series2
+
+	// Verify that the in-memory ooo chunk is not empty.
+	checkNonEmptyOOOChunk := func(lbls labels.Labels) {
+		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls)
+		require.NoError(t, err)
+		require.False(t, created)
+		require.Greater(t, ms.ooo.oooHeadChunk.chunk.NumSamples(), 0)
+		//require.Equal(t, 2, len(ms.ooo.oooMmappedChunks)) this won't work until this commit is rebased cause the explicit reset isn't acknowledged
+	}
+
+	checkNonEmptyOOOChunk(series1)
+
+	// No blocks before compaction.
+	require.Equal(t, len(db.Blocks()), 0)
+
+	// There is a 0th WBL file.
+	require.NoError(t, db.head.wbl.Sync()) // syncing to make sure wbl is flushed in windows
+	files, err := os.ReadDir(db.head.wbl.Dir())
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, "00000000", files[0].Name())
+	f, err := files[0].Info()
+	require.NoError(t, err)
+	require.Greater(t, f.Size(), int64(100))
+
+	// OOO compaction happens here.
+	require.NoError(t, db.CompactOOOHead(ctx))
+
+	// 3 blocks exist now. [0, 120), [120, 240), [240, 360) - TODO: copied from another test but block ranges have changed for this new test case
+	require.Equal(t, 5, len(db.Blocks()))
+
+	verifyDBSamples() // Blocks created out of OOO head now.
+
+	// 0th WBL file will be deleted and 1st will be the only present.
+	files, err = os.ReadDir(db.head.wbl.Dir())
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, "00000001", files[0].Name())
+	f, err = files[0].Info()
+	require.NoError(t, err)
+	require.Equal(t, int64(0), f.Size())
+
+	// OOO stuff should not be present in the Head now.
+	checkEmptyOOOChunk(series1)
+
+	verifySamples := func(block *Block, fromMins, toMins int64) {
+		var series1Samples []chunks.Sample
+
+		for _, s := range series1ExpectedSamples {
+			if s.T() >= fromMins*time.Minute.Milliseconds() {
+				// samples should be sorted, so break out of loop when we reach a timestamp that's too big
+				if s.T() > toMins*time.Minute.Milliseconds() {
+					break
+				}
+				series1Samples = append(series1Samples, s)
+			}
+		}
+		expRes := map[string][]chunks.Sample{
+			series1.String(): series1Samples,
+		}
+
+		q, err := NewBlockQuerier(block, math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+
+		actRes := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+		gotSamples := make(map[string][]chunks.Sample)
+		for k, v := range actRes {
+			var samples []chunks.Sample
+			for _, sample := range v {
+				switch sample.Type() {
+				case chunkenc.ValFloat:
+					samples = append(samples, sample)
+				case chunkenc.ValHistogram:
+					sample.H().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				case chunkenc.ValFloatHistogram:
+					sample.FH().CounterResetHint = histogram.UnknownCounterReset
+					samples = append(samples, sample)
+				}
+			}
+			gotSamples[k] = samples
+		}
+		requireEqualSamples(t, expRes, actRes, false)
+	}
+
+	// Checking for expected data in the blocks.
+	verifySamples(db.Blocks()[0], 100, 119)
+	verifySamples(db.Blocks()[1], 120, 239)
+	verifySamples(db.Blocks()[2], 240, 359)
+	verifySamples(db.Blocks()[3], 360, 440)
+	verifySamples(db.Blocks()[4], 480, 509)
+
+	// There should be a single m-map file.
+	mmapDir := mmappedChunksDir(db.head.opts.ChunkDirRoot)
+	files, err = os.ReadDir(mmapDir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+
+	// Compact the in-order head and expect another block.
+	// Since this is a forced compaction, this block is not aligned with 2h.
+	err = db.CompactHead(NewRangeHead(db.head, 500*time.Minute.Milliseconds(), 550*time.Minute.Milliseconds()))
+	require.NoError(t, err)
+	require.Equal(t, len(db.Blocks()), 6) // [0, 120), [120, 240), [240, 360), [250, 351)
+	verifySamples(db.Blocks()[5], 520, 520)
+
+	verifyDBSamples() // Blocks created out of normal and OOO head now. But not merged.
+
+	// The compaction also clears out the old m-map files. Including
+	// the file that has ooo chunks.
+	files, err = os.ReadDir(mmapDir)
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	require.Equal(t, "000001", files[0].Name())
+
+	// This will merge overlapping block.
+	require.NoError(t, db.Compact(ctx))
+
+	require.Equal(t, len(db.Blocks()), 5) // [0, 120), [120, 240), [240, 360)
+	verifySamples(db.Blocks()[0], 100, 119)
+	verifySamples(db.Blocks()[1], 120, 239)
+	verifySamples(db.Blocks()[2], 240, 359)
+	verifySamples(db.Blocks()[3], 360, 479)
+	verifySamples(db.Blocks()[4], 480, 520) //merged block
+
+	verifyDBSamples() // Final state. Blocks from normal and OOO head are merged.
+
+	//TODO: check headers
+
+	// [] = initial chunk before splitting
+	// [100-200, (explicit reset) 250-300], [105-285, 295-315]
+
+	//TODO: add block with reset in the middle of block, no overlaps in chunk with another block
+}
+
 func TestOOOCompactionFailure(t *testing.T) {
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
