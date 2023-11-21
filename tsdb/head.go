@@ -2275,18 +2275,31 @@ func (h *Head) updateWALReplayStatusRead(current int) {
 	h.stats.WALReplayStatus.Current = current
 }
 
-// ForEachSecondaryHash iterates over all series in the Head, and passes cached secondary hash of the series
-// to the function. No locks are held when function is called. Series may get deleted while the
-// function is running.
-func (h *Head) ForEachSecondaryHash(fn func(secondaryHash uint32)) {
+// ForEachSecondaryHash iterates over all series in the Head, and passes secondary hashes of the series
+// to the function. Function is called with batch of hashes, in no specific order. Hash for each series
+// in the head is included exactly once. Series for corresponding hash may be deleted while the function
+// is running, and series inserted while this function runs may be reported or ignored.
+//
+// No locks are held when function is called.
+//
+// Slice of hashes passed to the function is reused between calls.
+func (h *Head) ForEachSecondaryHash(fn func(secondaryHash []uint32)) {
+	buf := make([]uint32, 512)
+
 	for i := 0; i < h.series.size; i++ {
+		buf = buf[:0]
+
 		h.series.locks[i].RLock()
 		for _, all := range h.series.hashes[i] {
 			for _, s := range all {
 				// No need to lock series lock, as we're only accessing its immutable secondary hash.
-				fn(s.secondaryHash)
+				buf = append(buf, s.secondaryHash)
 			}
 		}
 		h.series.locks[i].RUnlock()
+
+		if len(buf) > 0 {
+			fn(buf)
+		}
 	}
 }

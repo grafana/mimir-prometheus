@@ -5730,9 +5730,12 @@ func TestSecondaryHashFunction(t *testing.T) {
 
 	checkSecondaryHashes := func(expected int) {
 		reportedHashes := 0
-		h.ForEachSecondaryHash(func(secondaryHash uint32) {
-			reportedHashes++
-			require.Equal(t, uint32(labelsCount), secondaryHash)
+		h.ForEachSecondaryHash(func(secondaryHashes []uint32) {
+			reportedHashes += len(secondaryHashes)
+
+			for _, h := range secondaryHashes {
+				require.Equal(t, uint32(labelsCount), h)
+			}
 		})
 		require.Equal(t, expected, reportedHashes)
 	}
