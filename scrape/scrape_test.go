@@ -659,6 +659,7 @@ func newBasicScrapeLoop(t testing.TB, ctx context.Context, scraper scraper, app 
 		nopMutator,
 		app,
 		nil,
+		nil,
 		0,
 		true,
 		false,
@@ -798,6 +799,7 @@ func TestScrapeLoopRun(t *testing.T) {
 		nopMutator,
 		nopMutator,
 		app,
+		nil,
 		nil,
 		0,
 		true,
@@ -941,6 +943,7 @@ func TestScrapeLoopMetadata(t *testing.T) {
 		nopMutator,
 		func(ctx context.Context) storage.Appender { return nopAppender{} },
 		cache,
+		labels.NewSymbolTable(),
 		0,
 		true,
 		false,
@@ -1469,7 +1472,7 @@ func TestScrapeLoopAppendCacheEntryButErrNotFound(t *testing.T) {
 	fakeRef := storage.SeriesRef(1)
 	expValue := float64(1)
 	metric := []byte(`metric{n="1"} 1`)
-	p, warning := textparse.New(metric, "", false)
+	p, warning := textparse.New(metric, "", false, labels.NewSymbolTable())
 	require.NoError(t, warning)
 
 	var lset labels.Labels
