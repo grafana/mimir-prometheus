@@ -3258,7 +3258,6 @@ func TestNativeFloatHistogramRate(t *testing.T) {
 	require.Equal(t, expectedHistogram, actualHistogram)
 }
 
-// Tests the rate() function for native histograms with both in-order and OOO sample ingestion and counter resets
 func TestNativeHistogramRateWithCounterResets(t *testing.T) {
 	scenarios := map[string]struct {
 		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
@@ -3294,18 +3293,17 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 	seriesName := "sparse_histogram_series"
 	lbls := labels.FromStrings("__name__", seriesName)
 
-	type filterFunc func(v int64) bool
-	defaultFilterFunc := func(v int64) bool { return false }
+	type resetFunc func(v int64) bool
+	defaultResetFunc := func(v int64) bool { return false }
 
 	type sampleBatch struct {
-		from   int64
-		until  int64
-		filter filterFunc
+		from        int64
+		until       int64
+		shouldReset resetFunc
 	}
 
 	tests := []struct {
 		name              string
-		appendFunc        func(appender storage.Appender, lbls labels.Labels, ts, value int64) error
 		batches           []sampleBatch
 		expectedHistogram *histogram.FloatHistogram
 	}{
@@ -3315,12 +3313,12 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 16 // first sample captured within interval
 					},
 				},
 			},
-			// Since the counter reset is at the first sample in the 5-minute interval
+			// Since the counter reset is at the first sample in the query interval
 			// the DetectReset logic is not applied, so the resulting histogram is the same
 			// as it would be if no counter reset was present
 			expectedHistogram: &histogram.FloatHistogram{
@@ -3342,7 +3340,7 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 18
 					},
 				},
@@ -3366,7 +3364,7 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 20 // final sample captured within interval
 					},
 				},
@@ -3390,7 +3388,7 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 16 || v == 20 // first and last samples contained within interval
 					},
 				},
@@ -3414,7 +3412,7 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 15 || v == 21 // samples immediately before and immediately after interval
 					},
 				},
@@ -3435,23 +3433,28 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 		{
 			name: "OOO samples with counter reset at beginning of interval",
 			batches: []sampleBatch{
-				// In-order batch with no counter resets
+				// In-order batches with no counter resets
 				{
-					from:   5,
-					until:  16,
-					filter: defaultFilterFunc,
+					from:        5,
+					until:       16,
+					shouldReset: defaultResetFunc,
+				},
+				{
+					from:        50,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples without counter resets
 				{
-					from:   0,
-					until:  5,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples with counter reset at beginning of interval
 				{
 					from:  16,
-					until: 100,
-					filter: func(v int64) bool {
+					until: 50,
+					shouldReset: func(v int64) bool {
 						return v == 16
 					},
 				},
@@ -3474,20 +3477,20 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with no counter resets
 				{
-					from:   0,
-					until:  16,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       16,
+					shouldReset: defaultResetFunc,
 				},
 				// In-order batch with no counter resets
 				{
-					from:   25,
-					until:  100,
-					filter: defaultFilterFunc,
+					from:        25,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 				{
 					from:  16,
 					until: 21,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 18
 					},
 				},
@@ -3510,15 +3513,15 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with counter resets
 				{
-					from:   0,
-					until:  17,
-					filter: defaultFilterFunc,
+					from:        25,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples with counter resets
 				{
-					from:  17,
-					until: 200,
-					filter: func(v int64) bool {
+					from:  0,
+					until: 25,
+					shouldReset: func(v int64) bool {
 						return v == 20
 					},
 				},
@@ -3553,7 +3556,7 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 			for _, batch := range tc.batches {
 				j := batch.from
 				for i := batch.from; i < batch.until; i++ {
-					resetCount := batch.filter(i)
+					resetCount := batch.shouldReset(i)
 					if resetCount {
 						j = 0
 					}
@@ -3612,13 +3615,13 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 	seriesName := "sparse_histogram_series"
 	lbls := labels.FromStrings("__name__", seriesName)
 
-	type filterFunc func(v int64) bool
-	defaultFilterFunc := func(v int64) bool { return false }
+	type resetFunc func(v int64) bool
+	defaultResetFunc := func(v int64) bool { return false }
 
 	type sampleBatch struct {
-		from   int64
-		until  int64
-		filter filterFunc
+		from        int64
+		until       int64
+		shouldReset resetFunc
 	}
 
 	tests := []struct {
@@ -3631,9 +3634,9 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 			name: "In-order samples with no counter reset",
 			batches: []sampleBatch{
 				{
-					from:   0,
-					until:  100,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 			},
 			expectedHistogram: &histogram.FloatHistogram{
@@ -3655,7 +3658,7 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 16 // first sample captured within interval
 					},
 				},
@@ -3683,7 +3686,7 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 18
 					},
 				},
@@ -3707,7 +3710,7 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 20 // final sample captured within interval
 					},
 				},
@@ -3731,7 +3734,7 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 16 || v == 20 // first and last samples contained within interval
 					},
 				},
@@ -3755,7 +3758,7 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 				{
 					from:  0,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 15 || v == 21 // samples immediately before and immediately after interval
 					},
 				},
@@ -3778,21 +3781,21 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with no counter resets
 				{
-					from:   5,
-					until:  16,
-					filter: defaultFilterFunc,
+					from:        5,
+					until:       16,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples without counter resets
 				{
-					from:   0,
-					until:  5,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples with counter reset at beginning of interval
 				{
 					from:  16,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 16
 					},
 				},
@@ -3815,20 +3818,20 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with no counter resets
 				{
-					from:   0,
-					until:  16,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       16,
+					shouldReset: defaultResetFunc,
 				},
 				// In-order batch with no counter resets
 				{
-					from:   25,
-					until:  100,
-					filter: defaultFilterFunc,
+					from:        25,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 				{
 					from:  16,
 					until: 21,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 18
 					},
 				},
@@ -3851,15 +3854,15 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with counter resets
 				{
-					from:   0,
-					until:  17,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       17,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples with counter resets
 				{
 					from:  17,
 					until: 200,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 20
 					},
 				},
@@ -3894,7 +3897,7 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 			for _, batch := range tc.batches {
 				j := batch.from
 				for i := batch.from; i < batch.until; i++ {
-					resetCount := batch.filter(i)
+					resetCount := batch.shouldReset(i)
 					if resetCount {
 						j = 0
 					}
@@ -3953,13 +3956,13 @@ func testNativeHistogramResets(t *testing.T,
 	seriesName := "sparse_histogram_series"
 	lbls := labels.FromStrings("__name__", seriesName)
 
-	type filterFunc func(v int64) bool
-	defaultFilterFunc := func(v int64) bool { return false }
+	type resetFunc func(v int64) bool
+	defaultResetFunc := func(v int64) bool { return false }
 
 	type sampleBatch struct {
-		from   int64
-		until  int64
-		filter filterFunc
+		from        int64
+		until       int64
+		shouldReset resetFunc
 	}
 
 	tests := []struct {
@@ -3972,9 +3975,9 @@ func testNativeHistogramResets(t *testing.T,
 			name: "In-order samples with no counter resets",
 			batches: []sampleBatch{
 				{
-					from:   0,
-					until:  100,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 			},
 			expectedResult: 0,
@@ -3984,9 +3987,9 @@ func testNativeHistogramResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with no counter resets
 				{
-					from:   0,
-					until:  100,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 			},
 			// Since the counter resets are occurring outside the interval,
@@ -3998,27 +4001,27 @@ func testNativeHistogramResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with no counter resets
 				{
-					from:   5,
-					until:  10,
-					filter: defaultFilterFunc,
+					from:        5,
+					until:       10,
+					shouldReset: defaultResetFunc,
 				},
 				// In-order batch with no counter resets
 				{
-					from:   50,
-					until:  100,
-					filter: defaultFilterFunc,
+					from:        50,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples without counter resets
 				{
-					from:   0,
-					until:  5,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples with counter resets before, during, and after interval
 				{
 					from:  10,
 					until: 50,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v%2 == 0
 					},
 				},
@@ -4032,21 +4035,21 @@ func testNativeHistogramResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order
 				{
-					from:   5,
-					until:  16,
-					filter: defaultFilterFunc,
+					from:        5,
+					until:       16,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO
 				{
-					from:   0,
-					until:  5,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples
 				{
-					from:   16,
-					until:  100,
-					filter: defaultFilterFunc,
+					from:        16,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 			},
 			expectedResult: 0,
@@ -4056,29 +4059,29 @@ func testNativeHistogramResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with no counter resets
 				{
-					from:   5,
-					until:  15,
-					filter: defaultFilterFunc,
+					from:        5,
+					until:       15,
+					shouldReset: defaultResetFunc,
 				},
 				// In-order batch with counter reset (after interval)
 				{
 					from:  21,
 					until: 100,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 21
 					},
 				},
 				// OOO samples without counter resets
 				{
-					from:   0,
-					until:  5,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples with counter reset (before interval)
 				{
 					from:  15,
 					until: 21,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v == 15
 					},
 				},
@@ -4092,27 +4095,27 @@ func testNativeHistogramResets(t *testing.T,
 			batches: []sampleBatch{
 				// In-order batch with no counter resets
 				{
-					from:   5,
-					until:  10,
-					filter: defaultFilterFunc,
+					from:        5,
+					until:       10,
+					shouldReset: defaultResetFunc,
 				},
 				// In-order
 				{
-					from:   50,
-					until:  100,
-					filter: defaultFilterFunc,
+					from:        50,
+					until:       100,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples without counter resets
 				{
-					from:   0,
-					until:  5,
-					filter: defaultFilterFunc,
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
 				},
 				// OOO samples with counter resets throughout interval (and before and after)
 				{
 					from:  10,
 					until: 50,
-					filter: func(v int64) bool {
+					shouldReset: func(v int64) bool {
 						return v%2 == 0
 					},
 				},
@@ -4138,7 +4141,7 @@ func testNativeHistogramResets(t *testing.T,
 			for _, batch := range tc.batches {
 				j := batch.from
 				for i := batch.from; i < batch.until; i++ {
-					resetCount := batch.filter(j)
+					resetCount := batch.shouldReset(j)
 					if resetCount {
 						j = 0
 					}
