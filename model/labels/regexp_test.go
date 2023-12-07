@@ -327,6 +327,20 @@ func TestFindSetMatches(t *testing.T) {
 	}
 }
 
+func TestFastRegexMatcher_SetMatches_ShouldReturnACopy(t *testing.T) {
+	m, err := newFastRegexMatcherWithoutCache("a|b")
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b"}, m.SetMatches())
+
+	// Manipulate the returned slice.
+	matches := m.SetMatches()
+	matches[0] = "xxx"
+	matches[1] = "yyy"
+
+	// Ensure that if we call SetMatches() again we get the original one.
+	require.Equal(t, []string{"a", "b"}, m.SetMatches())
+}
+
 func BenchmarkFastRegexMatcher(b *testing.B) {
 	// Init the random seed with a constant, so that it doesn't change between runs.
 	randGenerator := rand.New(rand.NewSource(1))
