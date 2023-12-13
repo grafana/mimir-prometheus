@@ -450,8 +450,8 @@ func (ir *OOOCompactionHeadIndexReader) ShardedPostings(p index.Postings, shardI
 	return ir.ch.oooIR.ShardedPostings(p, shardIndex, shardCount)
 }
 
-func (ir *OOOCompactionHeadIndexReader) LabelValuesIntersectingPostings(name string, postings index.Postings) storage.LabelValues {
-	return ir.ch.oooIR.LabelValuesIntersectingPostings(name, postings)
+func (ir *OOOCompactionHeadIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
+	return ir.ch.oooIR.LabelValuesFor(postings, name)
 }
 
 func (ir *OOOCompactionHeadIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {

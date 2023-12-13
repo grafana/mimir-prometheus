@@ -10,7 +10,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
-func TestReader_LabelValuesIntersectingPostings(t *testing.T) {
+func TestReader_LabelValuesFor(t *testing.T) {
 	ctx := context.Background()
 
 	fn := filepath.Join(t.TempDir(), indexFilename)
@@ -51,7 +51,7 @@ func TestReader_LabelValuesIntersectingPostings(t *testing.T) {
 	p, err := ir.Postings(ctx, "a", "1")
 	require.NoError(t, err)
 
-	it := ir.LabelValuesIntersectingPostings("b", p)
+	it := ir.LabelValuesFor(p, "b")
 	var vals []string
 	for it.Next() {
 		vals = append(vals, it.At())
@@ -62,14 +62,14 @@ func TestReader_LabelValuesIntersectingPostings(t *testing.T) {
 	require.Equal(t, []string{"1", "2", "3", "4"}, vals)
 
 	t.Run("empty result set", func(t *testing.T) {
-		it := ir.LabelValuesIntersectingPostings("c", p)
+		it := ir.LabelValuesFor(p, "c")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
 	})
 }
 
-func TestMemPostings_LabelValuesIntersectingPosts(t *testing.T) {
+func TestMemPostings_LabelValuesFor(t *testing.T) {
 	mp := NewMemPostings()
 	mp.Add(1, labels.FromStrings("a", "1"))
 	mp.Add(1, labels.FromStrings("b", "1"))
@@ -83,7 +83,7 @@ func TestMemPostings_LabelValuesIntersectingPosts(t *testing.T) {
 	mp.Add(5, labels.FromStrings("b", "5"))
 	p := mp.Get("a", "1")
 
-	it := mp.LabelValuesIntersectingPostings("b", p)
+	it := mp.LabelValuesFor(p, "b")
 
 	var vals []string
 	for it.Next() {
@@ -95,7 +95,7 @@ func TestMemPostings_LabelValuesIntersectingPosts(t *testing.T) {
 	require.Equal(t, []string{"1", "2", "3", "4"}, vals)
 
 	t.Run("empty result set", func(t *testing.T) {
-		it := mp.LabelValuesIntersectingPostings("c", p)
+		it := mp.LabelValuesFor(p, "c")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())

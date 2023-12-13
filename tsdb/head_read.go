@@ -174,8 +174,9 @@ func (h *headIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 	return index.NewListPostings(out)
 }
 
-func (h *headIndexReader) LabelValuesIntersectingPostings(name string, postings index.Postings) storage.LabelValues {
-	return h.head.postings.LabelValuesIntersectingPostings(name, postings)
+// LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
+func (h *headIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
+	return h.head.postings.LabelValuesFor(postings, name)
 }
 
 // Series returns the series for the given reference.

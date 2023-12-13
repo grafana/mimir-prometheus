@@ -554,7 +554,7 @@ func TestMemSeries_chunk(t *testing.T) {
 	}
 }
 
-func TestHeadIndexReader_LabelValuesIntersectingPostings(t *testing.T) {
+func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 	t.Run("empty postings", func(t *testing.T) {
 		r := headIndexReader{
 			head: &Head{
@@ -562,7 +562,7 @@ func TestHeadIndexReader_LabelValuesIntersectingPostings(t *testing.T) {
 			},
 		}
 
-		it := r.LabelValuesIntersectingPostings("test", index.EmptyPostings())
+		it := r.LabelValuesFor(index.EmptyPostings(), "test")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())

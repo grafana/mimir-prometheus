@@ -2408,7 +2408,7 @@ func (m mockIndex) ShardedPostings(p index.Postings, shardIndex, shardCount uint
 	return index.NewListPostings(out)
 }
 
-func (mockIndex) LabelValuesIntersectingPostings(string, index.Postings) storage.LabelValues {
+func (mockIndex) LabelValuesFor(index.Postings, string) storage.LabelValues {
 	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
 }
 
