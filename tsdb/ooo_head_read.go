@@ -179,6 +179,28 @@ func (oh *OOOHeadIndexReader) LabelValues(ctx context.Context, name string, matc
 	return labelValuesWithMatchers(ctx, oh, name, matchers...)
 }
 
+// LabelValuesStream needs to be overridden from the headIndexReader implementation due
+// to the check that happens at the beginning where we make sure that the query
+// interval overlaps with the head minooot and maxooot.
+func (oh *OOOHeadIndexReader) LabelValuesStream(ctx context.Context, name string, matchers ...*labels.Matcher) storage.LabelValues {
+	if oh.maxt < oh.head.MinOOOTime() || oh.mint > oh.head.MaxOOOTime() {
+		return storage.EmptyLabelValues()
+	}
+
+	ownMatchers := 0
+	for _, m := range matchers {
+		if m.Name == name {
+			ownMatchers++
+		}
+	}
+	if ownMatchers == len(matchers) {
+		return oh.head.postings.LabelValuesStream(ctx, name, matchers...)
+	}
+
+	// There are matchers on other label names than the requested one, so will need to intersect matching series
+	return labelValuesForMatchersStream(ctx, oh, name, matchers)
+}
+
 type chunkMetaAndChunkDiskMapperRef struct {
 	meta     chunks.Meta
 	ref      chunks.ChunkDiskMapperRef

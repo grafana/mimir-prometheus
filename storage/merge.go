@@ -218,6 +218,121 @@ func mergeStrings(a, b []string) []string {
 	return res
 }
 
+// LabelValuesStream implements LabelQuerier.
+func (q *mergeGenericQuerier) LabelValuesStream(ctx context.Context, name string, matchers ...*labels.Matcher) LabelValues {
+	if len(q.queriers) == 0 {
+		return EmptyLabelValues()
+	}
+	if len(q.queriers) == 1 {
+		return q.queriers[0].LabelValuesStream(ctx, name, matchers...)
+	}
+
+	h := make(labelValuesHeap, 0, len(q.queriers))
+	var ws annotations.Annotations
+	for _, sq := range q.queriers {
+		it := sq.LabelValuesStream(ctx, name, matchers...)
+		switch {
+		case it.Next():
+			h = append(h, it)
+		case it.Err() != nil:
+			return errLabelValues{
+				err:      it.Err(),
+				warnings: it.Warnings(),
+			}
+		case len(it.Warnings()) > 0:
+			// Iterator is immediately exhausted, but keep its warnings
+			ws.Merge(it.Warnings())
+		}
+	}
+
+	return &mergedLabelValues{
+		h:        h,
+		warnings: ws,
+	}
+}
+
+// mergedLabelValues is a label values iterator merging a collection of sub-iterators.
+type mergedLabelValues struct {
+	h           labelValuesHeap
+	cur         string
+	initialized bool
+	err         error
+	warnings    annotations.Annotations
+}
+
+func (m *mergedLabelValues) Next() bool {
+	if m.h.Len() == 0 || m.err != nil {
+		return false
+	}
+
+	if !m.initialized {
+		heap.Init(&m.h)
+		m.cur = m.h[0].At()
+		m.initialized = true
+		return true
+	}
+
+	for {
+		cur := m.h[0]
+		if !cur.Next() {
+			heap.Pop(&m.h)
+			if len(cur.Warnings()) > 0 {
+				m.warnings.Merge(cur.Warnings())
+			}
+			if cur.Err() != nil {
+				m.err = cur.Err()
+				return false
+			}
+			if m.h.Len() == 0 {
+				return false
+			}
+		} else {
+			// Heap top has changed, fix up
+			heap.Fix(&m.h, 0)
+		}
+
+		if m.h[0].At() > m.cur {
+			m.cur = m.h[0].At()
+			return true
+		}
+	}
+}
+
+func (m *mergedLabelValues) At() string {
+	return m.cur
+}
+
+func (m *mergedLabelValues) Err() error {
+	return m.err
+}
+
+func (m *mergedLabelValues) Warnings() annotations.Annotations {
+	return m.warnings
+}
+
+func (m *mergedLabelValues) Close() error {
+	return nil
+}
+
+// labelValuesHeap is a heap of LabelValues iterators, sorted on label value.
+type labelValuesHeap []LabelValues
+
+func (h labelValuesHeap) Len() int           { return len(h) }
+func (h labelValuesHeap) Less(i, j int) bool { return h[i].At() < h[j].At() }
+func (h labelValuesHeap) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+
+func (h *labelValuesHeap) Push(x any) {
+	*h = append(*h, x.(LabelValues))
+}
+
+func (h *labelValuesHeap) Pop() any {
+	old := *h
+	n := len(old)
+	x := old[n-1]
+	*h = old[0 : n-1]
+	return x
+}
+
 // LabelNames returns all the unique label names present in all queriers in sorted order.
 func (q *mergeGenericQuerier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	var (

@@ -554,32 +554,16 @@ func Merge(_ context.Context, its ...Postings) Postings {
 }
 
 type mergedPostings struct {
-	p   []Postings
-	hCopy       postingsHeap
-	h   *loser.Tree[storage.SeriesRef, Postings]
-	cur storage.SeriesRef
+	p     []Postings
+	h     *loser.Tree[storage.SeriesRef, Postings]
+	cur   storage.SeriesRef
 }
 
-func newMergedPostings(ctx context.Context, p []Postings) (m *mergedPostings, nonEmpty bool) {
-	ph := make(postingsHeap, 0, len(p))
+func newMergedPostings(p []Postings) (*mergedPostings, bool) {
+	const maxVal = storage.SeriesRef(math.MaxUint64) // This value must be higher than all real values used in the tree.
 
-	for _, it := range p {
-		// NOTE: mergedPostings struct requires the user to issue an initial Next.
-		switch {
-		case ctx.Err() != nil:
-			return &mergedPostings{err: ctx.Err()}, true
-		case it.Next():
-			ph = append(ph, it)
-		case it.Err() != nil:
-			return &mergedPostings{err: it.Err()}, true
-		}
-	}
-
-	if len(ph) == 0 {
-		return nil, false
-	}
-
-	return &mergedPostings{h: ph, hCopy: ph}, true
+	lt := loser.New(p, maxVal)
+	return &mergedPostings{p: p, h: lt}, true
 }
 
 func (it *mergedPostings) Next() bool {
@@ -613,22 +597,22 @@ func (it mergedPostings) At() storage.SeriesRef {
 }
 
 func (it mergedPostings) Err() error {
-	return it.err
+	for _, p := range it.p {
+		if err := p.Err(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (it *mergedPostings) Reset() {
-	// Reset the heap and its iterators
-	it.h = it.hCopy
-	for _, p := range it.h {
+	// Reset the loser tree and its iterators
+	for _, p := range it.p {
 		p.Reset()
-		// All iterators are expected to be initialized
-		if !p.Next() {
-			panic("couldn't issue initial Postings.Next()")
-		}
 	}
-	it.initialized = false
+	const maxVal = storage.SeriesRef(math.MaxUint64) // This value must be higher than all real values used in the tree.
+	it.h = loser.New(it.p, maxVal)
 	it.cur = 0
-	it.err = nil
 }
 
 // Without returns a new postings list that contains all elements from the full list that
@@ -801,7 +785,7 @@ func (it *ListPostings) Reset() {
 type bigEndianPostings struct {
 	list []byte
 	i    int
-	cur  uint32
+	cur  storage.SeriesRef
 }
 
 func newBigEndianPostings(list []byte) *bigEndianPostings {
@@ -812,7 +796,7 @@ func newBigEndianPostings(list []byte) *bigEndianPostings {
 }
 
 func (it *bigEndianPostings) At() storage.SeriesRef {
-	return storage.SeriesRef(it.cur)
+	return it.cur
 }
 
 func (it *bigEndianPostings) Next() bool {
@@ -822,12 +806,12 @@ func (it *bigEndianPostings) Next() bool {
 	}
 
 	it.i += 4
-	it.cur = binary.BigEndian.Uint32(it.list[it.i:])
+	it.cur = storage.SeriesRef(binary.BigEndian.Uint32(it.list[it.i:]))
 	return true
 }
 
 func (it *bigEndianPostings) Seek(x storage.SeriesRef) bool {
-	if storage.SeriesRef(it.cur) >= x {
+	if it.cur >= x {
 		return true
 	}
 
@@ -847,7 +831,7 @@ func (it *bigEndianPostings) Seek(x storage.SeriesRef) bool {
 	})
 	if i < num {
 		j := i * 4
-		it.cur = binary.BigEndian.Uint32(l[j:])
+		it.cur = storage.SeriesRef(binary.BigEndian.Uint32(l[j:]))
 		it.i = start + j
 		return true
 	}

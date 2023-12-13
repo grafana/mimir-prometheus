@@ -25,6 +25,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"unsafe"
 
@@ -1540,6 +1541,27 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 	return values, ctx.Err()
 }
 
+func (r *Reader) LabelValuesStream(_ context.Context, name string, matchers ...*labels.Matcher) storage.LabelValues {
+	if r.version == FormatV1 {
+		p := r.postingsV1[name]
+		if len(p) == 0 {
+			return storage.EmptyLabelValues()
+		}
+		return &labelValuesV1{
+			matchers: matchers,
+			it:       reflect.ValueOf(p).MapRange(),
+			name:     name,
+		}
+	}
+
+	p := r.postings[name]
+	if len(p) == 0 {
+		return storage.EmptyLabelValues()
+	}
+
+	return r.newLabelValuesV2(name, matchers)
+}
+
 // LabelNamesFor returns all the label names for the series referred to by IDs.
 // The names returned are sorted.
 func (r *Reader) LabelNamesFor(ctx context.Context, ids ...storage.SeriesRef) ([]string, error) {
@@ -1664,7 +1686,10 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 		return EmptyPostings(), nil
 	}
 
-	slices.Sort(values) // Values must be in order so we can step through the table on disk.
+	if len(values) > 1 {
+		// Values must be in order so we can step through the table on disk.
+		slices.Sort(values)
+	}
 	res := make([]Postings, 0, len(values))
 	skip := 0
 	valueIndex := 0

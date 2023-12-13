@@ -2327,6 +2327,11 @@ func (m mockIndex) LabelValues(_ context.Context, name string, matchers ...*labe
 	return values, nil
 }
 
+func (m mockIndex) LabelValuesStream(context.Context, string, ...*labels.Matcher) storage.LabelValues {
+	// TODO
+	return storage.EmptyLabelValues()
+}
+
 func (m mockIndex) LabelValueFor(_ context.Context, id storage.SeriesRef, label string) (string, error) {
 	return m.series[id].l.Get(label), nil
 }
@@ -3277,6 +3282,11 @@ func (m mockMatcherIndex) SortedLabelValues(context.Context, string, ...*labels.
 // LabelValues will return error if it is called.
 func (m mockMatcherIndex) LabelValues(context.Context, string, ...*labels.Matcher) ([]string, error) {
 	return []string{}, errors.New("label values called")
+}
+
+// LabelValuesStream will return a failing label values iterator.
+func (m mockMatcherIndex) LabelValuesStream(context.Context, string, ...*labels.Matcher) storage.LabelValues {
+	return storage.ErrLabelValues(errors.New("label values stream called"))
 }
 
 func (m mockMatcherIndex) LabelValueFor(context.Context, storage.SeriesRef, string) (string, error) {

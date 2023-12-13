@@ -101,3 +101,62 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 		require.Empty(t, it.Warnings())
 	})
 }
+
+func TestMemPostings_LabelValuesStream(t *testing.T) {
+	ctx := context.Background()
+	mp := NewMemPostings()
+	mp.Add(1, labels.FromStrings("a", "1"))
+	mp.Add(1, labels.FromStrings("b", "1"))
+	mp.Add(2, labels.FromStrings("a", "1"))
+	mp.Add(2, labels.FromStrings("b", "2"))
+	mp.Add(3, labels.FromStrings("a", "1"))
+	mp.Add(3, labels.FromStrings("b", "3"))
+	mp.Add(4, labels.FromStrings("a", "1"))
+	mp.Add(4, labels.FromStrings("b", "4"))
+	mp.Add(5, labels.FromStrings("a", "2"))
+	mp.Add(5, labels.FromStrings("b", "5"))
+
+	t.Run("without matchers", func(t *testing.T) {
+		it := mp.LabelValuesStream(context.Background(), "b")
+
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		require.Equal(t, []string{"1", "2", "3", "4", "5"}, vals)
+	})
+
+	t.Run("with matchers", func(t *testing.T) {
+		it := mp.LabelValuesStream(context.Background(), "b", labels.MustNewMatcher(labels.MatchRegexp, "b", "[2,3]"))
+
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		require.Equal(t, []string{"2", "3"}, vals)
+	})
+
+	// Matchers for other labels should be ignored.
+	t.Run("with matchers for another label", func(t *testing.T) {
+		it := mp.LabelValuesStream(context.Background(), "b", labels.MustNewMatcher(labels.MatchEqual, "a", "1"))
+
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		require.Equal(t, []string{"1", "2", "3", "4", "5"}, vals)
+	})
+
+	t.Run("non-existent label", func(t *testing.T) {
+		it := mp.LabelValuesStream(ctx, "c")
+		require.False(t, it.Next())
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+	})
+}

@@ -87,6 +87,30 @@ func (h *headIndexReader) LabelValues(ctx context.Context, name string, matchers
 	return labelValuesWithMatchers(ctx, h, name, matchers...)
 }
 
+// LabelValuesStream returns an iterator over label values present in
+// the head for the specific label name that are within the time range
+// mint to maxt.
+// If matchers are specified the returned result set is reduced
+// to label values of metrics matching the matchers.
+func (h *headIndexReader) LabelValuesStream(ctx context.Context, name string, matchers ...*labels.Matcher) storage.LabelValues {
+	if h.maxt < h.head.MinTime() || h.mint > h.head.MaxTime() {
+		return storage.EmptyLabelValues()
+	}
+
+	ownMatchers := 0
+	for _, m := range matchers {
+		if m.Name == name {
+			ownMatchers++
+		}
+	}
+	if ownMatchers == len(matchers) {
+		return h.head.postings.LabelValuesStream(ctx, name, matchers...)
+	}
+
+	// There are matchers on other label names than the requested one, so will need to intersect matching series
+	return labelValuesForMatchersStream(ctx, h, name, matchers)
+}
+
 // LabelNames returns all the unique label names present in the head
 // that are within the time range mint to maxt.
 func (h *headIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, error) {

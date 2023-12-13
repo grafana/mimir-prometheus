@@ -1,16 +1,159 @@
 package index
 
 import (
+	"context"
 	"fmt"
+	"reflect"
 
 	"golang.org/x/exp/slices"
 
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/encoding"
 	"github.com/prometheus/prometheus/util/annotations"
 )
 
-// LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
+type labelValuesV2 struct {
+	name      string
+	cur       string
+	dec       encoding.Decbuf
+	matchers  []*labels.Matcher
+	skip      int
+	lastVal   string
+	exhausted bool
+	err       error
+}
+
+// newLabelValuesV2 returns an iterator over label values in a v2 index.
+func (r *Reader) newLabelValuesV2(name string, matchers []*labels.Matcher) storage.LabelValues {
+	p := r.postings[name]
+
+	d := encoding.NewDecbufAt(r.b, int(r.toc.PostingsTable), nil)
+	d.Skip(p[0].off)
+	// These are always the same number of bytes, and it's faster to skip than to parse
+	skip := d.Len()
+	// Key count
+	d.Uvarint()
+	// Label name
+	d.UvarintBytes()
+	skip -= d.Len()
+
+	return &labelValuesV2{
+		name:     name,
+		matchers: matchers,
+		dec:      d,
+		lastVal:  p[len(p)-1].value,
+		skip:     skip,
+	}
+}
+
+func (l *labelValuesV2) Next() bool {
+	if l.err != nil || l.exhausted {
+		return false
+	}
+
+	// Pick the first matching label value
+	for l.dec.Err() == nil {
+		// Label value
+		val := yoloString(l.dec.UvarintBytes())
+		isMatch := true
+		for _, m := range l.matchers {
+			if m.Name != l.name {
+				// This should not happen
+				continue
+			}
+
+			if !m.Matches(val) {
+				isMatch = false
+				break
+			}
+		}
+
+		if isMatch {
+			l.cur = val
+		}
+		if val == l.lastVal {
+			l.exhausted = true
+			return isMatch
+		}
+
+		// Offset
+		l.dec.Uvarint64()
+		// Skip forward to next entry
+		l.dec.Skip(l.skip)
+
+		if isMatch {
+			break
+		}
+	}
+	if l.dec.Err() != nil {
+		// An error occurred decoding
+		l.err = fmt.Errorf("get postings offset entry: %w", l.dec.Err())
+		return false
+	}
+
+	return true
+}
+
+func (l *labelValuesV2) At() string {
+	return l.cur
+}
+
+func (l *labelValuesV2) Err() error {
+	return l.err
+}
+
+func (l *labelValuesV2) Warnings() annotations.Annotations {
+	return nil
+}
+
+func (l *labelValuesV2) Close() error {
+	return nil
+}
+
+type labelValuesV1 struct {
+	it       *reflect.MapIter
+	matchers []*labels.Matcher
+	name     string
+}
+
+func (l *labelValuesV1) Next() bool {
+loop:
+	for l.it.Next() {
+		for _, m := range l.matchers {
+			if m.Name != l.name {
+				// This should not happen
+				continue
+			}
+
+			if !m.Matches(l.At()) {
+				continue loop
+			}
+		}
+
+		// This entry satisfies all matchers
+		return true
+	}
+
+	return false
+}
+
+func (l *labelValuesV1) At() string {
+	return yoloString(l.it.Value().Bytes())
+}
+
+func (*labelValuesV1) Err() error {
+	return nil
+}
+
+func (*labelValuesV1) Warnings() annotations.Annotations {
+	return nil
+}
+
+func (*labelValuesV1) Close() error {
+	return nil
+}
+
 func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelValues {
 	if r.version == FormatV1 {
 		e := r.postingsV1[name]
@@ -242,4 +385,31 @@ func checkIntersection(p1, p2 Postings) bool {
 	}
 
 	return false
+}
+
+// LabelValuesStream returns an iterator over sorted label values for the given name.
+// The matchers should only be for the name in question.
+// LabelValues iterators need to be sorted, to enable merging of them.
+func (p *MemPostings) LabelValuesStream(_ context.Context, name string, matchers ...*labels.Matcher) storage.LabelValues {
+	p.mtx.RLock()
+
+	values := make([]string, 0, len(p.m[name]))
+loop:
+	for v := range p.m[name] {
+		for _, m := range matchers {
+			if m.Name != name {
+				// This should not happen
+				continue
+			}
+
+			if !m.Matches(v) {
+				continue loop
+			}
+		}
+		values = append(values, v)
+	}
+	p.mtx.RUnlock()
+
+	slices.Sort(values)
+	return storage.NewListLabelValues(values)
 }

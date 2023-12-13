@@ -79,6 +79,10 @@ func (q *blockBaseQuerier) LabelValues(ctx context.Context, name string, matcher
 	return res, nil, err
 }
 
+func (q *blockBaseQuerier) LabelValuesStream(ctx context.Context, name string, matchers ...*labels.Matcher) storage.LabelValues {
+	return q.index.LabelValuesStream(ctx, name, matchers...)
+}
+
 func (q *blockBaseQuerier) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	res, err := q.index.LabelNames(ctx, matchers...)
 	return res, nil, err
