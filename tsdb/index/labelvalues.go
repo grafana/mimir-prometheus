@@ -11,7 +11,8 @@ import (
 	"github.com/prometheus/prometheus/util/annotations"
 )
 
-func (r *Reader) LabelValuesIntersectingPostings(name string, postings Postings) storage.LabelValues {
+// LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
+func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelValues {
 	if r.version == FormatV1 {
 		e := r.postingsV1[name]
 		if len(e) == 0 {
@@ -175,7 +176,8 @@ func (it *intersectLabelValues) Close() error {
 	return nil
 }
 
-func (p *MemPostings) LabelValuesIntersectingPostings(name string, postings Postings) storage.LabelValues {
+// LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
+func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.LabelValues {
 	p.mtx.RLock()
 	defer p.mtx.RUnlock()
 
