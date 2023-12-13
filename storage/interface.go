@@ -478,6 +478,6 @@ type LabelValues interface {
 	// Warnings is a collection of warnings that have occurred during iteration.
 	// Warnings could be non-empty even if iteration has not failed with an error.
 	Warnings() annotations.Annotations
-	// Close the iterator.
+	// Close the iterator and release held resources. Can be called multiple times.
 	Close() error
 }
