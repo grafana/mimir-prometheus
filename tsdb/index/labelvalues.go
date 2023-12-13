@@ -2,7 +2,6 @@ package index
 
 import (
 	"fmt"
-	"sort"
 
 	"golang.org/x/exp/slices"
 
@@ -179,26 +178,36 @@ func (it *intersectLabelValues) Close() error {
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.LabelValues {
 	p.mtx.RLock()
-	defer p.mtx.RUnlock()
 
 	e := p.m[name]
 	if len(e) == 0 {
+		p.mtx.RUnlock()
 		return storage.EmptyLabelValues()
 	}
 
 	// With thread safety in mind and due to random key ordering in map, we have to construct the array in memory
 	vals := make([]string, 0, len(e))
+	candidates := make([]Postings, 0, len(e))
 	for val, srs := range e {
-		p.curPostings.list = srs
-		p.curPostings.Reset()
-		postings.Reset()
+		vals = append(vals, val)
+		candidates = append(candidates, NewListPostings(srs))
+	}
+	p.mtx.RUnlock()
 
-		if checkIntersection(&p.curPostings, postings) {
-			vals = append(vals, val)
+	indexes, err := FindIntersectingPostings(postings, candidates)
+	if err != nil {
+		return storage.ErrLabelValues(err)
+	}
+
+	// Filter the values, keeping only those with intersecting postings
+	slices.Sort(indexes)
+	for i := range vals {
+		if _, ok := slices.BinarySearch(indexes, i); !ok {
+			vals = slices.Delete(vals, i, i+1)
 		}
 	}
 
-	sort.Strings(vals)
+	slices.Sort(vals)
 	return storage.NewListLabelValues(vals)
 }
 

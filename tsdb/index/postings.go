@@ -54,10 +54,9 @@ var ensureOrderBatchPool = sync.Pool{
 // EnsureOrder() must be called once before any reads are done. This allows for quick
 // unordered batch fills on startup.
 type MemPostings struct {
-	mtx         sync.RWMutex
-	m           map[string]map[string][]storage.SeriesRef
-	ordered     bool
-	curPostings ListPostings
+	mtx     sync.RWMutex
+	m       map[string]map[string][]storage.SeriesRef
+	ordered bool
 }
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
