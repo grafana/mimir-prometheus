@@ -339,14 +339,14 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 	t.Run("initial request context is cancelled, second request is not cancelled", func(t *testing.T) {
 		matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
-		expectedPostings := index.NewListPostings(nil)
+		var expectedPostings []storage.SeriesRef
 
 		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 
-			return expectedPostings, nil
+			return index.NewListPostings(expectedPostings), nil
 		}, &timeNowMock{}, false)
 
 		ctx1, cancel := context.WithCancel(context.Background())
@@ -355,9 +355,10 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 
 		ctx2 := context.Background()
-		actualPostings, err := c.PostingsForMatchers(ctx2, indexForPostingsMock{}, true, matchers...)
+		got, err := c.PostingsForMatchers(ctx2, indexForPostingsMock{}, true, matchers...)
 		require.NoError(t, err)
-		expectedPostings.Reset()
+		actualPostings, err := index.ExpandPostings(got)
+		require.NoError(t, err)
 		require.Equal(t, expectedPostings, actualPostings)
 	})
 }

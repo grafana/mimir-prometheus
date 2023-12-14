@@ -23,11 +23,11 @@ func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelVal
 		}
 		slices.Sort(vals)
 		return &intersectLabelValuesV1{
-			e:        e,
-			values:   vals,
-			postings: postings,
-			b:        r.b,
-			dec:      r.dec,
+			e:      e,
+			values: vals,
+			cloner: NewPostingsCloner(postings),
+			b:      r.b,
+			dec:    r.dec,
 		}
 	}
 
@@ -42,23 +42,22 @@ func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelVal
 	lastVal := e[len(e)-1].value
 
 	return &intersectLabelValues{
-		d:        &d,
-		b:        r.b,
-		dec:      r.dec,
-		lastVal:  lastVal,
-		postings: postings,
+		d:       &d,
+		b:       r.b,
+		dec:     r.dec,
+		lastVal: lastVal,
+		cloner:  NewPostingsCloner(postings),
 	}
 }
 
 type intersectLabelValuesV1 struct {
-	e           map[string]uint64
-	values      []string
-	postings    Postings
-	curPostings bigEndianPostings
-	b           ByteSlice
-	dec         *Decoder
-	cur         string
-	err         error
+	e      map[string]uint64
+	values []string
+	cloner *PostingsCloner
+	b      ByteSlice
+	dec    *Decoder
+	cur    string
+	err    error
 }
 
 func (it *intersectLabelValuesV1) Next() bool {
@@ -70,13 +69,14 @@ func (it *intersectLabelValuesV1) Next() bool {
 		postingsOff := it.e[val]
 		// Read from the postings table.
 		d := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
-		if _, err := it.dec.PostingsInPlace(d.Get(), &it.curPostings); err != nil {
+		_, curPostings, err := it.dec.Postings(d.Get())
+		if err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
 		}
 
-		it.postings.Reset()
-		if checkIntersection(&it.curPostings, it.postings) {
+		postings := it.cloner.Clone()
+		if checkIntersection(curPostings, postings) {
 			it.cur = val
 			return true
 		}
@@ -102,16 +102,15 @@ func (it *intersectLabelValuesV1) Close() error {
 }
 
 type intersectLabelValues struct {
-	d           *encoding.Decbuf
-	b           ByteSlice
-	dec         *Decoder
-	postings    Postings
-	curPostings bigEndianPostings
-	lastVal     string
-	skip        int
-	cur         string
-	exhausted   bool
-	err         error
+	d         *encoding.Decbuf
+	b         ByteSlice
+	dec       *Decoder
+	cloner    *PostingsCloner
+	lastVal   string
+	skip      int
+	cur       string
+	exhausted bool
+	err       error
 }
 
 func (it *intersectLabelValues) Next() bool {
@@ -139,15 +138,16 @@ func (it *intersectLabelValues) Next() bool {
 		postingsOff := it.d.Uvarint64()
 		// Read from the postings table
 		d2 := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
-		if _, err := it.dec.PostingsInPlace(d2.Get(), &it.curPostings); err != nil {
+		_, curPostings, err := it.dec.Postings(d2.Get())
+		if err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
 		}
 
 		it.exhausted = v == it.lastVal
 
-		it.postings.Reset()
-		if checkIntersection(&it.curPostings, it.postings) {
+		postings := it.cloner.Clone()
+		if checkIntersection(curPostings, postings) {
 			it.cur = v
 			return true
 		}
