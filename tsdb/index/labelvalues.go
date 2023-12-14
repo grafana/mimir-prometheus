@@ -192,9 +192,9 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.Lab
 		vals = append(vals, val)
 		candidates = append(candidates, NewListPostings(srs))
 	}
-	p.mtx.RUnlock()
 
 	indexes, err := FindIntersectingPostings(postings, candidates)
+	p.mtx.RUnlock()
 	if err != nil {
 		return storage.ErrLabelValues(err)
 	}
