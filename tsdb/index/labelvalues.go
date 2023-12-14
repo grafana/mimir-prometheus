@@ -200,11 +200,12 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.Lab
 	}
 
 	// Filter the values, keeping only those with intersecting postings
-	slices.Sort(indexes)
-	for i := range vals {
-		if _, ok := slices.BinarySearch(indexes, i); !ok {
-			vals = slices.Delete(vals, i, i+1)
+	if len(vals) != len(indexes) {
+		slices.Sort(indexes)
+		for i, index := range indexes {
+			vals[i] = vals[index]
 		}
+		vals = vals[:len(indexes)]
 	}
 
 	slices.Sort(vals)
