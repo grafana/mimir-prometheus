@@ -37,11 +37,11 @@ func (r *Reader) labelValuesFor(postings Postings, name string, includeMatches b
 	lastVal := e[len(e)-1].value
 
 	return &intersectLabelValues{
-		d:              &d,
-		b:              r.b,
-		dec:            r.dec,
-		lastVal:        lastVal,
-		postings:       NewPostingsCloner(postings),
+		d:        &d,
+		b:        r.b,
+		dec:      r.dec,
+		lastVal:  lastVal,
+		postings: postings,
 		includeMatches: includeMatches,
 	}
 }
@@ -59,7 +59,7 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches
 	return &intersectLabelValuesV1{
 		postingOffsets: e,
 		values:         storage.NewListLabelValues(vals),
-		postings:       NewPostingsCloner(postings),
+		postings:       postings,
 		b:              r.b,
 		dec:            r.dec,
 		includeMatches: includeMatches,
@@ -67,14 +67,14 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches
 }
 
 type intersectLabelValuesV1 struct {
-	postingOffsets map[string]uint64
-	values         *storage.ListLabelValues
-	postings       *PostingsCloner
-	b              ByteSlice
-	dec            *Decoder
-	cur            string
-	err            error
-	includeMatches bool
+	e           map[string]uint64
+	values      []string
+	postings    Postings
+	curPostings bigEndianPostings
+	b           ByteSlice
+	dec         *Decoder
+	cur         string
+	err         error
 }
 
 func (it *intersectLabelValuesV1) Next() bool {
@@ -89,19 +89,19 @@ func (it *intersectLabelValuesV1) Next() bool {
 		postingsOff := it.postingOffsets[val]
 		// Read from the postings table.
 		d := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
-		_, curPostings, err := it.dec.Postings(d.Get())
-		if err != nil {
+		if _, err := it.dec.PostingsInPlace(d.Get(), &it.curPostings); err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
 		}
 
+		it.postings.Reset()
 		isMatch := false
 		if it.includeMatches {
-			isMatch = intersect(it.postings.Clone(), curPostings)
+			isMatch = intersect(it.postings, &it.curPostings)
 		} else {
 			// We only want to include this value if curPostings is not fully contained
 			// by the postings iterator (which is to be excluded).
-			isMatch = !contains(it.postings.Clone(), curPostings)
+			isMatch = !contains(it.postings, &it.curPostings)
 		}
 		if isMatch {
 			it.cur = val
@@ -129,15 +129,16 @@ func (it *intersectLabelValuesV1) Close() error {
 }
 
 type intersectLabelValues struct {
-	d              *encoding.Decbuf
-	b              ByteSlice
-	dec            *Decoder
-	postings       *PostingsCloner
-	lastVal        string
-	skip           int
-	cur            string
-	exhausted      bool
-	err            error
+	d           *encoding.Decbuf
+	b           ByteSlice
+	dec         *Decoder
+	postings    Postings
+	curPostings bigEndianPostings
+	lastVal     string
+	skip        int
+	cur         string
+	exhausted   bool
+	err         error
 	includeMatches bool
 }
 
@@ -165,19 +166,20 @@ func (it *intersectLabelValues) Next() bool {
 		postingsOff := int(it.d.Uvarint64())
 		// Read from the postings table
 		postingsDec := encoding.NewDecbufAt(it.b, postingsOff, castagnoliTable)
-		_, curPostings, err := it.dec.Postings(postingsDec.Get())
-		if err != nil {
+		if _, err := it.dec.PostingsInPlace(postingsDec.Get(), &it.curPostings); err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
 		}
 		it.exhausted = string(val) == it.lastVal
+
+		it.postings.Reset()
 		isMatch := false
 		if it.includeMatches {
-			isMatch = intersect(it.postings.Clone(), curPostings)
+			isMatch = intersect(it.postings, &it.curPostings)
 		} else {
 			// We only want to include this value if curPostings is not fully contained
 			// by the postings iterator (which is to be excluded).
-			isMatch = !contains(it.postings.Clone(), curPostings)
+			isMatch = !contains(it.postings, &it.curPostings)
 		}
 		if isMatch {
 			// Make sure to allocate a new string

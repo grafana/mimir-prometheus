@@ -553,6 +553,11 @@ func (p *prependPostings) Err() error {
 	return p.rest.Err()
 }
 
+func (p *prependPostings) Reset() {
+	p.ix = -1
+	p.rest.Reset()
+}
+
 func labelNamesWithMatchers(ctx context.Context, r IndexReader, matchers ...*labels.Matcher) ([]string, error) {
 	p, err := r.PostingsForMatchers(ctx, false, matchers...)
 	if err != nil {
