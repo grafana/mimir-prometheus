@@ -3779,10 +3779,15 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 		{
 			name: "OOO samples with counter reset at beginning of interval",
 			batches: []sampleBatch{
-				// In-order batch with no counter resets
+				// In-order batches with no counter resets
 				{
 					from:        5,
 					until:       16,
+					shouldReset: defaultResetFunc,
+				},
+				{
+					from:        50,
+					until:       100,
 					shouldReset: defaultResetFunc,
 				},
 				// OOO samples without counter resets
@@ -3794,7 +3799,7 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 				// OOO samples with counter reset at beginning of interval
 				{
 					from:  16,
-					until: 100,
+					until: 50,
 					shouldReset: func(v int64) bool {
 						return v == 16
 					},
