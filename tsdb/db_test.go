@@ -6196,7 +6196,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 			return series2ExpSamplesPostCompact[i].T() < series2ExpSamplesPostCompact[j].T()
 		})
 
-		verifyDBSamples := func(s1Samples []chunks.Sample, s2Samples []chunks.Sample) {
+		verifyDBSamples := func(s1Samples, s2Samples []chunks.Sample) {
 			expRes := map[string][]chunks.Sample{
 				series1.String(): s1Samples,
 				series2.String(): s2Samples,
@@ -6332,7 +6332,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 		verifyBlockSamples(db.Blocks()[1], 120, 239)
 		verifyBlockSamples(db.Blocks()[2], 240, 359)
 		verifyBlockSamples(db.Blocks()[3], 360, 479)
-		verifyBlockSamples(db.Blocks()[4], 480, 520) //merged block
+		verifyBlockSamples(db.Blocks()[4], 480, 520) // Merged block.
 
 		// Final state. Blocks from normal and OOO head are merged.
 		verifyDBSamples(series1ExpSamplesPostCompact, series2ExpSamplesPostCompact)
