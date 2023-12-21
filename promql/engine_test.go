@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/prometheus/tsdb"
+
 	"github.com/go-kit/log"
 
 	"github.com/prometheus/prometheus/util/testutil"
@@ -3272,6 +3274,7 @@ func TestNativeFloatHistogramRate(t *testing.T) {
 	lbls := labels.FromStrings("__name__", seriesName)
 
 	app := storage.Appender(context.Background())
+
 	for i, fh := range tsdbutil.GenerateTestFloatHistograms(100) {
 		_, err := app.AppendHistogram(0, lbls, int64(i)*int64(15*time.Second/time.Millisecond), nil, fh)
 		require.NoError(t, err)
@@ -3300,6 +3303,922 @@ func TestNativeFloatHistogramRate(t *testing.T) {
 		NegativeBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
 	}
 	require.Equal(t, expectedHistogram, actualHistogram)
+}
+
+func TestNativeHistogramRateWithCounterResets(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
+	}{
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, h, nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testNativeHistogramRateWithCounterResets(t, scenario.appendFunc)
+		})
+	}
+}
+
+// The ZeroCount, Count, and Sum values in the expectedHistogram come from multiplying
+// the histogram that results from the histogramRate function by a factor. The factor is
+// determined by the formula: (extrapolateToInterval / sampledInterval) / seconds in interval.
+func testNativeHistogramRateWithCounterResets(t *testing.T,
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
+) {
+	// TODO(beorn7): Integrate histograms into the PromQL testing framework
+	// and write more tests there.
+	seriesName := "sparse_histogram_series"
+	lbls := labels.FromStrings("__name__", seriesName)
+
+	type resetFunc func(v int64) bool
+	defaultResetFunc := func(v int64) bool { return false }
+
+	type sampleBatch struct {
+		from        int64
+		until       int64
+		shouldReset resetFunc
+	}
+
+	tests := []struct {
+		name              string
+		batches           []sampleBatch
+		expectedHistogram *histogram.FloatHistogram
+	}{
+		{
+			name: "In-order samples with counter reset at beginning of interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 16 // first sample captured within interval
+					},
+				},
+			},
+			// Since the counter reset is at the first sample in the query interval
+			// the DetectReset logic is not applied, so the resulting histogram is the same
+			// as it would be if no counter reset was present
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        1. / 15.,
+				Count:            0.6,
+				Sum:              1.2266666666666666,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name: "In-order samples with counter reset in the middle of interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 18
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.226666666666667,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name: "In-order samples with counter reset at end of interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 20 // final sample captured within interval
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.226666666666667,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name: "In-order samples with counter reset at beginning and end of interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 16 || v == 20 // first and last samples contained within interval
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.2266666666666666,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name: "In-order samples with counter resets before and after interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 15 || v == 21 // samples immediately before and immediately after interval
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        1. / 15.,
+				Count:            9. / 15.,
+				Sum:              1.2266666666666666,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name: "OOO samples with counter reset at beginning of interval",
+			batches: []sampleBatch{
+				// In-order batches with no counter resets
+				{
+					from:        5,
+					until:       16,
+					shouldReset: defaultResetFunc,
+				},
+				{
+					from:        50,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples without counter resets
+				{
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples with counter reset at beginning of interval
+				{
+					from:  16,
+					until: 50,
+					shouldReset: func(v int64) bool {
+						return v == 16
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        1. / 15.,
+				Count:            0.6,
+				Sum:              1.2266666666666666,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 1. / 15., 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name: "OOO samples with counter reset in middle of interval",
+			batches: []sampleBatch{
+				// In-order batch with no counter resets
+				{
+					from:        0,
+					until:       16,
+					shouldReset: defaultResetFunc,
+				},
+				// In-order batch with no counter resets
+				{
+					from:        25,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+				{
+					from:  16,
+					until: 21,
+					shouldReset: func(v int64) bool {
+						return v == 18
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.226666666666667,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
+		{
+			name: "OOO samples with counter reset at end of interval",
+			batches: []sampleBatch{
+				// In-order batch with counter resets
+				{
+					from:        25,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples with counter resets
+				{
+					from:  0,
+					until: 25,
+					shouldReset: func(v int64) bool {
+						return v == 20
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        0.08333333333333333,
+				Count:            0.65,
+				Sum:              1.226666666666667,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{1. / 15., 0.08333333333333333, 1. / 15., 1. / 15.},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			engine := newTestEngine()
+			opts := tsdb.Options{
+				EnableNativeHistograms: true,
+				OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
+				OutOfOrderCapMax:       30,
+			}
+			storage := teststorage.NewTestStorageWithOpts(t, &opts)
+			t.Cleanup(func() { storage.Close() })
+
+			app := storage.Appender(context.Background())
+
+			for _, batch := range tc.batches {
+				j := batch.from
+				for i := batch.from; i < batch.until; i++ {
+					resetCount := batch.shouldReset(i)
+					if resetCount {
+						j = 0
+					}
+					_, err := appendFunc(app, lbls, i*int64(15*time.Second/time.Millisecond), j)
+					require.NoError(t, err)
+					j++
+				}
+			}
+
+			require.NoError(t, app.Commit())
+
+			queryString := fmt.Sprintf("rate(%s[1m])", seriesName)
+			qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(int64(5*time.Minute/time.Millisecond)))
+			require.NoError(t, err)
+			res := qry.Exec(context.Background())
+			require.NoError(t, res.Err)
+			vector, err := res.Vector()
+			require.NoError(t, err)
+			require.Len(t, vector, 1)
+			actualHistogram := vector[0].H
+			require.Equal(t, tc.expectedHistogram, actualHistogram)
+		})
+	}
+}
+
+// Tests the increase() function for native histograms with both in-order and OOO sample ingestion and counter resets.
+func TestNativeHistogramIncreaseWithCounterResets(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
+	}{
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, h, nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testNativeHistogramIncreaseWithCounterResets(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
+) {
+	// TODO(beorn7): Integrate histograms into the PromQL testing framework
+	// and write more tests there.
+	seriesName := "sparse_histogram_series"
+	lbls := labels.FromStrings("__name__", seriesName)
+
+	type resetFunc func(v int64) bool
+	defaultResetFunc := func(v int64) bool { return false }
+
+	type sampleBatch struct {
+		from        int64
+		until       int64
+		shouldReset resetFunc
+	}
+
+	tests := []struct {
+		name              string
+		appendFunc        func(appender storage.Appender, lbls labels.Labels, ts, value int64) error
+		batches           []sampleBatch
+		expectedHistogram *histogram.FloatHistogram
+	}{
+		{
+			name: "In-order samples with no counter reset",
+			batches: []sampleBatch{
+				{
+					from:        0,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        4,
+				Count:            36,
+				Sum:              73.60000000000002,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 4, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 4, 4, 4},
+			},
+		},
+		{
+			name: "In-order samples with counter reset at beginning of interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 16 // first sample captured within interval
+					},
+				},
+			},
+			// Since the counter reset is at the first sample in the 5-minute interval
+			// the DetectReset logic is not applied, so the resulting histogram is the same
+			// as it would be if no counter reset were present. This is because the samples
+			// are being incremented by the same amount as they were prior to the counter reset.
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        4,
+				Count:            36,
+				Sum:              73.6,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 4, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 4, 4, 4},
+			},
+		},
+		{
+			name: "In-order samples with counter reset in the middle of interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 18
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        5,
+				Count:            39,
+				Sum:              73.60000000000002,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 5, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 5, 4, 4},
+			},
+		},
+		{
+			name: "In-order samples with counter reset at end of interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 20 // final sample captured within interval
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        5,
+				Count:            39,
+				Sum:              73.60000000000002,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 5, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 5, 4, 4},
+			},
+		},
+		{
+			name: "In-order samples with counter reset at beginning and end of interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 16 || v == 20 // first and last samples contained within interval
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        5,
+				Count:            39,
+				Sum:              73.6,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 5, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 5, 4, 4},
+			},
+		},
+		{
+			name: "In-order samples with counter resets before and after interval",
+			batches: []sampleBatch{
+				{
+					from:  0,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 15 || v == 21 // samples immediately before and immediately after interval
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        4,
+				Count:            36,
+				Sum:              73.6,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 4, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 4, 4, 4},
+			},
+		},
+		{
+			name: "OOO samples with counter reset at beginning of interval",
+			batches: []sampleBatch{
+				// In-order batches with no counter resets
+				{
+					from:        5,
+					until:       16,
+					shouldReset: defaultResetFunc,
+				},
+				{
+					from:        50,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples without counter resets
+				{
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples with counter reset at beginning of interval
+				{
+					from:  16,
+					until: 50,
+					shouldReset: func(v int64) bool {
+						return v == 16
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        4,
+				Count:            36,
+				Sum:              73.6,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 4, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 4, 4, 4},
+			},
+		},
+		{
+			name: "OOO samples with counter reset in middle of interval",
+			batches: []sampleBatch{
+				// In-order batch with no counter resets
+				{
+					from:        0,
+					until:       16,
+					shouldReset: defaultResetFunc,
+				},
+				// In-order batch with no counter resets
+				{
+					from:        25,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+				{
+					from:  16,
+					until: 21,
+					shouldReset: func(v int64) bool {
+						return v == 18
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        5,
+				Count:            39,
+				Sum:              73.60000000000002,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 5, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 5, 4, 4},
+			},
+		},
+		{
+			name: "OOO samples with counter reset at end of interval",
+			batches: []sampleBatch{
+				// In-order batch with counter resets
+				{
+					from:        0,
+					until:       17,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples with counter resets
+				{
+					from:  17,
+					until: 200,
+					shouldReset: func(v int64) bool {
+						return v == 20
+					},
+				},
+			},
+			expectedHistogram: &histogram.FloatHistogram{
+				CounterResetHint: histogram.GaugeType,
+				Schema:           1,
+				ZeroThreshold:    0.001,
+				ZeroCount:        5,
+				Count:            39,
+				Sum:              73.60000000000002,
+				PositiveSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				PositiveBuckets:  []float64{4, 5, 4, 4},
+				NegativeSpans:    []histogram.Span{{Offset: 0, Length: 2}, {Offset: 1, Length: 2}},
+				NegativeBuckets:  []float64{4, 5, 4, 4},
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			engine := newTestEngine()
+			opts := tsdb.Options{
+				EnableNativeHistograms: true,
+				OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
+				OutOfOrderCapMax:       30,
+			}
+			storage := teststorage.NewTestStorageWithOpts(t, &opts)
+			t.Cleanup(func() { storage.Close() })
+
+			app := storage.Appender(context.Background())
+
+			for _, batch := range tc.batches {
+				j := batch.from
+				for i := batch.from; i < batch.until; i++ {
+					resetCount := batch.shouldReset(i)
+					if resetCount {
+						j = 0
+					}
+					_, err := appendFunc(app, lbls, i*int64(15*time.Second/time.Millisecond), j)
+					require.NoError(t, err)
+					j++
+				}
+			}
+
+			require.NoError(t, app.Commit())
+
+			queryString := fmt.Sprintf("increase(%s[1m])", seriesName)
+			qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(int64(5*time.Minute/time.Millisecond)))
+			require.NoError(t, err)
+			res := qry.Exec(context.Background())
+			require.NoError(t, res.Err)
+			vector, err := res.Vector()
+			require.NoError(t, err)
+			require.Len(t, vector, 1)
+			actualHistogram := vector[0].H
+			require.Equal(t, tc.expectedHistogram, actualHistogram)
+		})
+	}
+}
+
+// Tests the resets() function for native histograms with both in-order and OOO sample ingestion.
+func TestNativeHistogramResets(t *testing.T) {
+	scenarios := map[string]struct {
+		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
+	}{
+		"integer histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				h := tsdbutil.GenerateTestHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, h, nil)
+			},
+		},
+		"float histogram": {
+			appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error) {
+				fh := tsdbutil.GenerateTestFloatHistogram(int(value))
+				return appender.AppendHistogram(0, lbls, ts, nil, fh)
+			},
+		},
+	}
+	for name, scenario := range scenarios {
+		t.Run(name, func(t *testing.T) {
+			testNativeHistogramResets(t, scenario.appendFunc)
+		})
+	}
+}
+
+func testNativeHistogramResets(t *testing.T,
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
+) {
+	// TODO(beorn7): Integrate histograms into the PromQL testing framework
+	// and write more tests there.
+	seriesName := "sparse_histogram_series"
+	lbls := labels.FromStrings("__name__", seriesName)
+
+	type resetFunc func(v int64) bool
+	defaultResetFunc := func(v int64) bool { return false }
+
+	type sampleBatch struct {
+		from        int64
+		until       int64
+		shouldReset resetFunc
+	}
+
+	tests := []struct {
+		name           string
+		appendFunc     func(appender storage.Appender, lbls labels.Labels, ts, value int64) error
+		batches        []sampleBatch
+		expectedResult float64
+	}{
+		{
+			name: "In-order samples with no counter resets",
+			batches: []sampleBatch{
+				{
+					from:        0,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+			},
+			expectedResult: 0,
+		},
+		{
+			name: "In-order samples with counter resets before and after interval",
+			batches: []sampleBatch{
+				// In-order batch with no counter resets
+				{
+					from:        0,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+			},
+			// Since the counter resets are occurring outside the interval,
+			// no resets should be detected
+			expectedResult: 0,
+		},
+		{
+			name: "In-order samples with counter resets in interval",
+			batches: []sampleBatch{
+				// In-order batch with no counter resets
+				{
+					from:        5,
+					until:       10,
+					shouldReset: defaultResetFunc,
+				},
+				// In-order batch with no counter resets
+				{
+					from:        50,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples without counter resets
+				{
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples with counter resets before, during, and after interval
+				{
+					from:  10,
+					until: 50,
+					shouldReset: func(v int64) bool {
+						return v%2 == 0
+					},
+				},
+			},
+			// This is adding a counter reset every other sample within the interval.
+			// The first sample's counter reset is not factored in
+			expectedResult: 2,
+		},
+		{
+			name: "OOO samples with no counter resets",
+			batches: []sampleBatch{
+				// In-order
+				{
+					from:        5,
+					until:       16,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO
+				{
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples
+				{
+					from:        16,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+			},
+			expectedResult: 0,
+		},
+		{
+			name: "OOO samples with counter resets before and after interval",
+			batches: []sampleBatch{
+				// In-order batch with no counter resets
+				{
+					from:        5,
+					until:       15,
+					shouldReset: defaultResetFunc,
+				},
+				// In-order batch with counter reset (after interval)
+				{
+					from:  21,
+					until: 100,
+					shouldReset: func(v int64) bool {
+						return v == 21
+					},
+				},
+				// OOO samples without counter resets
+				{
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples with counter reset (before interval)
+				{
+					from:  15,
+					until: 21,
+					shouldReset: func(v int64) bool {
+						return v == 15
+					},
+				},
+			},
+			// Since the counter resets are occurring outside the interval,
+			// no resets should be detected
+			expectedResult: 0,
+		},
+		{
+			name: "OOO samples with counter resets in interval",
+			batches: []sampleBatch{
+				// In-order batch with no counter resets
+				{
+					from:        5,
+					until:       10,
+					shouldReset: defaultResetFunc,
+				},
+				// In-order
+				{
+					from:        50,
+					until:       100,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples without counter resets
+				{
+					from:        0,
+					until:       5,
+					shouldReset: defaultResetFunc,
+				},
+				// OOO samples with counter resets throughout interval (and before and after)
+				{
+					from:  10,
+					until: 50,
+					shouldReset: func(v int64) bool {
+						return v%2 == 0
+					},
+				},
+			},
+			// This is adding a counter reset every other sample within the interval.
+			// The first sample's counter reset is not factored in
+			expectedResult: 2,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+			engine := newTestEngine()
+			opts := tsdb.Options{
+				EnableNativeHistograms: true,
+				OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
+				OutOfOrderCapMax:       30,
+			}
+			storage := teststorage.NewTestStorageWithOpts(t, &opts)
+			t.Cleanup(func() { storage.Close() })
+
+			app := storage.Appender(context.Background())
+
+			for _, batch := range tc.batches {
+				j := batch.from
+				for i := batch.from; i < batch.until; i++ {
+					resetCount := batch.shouldReset(j)
+					if resetCount {
+						j = 0
+					}
+					_, err := appendFunc(app, lbls, i*int64(15*time.Second/time.Millisecond), j)
+					require.NoError(t, err)
+					j++
+				}
+			}
+
+			require.NoError(t, app.Commit())
+
+			queryString := fmt.Sprintf("resets(%s[1m])", seriesName)
+			qry, err := engine.NewInstantQuery(context.Background(), storage, nil, queryString, timestamp.Time(int64(5*time.Minute/time.Millisecond)))
+			require.NoError(t, err)
+			res := qry.Exec(context.Background())
+			require.NoError(t, res.Err)
+
+			vector, err := res.Vector()
+			require.NoError(t, err)
+
+			require.Len(t, vector, 1)
+
+			require.Equal(t, tc.expectedResult, vector[0].F)
+		})
+	}
 }
 
 func TestNativeHistogram_HistogramCountAndSum(t *testing.T) {
