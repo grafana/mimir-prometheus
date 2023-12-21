@@ -3284,7 +3284,7 @@ func TestNativeHistogramRateWithCounterResets(t *testing.T) {
 
 // The ZeroCount, Count, and Sum values in the expectedHistogram come from multiplying
 // the histogram that results from the histogramRate function by a factor. The factor is
-// determined by the formula: (extrapolateToInterval / sampledInterval) / seconds in interval
+// determined by the formula: (extrapolateToInterval / sampledInterval) / seconds in interval.
 func testNativeHistogramRateWithCounterResets(t *testing.T,
 	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error),
 ) {
@@ -3582,7 +3582,7 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 	}
 }
 
-// Tests the increase() function for native histograms with both in-order and OOO sample ingestion and counter resets
+// Tests the increase() function for native histograms with both in-order and OOO sample ingestion and counter resets.
 func TestNativeHistogramIncreaseWithCounterResets(t *testing.T) {
 	scenarios := map[string]struct {
 		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
@@ -3923,7 +3923,7 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 	}
 }
 
-// Tests the resets() function for native histograms with both in-order and OOO sample ingestion
+// Tests the resets() function for native histograms with both in-order and OOO sample ingestion.
 func TestNativeHistogramResets(t *testing.T) {
 	scenarios := map[string]struct {
 		appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error)
