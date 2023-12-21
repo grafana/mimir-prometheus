@@ -4368,7 +4368,7 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 				app := head.Appender(context.Background())
 				var err error
 				if floatHisto {
-					_, err = app.AppendHistogram(0, l, ts, nil, h.ToFloat())
+					_, err = app.AppendHistogram(0, l, ts, nil, h.ToFloat(nil))
 				} else {
 					_, err = app.AppendHistogram(0, l, ts, h.Copy(), nil)
 				}
