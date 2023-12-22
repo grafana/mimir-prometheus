@@ -1501,7 +1501,6 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 		return values, nil
 
 	}
-
 	e, ok := r.postings[name]
 	if !ok {
 		return nil, nil
