@@ -4399,25 +4399,18 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 				}
 			}
 
-			h := tsdbutil.GenerateTestHistograms(1)[0]
-			h.PositiveBuckets = []int64{100, 1, 1, 1}
-			h.NegativeBuckets = []int64{100, 1, 1, 1}
-			h.Count = 1000
-
 			// Append an in-order histogram, so the rest of the samples can be detected as OOO.
-			appendHistogram(1000, h)
+			appendHistogram(1000, tsdbutil.GenerateTestHistogram(1000))
 
 			// OOO histogram
 			for i := 1; i <= 5; i++ {
-				h.Count = 1000 + uint64(i)
-				appendHistogram(100+int64(i), h)
+				appendHistogram(100+int64(i), tsdbutil.GenerateTestHistogram(1000+i))
 			}
 			// Nothing mmapped yet.
 			checkOOOExpCounterResetHeader()
 
 			// 6th observation (which triggers a head chunk mmapping).
-			h.Count = 1002
-			appendHistogram(int64(112), h)
+			appendHistogram(int64(112), tsdbutil.GenerateTestHistogram(1002))
 
 			// One mmapped chunk with (ts, val) [(101, 1001), (102, 1002), (103, 1003), (104, 1004), (105, 1005)].
 			checkOOOExpCounterResetHeader(expOOOMmappedChunks{
@@ -4428,21 +4421,16 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 			})
 
 			// Add more samples, there's a counter reset at ts 122.
-			h.Count = 1001
-			appendHistogram(int64(110), h)
-			h.Count = 904
-			appendHistogram(int64(124), h)
-			h.Count = 903
-			appendHistogram(int64(123), h)
-			h.Count = 902
-			appendHistogram(int64(122), h)
+			appendHistogram(int64(110), tsdbutil.GenerateTestHistogram(1001))
+			appendHistogram(int64(124), tsdbutil.GenerateTestHistogram(904))
+			appendHistogram(int64(123), tsdbutil.GenerateTestHistogram(903))
+			appendHistogram(int64(122), tsdbutil.GenerateTestHistogram(902))
 
 			// New samples not mmapped yet.
 			checkOOOExpCounterResetHeader()
 
 			// 11th observation (which triggers another head chunk mmapping).
-			h.Count = 2000
-			appendHistogram(int64(200), h)
+			appendHistogram(int64(200), tsdbutil.GenerateTestHistogram(2000))
 
 			// Two new mmapped chunks [(110, 1001), (112, 1002)], [(122, 902), (123, 903), (124, 904)].
 			checkOOOExpCounterResetHeader(
@@ -4461,24 +4449,16 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 			)
 
 			// Count is lower than previous sample at ts 200, so the NotCounterReset is ignored.
-			h.Count = 1000
-			h.CounterResetHint = histogram.NotCounterReset
-			appendHistogram(int64(205), h)
+			appendHistogram(int64(205), tsdbutil.SetHistogramNotCounterReset(tsdbutil.GenerateTestHistogram(1000)))
 
-			h.Count = 2010
-			h.CounterResetHint = histogram.CounterReset
-			appendHistogram(int64(210), h)
+			appendHistogram(int64(210), tsdbutil.SetHistogramCounterReset(tsdbutil.GenerateTestHistogram(2010)))
 
-			h.Count = 2020
-			h.CounterResetHint = histogram.UnknownCounterReset
-			appendHistogram(int64(220), h)
+			appendHistogram(int64(220), tsdbutil.GenerateTestHistogram(2020))
 
-			h.Count = 2005
-			appendHistogram(int64(215), h)
+			appendHistogram(int64(215), tsdbutil.GenerateTestHistogram(2005))
 
 			// 16th observation (which triggers another head chunk mmapping).
-			h.Count = 4000
-			appendHistogram(int64(350), h)
+			appendHistogram(int64(350), tsdbutil.GenerateTestHistogram(4000))
 
 			// Four new mmapped chunks: [(200, 2000)] [(205, 1000)], [(210, 2010)], [(215, 2015), (220, 2020)]
 			checkOOOExpCounterResetHeader(
@@ -4509,14 +4489,10 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 			)
 
 			// Adding five more samples (21 in total), so another mmapped chunk is created.
-			h.CounterResetHint = histogram.CounterReset
-			h.Count = 3000
-			appendHistogram(300, h)
+			appendHistogram(300, tsdbutil.SetHistogramCounterReset(tsdbutil.GenerateTestHistogram(3000)))
 
-			h.CounterResetHint = histogram.UnknownCounterReset
 			for i := 1; i <= 4; i++ {
-				h.Count = 3000 + uint64(i)
-				appendHistogram(300+int64(i), h)
+				appendHistogram(300+int64(i), tsdbutil.GenerateTestHistogram(3000+i))
 			}
 
 			// One mmapped chunk with (ts, val) [(300, 3000), (301, 3001), (302, 3002), (303, 3003), (350, 4000)].
