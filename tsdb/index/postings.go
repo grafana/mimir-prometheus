@@ -554,9 +554,9 @@ func Merge(_ context.Context, its ...Postings) Postings {
 }
 
 type mergedPostings struct {
-	p     []Postings
-	h     *loser.Tree[storage.SeriesRef, Postings]
-	cur   storage.SeriesRef
+	p   []Postings
+	h   *loser.Tree[storage.SeriesRef, Postings]
+	cur storage.SeriesRef
 }
 
 func newMergedPostings(p []Postings) (*mergedPostings, bool) {
