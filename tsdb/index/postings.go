@@ -24,11 +24,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bboreham/go-loser"
 	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/util/loser"
 )
 
 var allPostingsKey = labels.Label{}
@@ -555,7 +555,7 @@ func Merge(_ context.Context, its ...Postings) Postings {
 
 type mergedPostings struct {
 	p   []Postings
-	h   *loser.Tree[storage.SeriesRef, Postings]
+	lt  *loser.Tree[storage.SeriesRef, Postings]
 	cur storage.SeriesRef
 }
 
@@ -563,16 +563,16 @@ func newMergedPostings(p []Postings) (*mergedPostings, bool) {
 	const maxVal = storage.SeriesRef(math.MaxUint64) // This value must be higher than all real values used in the tree.
 
 	lt := loser.New(p, maxVal)
-	return &mergedPostings{p: p, h: lt}, true
+	return &mergedPostings{p: p, lt: lt}, true
 }
 
 func (it *mergedPostings) Next() bool {
 	for {
-		if !it.h.Next() {
+		if !it.lt.Next() {
 			return false
 		}
 		// Remove duplicate entries.
-		newItem := it.h.At()
+		newItem := it.lt.At()
 		if newItem != it.cur {
 			it.cur = newItem
 			return true
@@ -581,14 +581,14 @@ func (it *mergedPostings) Next() bool {
 }
 
 func (it *mergedPostings) Seek(id storage.SeriesRef) bool {
-	for !it.h.IsEmpty() && it.h.At() < id {
-		finished := !it.h.Winner().Seek(id)
-		it.h.Fix(finished)
+	for !it.lt.IsEmpty() && it.lt.At() < id {
+		finished := !it.lt.Winner().Seek(id)
+		it.lt.Fix(finished)
 	}
-	if it.h.IsEmpty() {
+	if it.lt.IsEmpty() {
 		return false
 	}
-	it.cur = it.h.At()
+	it.cur = it.lt.At()
 	return true
 }
 
@@ -610,8 +610,7 @@ func (it *mergedPostings) Reset() {
 	for _, p := range it.p {
 		p.Reset()
 	}
-	const maxVal = storage.SeriesRef(math.MaxUint64) // This value must be higher than all real values used in the tree.
-	it.h = loser.New(it.p, maxVal)
+	it.lt.Reset(it.p)
 	it.cur = 0
 }
 

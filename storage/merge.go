@@ -22,7 +22,6 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/bboreham/go-loser"
 	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -31,6 +30,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/util/annotations"
+	"github.com/prometheus/prometheus/util/loser"
 )
 
 type mergeGenericQuerier struct {
