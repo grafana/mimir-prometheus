@@ -1677,32 +1677,33 @@ func TestAsyncRuleEvaluation(t *testing.T) {
 	storage := teststorage.New(t)
 	t.Cleanup(func() { storage.Close() })
 
-	const artificialDelay = time.Second
+	const artificialDelay = 500 * time.Millisecond
 
 	var (
 		inflightQueries atomic.Int32
 		maxInflight     atomic.Int32
 	)
 
-	files := []string{"fixtures/rules_multiple.yaml"}
-	opts := &ManagerOptions{
-		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
-		Appendable: storage,
-		QueryFunc: func(ctx context.Context, q string, ts time.Time) (promql.Vector, error) {
-			inflightQueries.Add(1)
-			defer func() {
-				inflightQueries.Add(-1)
-			}()
+	optsFactory := func() *ManagerOptions {
+		return &ManagerOptions{
+			Context:    context.Background(),
+			Logger:     log.NewNopLogger(),
+			Appendable: storage,
+			QueryFunc: func(ctx context.Context, q string, ts time.Time) (promql.Vector, error) {
+				inflightQueries.Add(1)
+				defer func() {
+					inflightQueries.Add(-1)
+				}()
 
-			// Artificially delay all query executions to highlight concurrent execution improvement.
-			time.Sleep(artificialDelay)
+				// Artificially delay all query executions to highlight concurrent execution improvement.
+				time.Sleep(artificialDelay)
 
-			// Return a stub sample.
-			return promql.Vector{
-				promql.Sample{Metric: labels.FromStrings("__name__", "test"), T: ts.UnixMilli(), F: 12345},
-			}, nil
-		},
+				// Return a stub sample.
+				return promql.Vector{
+					promql.Sample{Metric: labels.FromStrings("__name__", "test"), T: ts.UnixMilli(), F: 12345},
+				}, nil
+			},
+		}
 	}
 
 	inflightTracker := func(ctx context.Context) {
@@ -1722,18 +1723,18 @@ func TestAsyncRuleEvaluation(t *testing.T) {
 		}
 	}
 
-	expectedRules := 4
-
 	t.Run("synchronous evaluation with independent rules", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 
-		ruleManager := NewManager(opts)
-		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, files...)
+		ruleManager := NewManager(optsFactory())
+		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, []string{"fixtures/rules_multiple.yaml"}...)
 		require.Empty(t, errs)
 		require.Len(t, groups, 1)
 
+		ruleCount := 4
+
 		for _, group := range groups {
-			require.Len(t, group.rules, expectedRules)
+			require.Len(t, group.rules, ruleCount)
 
 			start := time.Now()
 
@@ -1744,19 +1745,22 @@ func TestAsyncRuleEvaluation(t *testing.T) {
 
 			require.EqualValues(t, 1, maxInflight.Load())
 			// Each rule should take at least 1 second to execute sequentially.
-			require.GreaterOrEqual(t, time.Since(start).Seconds(), (time.Duration(expectedRules) * artificialDelay).Seconds())
+			require.GreaterOrEqual(t, time.Since(start).Seconds(), (time.Duration(ruleCount) * artificialDelay).Seconds())
 			// Each rule produces one vector.
-			require.EqualValues(t, expectedRules, testutil.ToFloat64(group.metrics.GroupSamples))
+			require.EqualValues(t, ruleCount, testutil.ToFloat64(group.metrics.GroupSamples))
 		}
 
 		cancel()
 	})
 
-	t.Run("asynchronous evaluation with independent rules", func(t *testing.T) {
+	t.Run("asynchronous evaluation with independent and dependent rules", func(t *testing.T) {
 		// Reset.
 		inflightQueries.Store(0)
 		maxInflight.Store(0)
 		ctx, cancel := context.WithCancel(context.Background())
+
+		ruleCount := 4
+		opts := optsFactory()
 
 		// Configure concurrency settings.
 		opts.ConcurrentEvalsEnabled = true
@@ -1764,12 +1768,12 @@ func TestAsyncRuleEvaluation(t *testing.T) {
 		opts.RuleConcurrencyController = nil
 		ruleManager := NewManager(opts)
 
-		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, files...)
+		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, []string{"fixtures/rules_multiple.yaml"}...)
 		require.Empty(t, errs)
 		require.Len(t, groups, 1)
 
 		for _, group := range groups {
-			require.Len(t, group.rules, expectedRules)
+			require.Len(t, group.rules, ruleCount)
 
 			start := time.Now()
 
@@ -1780,9 +1784,88 @@ func TestAsyncRuleEvaluation(t *testing.T) {
 			// Max inflight can be 1 synchronous eval and up to MaxConcurrentEvals concurrent evals.
 			require.EqualValues(t, opts.MaxConcurrentEvals+1, maxInflight.Load())
 			// Some rules should execute concurrently so should complete quicker.
-			require.Less(t, time.Since(start).Seconds(), (time.Duration(expectedRules) * artificialDelay).Seconds())
+			require.Less(t, time.Since(start).Seconds(), (time.Duration(ruleCount) * artificialDelay).Seconds())
 			// Each rule produces one vector.
-			require.EqualValues(t, expectedRules, testutil.ToFloat64(group.metrics.GroupSamples))
+			require.EqualValues(t, ruleCount, testutil.ToFloat64(group.metrics.GroupSamples))
+		}
+
+		cancel()
+	})
+
+	t.Run("asynchronous evaluation of all independent rules, insufficient concurrency", func(t *testing.T) {
+		// Reset.
+		inflightQueries.Store(0)
+		maxInflight.Store(0)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		ruleCount := 6
+		opts := optsFactory()
+
+		// Configure concurrency settings.
+		opts.ConcurrentEvalsEnabled = true
+		opts.MaxConcurrentEvals = 2
+		opts.RuleConcurrencyController = nil
+		ruleManager := NewManager(opts)
+
+		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, []string{"fixtures/rules_multiple_independent.yaml"}...)
+		require.Empty(t, errs)
+		require.Len(t, groups, 1)
+
+		for _, group := range groups {
+			require.Len(t, group.rules, ruleCount)
+
+			start := time.Now()
+
+			go inflightTracker(ctx)
+
+			group.Eval(ctx, start)
+
+			// Max inflight can be 1 synchronous eval and up to MaxConcurrentEvals concurrent evals.
+			require.EqualValues(t, opts.MaxConcurrentEvals+1, maxInflight.Load())
+			// Some rules should execute concurrently so should complete quicker.
+			require.Less(t, time.Since(start).Seconds(), (time.Duration(ruleCount) * artificialDelay).Seconds())
+			// Each rule produces one vector.
+			require.EqualValues(t, ruleCount, testutil.ToFloat64(group.metrics.GroupSamples))
+
+		}
+
+		cancel()
+	})
+
+	t.Run("asynchronous evaluation of all independent rules, sufficient concurrency", func(t *testing.T) {
+		// Reset.
+		inflightQueries.Store(0)
+		maxInflight.Store(0)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		ruleCount := 6
+		opts := optsFactory()
+
+		// Configure concurrency settings.
+		opts.ConcurrentEvalsEnabled = true
+		opts.MaxConcurrentEvals = int64(ruleCount) * 2
+		opts.RuleConcurrencyController = nil
+		ruleManager := NewManager(opts)
+
+		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, []string{"fixtures/rules_multiple_independent.yaml"}...)
+		require.Empty(t, errs)
+		require.Len(t, groups, 1)
+
+		for _, group := range groups {
+			require.Len(t, group.rules, ruleCount)
+
+			start := time.Now()
+
+			go inflightTracker(ctx)
+
+			group.Eval(ctx, start)
+
+			// Max inflight can be up to MaxConcurrentEvals concurrent evals, since there is sufficient concurrency to run all rules at once.
+			require.LessOrEqual(t, int64(maxInflight.Load()), opts.MaxConcurrentEvals)
+			// Some rules should execute concurrently so should complete quicker.
+			require.Less(t, time.Since(start).Seconds(), (time.Duration(ruleCount) * artificialDelay).Seconds())
+			// Each rule produces one vector.
+			require.EqualValues(t, ruleCount, testutil.ToFloat64(group.metrics.GroupSamples))
 		}
 
 		cancel()

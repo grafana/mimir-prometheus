@@ -423,8 +423,13 @@ func (g *Group) CopyState(from *Group) {
 }
 
 // Eval runs a single evaluation cycle in which all rules are evaluated sequentially.
+// Rules can be evaluated concurrently if the `concurrent-rule-eval` feature flag is enabled.
 func (g *Group) Eval(ctx context.Context, ts time.Time) {
-	var samplesTotal atomic.Float64
+	var (
+		samplesTotal atomic.Float64
+		wg           sync.WaitGroup
+	)
+
 	for i, rule := range g.rules {
 		select {
 		case <-g.done:
@@ -435,6 +440,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 		eval := func(i int, rule Rule, async bool) {
 			defer func() {
 				if async {
+					wg.Done()
 					g.opts.RuleConcurrencyController.Done()
 				}
 			}()
@@ -569,12 +575,14 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 		// Try run concurrently if there are slots available.
 		ctrl := g.opts.RuleConcurrencyController
 		if ctrl != nil && ctrl.RuleEligible(g, rule) && ctrl.Allow() {
+			wg.Add(1)
 			go eval(i, rule, true)
 		} else {
 			eval(i, rule, false)
 		}
 	}
 
+	wg.Wait()
 	if g.metrics != nil {
 		g.metrics.GroupSamples.WithLabelValues(GroupKey(g.File(), g.Name())).Set(samplesTotal.Load())
 	}
