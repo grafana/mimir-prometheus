@@ -1762,7 +1762,31 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 }
 
 func (r *Reader) PostingsForRegexp(ctx context.Context, m *labels.Matcher) Postings {
-	// TODO: Implement for v1
+	if r.version == FormatV1 {
+		e := r.postingsV1[m.Name]
+		if len(e) == 0 {
+			return EmptyPostings()
+		}
+
+		var its []Postings
+		for val, offset := range e {
+			if !m.Matches(val) {
+				continue
+			}
+
+			// Read from the postings table.
+			d := encoding.NewDecbufAt(r.b, int(offset), castagnoliTable)
+			_, p, err := r.dec.Postings(d.Get())
+			if err != nil {
+				return ErrPostings(fmt.Errorf("decode postings: %w", err))
+			}
+
+			its = append(its, p)
+		}
+
+		return Merge(ctx, its...)
+	}
+
 	e := r.postings[m.Name]
 	if len(e) == 0 {
 		return EmptyPostings()
