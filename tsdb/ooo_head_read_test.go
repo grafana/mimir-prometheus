@@ -21,8 +21,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/prometheus/model/histogram"
-
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/slices"
 
@@ -865,28 +863,9 @@ func testOOOHeadChunkReader_Chunk(t *testing.T, scenario sampleTypeScenario) {
 				require.NoError(t, err)
 				require.Nil(t, c)
 
-				var resultSamples chunks.SampleSlice
 				it := iterable.Iterator(nil)
-				for t := it.Next(); t != chunkenc.ValNone; t = it.Next() {
-					switch t {
-					case chunkenc.ValFloat:
-						t, v := it.At()
-						resultSamples = append(resultSamples, sample{t: t, f: v})
-					case chunkenc.ValHistogram:
-						t, v := it.AtHistogram()
-						if v.CounterResetHint != histogram.GaugeType {
-							v.CounterResetHint = histogram.UnknownCounterReset
-						}
-						resultSamples = append(resultSamples, sample{t: t, h: v})
-					case chunkenc.ValFloatHistogram:
-						t, v := it.AtFloatHistogram()
-						if v.CounterResetHint != histogram.GaugeType {
-							v.CounterResetHint = histogram.UnknownCounterReset
-						}
-						resultSamples = append(resultSamples, sample{t: t, fh: v})
-					}
-				}
-				require.Equal(t, tc.expChunksSamples[i], resultSamples)
+				resultSamples := samplesFromIterator(t, it)
+				compareSamples(t, s1.String(), tc.expChunksSamples[i], resultSamples, true)
 			}
 		})
 	}
@@ -1062,28 +1041,9 @@ func testOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 				require.NoError(t, err)
 				require.Nil(t, c)
 
-				var resultSamples chunks.SampleSlice
 				it := iterable.Iterator(nil)
-				for t := it.Next(); t != chunkenc.ValNone; t = it.Next() {
-					switch t {
-					case chunkenc.ValFloat:
-						t, v := it.At()
-						resultSamples = append(resultSamples, sample{t: t, f: v})
-					case chunkenc.ValHistogram:
-						t, v := it.AtHistogram()
-						if v.CounterResetHint != histogram.GaugeType {
-							v.CounterResetHint = histogram.UnknownCounterReset
-						}
-						resultSamples = append(resultSamples, sample{t: t, h: v})
-					case chunkenc.ValFloatHistogram:
-						t, v := it.AtFloatHistogram()
-						if v.CounterResetHint != histogram.GaugeType {
-							v.CounterResetHint = histogram.UnknownCounterReset
-						}
-						resultSamples = append(resultSamples, sample{t: t, fh: v})
-					}
-				}
-				require.Equal(t, tc.expChunksSamples[i], resultSamples)
+				resultSamples := samplesFromIterator(t, it)
+				compareSamples(t, s1.String(), tc.expChunksSamples[i], resultSamples, true)
 			}
 		})
 	}
