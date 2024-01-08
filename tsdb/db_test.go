@@ -107,23 +107,9 @@ func query(t testing.TB, q storage.Querier, matchers ...*labels.Matcher) map[str
 	for ss.Next() {
 		series := ss.At()
 
-		samples := []chunks.Sample{}
 		it = series.Iterator(it)
-		for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
-			switch typ {
-			case chunkenc.ValFloat:
-				ts, v := it.At()
-				samples = append(samples, sample{t: ts, f: v})
-			case chunkenc.ValHistogram:
-				ts, h := it.AtHistogram()
-				samples = append(samples, sample{t: ts, h: h})
-			case chunkenc.ValFloatHistogram:
-				ts, fh := it.AtFloatHistogram()
-				samples = append(samples, sample{t: ts, fh: fh})
-			default:
-				t.Fatalf("unknown sample type in query %s", typ.String())
-			}
-		}
+		samples := samplesFromIterator(t, it)
+
 		require.NoError(t, it.Err())
 
 		if len(samples) == 0 {
@@ -5431,26 +5417,6 @@ func test_ChunkQuerier_OOOQuery(t *testing.T,
 		return expSamples, totalAppended
 	}
 
-	extractSamples := func(it chunkenc.Iterator) []chunks.Sample {
-		var samples []chunks.Sample
-		for t := it.Next(); t != chunkenc.ValNone; t = it.Next() {
-			switch t {
-			case chunkenc.ValFloat:
-				t, v := it.At()
-				samples = append(samples, sample{t: t, f: v})
-			case chunkenc.ValHistogram:
-				t, v := it.AtHistogram()
-				v.CounterResetHint = histogram.UnknownCounterReset
-				samples = append(samples, sample{t: t, h: v})
-			case chunkenc.ValFloatHistogram:
-				t, v := it.AtFloatHistogram()
-				v.CounterResetHint = histogram.UnknownCounterReset
-				samples = append(samples, sample{t: t, fh: v})
-			}
-		}
-		return samples
-	}
-
 	type sampleBatch struct {
 		minT         int64
 		maxT         int64
@@ -5560,10 +5526,10 @@ func test_ChunkQuerier_OOOQuery(t *testing.T,
 			var gotSamples []chunks.Sample
 			for _, chunk := range chks[series1.String()] {
 				it := chunk.Chunk.Iterator(nil)
-				gotSamples = append(gotSamples, extractSamples(it)...)
+				gotSamples = append(gotSamples, samplesFromIterator(t, it)...)
 				require.NoError(t, it.Err())
 			}
-			require.Equal(t, expSamples, gotSamples)
+			compareSamples(t, series1.String(), expSamples, gotSamples, true)
 		})
 	}
 }
@@ -5849,21 +5815,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		chk, err := db.head.chunkDiskMapper.Chunk(mc.ref)
 		require.NoError(t, err)
 		it := chk.Iterator(nil)
-		for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
-			switch typ {
-			case chunkenc.ValFloat:
-				ts, val := it.At()
-				s1MmapSamples = append(s1MmapSamples, sample{t: ts, f: val})
-			case chunkenc.ValHistogram:
-				ts, val := it.AtHistogram()
-				s1MmapSamples = append(s1MmapSamples, sample{t: ts, h: val})
-			case chunkenc.ValFloatHistogram:
-				ts, val := it.AtFloatHistogram()
-				s1MmapSamples = append(s1MmapSamples, sample{t: ts, fh: val})
-			default:
-				t.Fatalf("unknown type %s", typ)
-			}
-		}
+		s1MmapSamples = append(s1MmapSamples, samplesFromIterator(t, it)...)
 	}
 	require.Greater(t, len(s1MmapSamples), 0)
 
@@ -7646,23 +7598,9 @@ func TestQueryHistogramFromBlocksWithCompaction(t *testing.T) {
 
 			for _, s := range series {
 				key := s.Labels().String()
-				it = s.Iterator(it)
 				slice := exp[key]
-				for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
-					switch typ {
-					case chunkenc.ValFloat:
-						ts, v := it.At()
-						slice = append(slice, sample{t: ts, f: v})
-					case chunkenc.ValHistogram:
-						ts, h := it.AtHistogram()
-						slice = append(slice, sample{t: ts, h: h})
-					case chunkenc.ValFloatHistogram:
-						ts, h := it.AtFloatHistogram()
-						slice = append(slice, sample{t: ts, fh: h})
-					default:
-						t.Fatalf("unexpected sample value type %d", typ)
-					}
-				}
+				it = s.Iterator(it)
+				slice = append(slice, samplesFromIterator(t, it)...)
 				sort.Slice(slice, func(i, j int) bool {
 					return slice[i].T() < slice[j].T()
 				})

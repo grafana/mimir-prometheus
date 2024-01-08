@@ -3,6 +3,8 @@ package tsdb
 import (
 	"testing"
 
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -145,4 +147,24 @@ func counterResetAsString(h histogram.CounterResetHint) string {
 		return "GaugeType"
 	}
 	panic("Unexpected counter reset type")
+}
+
+func samplesFromIterator(t testing.TB, it chunkenc.Iterator) []chunks.Sample {
+	var samples []chunks.Sample
+	for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
+		switch typ {
+		case chunkenc.ValFloat:
+			ts, val := it.At()
+			samples = append(samples, sample{t: ts, f: val})
+		case chunkenc.ValHistogram:
+			ts, val := it.AtHistogram()
+			samples = append(samples, sample{t: ts, h: val})
+		case chunkenc.ValFloatHistogram:
+			ts, val := it.AtFloatHistogram()
+			samples = append(samples, sample{t: ts, fh: val})
+		default:
+			t.Fatalf("unknown type %s", typ)
+		}
+	}
+	return samples
 }

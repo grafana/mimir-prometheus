@@ -4839,26 +4839,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	require.Len(t, chks, 1)
 
 	it := chks[0].chunk.Iterator(nil)
-	actOOOSamples := make([]chunks.Sample, 0, len(expOOOSamples))
-	for {
-		valType := it.Next()
-		if valType == chunkenc.ValNone {
-			break
-		}
-		switch valType {
-		case chunkenc.ValFloat:
-			ts, v := it.At()
-			actOOOSamples = append(actOOOSamples, sample{t: ts, f: v})
-		case chunkenc.ValHistogram:
-			ts, v := it.AtHistogram()
-			actOOOSamples = append(actOOOSamples, sample{t: ts, h: v})
-		case chunkenc.ValFloatHistogram:
-			ts, v := it.AtFloatHistogram()
-			actOOOSamples = append(actOOOSamples, sample{t: ts, fh: v})
-		default:
-			t.Error("Unexpected sample type")
-		}
-	}
+	actOOOSamples := samplesFromIterator(t, it)
 
 	// OOO chunk will be sorted. Hence sort the expected samples.
 	sort.Slice(expOOOSamples, func(i, j int) bool {
