@@ -4348,12 +4348,6 @@ func TestHistogramCounterResetHeader(t *testing.T) {
 	}
 }
 
-type expOOOMmappedChunks struct {
-	header     chunkenc.CounterResetHeader
-	mint, maxt int64
-	numSamples uint16
-}
-
 func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 	for _, floatHisto := range []bool{true, false} {
 		t.Run(fmt.Sprintf("floatHistogram=%t", floatHisto), func(t *testing.T) {
@@ -4376,6 +4370,12 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 				}
 				require.NoError(t, err)
 				require.NoError(t, app.Commit())
+			}
+
+			type expOOOMmappedChunks struct {
+				header     chunkenc.CounterResetHeader
+				mint, maxt int64
+				numSamples uint16
 			}
 
 			var expChunks []expOOOMmappedChunks
