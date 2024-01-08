@@ -394,15 +394,15 @@ func testOOOHeadChunkReader_LabelValues(t *testing.T, scenario sampleTypeScenari
 	app := head.Appender(context.Background())
 
 	// Add in-order samples
-	_, err, _ := scenario.appendFunc(app, labels.FromStrings("foo", "bar1"), 100, int64(1))
+	_, _, err := scenario.appendFunc(app, labels.FromStrings("foo", "bar1"), 100, int64(1))
 	require.NoError(t, err)
-	_, err, _ = scenario.appendFunc(app, labels.FromStrings("foo", "bar2"), 100, int64(2))
+	_, _, err = scenario.appendFunc(app, labels.FromStrings("foo", "bar2"), 100, int64(2))
 	require.NoError(t, err)
 
 	// Add ooo samples for those series
-	_, err, _ = scenario.appendFunc(app, labels.FromStrings("foo", "bar1"), 90, int64(1))
+	_, _, err = scenario.appendFunc(app, labels.FromStrings("foo", "bar1"), 90, int64(1))
 	require.NoError(t, err)
-	_, err, _ = scenario.appendFunc(app, labels.FromStrings("foo", "bar2"), 90, int64(2))
+	_, _, err = scenario.appendFunc(app, labels.FromStrings("foo", "bar2"), 90, int64(2))
 	require.NoError(t, err)
 
 	require.NoError(t, app.Commit())
@@ -844,7 +844,7 @@ func testOOOHeadChunkReader_Chunk(t *testing.T, scenario sampleTypeScenario) {
 			// OOO few samples for s1.
 			app = db.Appender(context.Background())
 			for _, s := range tc.inputSamples {
-				_, err, _ := scenario.appendFunc(app, s1, s.Ts, s.V)
+				_, _, err := scenario.appendFunc(app, s1, s.Ts, s.V)
 				require.NoError(t, err)
 			}
 			require.NoError(t, app.Commit())
@@ -1025,14 +1025,14 @@ func testOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 			db := newTestDBWithOpts(t, opts)
 
 			app := db.Appender(context.Background())
-			s1Ref, err, _ := scenario.appendFunc(app, s1, tc.firstInOrderSampleAt, tc.firstInOrderSampleAt/1*time.Minute.Milliseconds())
+			s1Ref, _, err := scenario.appendFunc(app, s1, tc.firstInOrderSampleAt, tc.firstInOrderSampleAt/1*time.Minute.Milliseconds())
 			require.NoError(t, err)
 			require.NoError(t, app.Commit())
 
 			// OOO few samples for s1.
 			app = db.Appender(context.Background())
 			for _, s := range tc.initialSamples {
-				_, err, _ := scenario.appendFunc(app, s1, s.Ts, s.V)
+				_, _, err := scenario.appendFunc(app, s1, s.Ts, s.V)
 				require.NoError(t, err)
 			}
 			require.NoError(t, app.Commit())
@@ -1050,7 +1050,7 @@ func testOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 			// OOO few samples for s1.
 			app = db.Appender(context.Background())
 			for _, s := range tc.samplesAfterSeriesCall {
-				_, err, _ = scenario.appendFunc(app, s1, s.Ts, s.V)
+				_, _, err = scenario.appendFunc(app, s1, s.Ts, s.V)
 				require.NoError(t, err)
 			}
 			require.NoError(t, app.Commit())

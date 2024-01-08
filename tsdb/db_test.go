@@ -4799,9 +4799,9 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
+			_, _, err = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -4989,9 +4989,9 @@ func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScen
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
+			_, _, err = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -5102,9 +5102,9 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScen
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
+			_, _, err = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -5213,9 +5213,9 @@ func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sa
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
+			_, _, err = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -5929,7 +5929,7 @@ func testOOOAppendAndQuery(t *testing.T, scenario sampleTypeScenario) {
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
 			val := rand.Intn(1000)
-			_, err, s := scenario.appendFunc(app, lbls, min, int64(val))
+			_, s, err := scenario.appendFunc(app, lbls, min, int64(val))
 			if faceError {
 				require.Error(t, err)
 			} else {
@@ -6061,7 +6061,7 @@ func testOOODisabled(t *testing.T, scenario sampleTypeScenario) {
 		key := lbls.String()
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
-			_, err, _ := scenario.appendFunc(app, lbls, min, min)
+			_, _, err := scenario.appendFunc(app, lbls, min, min)
 			if faceError {
 				require.Error(t, err)
 				failedSamples++
@@ -6138,7 +6138,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
 			val := rand.Intn(1000)
-			_, err, s := scenario.appendFunc(app, lbls, min, int64(val))
+			_, s, err := scenario.appendFunc(app, lbls, min, int64(val))
 			require.NoError(t, err)
 			expSamples[key] = append(expSamples[key], s)
 			totalSamples++
@@ -6715,7 +6715,7 @@ func testOOOCompactionFailure(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -7008,7 +7008,7 @@ func testOOOMmapCorruption(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 			allSamples = append(allSamples, s)
 			if inMmapAfterCorruption {
@@ -7155,7 +7155,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			if success {
 				require.NoError(t, err)
 				allSamples = append(allSamples, s)
@@ -7366,7 +7366,7 @@ func testNoGapAfterRestartWithOOO(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			if success {
 				require.NoError(t, err)
 			} else {
@@ -7498,7 +7498,7 @@ func testWblReplayAfterOOODisableAndRestart(t *testing.T, scenario sampleTypeSce
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 			allSamples = append(allSamples, s)
 		}
@@ -7567,7 +7567,7 @@ func testPanicOnApplyConfig(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 			allSamples = append(allSamples, s)
 		}
@@ -7626,7 +7626,7 @@ func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenari
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 			allSamples = append(allSamples, s)
 		}
