@@ -145,6 +145,10 @@ func (h *headIndexReader) Postings(ctx context.Context, name string, values ...s
 	}
 }
 
+func (h *headIndexReader) PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings {
+	return h.head.postings.PostingsForRegexp(ctx, m)
+}
+
 func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	return h.head.pfmc.PostingsForMatchers(ctx, h, concurrent, ms...)
 }

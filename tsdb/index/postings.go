@@ -223,6 +223,35 @@ func (p *MemPostings) Get(name, value string) Postings {
 	return newListPostings(lp...)
 }
 
+// PostingsForRegexp returns a postings iterator for the given regexp label matcher.
+func (p *MemPostings) PostingsForRegexp(ctx context.Context, m *labels.Matcher) Postings {
+	if m.Type != labels.MatchRegexp {
+		return ErrPostings(fmt.Errorf("not a regexp matcher"))
+	}
+
+	p.mtx.RLock()
+
+	l := p.m[m.Name]
+	if l == nil {
+		p.mtx.RUnlock()
+		return EmptyPostings()
+	}
+
+	var its []Postings
+	for value, srs := range l {
+		if m.Matches(value) {
+			its = append(its, newListPostings(srs...))
+		}
+	}
+	p.mtx.RUnlock()
+
+	srs, err := ExpandPostings(Merge(ctx, its...))
+	if err != nil {
+		return ErrPostings(err)
+	}
+	return NewListPostings(srs)
+}
+
 // All returns a postings list over all documents ever added.
 func (p *MemPostings) All() Postings {
 	return p.Get(AllPostingsKey())

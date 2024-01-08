@@ -2,6 +2,7 @@ package tsdb
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -94,6 +95,24 @@ func labelValuesForMatchersStream(ctx context.Context, r IndexReader, name strin
 	}
 	if pit.Err() != nil {
 		return storage.ErrLabelValues(pit.Err())
+	}
+
+	// Expand up to a certain number of postings, to reduce runtime complexity when filtering label values.
+	// If we hit that limit, the rest is unexpanded.
+	const expandPostingsLimit = 10_000_000
+	var expanded []storage.SeriesRef
+	// Go one beyond the limit, so we can tell if the iterator is exhausted
+	for len(expanded) <= expandPostingsLimit && pit.Next() {
+		expanded = append(expanded, pit.At())
+	}
+	if pit.Err() != nil {
+		return storage.ErrLabelValues(fmt.Errorf("expanding postings for matchers: %w", pit.Err()))
+	}
+	if len(expanded) > expandPostingsLimit {
+		// Couldn't exhaust the iterator
+		pit = newPrependPostings(expanded, pit)
+	} else {
+		pit = index.NewListPostings(expanded)
 	}
 
 	return r.LabelValuesFor(pit, name)

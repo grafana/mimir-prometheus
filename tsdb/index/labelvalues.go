@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"reflect"
 
@@ -246,6 +247,7 @@ func (it *intersectLabelValuesV1) Close() error {
 
 type intersectLabelValues struct {
 	d           *encoding.Decbuf
+	d2          encoding.Decbuf
 	b           ByteSlice
 	dec         *Decoder
 	postings    Postings
@@ -279,10 +281,16 @@ func (it *intersectLabelValues) Next() bool {
 		// Label value
 		v := yoloString(it.d.UvarintBytes())
 
-		postingsOff := it.d.Uvarint64()
+		postingsOff := int(it.d.Uvarint64())
 		// Read from the postings table
-		d2 := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
-		if _, err := it.dec.PostingsInPlace(d2.Get(), &it.curPostings); err != nil {
+		b := it.b.Range(postingsOff, postingsOff+4)
+		l := int(binary.BigEndian.Uint32(b))
+		b = it.b.Range(postingsOff+4, postingsOff+4+l+4)
+		it.d2.B = b[:len(b)-4]
+		if exp := binary.BigEndian.Uint32(b[len(b)-4:]); it.d2.Crc32(castagnoliTable) != exp {
+			it.d2.E = encoding.ErrInvalidChecksum
+		}
+		if _, err := it.dec.PostingsInPlace(it.d2.Get(), &it.curPostings); err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
 		}
