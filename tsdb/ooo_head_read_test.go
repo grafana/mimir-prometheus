@@ -383,6 +383,7 @@ func TestOOOHeadChunkReader_LabelValues(t *testing.T) {
 	}
 }
 
+//nolint:revive // unexported-return.
 func testOOOHeadChunkReader_LabelValues(t *testing.T, scenario sampleTypeScenario) {
 	chunkRange := int64(2000)
 	head, _ := newTestHead(t, chunkRange, wlog.CompressionNone, true)
@@ -485,6 +486,8 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 // TestOOOHeadChunkReader_Chunk tests that the Chunk method works as expected.
 // It does so by appending out of order samples to the db and then initializing
 // an OOOHeadChunkReader to read chunks from it.
+//
+//nolint:revive // unexported-return.
 func testOOOHeadChunkReader_Chunk(t *testing.T, scenario sampleTypeScenario) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 5
@@ -904,6 +907,8 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 //   - Response A comes from: Series() then Chunk()
 //   - Response B comes from : Series(), in parallel new samples added to the head, then Chunk()
 //   - A == B
+//
+//nolint:revive // unexported-return.
 func testOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(t *testing.T, scenario sampleTypeScenario) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 5
