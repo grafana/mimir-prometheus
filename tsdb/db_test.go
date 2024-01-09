@@ -5120,7 +5120,7 @@ func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sa
 	verifySamples(90, 109)
 }
 
-func Test_Querier_OOOQuery(t *testing.T) {
+func TestQuerierOOOQuery(t *testing.T) {
 	scenarios := map[string]struct {
 		appendFunc func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error)
 		sampleFunc func(ts int64) chunks.Sample
@@ -5172,12 +5172,12 @@ func Test_Querier_OOOQuery(t *testing.T) {
 
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
-			test_Querier_OOOQuery(t, scenario.appendFunc, scenario.sampleFunc)
+			testQuerierOOOQuery(t, scenario.appendFunc, scenario.sampleFunc)
 		})
 	}
 }
 
-func test_Querier_OOOQuery(t *testing.T,
+func testQuerierOOOQuery(t *testing.T,
 	appendFunc func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error),
 	sampleFunc func(ts int64) chunks.Sample,
 ) {
@@ -5333,7 +5333,7 @@ func test_Querier_OOOQuery(t *testing.T,
 	}
 }
 
-func Test_ChunkQuerier_OOOQuery(t *testing.T) {
+func TestChunkQuerierOOOQuery(t *testing.T) {
 	scenarios := map[string]struct {
 		appendFunc func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error)
 		sampleFunc func(ts int64) chunks.Sample
@@ -5384,12 +5384,12 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 	}
 	for name, scenario := range scenarios {
 		t.Run(name, func(t *testing.T) {
-			test_ChunkQuerier_OOOQuery(t, scenario.appendFunc, scenario.sampleFunc)
+			testChunkQuerierOOOQuery(t, scenario.appendFunc, scenario.sampleFunc)
 		})
 	}
 }
 
-func test_ChunkQuerier_OOOQuery(t *testing.T,
+func testChunkQuerierOOOQuery(t *testing.T,
 	appendFunc func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error),
 	sampleFunc func(ts int64) chunks.Sample,
 ) {
