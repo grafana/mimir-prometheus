@@ -12,6 +12,14 @@ import (
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 )
 
+const (
+	float               = "float"
+	intHistogram        = "integer histogram"
+	floatHistogram      = "float histogram"
+	gaugeIntHistogram   = "gauge int histogram"
+	gaugeFloatHistogram = "gauge float histogram"
+)
+
 type tsValue struct {
 	Ts                 int64
 	V                  int64
@@ -25,7 +33,7 @@ type sampleTypeScenario struct {
 }
 
 var sampleTypeScenarios = map[string]sampleTypeScenario{
-	"float": {
+	float: {
 		sampleType: sampleMetricTypeFloat,
 		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
 			s := sample{t: ts, f: float64(value)}
@@ -36,7 +44,7 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 			return sample{t: ts, f: float64(value)}
 		},
 	},
-	"integer histogram": {
+	intHistogram: {
 		sampleType: sampleMetricTypeHistogram,
 		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
 			s := sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(value))}
@@ -47,7 +55,7 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 			return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(value))}
 		},
 	},
-	"float histogram": {
+	floatHistogram: {
 		sampleType: sampleMetricTypeHistogram,
 		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
 			s := sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(value))}
@@ -58,7 +66,7 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 			return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(value))}
 		},
 	},
-	"gauge int histogram": {
+	gaugeIntHistogram: {
 		sampleType: sampleMetricTypeHistogram,
 		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
 			s := sample{t: ts, h: tsdbutil.GenerateTestGaugeHistogram(int(value))}
@@ -69,7 +77,7 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 			return sample{t: ts, h: tsdbutil.GenerateTestGaugeHistogram(int(value))}
 		},
 	},
-	"gauge float histogram": {
+	gaugeFloatHistogram: {
 		sampleType: sampleMetricTypeHistogram,
 		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
 			s := sample{t: ts, fh: tsdbutil.GenerateTestGaugeFloatHistogram(int(value))}
