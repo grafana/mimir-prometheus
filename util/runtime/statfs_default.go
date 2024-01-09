@@ -72,7 +72,7 @@ func Statfs(path string) string {
 
 	var fs syscall.Statfs_t
 	err := syscall.Statfs(path, &fs)
-	//nolint:unconvert // This ensure Type format on all Platforms
+
 	localType := int64(fs.Type)
 	if err != nil {
 		return strconv.FormatInt(localType, 16)
