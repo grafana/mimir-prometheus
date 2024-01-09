@@ -6341,11 +6341,11 @@ func copyWithCounterReset(s sample, hint histogram.CounterResetHint) sample {
 		h := s.h.Copy()
 		h.CounterResetHint = hint
 		return sample{t: s.t, h: h}
-	} else {
-		h := s.fh.Copy()
-		h.CounterResetHint = hint
-		return sample{t: s.t, fh: h}
 	}
+
+	h := s.fh.Copy()
+	h.CounterResetHint = hint
+	return sample{t: s.t, fh: h}
 }
 
 func TestOOOCompactionFailure(t *testing.T) {
