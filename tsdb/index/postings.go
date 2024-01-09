@@ -590,7 +590,6 @@ type mergedPostings struct {
 
 func newMergedPostings(p []Postings) (*mergedPostings, bool) {
 	const maxVal = storage.SeriesRef(math.MaxUint64) // This value must be higher than all real values used in the tree.
-
 	lt := loser.New(p, maxVal)
 	return &mergedPostings{p: p, lt: lt}, true
 }

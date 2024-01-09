@@ -1554,11 +1554,6 @@ func (r *Reader) LabelValuesStream(_ context.Context, name string, matchers ...*
 		}
 	}
 
-	p := r.postings[name]
-	if len(p) == 0 {
-		return storage.EmptyLabelValues()
-	}
-
 	return r.newLabelValuesV2(name, matchers)
 }
 

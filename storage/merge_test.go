@@ -1396,51 +1396,12 @@ func (m *mockGenericQuerier) LabelValuesStream(_ context.Context, name string, m
 	m.mtx.Unlock()
 
 	if m.err == nil {
-		return newLabelValuesList(m.resp, m.warnings)
+		return NewListLabelValues(m.resp, m.warnings)
 	}
 	return errLabelValues{
 		err:      m.err,
 		warnings: m.warnings,
 	}
-}
-
-type labelValuesList struct {
-	cur      string
-	values   []string
-	warnings annotations.Annotations
-}
-
-func newLabelValuesList(values []string, warnings annotations.Annotations) *labelValuesList {
-	return &labelValuesList{
-		values:   values,
-		warnings: warnings,
-	}
-}
-
-func (l *labelValuesList) Next() bool {
-	if len(l.values) == 0 {
-		return false
-	}
-
-	l.cur = l.values[0]
-	l.values = l.values[1:]
-	return true
-}
-
-func (l *labelValuesList) At() string {
-	return l.cur
-}
-
-func (*labelValuesList) Err() error {
-	return nil
-}
-
-func (l *labelValuesList) Warnings() annotations.Annotations {
-	return l.warnings
-}
-
-func (*labelValuesList) Close() error {
-	return nil
 }
 
 func (m *mockGenericQuerier) LabelNames(context.Context, ...*labels.Matcher) ([]string, annotations.Annotations, error) {

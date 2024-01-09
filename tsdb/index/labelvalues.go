@@ -28,6 +28,9 @@ type labelValuesV2 struct {
 // newLabelValuesV2 returns an iterator over label values in a v2 index.
 func (r *Reader) newLabelValuesV2(name string, matchers []*labels.Matcher) storage.LabelValues {
 	p := r.postings[name]
+	if len(p) == 0 {
+		return storage.EmptyLabelValues()
+	}
 
 	d := encoding.NewDecbufAt(r.b, int(r.toc.PostingsTable), nil)
 	d.Skip(p[0].off)
@@ -411,7 +414,7 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.Lab
 	}
 
 	slices.Sort(vals)
-	return storage.NewListLabelValues(vals)
+	return storage.NewListLabelValues(vals, nil)
 }
 
 // LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
@@ -448,7 +451,7 @@ func (p *MemPostings) LabelValuesNotFor(postings Postings, name string) storage.
 	}
 
 	slices.Sort(vals)
-	return storage.NewListLabelValues(vals)
+	return storage.NewListLabelValues(vals, nil)
 }
 
 // checkIntersection returns whether p1 and p2 have at least one series in common.
@@ -507,5 +510,5 @@ loop:
 	p.mtx.RUnlock()
 
 	slices.Sort(values)
-	return storage.NewListLabelValues(values)
+	return storage.NewListLabelValues(values, nil)
 }
