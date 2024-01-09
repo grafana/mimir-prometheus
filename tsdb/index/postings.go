@@ -223,35 +223,6 @@ func (p *MemPostings) Get(name, value string) Postings {
 	return newListPostings(lp...)
 }
 
-// PostingsForRegexp returns a postings iterator for the given regexp label matcher.
-func (p *MemPostings) PostingsForRegexp(ctx context.Context, m *labels.Matcher) Postings {
-	if m.Type != labels.MatchRegexp {
-		return ErrPostings(fmt.Errorf("not a regexp matcher"))
-	}
-
-	p.mtx.RLock()
-
-	l := p.m[m.Name]
-	if l == nil {
-		p.mtx.RUnlock()
-		return EmptyPostings()
-	}
-
-	var its []Postings
-	for value, srs := range l {
-		if m.Matches(value) {
-			its = append(its, newListPostings(srs...))
-		}
-	}
-	p.mtx.RUnlock()
-
-	srs, err := ExpandPostings(Merge(ctx, its...))
-	if err != nil {
-		return ErrPostings(err)
-	}
-	return NewListPostings(srs)
-}
-
 // All returns a postings list over all documents ever added.
 func (p *MemPostings) All() Postings {
 	return p.Get(AllPostingsKey())
@@ -738,6 +709,7 @@ func (rp *removedPostings) Reset() {
 type ListPostings struct {
 	list []storage.SeriesRef
 	i    int
+	cur  storage.SeriesRef
 }
 
 func NewListPostings(list []storage.SeriesRef) Postings {
@@ -752,31 +724,24 @@ func newListPostings(list ...storage.SeriesRef) *ListPostings {
 }
 
 func (it *ListPostings) At() storage.SeriesRef {
-	if it.i < 0 {
-		return 0
-	}
-
-	if it.i >= len(it.list) {
-		// Not entirely sure why postingsWithIndexHeap needs to keep exhausted iterators around
-		return 0
-	}
-
-	return it.list[it.i]
+	return it.cur
 }
 
 func (it *ListPostings) Next() bool {
 	if it.i >= len(it.list)-1 {
 		it.i = len(it.list)
+		it.cur = 0
 		return false
 	}
 
 	it.i++
+	it.cur = it.list[it.i]
 	return true
 }
 
 func (it *ListPostings) Seek(x storage.SeriesRef) bool {
 	// If the current value satisfies, then return.
-	if it.i >= 0 && it.i < len(it.list) && it.list[it.i] >= x {
+	if it.cur >= x {
 		return true
 	}
 
@@ -792,10 +757,12 @@ func (it *ListPostings) Seek(x storage.SeriesRef) bool {
 	})
 	if i < len(l) {
 		it.i = start + i
+		it.cur = it.list[it.i]
 		return true
 	}
 
 	it.i = len(it.list)
+	it.cur = 0
 	return false
 }
 
@@ -805,6 +772,7 @@ func (it *ListPostings) Err() error {
 
 func (it *ListPostings) Reset() {
 	it.i = -1
+	it.cur = 0
 }
 
 // bigEndianPostings implements the Postings interface over a byte stream of

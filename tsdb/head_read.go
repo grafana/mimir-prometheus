@@ -146,7 +146,26 @@ func (h *headIndexReader) Postings(ctx context.Context, name string, values ...s
 }
 
 func (h *headIndexReader) PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings {
-	return h.head.postings.PostingsForRegexp(ctx, m)
+	vals, err := h.LabelValues(ctx, m.Name)
+	if err != nil {
+		return index.EmptyPostings()
+	}
+
+	var res []string
+	for _, val := range vals {
+		if m.Matches(val) {
+			res = append(res, val)
+		}
+	}
+	if len(res) == 0 {
+		return index.EmptyPostings()
+	}
+
+	p, err := h.Postings(ctx, m.Name, res...)
+	if err != nil {
+		return index.ErrPostings(err)
+	}
+	return p
 }
 
 func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
