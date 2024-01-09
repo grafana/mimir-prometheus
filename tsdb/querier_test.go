@@ -2427,6 +2427,10 @@ func (mockIndex) LabelValuesFor(index.Postings, string) storage.LabelValues {
 	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
 }
 
+func (mockIndex) LabelValuesNotFor(index.Postings, string) storage.LabelValues {
+	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
+}
+
 func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	s, ok := m.series[ref]
 	if !ok {

@@ -203,6 +203,7 @@ type intersectLabelValuesV1 struct {
 	dec         *Decoder
 	cur         string
 	err         error
+	inverted    bool
 }
 
 func (it *intersectLabelValuesV1) Next() bool {
@@ -220,7 +221,11 @@ func (it *intersectLabelValuesV1) Next() bool {
 		}
 
 		it.postings.Reset()
-		if checkIntersection(&it.curPostings, it.postings) {
+		isMatch := checkIntersection(&it.curPostings, it.postings)
+		if it.inverted {
+			isMatch = !isMatch
+		}
+		if isMatch {
 			it.cur = val
 			return true
 		}
@@ -257,6 +262,7 @@ type intersectLabelValues struct {
 	cur         string
 	exhausted   bool
 	err         error
+	inverted    bool
 }
 
 func (it *intersectLabelValues) Next() bool {
@@ -298,7 +304,11 @@ func (it *intersectLabelValues) Next() bool {
 		it.exhausted = v == it.lastVal
 
 		it.postings.Reset()
-		if checkIntersection(&it.curPostings, it.postings) {
+		isMatch := checkIntersection(&it.curPostings, it.postings)
+		if it.inverted {
+			isMatch = !isMatch
+		}
+		if isMatch {
 			it.cur = v
 			return true
 		}
@@ -326,8 +336,86 @@ func (it *intersectLabelValues) Close() error {
 	return nil
 }
 
+func (r *Reader) LabelValuesNotFor(postings Postings, name string) storage.LabelValues {
+	if r.version == FormatV1 {
+		e := r.postingsV1[name]
+		if len(e) == 0 {
+			return storage.EmptyLabelValues()
+		}
+		vals := make([]string, 0, len(e))
+		for v := range e {
+			vals = append(vals, v)
+		}
+		slices.Sort(vals)
+		return &intersectLabelValuesV1{
+			e:        e,
+			values:   vals,
+			postings: postings,
+			b:        r.b,
+			dec:      r.dec,
+			inverted: true,
+		}
+	}
+
+	e := r.postings[name]
+	if len(e) == 0 {
+		return storage.EmptyLabelValues()
+	}
+
+	d := encoding.NewDecbufAt(r.b, int(r.toc.PostingsTable), nil)
+	// Skip to start
+	d.Skip(e[0].off)
+	lastVal := e[len(e)-1].value
+
+	return &intersectLabelValues{
+		d:        &d,
+		b:        r.b,
+		dec:      r.dec,
+		lastVal:  lastVal,
+		postings: postings,
+		inverted: true,
+	}
+}
+
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.LabelValues {
+	p.mtx.RLock()
+
+	e := p.m[name]
+	if len(e) == 0 {
+		p.mtx.RUnlock()
+		return storage.EmptyLabelValues()
+	}
+
+	// With thread safety in mind and due to random key ordering in map, we have to construct the array in memory
+	vals := make([]string, 0, len(e))
+	candidates := make([]Postings, 0, len(e))
+	for val, srs := range e {
+		vals = append(vals, val)
+		candidates = append(candidates, NewListPostings(srs))
+	}
+
+	indexes, err := FindIntersectingPostings(postings, candidates)
+	p.mtx.RUnlock()
+	if err != nil {
+		return storage.ErrLabelValues(err)
+	}
+
+	// Filter the values, keeping only those with intersecting postings
+	if len(vals) != len(indexes) {
+		slices.Sort(indexes)
+		for i, index := range indexes {
+			vals[i] = vals[index]
+		}
+		vals = vals[:len(indexes)]
+	}
+
+	slices.Sort(vals)
+	return storage.NewListLabelValues(vals)
+}
+
+// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
+func (p *MemPostings) LabelValuesNotFor(postings Postings, name string) storage.LabelValues {
 	p.mtx.RLock()
 
 	e := p.m[name]

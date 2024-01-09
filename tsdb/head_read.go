@@ -207,6 +207,11 @@ func (h *headIndexReader) LabelValuesFor(postings index.Postings, name string) s
 	return h.head.postings.LabelValuesFor(postings, name)
 }
 
+// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
+func (h *headIndexReader) LabelValuesNotFor(postings index.Postings, name string) storage.LabelValues {
+	return h.head.postings.LabelValuesNotFor(postings, name)
+}
+
 // Series returns the series for the given reference.
 func (h *headIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	s := h.head.series.getByID(chunks.HeadSeriesRef(ref))

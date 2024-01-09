@@ -115,6 +115,9 @@ type IndexReader interface {
 	// LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 	LabelValuesFor(p index.Postings, name string) storage.LabelValues
 
+	// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
+	LabelValuesNotFor(p index.Postings, name string) storage.LabelValues
+
 	// LabelNamesFor returns all the label names for the series referred to by IDs.
 	// The names returned are sorted.
 	LabelNamesFor(ctx context.Context, ids ...storage.SeriesRef) ([]string, error)
@@ -578,6 +581,11 @@ func (r blockIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (r blockIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
 	return r.ir.LabelValuesFor(postings, name)
+}
+
+// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
+func (r blockIndexReader) LabelValuesNotFor(postings index.Postings, name string) storage.LabelValues {
+	return r.ir.LabelValuesNotFor(postings, name)
 }
 
 func (r blockIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {

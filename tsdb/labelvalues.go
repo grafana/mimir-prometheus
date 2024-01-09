@@ -81,39 +81,37 @@ func labelValuesForMatchersStream(ctx context.Context, r IndexReader, name strin
 	}
 
 	if len(its) == 0 && len(notIts) > 0 {
-		k, v := index.AllPostingsKey()
-		allPostings, err := r.Postings(ctx, k, v)
-		if err != nil {
-			return storage.ErrLabelValues(err)
-		}
-		its = append(its, allPostings)
+		pit := index.Merge(ctx, notIts...)
+		return r.LabelValuesNotFor(pit, name)
 	}
 
 	pit := index.Intersect(its...)
 	for _, n := range notIts {
 		pit = index.Without(pit, n)
 	}
-	if pit.Err() != nil {
-		return storage.ErrLabelValues(pit.Err())
-	}
 
-	// Expand up to a certain number of postings, to reduce runtime complexity when filtering label values.
-	// If we hit that limit, the rest is unexpanded.
+	pit = expandPostings(pit)
+	return r.LabelValuesFor(pit, name)
+}
+
+// expandPostings expands postings up to a certain limit, to reduce runtime complexity when filtering label values.
+// If the limit is reached, the rest is unexpanded.
+func expandPostings(postings index.Postings) index.Postings {
 	const expandPostingsLimit = 10_000_000
 	var expanded []storage.SeriesRef
 	// Go one beyond the limit, so we can tell if the iterator is exhausted
-	for len(expanded) <= expandPostingsLimit && pit.Next() {
-		expanded = append(expanded, pit.At())
+	for len(expanded) <= expandPostingsLimit && postings.Next() {
+		expanded = append(expanded, postings.At())
 	}
-	if pit.Err() != nil {
-		return storage.ErrLabelValues(fmt.Errorf("expanding postings for matchers: %w", pit.Err()))
+	if postings.Err() != nil {
+		return index.ErrPostings(fmt.Errorf("expanding postings for matchers: %w", postings.Err()))
 	}
 	if len(expanded) > expandPostingsLimit {
 		// Couldn't exhaust the iterator
-		pit = newPrependPostings(expanded, pit)
+		postings = newPrependPostings(expanded, postings)
 	} else {
-		pit = index.NewListPostings(expanded)
+		postings = index.NewListPostings(expanded)
 	}
 
-	return r.LabelValuesFor(pit, name)
+	return postings
 }

@@ -480,6 +480,10 @@ func (ir *OOOCompactionHeadIndexReader) LabelValuesFor(postings index.Postings, 
 	return ir.ch.oooIR.LabelValuesFor(postings, name)
 }
 
+func (ir *OOOCompactionHeadIndexReader) LabelValuesNotFor(postings index.Postings, name string) storage.LabelValues {
+	return ir.ch.oooIR.LabelValuesNotFor(postings, name)
+}
+
 func (ir *OOOCompactionHeadIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	return ir.ch.oooIR.series(ref, builder, chks, 0, ir.ch.lastMmapRef)
 }
