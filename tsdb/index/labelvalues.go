@@ -3,6 +3,7 @@ package index
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"reflect"
 
@@ -381,7 +382,9 @@ func (r *Reader) LabelValuesNotFor(postings Postings, name string) storage.Label
 }
 
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
-func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.LabelValues {
+// lg is used to get labels from series in case the ratio of postings vs label values is sufficiently low,
+// as an optimization.
+func (p *MemPostings) LabelValuesFor(postings Postings, name string, lg LabelsGetter) storage.LabelValues {
 	p.mtx.RLock()
 
 	e := p.m[name]
@@ -396,6 +399,41 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.Lab
 	for val, srs := range e {
 		vals = append(vals, val)
 		candidates = append(candidates, NewListPostings(srs))
+	}
+
+	// Let's see if expanded postings for matchers have smaller cardinality than label values.
+	// Since computing label values from series is expensive, we apply a limit on number of expanded
+	// postings (and series).
+	const maxExpandedPostingsFactor = 100 // Division factor for maximum number of matched series.
+	maxExpandedPostings := len(vals) / maxExpandedPostingsFactor
+	if maxExpandedPostings > 0 {
+		// Add space for one extra posting when checking if we expanded all postings.
+		expanded := make([]storage.SeriesRef, 0, maxExpandedPostings+1)
+
+		// Call postings.Next() even if len(expanded) == maxExpandedPostings. This tells us if there are more postings or not.
+		for len(expanded) <= maxExpandedPostings && postings.Next() {
+			expanded = append(expanded, postings.At())
+		}
+
+		if len(expanded) <= maxExpandedPostings {
+			// When we're here, postings.Next() must have returned false, so we need to check for errors.
+			if err := postings.Err(); err != nil {
+				return storage.ErrLabelValues(fmt.Errorf("expanding postings for matchers: %w", err))
+			}
+
+			// We have expanded all the postings -- all returned label values will be from these series only.
+			// (We supply vals as a buffer for storing results. It should be big enough already, since it holds all possible label values.)
+			vals, err := labelValuesFromSeries(lg, name, expanded, vals)
+			if err != nil {
+				return storage.ErrLabelValues(err)
+			}
+
+			slices.Sort(vals)
+			return storage.NewListLabelValues(vals, nil)
+		}
+
+		// If we haven't reached end of postings, we prepend our expanded postings to "postings", and continue.
+		postings = newPrependPostings(expanded, postings)
 	}
 
 	indexes, err := FindIntersectingPostings(postings, candidates)
@@ -415,6 +453,97 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.Lab
 
 	slices.Sort(vals)
 	return storage.NewListLabelValues(vals, nil)
+}
+
+type LabelsGetter interface {
+	// Labels reads the series with the given ref and writes its labels into builder.
+	Labels(ref storage.SeriesRef, builder *labels.ScratchBuilder) error
+}
+
+// labelValuesFromSeries returns all unique label values from r for given label name from supplied series. Values are not sorted.
+// buf is space for holding result (if it isn't big enough, it will be ignored), may be nil.
+func labelValuesFromSeries(lg LabelsGetter, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
+	values := make(map[string]struct{}, len(buf))
+
+	var builder labels.ScratchBuilder
+	for _, ref := range refs {
+		err := lg.Labels(ref, &builder)
+		// Postings may be stale. Skip if no underlying series exists.
+		if errors.Is(err, storage.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("label values for label %s: %w", labelName, err)
+		}
+
+		v := builder.Labels().Get(labelName)
+		if v != "" {
+			values[v] = struct{}{}
+		}
+	}
+
+	if cap(buf) >= len(values) {
+		buf = buf[:0]
+	} else {
+		buf = make([]string, 0, len(values))
+	}
+	for v := range values {
+		buf = append(buf, v)
+	}
+	return buf, nil
+}
+
+func newPrependPostings(a []storage.SeriesRef, b Postings) Postings {
+	return &prependPostings{
+		ix:     -1,
+		prefix: a,
+		rest:   b,
+	}
+}
+
+// prependPostings returns series references from "prefix" before using "rest" postings.
+type prependPostings struct {
+	ix     int
+	prefix []storage.SeriesRef
+	rest   Postings
+}
+
+func (p *prependPostings) Next() bool {
+	p.ix++
+	if p.ix < len(p.prefix) {
+		return true
+	}
+	return p.rest.Next()
+}
+
+func (p *prependPostings) Seek(v storage.SeriesRef) bool {
+	for p.ix < len(p.prefix) {
+		if p.ix >= 0 && p.prefix[p.ix] >= v {
+			return true
+		}
+		p.ix++
+	}
+
+	return p.rest.Seek(v)
+}
+
+func (p *prependPostings) At() storage.SeriesRef {
+	if p.ix >= 0 && p.ix < len(p.prefix) {
+		return p.prefix[p.ix]
+	}
+	return p.rest.At()
+}
+
+func (p *prependPostings) Err() error {
+	if p.ix >= 0 && p.ix < len(p.prefix) {
+		return nil
+	}
+	return p.rest.Err()
+}
+
+func (p *prependPostings) Reset() {
+	p.ix = -1
+	p.rest.Reset()
 }
 
 // LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.

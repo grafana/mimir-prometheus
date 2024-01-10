@@ -223,7 +223,7 @@ func (h *headIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (h *headIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
-	return h.head.postings.LabelValuesFor(postings, name)
+	return h.head.postings.LabelValuesFor(postings, name, h)
 }
 
 // LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
@@ -231,10 +231,20 @@ func (h *headIndexReader) LabelValuesNotFor(postings index.Postings, name string
 	return h.head.postings.LabelValuesNotFor(postings, name)
 }
 
+// Labels reads the series with the given ref and writes its labels into builder.
+func (h *headIndexReader) Labels(ref storage.SeriesRef, builder *labels.ScratchBuilder) error {
+	s := h.head.series.getByID(chunks.HeadSeriesRef(ref))
+	if s == nil {
+		h.head.metrics.seriesNotFound.Inc()
+		return storage.ErrNotFound
+	}
+	builder.Assign(s.lset)
+	return nil
+}
+
 // Series returns the series for the given reference.
 func (h *headIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	s := h.head.series.getByID(chunks.HeadSeriesRef(ref))
-
 	if s == nil {
 		h.head.metrics.seriesNotFound.Inc()
 		return storage.ErrNotFound

@@ -164,6 +164,29 @@ func (oh *OOOHeadIndexReader) PostingsForMatchers(ctx context.Context, concurren
 	return oh.head.pfmc.PostingsForMatchers(ctx, oh, concurrent, ms...)
 }
 
+func (oh *OOOHeadIndexReader) PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings {
+	vals, err := oh.LabelValues(ctx, m.Name)
+	if err != nil {
+		return index.EmptyPostings()
+	}
+
+	var res []string
+	for _, val := range vals {
+		if m.Matches(val) {
+			res = append(res, val)
+		}
+	}
+	if len(res) == 0 {
+		return index.EmptyPostings()
+	}
+
+	p, err := oh.Postings(ctx, m.Name, res...)
+	if err != nil {
+		return index.ErrPostings(err)
+	}
+	return p
+}
+
 // LabelValues needs to be overridden from the headIndexReader implementation due
 // to the check that happens at the beginning where we make sure that the query
 // interval overlaps with the head minooot and maxooot.

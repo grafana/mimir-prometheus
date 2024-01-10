@@ -89,8 +89,8 @@ func labelValuesForMatchersStream(ctx context.Context, r IndexReader, name strin
 	for _, n := range notIts {
 		pit = index.Without(pit, n)
 	}
-
 	pit = expandPostings(pit)
+
 	return r.LabelValuesFor(pit, name)
 }
 

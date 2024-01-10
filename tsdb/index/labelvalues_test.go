@@ -83,7 +83,7 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 	mp.Add(5, labels.FromStrings("b", "5"))
 	p := mp.Get("a", "1")
 
-	it := mp.LabelValuesFor(p, "b")
+	it := mp.LabelValuesFor(p, "b", nil)
 
 	var vals []string
 	for it.Next() {
@@ -95,7 +95,7 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 	require.Equal(t, []string{"1", "2", "3", "4"}, vals)
 
 	t.Run("empty result set", func(t *testing.T) {
-		it := mp.LabelValuesFor(p, "c")
+		it := mp.LabelValuesFor(p, "c", nil)
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())

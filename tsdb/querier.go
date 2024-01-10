@@ -450,7 +450,7 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 	return values, nil
 }
 
-// labelValuesFromSeries returns all unique label values from for given label name from supplied series. Values are not sorted.
+// labelValuesFromSeries returns all unique label values from r for given label name from supplied series. Values are not sorted.
 // buf is space for holding result (if it isn't big enough, it will be ignored), may be nil.
 func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
 	values := map[string]struct{}{}
