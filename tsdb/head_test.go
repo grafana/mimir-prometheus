@@ -60,6 +60,7 @@ func newTestHeadDefaultOptions(chunkRange int64, oooEnabled bool) *HeadOptions {
 	opts.MaxExemplars.Store(config.DefaultExemplarsConfig.MaxExemplars)
 	opts.EnableNativeHistograms.Store(true)
 	if oooEnabled {
+		opts.EnableOOONativeHistograms.Store(true)
 		opts.OutOfOrderTimeWindow.Store(10 * time.Minute.Milliseconds())
 	}
 	return opts
@@ -2608,6 +2609,7 @@ func testOutOfOrderSamplesMetric(t *testing.T, scenario sampleTypeScenario) {
 	}()
 	db.DisableCompactions()
 	db.EnableNativeHistograms()
+	db.EnableOOONativeHistograms()
 
 	appendSample := func(appender storage.Appender, ts int64) (storage.SeriesRef, error) {
 		ref, err, _ := scenario.appendFunc(appender, labels.FromStrings("a", "b"), ts, 99)
@@ -4529,6 +4531,7 @@ func TestAppendingDifferentEncodingToSameSeries(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultOptions()
 	opts.EnableNativeHistograms = true
+	opts.EnableOOONativeHistograms = true
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -4800,6 +4803,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderTimeWindow.Store(30 * time.Minute.Milliseconds())
 	opts.EnableNativeHistograms.Store(true)
+	opts.EnableOOONativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -4912,6 +4916,7 @@ func testOOOMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	opts.OutOfOrderCapMax.Store(30)
 	opts.OutOfOrderTimeWindow.Store(1000 * time.Minute.Milliseconds())
 	opts.EnableNativeHistograms.Store(true)
+	opts.EnableOOONativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -5214,6 +5219,7 @@ func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Ap
 	opts.OutOfOrderCapMax.Store(30)
 	opts.OutOfOrderTimeWindow.Store(120 * time.Minute.Milliseconds())
 	opts.EnableNativeHistograms.Store(true)
+	opts.EnableOOONativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
@@ -5303,6 +5309,7 @@ func testHeadMinOOOTimeUpdate(t *testing.T, scenario sampleTypeScenario) {
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderTimeWindow.Store(10 * time.Minute.Milliseconds())
 	opts.EnableNativeHistograms.Store(true)
+	opts.EnableOOONativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)
