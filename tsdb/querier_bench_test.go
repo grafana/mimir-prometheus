@@ -306,33 +306,18 @@ func benchmarkLabelValuesStream(b *testing.B, ir IndexReader) {
 		labelName string
 		matchers  []*labels.Matcher
 	}{
-		// For blocks, this is 27% faster and uses 99.99% less memory.
 		{`i with i="1"`, "i", []*labels.Matcher{i1}},
-		// i has 100k values.
-		// For blocks, this is 89% slower and uses 57% more memory.
 		{`i with n="1"`, "i", []*labels.Matcher{n1}},
-		// For blocks, this is 98% faster and uses 99.99% less memory.
 		{`i with n="^.+$"`, "i", []*labels.Matcher{nPlus}},
-		// For blocks, this is 5% slower and uses 9% less memory.
 		{`i with n="1",j!="foo"`, "i", []*labels.Matcher{n1, jNotFoo}},
-		// For blocks, this is 998% slower and uses 950% more memory.
 		{`i with n="1",j=~"X.+"`, "i", []*labels.Matcher{n1, jXplus}},
-		// For blocks, this is 998% slower and uses 950% more memory.
 		{`i with n="1",j=~"XXX|YYY"`, "i", []*labels.Matcher{n1, jXXXYYY}},
-		// For blocks, this is about the same speed and uses 9% less memory.
 		{`i with n="X",j!="foo"`, "i", []*labels.Matcher{nX, jNotFoo}},
-		// For blocks, this is 7% slower and uses 8% less memory.
 		{`i with n="1",i=~"^.*$",j!="foo"`, "i", []*labels.Matcher{n1, iStar, jNotFoo}},
-		// For blocks, this is 2377% slower and uses 950% more memory.
 		{`i with i_times_n=533701`, "i", []*labels.Matcher{primesTimes}},
-		// For blocks, this is 2098% slower and uses 949% more memory.
 		{`i with i_times_n=20`, "i", []*labels.Matcher{nonPrimesTimes}},
-		// For blocks, this is 43% faster and uses 21% more memory.
 		{`i with i_times_n=~"12.*""`, "i", []*labels.Matcher{times12}},
-		// For blocks, this is 369% slower and uses 12% more memory.
-		// n has 10 values.
 		{`n with j!="foo"`, "n", []*labels.Matcher{jNotFoo}},
-		// For blocks, this is 12% faster and uses 11% less memory.
 		{`n with i="1"`, "n", []*labels.Matcher{i1}},
 	}
 
