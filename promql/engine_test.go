@@ -3591,9 +3591,10 @@ func testNativeHistogramRateWithCounterResets(t *testing.T,
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			engine := newTestEngine()
 			opts := tsdb.Options{
-				EnableNativeHistograms: true,
-				OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
-				OutOfOrderCapMax:       30,
+				EnableNativeHistograms:    true,
+				EnableOOONativeHistograms: true,
+				OutOfOrderTimeWindow:      24 * time.Hour.Milliseconds(),
+				OutOfOrderCapMax:          30,
 			}
 			storage := teststorage.NewTestStorageWithOpts(t, &opts)
 			t.Cleanup(func() { storage.Close() })
@@ -3937,9 +3938,10 @@ func testNativeHistogramIncreaseWithCounterResets(t *testing.T,
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			engine := newTestEngine()
 			opts := tsdb.Options{
-				EnableNativeHistograms: true,
-				OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
-				OutOfOrderCapMax:       30,
+				EnableNativeHistograms:    true,
+				EnableOOONativeHistograms: true,
+				OutOfOrderTimeWindow:      24 * time.Hour.Milliseconds(),
+				OutOfOrderCapMax:          30,
 			}
 			storage := teststorage.NewTestStorageWithOpts(t, &opts)
 			t.Cleanup(func() { storage.Close() })
@@ -4181,9 +4183,10 @@ func testNativeHistogramResets(t *testing.T,
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			engine := newTestEngine()
 			opts := tsdb.Options{
-				EnableNativeHistograms: true,
-				OutOfOrderTimeWindow:   24 * time.Hour.Milliseconds(),
-				OutOfOrderCapMax:       30,
+				EnableNativeHistograms:    true,
+				EnableOOONativeHistograms: true,
+				OutOfOrderTimeWindow:      24 * time.Hour.Milliseconds(),
+				OutOfOrderCapMax:          30,
 			}
 			storage := teststorage.NewTestStorageWithOpts(t, &opts)
 			t.Cleanup(func() { storage.Close() })
