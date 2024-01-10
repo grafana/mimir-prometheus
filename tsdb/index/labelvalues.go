@@ -395,10 +395,8 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string, lg LabelsGe
 
 	// With thread safety in mind and due to random key ordering in map, we have to construct the array in memory
 	vals := make([]string, 0, len(e))
-	candidates := make([]Postings, 0, len(e))
-	for val, srs := range e {
+	for val := range e {
 		vals = append(vals, val)
-		candidates = append(candidates, NewListPostings(srs))
 	}
 
 	// Let's see if expanded postings for matchers have smaller cardinality than label values.
@@ -417,6 +415,8 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string, lg LabelsGe
 
 		if len(expanded) <= maxExpandedPostings {
 			// When we're here, postings.Next() must have returned false, so we need to check for errors.
+			p.mtx.RUnlock()
+
 			if err := postings.Err(); err != nil {
 				return storage.ErrLabelValues(fmt.Errorf("expanding postings for matchers: %w", err))
 			}
@@ -436,6 +436,12 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string, lg LabelsGe
 		postings = newPrependPostings(expanded, postings)
 	}
 
+	candidates := make([]Postings, 0, len(e))
+	vals = vals[:0]
+	for val, srs := range e {
+		vals = append(vals, val)
+		candidates = append(candidates, NewListPostings(srs))
+	}
 	indexes, err := FindIntersectingPostings(postings, candidates)
 	p.mtx.RUnlock()
 	if err != nil {
