@@ -461,6 +461,29 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string, lg LabelsGe
 	return storage.NewListLabelValues(vals, nil)
 }
 
+func (p *MemPostings) PostingsForRegexp(ctx context.Context, m *labels.Matcher) Postings {
+	p.mtx.RLock()
+
+	e := p.m[m.Name]
+	if len(e) == 0 {
+		p.mtx.RUnlock()
+		return EmptyPostings()
+	}
+
+	var its []Postings
+	for val, srs := range e {
+		if m.Matches(val) {
+			// Copy the series refs for thread safety
+			srsCpy := make([]storage.SeriesRef, len(srs))
+			copy(srsCpy, srs)
+			its = append(its, NewListPostings(srsCpy))
+		}
+	}
+	p.mtx.RUnlock()
+
+	return Merge(ctx, its...)
+}
+
 type LabelsGetter interface {
 	// Labels reads the series with the given ref and writes its labels into builder.
 	Labels(ref storage.SeriesRef, builder *labels.ScratchBuilder) error
