@@ -4648,7 +4648,7 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 		defer querier.Close()
 
 		seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
-		require.Equal(t, 1, len(seriesSet))
+		require.Len(t, seriesSet, 1)
 		gotSamples := seriesSet[series1.String()]
 		compareSamples(t, series1.String(), expSamples, gotSamples, true)
 
@@ -4659,7 +4659,7 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 
 		chks := queryChunks(t, chunkQuerier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
 		require.NotNil(t, chks[series1.String()])
-		require.Equal(t, 1, len(chks))
+		require.Len(t, chks, 1)
 		var gotChunkSamples []chunks.Sample
 		for _, chunk := range chks[series1.String()] {
 			it := chunk.Chunk.Iterator(nil)
@@ -5493,7 +5493,7 @@ func testQuerierOOOQuery(t *testing.T,
 			seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
 			gotSamples := seriesSet[series1.String()]
 			require.NotNil(t, gotSamples)
-			require.Equal(t, 1, len(seriesSet))
+			require.Len(t, seriesSet, 1)
 			compareSamples(t, series1.String(), expSamples, gotSamples, true)
 			require.GreaterOrEqual(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
 		})
