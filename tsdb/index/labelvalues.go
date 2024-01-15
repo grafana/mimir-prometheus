@@ -75,6 +75,10 @@ type intersectLabelValuesV1 struct {
 }
 
 func (it *intersectLabelValuesV1) Next() bool {
+	if it.err != nil {
+		return false
+	}
+
 	// Look for a value with intersecting postings
 	for len(it.values) > 0 {
 		val := it.values[0]
@@ -133,7 +137,7 @@ type intersectLabelValues struct {
 }
 
 func (it *intersectLabelValues) Next() bool {
-	if it.exhausted {
+	if it.exhausted || it.err != nil {
 		return false
 	}
 
