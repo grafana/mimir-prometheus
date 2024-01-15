@@ -24,23 +24,7 @@ func (r *Reader) LabelValuesNotFor(postings Postings, name string) storage.Label
 
 func (r *Reader) labelValuesFor(postings Postings, name string, inverted bool) storage.LabelValues {
 	if r.version == FormatV1 {
-		e := r.postingsV1[name]
-		if len(e) == 0 {
-			return storage.EmptyLabelValues()
-		}
-		vals := make([]string, 0, len(e))
-		for v := range e {
-			vals = append(vals, v)
-		}
-		slices.Sort(vals)
-		return &intersectLabelValuesV1{
-			seriesRefs: e,
-			values:     vals,
-			postings:   NewPostingsCloner(postings),
-			b:          r.b,
-			dec:        r.dec,
-			inverted:   inverted,
-		}
+		return r.labelValuesForV1(postings, name, inverted)
 	}
 
 	e := r.postings[name]
@@ -60,6 +44,26 @@ func (r *Reader) labelValuesFor(postings Postings, name string, inverted bool) s
 		lastVal:  lastVal,
 		postings: NewPostingsCloner(postings),
 		inverted: inverted,
+	}
+}
+
+func (r *Reader) labelValuesForV1(postings Postings, name string, inverted bool) storage.LabelValues {
+	e := r.postingsV1[name]
+	if len(e) == 0 {
+		return storage.EmptyLabelValues()
+	}
+	vals := make([]string, 0, len(e))
+	for v := range e {
+		vals = append(vals, v)
+	}
+	slices.Sort(vals)
+	return &intersectLabelValuesV1{
+		seriesRefs: e,
+		values:     vals,
+		postings:   NewPostingsCloner(postings),
+		b:          r.b,
+		dec:        r.dec,
+		inverted:   inverted,
 	}
 }
 
