@@ -156,7 +156,8 @@ func (it *intersectLabelValues) Next() bool {
 		}
 
 		// Label value
-		v := yoloString(it.d.UvarintBytes())
+		vb := it.d.UvarintBytes()
+		v := yoloString(vb)
 
 		postingsOff := int(it.d.Uvarint64())
 		// Read from the postings table
@@ -175,7 +176,8 @@ func (it *intersectLabelValues) Next() bool {
 			isMatch = !isMatch
 		}
 		if isMatch {
-			it.cur = v
+			// Make sure to allocate a new string
+			it.cur = string(vb)
 			return true
 		}
 	}
