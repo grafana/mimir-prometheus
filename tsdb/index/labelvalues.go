@@ -16,7 +16,7 @@ func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelVal
 	return r.labelValuesFor(postings, name, false)
 }
 
-// LabelValuesFor returns LabelValues for the given label name in the series *not* referred to by postings.
+// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
 func (r *Reader) LabelValuesNotFor(postings Postings, name string) storage.LabelValues {
 	return r.labelValuesFor(postings, name, true)
 }
