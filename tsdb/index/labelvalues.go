@@ -34,12 +34,12 @@ func (r *Reader) labelValuesFor(postings Postings, name string, inverted bool) s
 		}
 		slices.Sort(vals)
 		return &intersectLabelValuesV1{
-			e:        e,
-			values:   vals,
-			cloner:   NewPostingsCloner(postings),
-			b:        r.b,
-			dec:      r.dec,
-			inverted: inverted,
+			seriesRefs: e,
+			values:     vals,
+			postings:   NewPostingsCloner(postings),
+			b:          r.b,
+			dec:        r.dec,
+			inverted:   inverted,
 		}
 	}
 
@@ -58,20 +58,20 @@ func (r *Reader) labelValuesFor(postings Postings, name string, inverted bool) s
 		b:        r.b,
 		dec:      r.dec,
 		lastVal:  lastVal,
-		cloner:   NewPostingsCloner(postings),
+		postings: NewPostingsCloner(postings),
 		inverted: inverted,
 	}
 }
 
 type intersectLabelValuesV1 struct {
-	e        map[string]uint64
-	values   []string
-	cloner   *PostingsCloner
-	b        ByteSlice
-	dec      *Decoder
-	cur      string
-	err      error
-	inverted bool
+	seriesRefs map[string]uint64
+	values     []string
+	postings   *PostingsCloner
+	b          ByteSlice
+	dec        *Decoder
+	cur        string
+	err        error
+	inverted   bool
 }
 
 func (it *intersectLabelValuesV1) Next() bool {
@@ -84,7 +84,7 @@ func (it *intersectLabelValuesV1) Next() bool {
 		val := it.values[0]
 		it.values = it.values[1:]
 
-		postingsOff := it.e[val]
+		postingsOff := it.seriesRefs[val]
 		// Read from the postings table.
 		d := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
 		_, curPostings, err := it.dec.Postings(d.Get())
@@ -93,8 +93,7 @@ func (it *intersectLabelValuesV1) Next() bool {
 			return false
 		}
 
-		postings := it.cloner.Clone()
-		isMatch := checkIntersection(curPostings, postings)
+		isMatch := intersect(curPostings, it.postings.Clone())
 		if it.inverted {
 			isMatch = !isMatch
 		}
@@ -127,7 +126,7 @@ type intersectLabelValues struct {
 	d         *encoding.Decbuf
 	b         ByteSlice
 	dec       *Decoder
-	cloner    *PostingsCloner
+	postings  *PostingsCloner
 	lastVal   string
 	skip      int
 	cur       string
@@ -161,8 +160,8 @@ func (it *intersectLabelValues) Next() bool {
 
 		postingsOff := int(it.d.Uvarint64())
 		// Read from the postings table
-		d2 := encoding.NewDecbufAt(it.b, postingsOff, castagnoliTable)
-		_, curPostings, err := it.dec.Postings(d2.Get())
+		postingsDec := encoding.NewDecbufAt(it.b, postingsOff, castagnoliTable)
+		_, curPostings, err := it.dec.Postings(postingsDec.Get())
 		if err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
@@ -170,8 +169,7 @@ func (it *intersectLabelValues) Next() bool {
 
 		it.exhausted = v == it.lastVal
 
-		postings := it.cloner.Clone()
-		isMatch := checkIntersection(curPostings, postings)
+		isMatch := intersect(curPostings, it.postings.Clone())
 		if it.inverted {
 			isMatch = !isMatch
 		}
@@ -298,8 +296,8 @@ func findIntersectingPostingsMap(p Postings, candidates []Postings) (indexes map
 	return indexes, nil
 }
 
-// checkIntersection returns whether p1 and p2 have at least one series in common.
-func checkIntersection(p1, p2 Postings) bool {
+// intersect returns whether p1 and p2 have at least one series in common.
+func intersect(p1, p2 Postings) bool {
 	if !p1.Next() || !p2.Next() {
 		return false
 	}
