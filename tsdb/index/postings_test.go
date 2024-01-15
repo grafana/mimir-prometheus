@@ -998,6 +998,19 @@ func TestMemPostings_Delete(t *testing.T) {
 	require.Empty(t, expanded, "expected empty postings, got %v", expanded)
 }
 
+func TestMemPostings_PostingsForMatcher(t *testing.T) {
+	p := NewMemPostings()
+	p.Add(1, labels.FromStrings("lbl1", "a"))
+	p.Add(2, labels.FromStrings("lbl1", "b"))
+	p.Add(3, labels.FromStrings("lbl2", "a"))
+
+	it := p.PostingsForMatcher(context.Background(), labels.MustNewMatcher(labels.MatchRegexp, "lbl1", "[a,b]"))
+	postings, err := ExpandPostings(it)
+	require.NoError(t, err)
+
+	require.Equal(t, []storage.SeriesRef{1, 2}, postings)
+}
+
 func TestPostingsCloner(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

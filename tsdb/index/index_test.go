@@ -561,6 +561,59 @@ func TestReaderWithInvalidBuffer(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestReader_PostingsForMatcher(t *testing.T) {
+	dir := t.TempDir()
+	fn := filepath.Join(dir, indexFilename)
+	ctx := context.Background()
+
+	iw, err := NewWriter(ctx, fn)
+	require.NoError(t, err)
+
+	symbols := map[string]struct{}{}
+	series := []labels.Labels{
+		labels.FromStrings("lbl1", "a"),
+		labels.FromStrings("lbl1", "b"),
+		labels.FromStrings("lbl2", "a"),
+	}
+	for _, ls := range series {
+		ls.Range(func(l labels.Label) {
+			symbols[l.Name] = struct{}{}
+			symbols[l.Value] = struct{}{}
+		})
+	}
+	var syms []string
+	for s := range symbols {
+		syms = append(syms, s)
+	}
+	sort.Strings(syms)
+	for _, s := range syms {
+		require.NoError(t, iw.AddSymbol(s))
+	}
+
+	for i, s := range series {
+		require.NoError(t, iw.AddSeries(storage.SeriesRef(i), s))
+	}
+	require.NoError(t, iw.Close())
+
+	ir, err := NewFileReader(fn)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, ir.Close())
+	})
+
+	expPostings, err := ir.Postings(ctx, "lbl1", "a", "b")
+	require.NoError(t, err)
+	expSrs, err := ExpandPostings(expPostings)
+	require.NoError(t, err)
+	require.Len(t, expSrs, 2)
+
+	it := ir.PostingsForMatcher(ctx, labels.MustNewMatcher(labels.MatchRegexp, "lbl1", "[a,b]"))
+	srs, err := ExpandPostings(it)
+	require.NoError(t, err)
+
+	require.Equal(t, expSrs, srs)
+}
+
 // TestNewFileReaderErrorNoOpenFiles ensures that in case of an error no file remains open.
 func TestNewFileReaderErrorNoOpenFiles(t *testing.T) {
 	dir := testutil.NewTemporaryDirectory("block", t)

@@ -397,6 +397,37 @@ func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 	}
 }
 
+func (p *MemPostings) PostingsForMatcher(ctx context.Context, m *labels.Matcher) Postings {
+	p.mtx.RLock()
+
+	e := p.m[m.Name]
+	if len(e) == 0 {
+		p.mtx.RUnlock()
+		return EmptyPostings()
+	}
+
+	values := make([]string, 0, len(e))
+	for v := range e {
+		if m.Matches(v) {
+			values = append(values, v)
+		}
+	}
+
+	its := make([]Postings, 0, len(values))
+	for _, val := range values {
+		srs := e[val]
+		if len(srs) > 0 {
+			// Make a copy with thread safety in mind
+			srsCpy := make([]storage.SeriesRef, len(srs))
+			copy(srsCpy, srs)
+			its = append(its, NewListPostings(srsCpy))
+		}
+	}
+	p.mtx.RUnlock()
+
+	return Merge(ctx, its...)
+}
+
 // ExpandPostings returns the postings expanded as a slice.
 func ExpandPostings(p Postings) (res []storage.SeriesRef, err error) {
 	for p.Next() {
