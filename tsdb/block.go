@@ -78,6 +78,9 @@ type IndexReader interface {
 	// during background garbage collections.
 	Postings(ctx context.Context, name string, values ...string) (index.Postings, error)
 
+	// PostingsForMatcher returns an iterator over postings matching the provided label matcher.
+	PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings
+
 	// PostingsForMatchers assembles a single postings iterator based on the given matchers.
 	// The resulting postings are not ordered by series.
 	// If concurrent hint is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
@@ -533,6 +536,10 @@ func (r blockIndexReader) Postings(ctx context.Context, name string, values ...s
 		return p, fmt.Errorf("block: %s: %w", r.b.Meta().ULID, err)
 	}
 	return p, nil
+}
+
+func (r blockIndexReader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings {
+	return r.ir.PostingsForMatcher(ctx, m)
 }
 
 func (r blockIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
