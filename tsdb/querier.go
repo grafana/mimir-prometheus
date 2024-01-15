@@ -307,6 +307,8 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 	}
 
 	return it, nil
+	it := ix.PostingsForMatcher(ctx, m)
+	return it, it.Err()
 }
 
 // inversePostingsForMatcher returns the postings for the series with the label name set but not matching the matcher.

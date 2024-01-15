@@ -3272,6 +3272,10 @@ func benchQuery(b *testing.B, expExpansions int, q storage.Querier, selectors la
 	}
 }
 
+func (m mockMatcherIndex) PostingsForMatcher(context.Context, *labels.Matcher) index.Postings {
+	return index.EmptyPostings()
+}
+
 func TestBlockBaseSeriesSet(t *testing.T) {
 	type refdSeries struct {
 		lset   labels.Labels
