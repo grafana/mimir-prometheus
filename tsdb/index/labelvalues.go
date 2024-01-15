@@ -2,12 +2,10 @@ package index
 
 import (
 	"container/heap"
-	"context"
 	"fmt"
 
 	"golang.org/x/exp/slices"
 
-	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/encoding"
 	"github.com/prometheus/prometheus/util/annotations"
@@ -18,6 +16,7 @@ func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelVal
 	return r.labelValuesFor(postings, name, false)
 }
 
+// LabelValuesFor returns LabelValues for the given label name in the series *not* referred to by postings.
 func (r *Reader) LabelValuesNotFor(postings Postings, name string) storage.LabelValues {
 	return r.labelValuesFor(postings, name, true)
 }
@@ -330,35 +329,4 @@ func intersect(p1, p2 Postings) bool {
 	}
 
 	return false
-}
-
-func (p *MemPostings) PostingsForRegexp(ctx context.Context, m *labels.Matcher) Postings {
-	p.mtx.RLock()
-
-	e := p.m[m.Name]
-	if len(e) == 0 {
-		p.mtx.RUnlock()
-		return EmptyPostings()
-	}
-
-	values := make([]string, 0, len(e))
-	for v := range e {
-		if m.Matches(v) {
-			values = append(values, v)
-		}
-	}
-
-	its := make([]Postings, 0, len(values))
-	for _, val := range values {
-		srs := e[val]
-		if len(srs) > 0 {
-			// Make a copy with thread safety in mind
-			srsCpy := make([]storage.SeriesRef, len(srs))
-			copy(srsCpy, srs)
-			its = append(its, NewListPostings(srsCpy))
-		}
-	}
-	p.mtx.RUnlock()
-
-	return Merge(ctx, its...)
 }

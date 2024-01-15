@@ -164,10 +164,6 @@ func (oh *OOOHeadIndexReader) PostingsForMatchers(ctx context.Context, concurren
 	return oh.head.pfmc.PostingsForMatchers(ctx, oh, concurrent, ms...)
 }
 
-func (oh *OOOHeadIndexReader) PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings {
-	return oh.head.postings.PostingsForRegexp(ctx, m)
-}
-
 // LabelValues needs to be overridden from the headIndexReader implementation due
 // to the check that happens at the beginning where we make sure that the query
 // interval overlaps with the head minooot and maxooot.
@@ -445,10 +441,6 @@ func (ir *OOOCompactionHeadIndexReader) Postings(_ context.Context, name string,
 	return index.NewListPostings(ir.ch.postings), nil
 }
 
-func (ir *OOOCompactionHeadIndexReader) PostingsForRegexp(context.Context, *labels.Matcher) index.Postings {
-	return index.ErrPostings(errors.New("not supported"))
-}
-
 func (ir *OOOCompactionHeadIndexReader) SortedPostings(p index.Postings) index.Postings {
 	// This will already be sorted from the Postings() call above.
 	return p
@@ -476,10 +468,6 @@ func (ir *OOOCompactionHeadIndexReader) SortedLabelValues(_ context.Context, nam
 
 func (ir *OOOCompactionHeadIndexReader) LabelValues(_ context.Context, name string, matchers ...*labels.Matcher) ([]string, error) {
 	return nil, errors.New("not implemented")
-}
-
-func (ir *OOOCompactionHeadIndexReader) LabelValuesStream(context.Context, string, ...*labels.Matcher) storage.LabelValues {
-	return storage.ErrLabelValues(errors.New("not implemented"))
 }
 
 func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {

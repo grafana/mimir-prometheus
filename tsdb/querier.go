@@ -324,8 +324,23 @@ func postingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *labels.M
 		}
 	}
 
-	it := ix.PostingsForRegexp(ctx, m)
-	return it, it.Err()
+	vals, err := ix.LabelValues(ctx, m.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	var res []string
+	for _, val := range vals {
+		if m.Matches(val) {
+			res = append(res, val)
+		}
+	}
+
+	if len(res) == 0 {
+		return index.EmptyPostings(), nil
+	}
+
+	return ix.Postings(ctx, m.Name, res...)
 }
 
 // inversePostingsForMatcher returns the postings for the series with the label name set but not matching the matcher.

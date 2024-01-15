@@ -78,9 +78,6 @@ type IndexReader interface {
 	// during background garbage collections.
 	Postings(ctx context.Context, name string, values ...string) (index.Postings, error)
 
-	// PostingsForRegexp returns an iterator over postings matching the provided regexp label matcher.
-	PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings
-
 	// PostingsForMatchers assembles a single postings iterator based on the given matchers.
 	// The resulting postings are not ordered by series.
 	// If concurrent hint is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
@@ -542,10 +539,6 @@ func (r blockIndexReader) Postings(ctx context.Context, name string, values ...s
 		return p, fmt.Errorf("block: %s: %w", r.b.Meta().ULID, err)
 	}
 	return p, nil
-}
-
-func (r blockIndexReader) PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings {
-	return r.ir.PostingsForRegexp(ctx, m)
 }
 
 func (r blockIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {

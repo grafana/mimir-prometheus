@@ -37,9 +37,6 @@ type IndexPostingsReader interface {
 	// Found IDs are not strictly required to point to a valid Series, e.g.
 	// during background garbage collections. Input values must be sorted.
 	Postings(ctx context.Context, name string, values ...string) (index.Postings, error)
-
-	// PostingsForRegexp returns an iterator over postings matching the provided regexp label matcher.
-	PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings
 }
 
 // NewPostingsForMatchersCache creates a new PostingsForMatchersCache.
