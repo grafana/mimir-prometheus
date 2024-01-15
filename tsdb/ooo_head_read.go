@@ -175,6 +175,10 @@ func (oh *OOOHeadIndexReader) PostingsForMatchers(ctx context.Context, concurren
 	return oh.head.pfmc.PostingsForMatchers(ctx, oh, concurrent, ms...)
 }
 
+func (oh *OOOHeadIndexReader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings {
+	return oh.head.postings.PostingsForMatcher(ctx, m)
+}
+
 // LabelValues needs to be overridden from the headIndexReader implementation due
 // to the check that happens at the beginning where we make sure that the query
 // interval overlaps with the head minooot and maxooot.
@@ -450,6 +454,10 @@ func (ir *OOOCompactionHeadIndexReader) Postings(_ context.Context, name string,
 		return nil, errors.New("only AllPostingsKey is supported")
 	}
 	return index.NewListPostings(ir.ch.postings), nil
+}
+
+func (ir *OOOCompactionHeadIndexReader) PostingsForMatcher(context.Context, *labels.Matcher) index.Postings {
+	return index.ErrPostings(errors.New("not supported"))
 }
 
 func (ir *OOOCompactionHeadIndexReader) SortedPostings(p index.Postings) index.Postings {

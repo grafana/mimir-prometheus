@@ -2366,6 +2366,16 @@ func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 	return index.NewListPostings(ep)
 }
 
+func (m mockIndex) PostingsForMatcher(ctx context.Context, matcher *labels.Matcher) index.Postings {
+	var res []index.Postings
+	for l, srs := range m.postings {
+		if l.Name == matcher.Name && matcher.Matches(l.Value) {
+			res = append(res, index.NewListPostings(srs))
+		}
+	}
+	return index.Merge(ctx, res...)
+}
+
 func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {
@@ -3291,6 +3301,10 @@ func (m mockMatcherIndex) Postings(context.Context, string, ...string) (index.Po
 	return index.EmptyPostings(), nil
 }
 
+func (m mockMatcherIndex) PostingsForMatcher(context.Context, *labels.Matcher) index.Postings {
+	return index.EmptyPostings()
+}
+
 func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {
 	return index.EmptyPostings(), nil
 }
@@ -3324,9 +3338,8 @@ func TestPostingsForMatcher(t *testing.T) {
 			hasError: false,
 		},
 		{
-			// Regex matcher which doesn't have '|' will call Labelvalues()
 			matcher:  labels.MustNewMatcher(labels.MatchRegexp, "test", ".*"),
-			hasError: true,
+			hasError: false,
 		},
 		{
 			matcher:  labels.MustNewMatcher(labels.MatchRegexp, "test", "a|b"),
