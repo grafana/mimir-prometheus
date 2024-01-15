@@ -121,6 +121,10 @@ func (h *headIndexReader) Postings(ctx context.Context, name string, values ...s
 	}
 }
 
+func (h *headIndexReader) PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings {
+	return h.head.postings.PostingsForRegexp(ctx, m)
+}
+
 func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	return h.head.pfmc.PostingsForMatchers(ctx, h, concurrent, ms...)
 }
@@ -177,6 +181,11 @@ func (h *headIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (h *headIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
 	return h.head.postings.LabelValuesFor(postings, name)
+}
+
+// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
+func (h *headIndexReader) LabelValuesNotFor(postings index.Postings, name string) storage.LabelValues {
+	return h.head.postings.LabelValuesNotFor(postings, name)
 }
 
 // Series returns the series for the given reference.

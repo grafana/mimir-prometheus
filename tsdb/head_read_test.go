@@ -568,3 +568,18 @@ func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 		require.Empty(t, it.Warnings())
 	})
 }
+
+func TestHeadIndexReader_LabelValuesNotFor(t *testing.T) {
+	t.Run("empty postings", func(t *testing.T) {
+		r := headIndexReader{
+			head: &Head{
+				postings: &index.MemPostings{},
+			},
+		}
+
+		it := r.LabelValuesFor(index.EmptyPostings(), "test")
+		require.False(t, it.Next())
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+	})
+}

@@ -1,10 +1,13 @@
 package index
 
 import (
+	"container/heap"
+	"context"
 	"fmt"
 
 	"golang.org/x/exp/slices"
 
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/encoding"
 	"github.com/prometheus/prometheus/util/annotations"
@@ -12,6 +15,14 @@ import (
 
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelValues {
+	return r.labelValuesFor(postings, name, false)
+}
+
+func (r *Reader) LabelValuesNotFor(postings Postings, name string) storage.LabelValues {
+	return r.labelValuesFor(postings, name, true)
+}
+
+func (r *Reader) labelValuesFor(postings Postings, name string, inverted bool) storage.LabelValues {
 	if r.version == FormatV1 {
 		e := r.postingsV1[name]
 		if len(e) == 0 {
@@ -23,11 +34,12 @@ func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelVal
 		}
 		slices.Sort(vals)
 		return &intersectLabelValuesV1{
-			e:      e,
-			values: vals,
-			cloner: NewPostingsCloner(postings),
-			b:      r.b,
-			dec:    r.dec,
+			e:        e,
+			values:   vals,
+			cloner:   NewPostingsCloner(postings),
+			b:        r.b,
+			dec:      r.dec,
+			inverted: inverted,
 		}
 	}
 
@@ -42,22 +54,24 @@ func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelVal
 	lastVal := e[len(e)-1].value
 
 	return &intersectLabelValues{
-		d:       &d,
-		b:       r.b,
-		dec:     r.dec,
-		lastVal: lastVal,
-		cloner:  NewPostingsCloner(postings),
+		d:        &d,
+		b:        r.b,
+		dec:      r.dec,
+		lastVal:  lastVal,
+		cloner:   NewPostingsCloner(postings),
+		inverted: inverted,
 	}
 }
 
 type intersectLabelValuesV1 struct {
-	e      map[string]uint64
-	values []string
-	cloner *PostingsCloner
-	b      ByteSlice
-	dec    *Decoder
-	cur    string
-	err    error
+	e        map[string]uint64
+	values   []string
+	cloner   *PostingsCloner
+	b        ByteSlice
+	dec      *Decoder
+	cur      string
+	err      error
+	inverted bool
 }
 
 func (it *intersectLabelValuesV1) Next() bool {
@@ -76,7 +90,11 @@ func (it *intersectLabelValuesV1) Next() bool {
 		}
 
 		postings := it.cloner.Clone()
-		if checkIntersection(curPostings, postings) {
+		isMatch := checkIntersection(curPostings, postings)
+		if it.inverted {
+			isMatch = !isMatch
+		}
+		if isMatch {
 			it.cur = val
 			return true
 		}
@@ -111,6 +129,7 @@ type intersectLabelValues struct {
 	cur       string
 	exhausted bool
 	err       error
+	inverted  bool
 }
 
 func (it *intersectLabelValues) Next() bool {
@@ -135,9 +154,9 @@ func (it *intersectLabelValues) Next() bool {
 		// Label value
 		v := yoloString(it.d.UvarintBytes())
 
-		postingsOff := it.d.Uvarint64()
+		postingsOff := int(it.d.Uvarint64())
 		// Read from the postings table
-		d2 := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
+		d2 := encoding.NewDecbufAt(it.b, postingsOff, castagnoliTable)
 		_, curPostings, err := it.dec.Postings(d2.Get())
 		if err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
@@ -147,7 +166,11 @@ func (it *intersectLabelValues) Next() bool {
 		it.exhausted = v == it.lastVal
 
 		postings := it.cloner.Clone()
-		if checkIntersection(curPostings, postings) {
+		isMatch := checkIntersection(curPostings, postings)
+		if it.inverted {
+			isMatch = !isMatch
+		}
+		if isMatch {
 			it.cur = v
 			return true
 		}
@@ -177,6 +200,15 @@ func (it *intersectLabelValues) Close() error {
 
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.LabelValues {
+	return p.labelValuesFor(postings, name, false)
+}
+
+// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
+func (p *MemPostings) LabelValuesNotFor(postings Postings, name string) storage.LabelValues {
+	return p.labelValuesFor(postings, name, true)
+}
+
+func (p *MemPostings) labelValuesFor(postings Postings, name string, inverted bool) storage.LabelValues {
 	p.mtx.RLock()
 
 	e := p.m[name]
@@ -193,23 +225,71 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.Lab
 		candidates = append(candidates, NewListPostings(srs))
 	}
 
-	indexes, err := FindIntersectingPostings(postings, candidates)
-	p.mtx.RUnlock()
-	if err != nil {
-		return storage.ErrLabelValues(err)
-	}
-
-	// Filter the values, keeping only those with intersecting postings
-	if len(vals) != len(indexes) {
-		slices.Sort(indexes)
-		for i, index := range indexes {
-			vals[i] = vals[index]
+	if !inverted {
+		indexes, err := FindIntersectingPostings(postings, candidates)
+		p.mtx.RUnlock()
+		if err != nil {
+			return storage.ErrLabelValues(err)
 		}
-		vals = vals[:len(indexes)]
+
+		// Filter the values, keeping only those with intersecting postings
+		if len(vals) != len(indexes) {
+			slices.Sort(indexes)
+			for i, index := range indexes {
+				vals[i] = vals[index]
+			}
+			vals = vals[:len(indexes)]
+		}
+	} else {
+		// TODO: Implement findNonIntersectingPostings instead
+		indexes, err := findIntersectingPostingsMap(postings, candidates)
+		p.mtx.RUnlock()
+		if err != nil {
+			return storage.ErrLabelValues(err)
+		}
+
+		// Filter the values, keeping only those without intersecting postings
+		keep := make([]string, 0, len(vals)-len(indexes))
+		for i, val := range vals {
+			if _, ok := indexes[i]; !ok {
+				keep = append(keep, val)
+			}
+		}
+		vals = keep
 	}
 
 	slices.Sort(vals)
 	return storage.NewListLabelValues(vals)
+}
+
+func findIntersectingPostingsMap(p Postings, candidates []Postings) (indexes map[int]struct{}, err error) {
+	h := make(postingsWithIndexHeap, 0, len(candidates))
+	for idx, it := range candidates {
+		switch {
+		case it.Next():
+			h = append(h, postingsWithIndex{index: idx, p: it})
+		case it.Err() != nil:
+			return nil, it.Err()
+		}
+	}
+	if h.empty() {
+		return nil, nil
+	}
+	heap.Init(&h)
+
+	indexes = map[int]struct{}{}
+	for !h.empty() {
+		if !p.Seek(h.at()) {
+			return indexes, p.Err()
+		}
+		if p.At() == h.at() {
+			indexes[h.popIndex()] = struct{}{}
+		} else if err := h.next(); err != nil {
+			return nil, err
+		}
+	}
+
+	return indexes, nil
 }
 
 // checkIntersection returns whether p1 and p2 have at least one series in common.
@@ -242,4 +322,35 @@ func checkIntersection(p1, p2 Postings) bool {
 	}
 
 	return false
+}
+
+func (p *MemPostings) PostingsForRegexp(ctx context.Context, m *labels.Matcher) Postings {
+	p.mtx.RLock()
+
+	e := p.m[m.Name]
+	if len(e) == 0 {
+		p.mtx.RUnlock()
+		return EmptyPostings()
+	}
+
+	values := make([]string, 0, len(e))
+	for v := range e {
+		if m.Matches(v) {
+			values = append(values, v)
+		}
+	}
+
+	its := make([]Postings, 0, len(values))
+	for _, val := range values {
+		srs := e[val]
+		if len(srs) > 0 {
+			// Make a copy with thread safety in mind
+			srsCpy := make([]storage.SeriesRef, len(srs))
+			copy(srsCpy, srs)
+			its = append(its, NewListPostings(srsCpy))
+		}
+	}
+	p.mtx.RUnlock()
+
+	return Merge(ctx, its...)
 }

@@ -2366,6 +2366,16 @@ func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 	return index.NewListPostings(ep)
 }
 
+func (m mockIndex) PostingsForRegexp(ctx context.Context, matcher *labels.Matcher) index.Postings {
+	var res []index.Postings
+	for l, srs := range m.postings {
+		if l.Name == matcher.Name && matcher.Matches(l.Value) {
+			res = append(res, index.NewListPostings(srs))
+		}
+	}
+	return index.Merge(ctx, res...)
+}
+
 func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {
@@ -2409,6 +2419,10 @@ func (m mockIndex) ShardedPostings(p index.Postings, shardIndex, shardCount uint
 }
 
 func (mockIndex) LabelValuesFor(index.Postings, string) storage.LabelValues {
+	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
+}
+
+func (mockIndex) LabelValuesNotFor(index.Postings, string) storage.LabelValues {
 	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
 }
 
@@ -3291,6 +3305,10 @@ func (m mockMatcherIndex) Postings(context.Context, string, ...string) (index.Po
 	return index.EmptyPostings(), nil
 }
 
+func (m mockMatcherIndex) PostingsForRegexp(context.Context, *labels.Matcher) index.Postings {
+	return index.EmptyPostings()
+}
+
 func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {
 	return index.EmptyPostings(), nil
 }
@@ -3324,9 +3342,8 @@ func TestPostingsForMatcher(t *testing.T) {
 			hasError: false,
 		},
 		{
-			// Regex matcher which doesn't have '|' will call Labelvalues()
 			matcher:  labels.MustNewMatcher(labels.MatchRegexp, "test", ".*"),
-			hasError: true,
+			hasError: false,
 		},
 		{
 			matcher:  labels.MustNewMatcher(labels.MatchRegexp, "test", "a|b"),
@@ -3340,13 +3357,15 @@ func TestPostingsForMatcher(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		ir := &mockMatcherIndex{}
-		_, err := postingsForMatcher(ctx, ir, tc.matcher)
-		if tc.hasError {
-			require.Error(t, err)
-		} else {
-			require.NoError(t, err)
-		}
+		t.Run(tc.matcher.String(), func(t *testing.T) {
+			ir := &mockMatcherIndex{}
+			_, err := postingsForMatcher(ctx, ir, tc.matcher)
+			if tc.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
@@ -3674,7 +3693,7 @@ func TestPrependPostings(t *testing.T) {
 	})
 }
 
-func TestLabelValuesWithMatchersOptimization(t *testing.T) {
+func TestLabelsValuesWithMatchersOptimization(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000

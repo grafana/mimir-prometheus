@@ -339,14 +339,14 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 	t.Run("initial request context is cancelled, second request is not cancelled", func(t *testing.T) {
 		matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
-		var expectedPostings []storage.SeriesRef
+		expectedPostings := index.NewListPostings(nil)
 
 		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 
-			return index.NewListPostings(expectedPostings), nil
+			return expectedPostings, nil
 		}, &timeNowMock{}, false)
 
 		ctx1, cancel := context.WithCancel(context.Background())
@@ -355,9 +355,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 
 		ctx2 := context.Background()
-		got, err := c.PostingsForMatchers(ctx2, indexForPostingsMock{}, true, matchers...)
-		require.NoError(t, err)
-		actualPostings, err := index.ExpandPostings(got)
+		actualPostings, err := c.PostingsForMatchers(ctx2, indexForPostingsMock{}, true, matchers...)
 		require.NoError(t, err)
 		require.Equal(t, expectedPostings, actualPostings)
 	})
@@ -428,6 +426,10 @@ func (idx indexForPostingsMock) LabelValues(context.Context, string, ...*labels.
 }
 
 func (idx indexForPostingsMock) Postings(context.Context, string, ...string) (index.Postings, error) {
+	panic("implement me")
+}
+
+func (idx indexForPostingsMock) PostingsForRegexp(context.Context, *labels.Matcher) index.Postings {
 	panic("implement me")
 }
 

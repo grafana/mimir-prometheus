@@ -78,6 +78,9 @@ type IndexReader interface {
 	// during background garbage collections.
 	Postings(ctx context.Context, name string, values ...string) (index.Postings, error)
 
+	// PostingsForRegexp returns an iterator over postings matching the provided regexp label matcher.
+	PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings
+
 	// PostingsForMatchers assembles a single postings iterator based on the given matchers.
 	// The resulting postings are not ordered by series.
 	// If concurrent hint is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
@@ -108,6 +111,9 @@ type IndexReader interface {
 
 	// LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 	LabelValuesFor(p index.Postings, name string) storage.LabelValues
+
+	// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
+	LabelValuesNotFor(p index.Postings, name string) storage.LabelValues
 
 	// LabelNamesFor returns all the label names for the series referred to by IDs.
 	// The names returned are sorted.
@@ -538,6 +544,10 @@ func (r blockIndexReader) Postings(ctx context.Context, name string, values ...s
 	return p, nil
 }
 
+func (r blockIndexReader) PostingsForRegexp(ctx context.Context, m *labels.Matcher) index.Postings {
+	return r.ir.PostingsForRegexp(ctx, m)
+}
+
 func (r blockIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	return r.ir.PostingsForMatchers(ctx, concurrent, ms...)
 }
@@ -553,6 +563,11 @@ func (r blockIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (r blockIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
 	return r.ir.LabelValuesFor(postings, name)
+}
+
+// LabelValuesNotFor returns LabelValues for the given label name in the series *not* referred to by postings.
+func (r blockIndexReader) LabelValuesNotFor(postings index.Postings, name string) storage.LabelValues {
+	return r.ir.LabelValuesNotFor(postings, name)
 }
 
 func (r blockIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
