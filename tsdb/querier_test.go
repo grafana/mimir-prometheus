@@ -2412,7 +2412,7 @@ func (mockIndex) LabelValuesFor(index.Postings, string) storage.LabelValues {
 	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
 }
 
-func (mockIndex) LabelValuesNotFor(index.Postings, string) storage.LabelValues {
+func (mockIndex) LabelValuesExcluding(index.Postings, string) storage.LabelValues {
 	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
 }
 

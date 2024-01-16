@@ -569,7 +569,7 @@ func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 	})
 }
 
-func TestHeadIndexReader_LabelValuesNotFor(t *testing.T) {
+func TestHeadIndexReader_LabelValuesExcluding(t *testing.T) {
 	t.Run("empty postings", func(t *testing.T) {
 		r := headIndexReader{
 			head: &Head{
