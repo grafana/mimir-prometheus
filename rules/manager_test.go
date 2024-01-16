@@ -161,7 +161,7 @@ func TestAlertingRule(t *testing.T) {
 
 		evalTime := baseTime.Add(test.time)
 
-		res, err := rule.Eval(context.TODO(), 0, evalTime, EngineQueryFunc(testEngine, storage), nil, 0)
+		res, err := rule.Eval(context.TODO(), 0, evalTime, EngineQueryFunc(testEngine, storage), nil, 0, false)
 		require.NoError(t, err)
 
 		var filteredRes promql.Vector // After removing 'ALERTS_FOR_STATE' samples.
@@ -309,7 +309,7 @@ func TestForStateAddSamples(t *testing.T) {
 					forState = float64(value.StaleNaN)
 				}
 
-				res, err := rule.Eval(context.TODO(), evalDelay, evalTime, EngineQueryFunc(testEngine, storage), nil, 0)
+				res, err := rule.Eval(context.TODO(), evalDelay, evalTime, EngineQueryFunc(testEngine, storage), nil, 0, false)
 				require.NoError(t, err)
 
 				var filteredRes promql.Vector // After removing 'ALERTS' samples.
@@ -371,6 +371,8 @@ func TestForStateRestore(t *testing.T) {
 		NotifyFunc:      func(ctx context.Context, expr string, alerts ...*Alert) {},
 		OutageTolerance: 30 * time.Minute,
 		ForGracePeriod:  10 * time.Minute,
+
+		RuleDependencyController: NewRuleDependencyController(),
 	}
 
 	alertForDuration := 25 * time.Minute
@@ -543,6 +545,8 @@ func TestStaleness(t *testing.T) {
 			Queryable:  st,
 			Context:    context.Background(),
 			Logger:     log.NewNopLogger(),
+
+			RuleDependencyController: NewRuleDependencyController(),
 		}
 
 		expr, err := parser.ParseExpr("a + 1")
@@ -735,6 +739,8 @@ func TestUpdate(t *testing.T) {
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -812,11 +818,12 @@ func TestUpdate_AlwaysRestore(t *testing.T) {
 	defer st.Close()
 
 	ruleManager := NewManager(&ManagerOptions{
-		Appendable:              st,
-		Queryable:               st,
-		Context:                 context.Background(),
-		Logger:                  log.NewNopLogger(),
-		AlwaysRestoreAlertState: true,
+		Appendable:               st,
+		Queryable:                st,
+		Context:                  context.Background(),
+		Logger:                   log.NewNopLogger(),
+		AlwaysRestoreAlertState:  true,
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -844,11 +851,12 @@ func TestUpdate_AlwaysRestoreDoesntAffectUnchangedGroups(t *testing.T) {
 	defer st.Close()
 
 	ruleManager := NewManager(&ManagerOptions{
-		Appendable:              st,
-		Queryable:               st,
-		Context:                 context.Background(),
-		Logger:                  log.NewNopLogger(),
-		AlwaysRestoreAlertState: true,
+		Appendable:               st,
+		Queryable:                st,
+		Context:                  context.Background(),
+		Logger:                   log.NewNopLogger(),
+		AlwaysRestoreAlertState:  true,
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -882,11 +890,12 @@ func TestUpdateSetsSourceTenants(t *testing.T) {
 	}
 	engine := promql.NewEngine(opts)
 	ruleManager := NewManager(&ManagerOptions{
-		Appendable: st,
-		Queryable:  st,
-		QueryFunc:  EngineQueryFunc(engine, st),
-		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Appendable:               st,
+		Queryable:                st,
+		QueryFunc:                EngineQueryFunc(engine, st),
+		Context:                  context.Background(),
+		Logger:                   log.NewNopLogger(),
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -929,6 +938,8 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -1002,6 +1013,7 @@ func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
 		Context:                    context.Background(),
 		Logger:                     log.NewNopLogger(),
 		GroupEvaluationContextFunc: mockContextWrapFunc,
+		RuleDependencyController:   NewRuleDependencyController(),
 	})
 
 	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml")
@@ -1116,6 +1128,8 @@ func TestNotify(t *testing.T) {
 		Logger:      log.NewNopLogger(),
 		NotifyFunc:  notifyFunc,
 		ResendDelay: 2 * time.Second,
+
+		RuleDependencyController: NewRuleDependencyController(),
 	}
 
 	expr, err := parser.ParseExpr("a > 1")
@@ -1186,6 +1200,8 @@ func TestMetricsUpdate(t *testing.T) {
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
 		Registerer: registry,
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -1259,6 +1275,8 @@ func TestGroupStalenessOnRemoval(t *testing.T) {
 		QueryFunc:  EngineQueryFunc(engine, storage),
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	var stopped bool
 	ruleManager.start()
@@ -1336,6 +1354,8 @@ func TestMetricsStalenessOnManagerShutdown(t *testing.T) {
 		QueryFunc:  EngineQueryFunc(engine, storage),
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	var stopped bool
 	ruleManager.start()
@@ -1438,6 +1458,8 @@ func TestRuleHealthUpdates(t *testing.T) {
 		Queryable:  st,
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	}
 
 	expr, err := parser.ParseExpr("a + 1")
@@ -1753,6 +1775,8 @@ func TestRuleGroupEvalIterationFunc(t *testing.T) {
 			NotifyFunc:      func(ctx context.Context, expr string, alerts ...*Alert) {},
 			OutageTolerance: 30 * time.Minute,
 			ForGracePeriod:  10 * time.Minute,
+
+			RuleDependencyController: NewRuleDependencyController(),
 		}
 
 		activeAlert := &Alert{
@@ -1833,6 +1857,8 @@ func TestNativeHistogramsInRecordingRules(t *testing.T) {
 		Queryable:  storage,
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	}
 
 	expr, err := parser.ParseExpr("sum(histogram_metric)")
@@ -2169,6 +2195,7 @@ func TestAsyncRuleEvaluation(t *testing.T) {
 					promql.Sample{Metric: labels.FromStrings("__name__", "test"), T: ts.UnixMilli(), F: 12345},
 				}, nil
 			},
+			RuleDependencyController: NewRuleDependencyController(),
 		}
 	}
 
@@ -2372,6 +2399,7 @@ func TestBoundedRuleEvalConcurrency(t *testing.T) {
 				promql.Sample{Metric: labels.FromStrings("__name__", "test"), T: ts.UnixMilli(), F: 12345},
 			}, nil
 		},
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 
 	groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, files...)

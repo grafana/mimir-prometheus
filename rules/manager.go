@@ -120,6 +120,7 @@ type ManagerOptions struct {
 	GroupLoader               GroupLoader
 	MaxConcurrentEvals        int64
 	ConcurrentEvalsEnabled    bool
+	RuleDependencyController  RuleDependencyController
 	RuleConcurrencyController RuleConcurrencyController
 
 	DefaultEvaluationDelay func() time.Duration
@@ -144,6 +145,10 @@ func NewManager(o *ManagerOptions) *Manager {
 
 	if o.GroupLoader == nil {
 		o.GroupLoader = FileLoader{}
+	}
+
+	if o.RuleDependencyController == nil {
+		o.RuleDependencyController = NewRuleDependencyController()
 	}
 
 	if o.RuleConcurrencyController == nil {
@@ -196,8 +201,8 @@ func (m *Manager) Update(interval time.Duration, files []string, externalLabels 
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
-	if m.opts.RuleConcurrencyController != nil {
-		m.opts.RuleConcurrencyController.Invalidate()
+	if m.opts.RuleDependencyController != nil {
+		m.opts.RuleDependencyController.Invalidate()
 	}
 
 	groups, errs := m.LoadGroups(interval, externalLabels, externalURL, groupEvalIterationFunc, files...)
@@ -436,44 +441,30 @@ func SendAlerts(s Sender, externalURL string) NotifyFunc {
 	}
 }
 
-// RuleConcurrencyController controls whether rules can be evaluated concurrently. Its purpose it to bound the amount
-// of concurrency in rule evaluations, to not overwhelm the Prometheus server with additional query load.
-// Concurrency is controlled globally, not on a per-group basis.
-type RuleConcurrencyController interface {
-	// RuleEligible determines if a rule can be run concurrently.
-	RuleEligible(g *Group, r Rule) bool
+// TODO doc
+type RuleDependencyController interface {
+	// TODO doc
+	IsRuleIndependent(g *Group, r Rule) bool
 
-	// Allow determines whether any concurrent evaluation slots are available.
-	Allow() bool
-
-	// Done releases a concurrent evaluation slot.
-	Done()
-
-	// Invalidate instructs the controller to invalidate its state.
-	// This should be called when groups are modified (during a reload, for instance), because the controller may
-	// store some state about each group in order to more efficiently determine rule eligibility.
+	// TODO doc
 	Invalidate()
 }
 
-func newRuleConcurrencyController(enabled bool, maxConcurrency int64) RuleConcurrencyController {
-	return &concurrentRuleEvalController{
-		enabled: enabled,
-		sema:    semaphore.NewWeighted(maxConcurrency),
+// TODO unit test
+type ruleDependencyController struct {
+	depMapsMu sync.Mutex
+	depMaps   map[*Group]dependencyMap
+}
+
+func NewRuleDependencyController() RuleDependencyController {
+	return &ruleDependencyController{
 		depMaps: map[*Group]dependencyMap{},
 	}
 }
 
-// concurrentRuleEvalController holds a weighted semaphore which controls the concurrent evaluation of rules.
-type concurrentRuleEvalController struct {
-	mu      sync.Mutex
-	enabled bool
-	sema    *semaphore.Weighted
-	depMaps map[*Group]dependencyMap
-}
-
-func (c *concurrentRuleEvalController) RuleEligible(g *Group, r Rule) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+func (c *ruleDependencyController) IsRuleIndependent(g *Group, r Rule) bool {
+	c.depMapsMu.Lock()
+	defer c.depMapsMu.Unlock()
 
 	depMap, found := c.depMaps[g]
 	if !found {
@@ -482,6 +473,38 @@ func (c *concurrentRuleEvalController) RuleEligible(g *Group, r Rule) bool {
 	}
 
 	return depMap.isIndependent(r)
+}
+
+func (c *ruleDependencyController) Invalidate() {
+	c.depMapsMu.Lock()
+	defer c.depMapsMu.Unlock()
+
+	// Clear out the memoized dependency maps because some or all groups may have been updated.
+	c.depMaps = map[*Group]dependencyMap{}
+}
+
+// RuleConcurrencyController controls whether rules can be evaluated concurrently. Its purpose it to bound the amount
+// of concurrency in rule evaluations, to not overwhelm the Prometheus server with additional query load.
+// Concurrency is controlled globally, not on a per-group basis.
+type RuleConcurrencyController interface {
+	// Allow determines whether any concurrent evaluation slots are available.
+	Allow() bool
+
+	// Done releases a concurrent evaluation slot.
+	Done()
+}
+
+func newRuleConcurrencyController(enabled bool, maxConcurrency int64) RuleConcurrencyController {
+	return &concurrentRuleEvalController{
+		enabled: enabled,
+		sema:    semaphore.NewWeighted(maxConcurrency),
+	}
+}
+
+// concurrentRuleEvalController holds a weighted semaphore which controls the concurrent evaluation of rules.
+type concurrentRuleEvalController struct {
+	enabled bool
+	sema    *semaphore.Weighted
 }
 
 func (c *concurrentRuleEvalController) Allow() bool {
@@ -498,12 +521,4 @@ func (c *concurrentRuleEvalController) Done() {
 	}
 
 	c.sema.Release(1)
-}
-
-func (c *concurrentRuleEvalController) Invalidate() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	// Clear out the memoized dependency maps because some or all groups may have been updated.
-	c.depMaps = map[*Group]dependencyMap{}
 }

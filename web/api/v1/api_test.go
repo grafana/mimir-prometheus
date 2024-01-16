@@ -293,6 +293,8 @@ func (m *rulesRetrieverMock) CreateRuleGroups() {
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
 		NotifyFunc: func(ctx context.Context, expr string, alerts ...*rules.Alert) {},
+
+		RuleDependencyController: rules.NewRuleDependencyController(),
 	}
 
 	var r []rules.Rule

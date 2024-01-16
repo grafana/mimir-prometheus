@@ -30,7 +30,7 @@ type unknownRule struct{}
 
 func (u unknownRule) Name() string          { return "" }
 func (u unknownRule) Labels() labels.Labels { return labels.EmptyLabels() }
-func (u unknownRule) Eval(context.Context, time.Duration, time.Time, QueryFunc, *url.URL, int) (promql.Vector, error) {
+func (u unknownRule) Eval(context.Context, time.Duration, time.Time, QueryFunc, *url.URL, int, bool) (promql.Vector, error) {
 	return nil, nil
 }
 func (u unknownRule) String() string                       { return "" }
@@ -46,6 +46,16 @@ func (u unknownRule) GetEvaluationTimestamp() time.Time    { return time.Time{} 
 
 func TestNewRuleDetailPanics(t *testing.T) {
 	require.PanicsWithValue(t, `unknown rule type "rules.unknownRule"`, func() {
-		NewRuleDetail(unknownRule{})
+		NewRuleDetail(unknownRule{}, false)
+	})
+}
+
+func TestFromOriginContext(t *testing.T) {
+	t.Run("should return zero value if RuleDetail is missing in the context", func(t *testing.T) {
+		detail := FromOriginContext(context.Background())
+		require.Zero(t, detail)
+
+		// The zero value for the Independent rule must be the most conservative option.
+		require.False(t, detail.Independent)
 	})
 }

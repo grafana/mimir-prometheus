@@ -455,7 +455,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 		default:
 		}
 
-		eval := func(i int, rule Rule, async bool) {
+		eval := func(i int, rule Rule, independent, async bool) {
 			defer func() {
 				if async {
 					wg.Done()
@@ -481,7 +481,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 
 			g.metrics.EvalTotal.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 
-			vector, err := rule.Eval(ctx, evaluationDelay, ts, g.opts.QueryFunc, g.opts.ExternalURL, g.Limit())
+			vector, err := rule.Eval(ctx, evaluationDelay, ts, g.opts.QueryFunc, g.opts.ExternalURL, g.Limit(), independent)
 			if err != nil {
 				rule.SetHealth(HealthBad)
 				rule.SetLastError(err)
@@ -590,13 +590,14 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 		}
 
 		// If the rule has no dependencies, it can run concurrently because no other rules in this group depend on its output.
+		independent := g.opts.RuleDependencyController.IsRuleIndependent(g, rule)
+
 		// Try run concurrently if there are slots available.
-		ctrl := g.opts.RuleConcurrencyController
-		if ctrl != nil && ctrl.RuleEligible(g, rule) && ctrl.Allow() {
+		if ctrl := g.opts.RuleConcurrencyController; independent && ctrl != nil && ctrl.Allow() {
 			wg.Add(1)
-			go eval(i, rule, true)
+			go eval(i, rule, independent, true)
 		} else {
-			eval(i, rule, false)
+			eval(i, rule, independent, false)
 		}
 	}
 
