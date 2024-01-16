@@ -241,17 +241,24 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 			vals = vals[:len(indexes)]
 		}
 	} else {
-		// TODO: Implement findNonIntersectingPostings instead
-		indexes, err := findIntersectingPostingsMap(postings, candidates)
+		indexes, err := FindIntersectingPostings(postings, candidates)
 		p.mtx.RUnlock()
 		if err != nil {
 			return storage.ErrLabelValues(err)
 		}
 
-		// Filter the values, keeping only those without intersecting postings
+		if len(vals) == len(indexes) {
+			return storage.EmptyLabelValues()
+		}
+
+		slices.Sort(indexes)
 		keep := make([]string, 0, len(vals)-len(indexes))
+		idx := 0
 		for i, val := range vals {
-			if _, ok := indexes[i]; !ok {
+			for idx < len(indexes) && indexes[idx] < i {
+				idx++
+			}
+			if idx == len(indexes) || indexes[idx] != i {
 				keep = append(keep, val)
 			}
 		}
