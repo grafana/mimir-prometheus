@@ -155,9 +155,7 @@ func (it *intersectLabelValues) Next() bool {
 		}
 
 		// Label value
-		vb := it.d.UvarintBytes()
-		v := yoloString(vb)
-
+		val := it.d.UvarintBytes()
 		postingsOff := int(it.d.Uvarint64())
 		// Read from the postings table
 		postingsDec := encoding.NewDecbufAt(it.b, postingsOff, castagnoliTable)
@@ -166,13 +164,11 @@ func (it *intersectLabelValues) Next() bool {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
 		}
-
-		it.exhausted = v == it.lastVal
-
+		it.exhausted = string(val) == it.lastVal
 		isMatch := intersect(curPostings, it.postings.Clone())
 		if isMatch == it.includeMatches {
 			// Make sure to allocate a new string
-			it.cur = string(vb)
+			it.cur = string(val)
 			return true
 		}
 	}
