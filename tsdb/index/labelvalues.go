@@ -227,9 +227,12 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, inverted bo
 	// With thread safety in mind and due to random key ordering in map, we have to construct the array in memory
 	vals := make([]string, 0, len(e))
 	candidates := make([]Postings, 0, len(e))
+	// Allocate a slice for all needed ListPostings, so no need to allocate them one by one.
+	lps := make([]ListPostings, 0, len(e))
 	for val, srs := range e {
 		vals = append(vals, val)
-		candidates = append(candidates, NewListPostings(srs))
+		lps = append(lps, ListPostings{list: srs})
+		candidates = append(candidates, &lps[len(lps)-1])
 	}
 
 	if !inverted {
