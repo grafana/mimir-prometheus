@@ -13,17 +13,17 @@ import (
 
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelValues {
-	return r.labelValuesFor(postings, name, false)
+	return r.labelValuesFor(postings, name, true)
 }
 
 // LabelValuesExcluding returns LabelValues for the given label name in the series *not* referred to by postings.
 func (r *Reader) LabelValuesExcluding(postings Postings, name string) storage.LabelValues {
-	return r.labelValuesFor(postings, name, true)
+	return r.labelValuesFor(postings, name, false)
 }
 
-func (r *Reader) labelValuesFor(postings Postings, name string, inverted bool) storage.LabelValues {
+func (r *Reader) labelValuesFor(postings Postings, name string, includeMatches bool) storage.LabelValues {
 	if r.version == FormatV1 {
-		return r.labelValuesForV1(postings, name, inverted)
+		return r.labelValuesForV1(postings, name, includeMatches)
 	}
 
 	e := r.postings[name]
@@ -37,16 +37,16 @@ func (r *Reader) labelValuesFor(postings Postings, name string, inverted bool) s
 	lastVal := e[len(e)-1].value
 
 	return &intersectLabelValues{
-		d:        &d,
-		b:        r.b,
-		dec:      r.dec,
-		lastVal:  lastVal,
-		postings: NewPostingsCloner(postings),
-		inverted: inverted,
+		d:              &d,
+		b:              r.b,
+		dec:            r.dec,
+		lastVal:        lastVal,
+		postings:       NewPostingsCloner(postings),
+		includeMatches: includeMatches,
 	}
 }
 
-func (r *Reader) labelValuesForV1(postings Postings, name string, inverted bool) storage.LabelValues {
+func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches bool) storage.LabelValues {
 	e := r.postingsV1[name]
 	if len(e) == 0 {
 		return storage.EmptyLabelValues()
@@ -57,24 +57,24 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, inverted bool)
 	}
 	slices.Sort(vals)
 	return &intersectLabelValuesV1{
-		seriesRefs: e,
-		values:     vals,
-		postings:   NewPostingsCloner(postings),
-		b:          r.b,
-		dec:        r.dec,
-		inverted:   inverted,
+		seriesRefs:     e,
+		values:         vals,
+		postings:       NewPostingsCloner(postings),
+		b:              r.b,
+		dec:            r.dec,
+		includeMatches: includeMatches,
 	}
 }
 
 type intersectLabelValuesV1 struct {
-	seriesRefs map[string]uint64
-	values     []string
-	postings   *PostingsCloner
-	b          ByteSlice
-	dec        *Decoder
-	cur        string
-	err        error
-	inverted   bool
+	seriesRefs     map[string]uint64
+	values         []string
+	postings       *PostingsCloner
+	b              ByteSlice
+	dec            *Decoder
+	cur            string
+	err            error
+	includeMatches bool
 }
 
 func (it *intersectLabelValuesV1) Next() bool {
@@ -97,10 +97,7 @@ func (it *intersectLabelValuesV1) Next() bool {
 		}
 
 		isMatch := intersect(curPostings, it.postings.Clone())
-		if it.inverted {
-			isMatch = !isMatch
-		}
-		if isMatch {
+		if isMatch == it.includeMatches {
 			it.cur = val
 			return true
 		}
@@ -126,16 +123,16 @@ func (it *intersectLabelValuesV1) Close() error {
 }
 
 type intersectLabelValues struct {
-	d         *encoding.Decbuf
-	b         ByteSlice
-	dec       *Decoder
-	postings  *PostingsCloner
-	lastVal   string
-	skip      int
-	cur       string
-	exhausted bool
-	err       error
-	inverted  bool
+	d              *encoding.Decbuf
+	b              ByteSlice
+	dec            *Decoder
+	postings       *PostingsCloner
+	lastVal        string
+	skip           int
+	cur            string
+	exhausted      bool
+	err            error
+	includeMatches bool
 }
 
 func (it *intersectLabelValues) Next() bool {
@@ -173,10 +170,7 @@ func (it *intersectLabelValues) Next() bool {
 		it.exhausted = v == it.lastVal
 
 		isMatch := intersect(curPostings, it.postings.Clone())
-		if it.inverted {
-			isMatch = !isMatch
-		}
-		if isMatch {
+		if isMatch == it.includeMatches {
 			// Make sure to allocate a new string
 			it.cur = string(vb)
 			return true
@@ -207,15 +201,15 @@ func (it *intersectLabelValues) Close() error {
 
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.LabelValues {
-	return p.labelValuesFor(postings, name, false)
+	return p.labelValuesFor(postings, name, true)
 }
 
 // LabelValuesExcluding returns LabelValues for the given label name in the series *not* referred to by postings.
 func (p *MemPostings) LabelValuesExcluding(postings Postings, name string) storage.LabelValues {
-	return p.labelValuesFor(postings, name, true)
+	return p.labelValuesFor(postings, name, false)
 }
 
-func (p *MemPostings) labelValuesFor(postings Postings, name string, inverted bool) storage.LabelValues {
+func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatches bool) storage.LabelValues {
 	p.mtx.RLock()
 
 	e := p.m[name]
@@ -235,7 +229,7 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, inverted bo
 		candidates = append(candidates, &lps[len(lps)-1])
 	}
 
-	if !inverted {
+	if includeMatches {
 		indexes, err := FindIntersectingPostings(postings, candidates)
 		p.mtx.RUnlock()
 		if err != nil {
