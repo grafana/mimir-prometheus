@@ -1,7 +1,6 @@
 package index
 
 import (
-	"container/heap"
 	"fmt"
 
 	"golang.org/x/exp/slices"
@@ -225,13 +224,12 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 		candidates = append(candidates, &lps[len(lps)-1])
 	}
 
+	indexes, err := FindIntersectingPostings(postings, candidates)
+	p.mtx.RUnlock()
+	if err != nil {
+		return storage.ErrLabelValues(err)
+	}
 	if includeMatches {
-		indexes, err := FindIntersectingPostings(postings, candidates)
-		p.mtx.RUnlock()
-		if err != nil {
-			return storage.ErrLabelValues(err)
-		}
-
 		// Filter the values, keeping only those with intersecting postings
 		if len(vals) != len(indexes) {
 			slices.Sort(indexes)
@@ -241,12 +239,7 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 			vals = vals[:len(indexes)]
 		}
 	} else {
-		indexes, err := FindIntersectingPostings(postings, candidates)
-		p.mtx.RUnlock()
-		if err != nil {
-			return storage.ErrLabelValues(err)
-		}
-
+		// Filter the values, keeping only those without intersecting postings
 		if len(vals) == len(indexes) {
 			return storage.EmptyLabelValues()
 		}
@@ -267,36 +260,6 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 
 	slices.Sort(vals)
 	return storage.NewListLabelValues(vals)
-}
-
-func findIntersectingPostingsMap(p Postings, candidates []Postings) (indexes map[int]struct{}, err error) {
-	h := make(postingsWithIndexHeap, 0, len(candidates))
-	for idx, it := range candidates {
-		switch {
-		case it.Next():
-			h = append(h, postingsWithIndex{index: idx, p: it})
-		case it.Err() != nil:
-			return nil, it.Err()
-		}
-	}
-	if h.empty() {
-		return nil, nil
-	}
-	heap.Init(&h)
-
-	indexes = map[int]struct{}{}
-	for !h.empty() {
-		if !p.Seek(h.at()) {
-			return indexes, p.Err()
-		}
-		if p.At() == h.at() {
-			indexes[h.popIndex()] = struct{}{}
-		} else if err := h.next(); err != nil {
-			return nil, err
-		}
-	}
-
-	return indexes, nil
 }
 
 // intersect returns whether p1 and p2 have at least one series in common.
