@@ -221,7 +221,7 @@ func (c *flagConfig) setFeatureListOptions(logger log.Logger) error {
 				config.DefaultGlobalConfig.ScrapeProtocols = config.DefaultProtoFirstScrapeProtocols
 				level.Info(logger).Log("msg", "Experimental native histogram support enabled. Changed default scrape_protocols to prefer PrometheusProto format.", "global.scrape_protocols", fmt.Sprintf("%v", config.DefaultGlobalConfig.ScrapeProtocols))
 			case "ooo-native-histograms":
-				c.tsdb.EnableOOONativeHistograms = false
+				c.tsdb.EnableOOONativeHistograms = true
 				level.Info(logger).Log("msg", "Experimental out-of-order native histogram ingestion enabled. This will only take effect if OutOfOrderTimeWindow is > 0 and if EnableNativeHistograms = true")
 			case "created-timestamp-zero-ingestion":
 				c.scrape.EnableCreatedTimestampZeroIngestion = true
