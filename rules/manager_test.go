@@ -21,11 +21,13 @@ import (
 	"os"
 	"path"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
@@ -41,11 +43,11 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/util/teststorage"
-	"github.com/prometheus/prometheus/util/testutil"
+	promtestutil "github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestMain(m *testing.M) {
-	testutil.TolerantVerifyLeak(m)
+	promtestutil.TolerantVerifyLeak(m)
 }
 
 func TestAlertingRule(t *testing.T) {
@@ -159,7 +161,7 @@ func TestAlertingRule(t *testing.T) {
 
 		evalTime := baseTime.Add(test.time)
 
-		res, err := rule.Eval(context.TODO(), 0, evalTime, EngineQueryFunc(testEngine, storage), nil, 0)
+		res, err := rule.Eval(context.TODO(), 0, evalTime, EngineQueryFunc(testEngine, storage), nil, 0, false)
 		require.NoError(t, err)
 
 		var filteredRes promql.Vector // After removing 'ALERTS_FOR_STATE' samples.
@@ -307,7 +309,7 @@ func TestForStateAddSamples(t *testing.T) {
 					forState = float64(value.StaleNaN)
 				}
 
-				res, err := rule.Eval(context.TODO(), evalDelay, evalTime, EngineQueryFunc(testEngine, storage), nil, 0)
+				res, err := rule.Eval(context.TODO(), evalDelay, evalTime, EngineQueryFunc(testEngine, storage), nil, 0, false)
 				require.NoError(t, err)
 
 				var filteredRes promql.Vector // After removing 'ALERTS' samples.
@@ -369,6 +371,8 @@ func TestForStateRestore(t *testing.T) {
 		NotifyFunc:      func(ctx context.Context, expr string, alerts ...*Alert) {},
 		OutageTolerance: 30 * time.Minute,
 		ForGracePeriod:  10 * time.Minute,
+
+		RuleDependencyController: NewRuleDependencyController(),
 	}
 
 	alertForDuration := 25 * time.Minute
@@ -541,6 +545,8 @@ func TestStaleness(t *testing.T) {
 			Queryable:  st,
 			Context:    context.Background(),
 			Logger:     log.NewNopLogger(),
+
+			RuleDependencyController: NewRuleDependencyController(),
 		}
 
 		expr, err := parser.ParseExpr("a + 1")
@@ -733,6 +739,8 @@ func TestUpdate(t *testing.T) {
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -810,11 +818,12 @@ func TestUpdate_AlwaysRestore(t *testing.T) {
 	defer st.Close()
 
 	ruleManager := NewManager(&ManagerOptions{
-		Appendable:              st,
-		Queryable:               st,
-		Context:                 context.Background(),
-		Logger:                  log.NewNopLogger(),
-		AlwaysRestoreAlertState: true,
+		Appendable:               st,
+		Queryable:                st,
+		Context:                  context.Background(),
+		Logger:                   log.NewNopLogger(),
+		AlwaysRestoreAlertState:  true,
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -842,11 +851,12 @@ func TestUpdate_AlwaysRestoreDoesntAffectUnchangedGroups(t *testing.T) {
 	defer st.Close()
 
 	ruleManager := NewManager(&ManagerOptions{
-		Appendable:              st,
-		Queryable:               st,
-		Context:                 context.Background(),
-		Logger:                  log.NewNopLogger(),
-		AlwaysRestoreAlertState: true,
+		Appendable:               st,
+		Queryable:                st,
+		Context:                  context.Background(),
+		Logger:                   log.NewNopLogger(),
+		AlwaysRestoreAlertState:  true,
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -880,11 +890,12 @@ func TestUpdateSetsSourceTenants(t *testing.T) {
 	}
 	engine := promql.NewEngine(opts)
 	ruleManager := NewManager(&ManagerOptions{
-		Appendable: st,
-		Queryable:  st,
-		QueryFunc:  EngineQueryFunc(engine, st),
-		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Appendable:               st,
+		Queryable:                st,
+		QueryFunc:                EngineQueryFunc(engine, st),
+		Context:                  context.Background(),
+		Logger:                   log.NewNopLogger(),
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -927,6 +938,8 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -1000,6 +1013,7 @@ func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
 		Context:                    context.Background(),
 		Logger:                     log.NewNopLogger(),
 		GroupEvaluationContextFunc: mockContextWrapFunc,
+		RuleDependencyController:   NewRuleDependencyController(),
 	})
 
 	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml")
@@ -1114,6 +1128,8 @@ func TestNotify(t *testing.T) {
 		Logger:      log.NewNopLogger(),
 		NotifyFunc:  notifyFunc,
 		ResendDelay: 2 * time.Second,
+
+		RuleDependencyController: NewRuleDependencyController(),
 	}
 
 	expr, err := parser.ParseExpr("a > 1")
@@ -1184,6 +1200,8 @@ func TestMetricsUpdate(t *testing.T) {
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
 		Registerer: registry,
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -1257,6 +1275,8 @@ func TestGroupStalenessOnRemoval(t *testing.T) {
 		QueryFunc:  EngineQueryFunc(engine, storage),
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	var stopped bool
 	ruleManager.start()
@@ -1334,6 +1354,8 @@ func TestMetricsStalenessOnManagerShutdown(t *testing.T) {
 		QueryFunc:  EngineQueryFunc(engine, storage),
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	})
 	var stopped bool
 	ruleManager.start()
@@ -1436,6 +1458,8 @@ func TestRuleHealthUpdates(t *testing.T) {
 		Queryable:  st,
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	}
 
 	expr, err := parser.ParseExpr("a + 1")
@@ -1751,6 +1775,8 @@ func TestRuleGroupEvalIterationFunc(t *testing.T) {
 			NotifyFunc:      func(ctx context.Context, expr string, alerts ...*Alert) {},
 			OutageTolerance: 30 * time.Minute,
 			ForGracePeriod:  10 * time.Minute,
+
+			RuleDependencyController: NewRuleDependencyController(),
 		}
 
 		activeAlert := &Alert{
@@ -1831,6 +1857,8 @@ func TestNativeHistogramsInRecordingRules(t *testing.T) {
 		Queryable:  storage,
 		Context:    context.Background(),
 		Logger:     log.NewNopLogger(),
+
+		RuleDependencyController: NewRuleDependencyController(),
 	}
 
 	expr, err := parser.ParseExpr("sum(histogram_metric)")
@@ -1867,4 +1895,551 @@ func TestNativeHistogramsInRecordingRules(t *testing.T) {
 	require.Equal(t, ts.Add(10*time.Second).UnixMilli(), tsp)
 	require.Equal(t, expHist, fh)
 	require.Equal(t, chunkenc.ValNone, it.Next())
+}
+
+func TestDependencyMap(t *testing.T) {
+	ctx := context.Background()
+	opts := &ManagerOptions{
+		Context: ctx,
+		Logger:  log.NewNopLogger(),
+	}
+
+	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+	require.NoError(t, err)
+	rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
+
+	expr, err = parser.ParseExpr("user:requests:rate1m <= 0")
+	require.NoError(t, err)
+	rule2 := NewAlertingRule("ZeroRequests", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, log.NewNopLogger())
+
+	expr, err = parser.ParseExpr("sum by (user) (rate(requests[5m]))")
+	require.NoError(t, err)
+	rule3 := NewRecordingRule("user:requests:rate5m", expr, labels.Labels{})
+
+	expr, err = parser.ParseExpr("increase(user:requests:rate1m[1h])")
+	require.NoError(t, err)
+	rule4 := NewRecordingRule("user:requests:increase1h", expr, labels.Labels{})
+
+	group := NewGroup(GroupOptions{
+		Name:     "rule_group",
+		Interval: time.Second,
+		Rules:    []Rule{rule, rule2, rule3, rule4},
+		Opts:     opts,
+	})
+
+	depMap := buildDependencyMap(group.rules)
+
+	require.Zero(t, depMap.dependencies(rule))
+	require.Equal(t, 2, depMap.dependents(rule))
+	require.False(t, depMap.isIndependent(rule))
+
+	require.Zero(t, depMap.dependents(rule2))
+	require.Equal(t, 1, depMap.dependencies(rule2))
+	require.False(t, depMap.isIndependent(rule2))
+
+	require.Zero(t, depMap.dependents(rule3))
+	require.Zero(t, depMap.dependencies(rule3))
+	require.True(t, depMap.isIndependent(rule3))
+
+	require.Zero(t, depMap.dependents(rule4))
+	require.Equal(t, 1, depMap.dependencies(rule4))
+	require.False(t, depMap.isIndependent(rule4))
+}
+
+func TestNoDependency(t *testing.T) {
+	ctx := context.Background()
+	opts := &ManagerOptions{
+		Context: ctx,
+		Logger:  log.NewNopLogger(),
+	}
+
+	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+	require.NoError(t, err)
+	rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
+
+	group := NewGroup(GroupOptions{
+		Name:     "rule_group",
+		Interval: time.Second,
+		Rules:    []Rule{rule},
+		Opts:     opts,
+	})
+
+	depMap := buildDependencyMap(group.rules)
+	// A group with only one rule cannot have dependencies.
+	require.Empty(t, depMap)
+}
+
+func TestDependenciesEdgeCases(t *testing.T) {
+	ctx := context.Background()
+	opts := &ManagerOptions{
+		Context: ctx,
+		Logger:  log.NewNopLogger(),
+	}
+
+	t.Run("empty group", func(t *testing.T) {
+		group := NewGroup(GroupOptions{
+			Name:     "rule_group",
+			Interval: time.Second,
+			Rules:    []Rule{}, // empty group
+			Opts:     opts,
+		})
+
+		expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+		require.NoError(t, err)
+		rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
+
+		depMap := buildDependencyMap(group.rules)
+		// A group with no rules has no dependency map, but doesn't panic if the map is queried.
+		require.Nil(t, depMap)
+		require.False(t, depMap.isIndependent(rule))
+	})
+
+	t.Run("rules which reference no series", func(t *testing.T) {
+		expr, err := parser.ParseExpr("one")
+		require.NoError(t, err)
+		rule1 := NewRecordingRule("1", expr, labels.Labels{})
+
+		expr, err = parser.ParseExpr("two")
+		require.NoError(t, err)
+		rule2 := NewRecordingRule("2", expr, labels.Labels{})
+
+		group := NewGroup(GroupOptions{
+			Name:     "rule_group",
+			Interval: time.Second,
+			Rules:    []Rule{rule1, rule2},
+			Opts:     opts,
+		})
+
+		depMap := buildDependencyMap(group.rules)
+		// A group with rules which reference no series will still produce a dependency map
+		require.True(t, depMap.isIndependent(rule1))
+		require.True(t, depMap.isIndependent(rule2))
+	})
+}
+
+func TestNoMetricSelector(t *testing.T) {
+	ctx := context.Background()
+	opts := &ManagerOptions{
+		Context: ctx,
+		Logger:  log.NewNopLogger(),
+	}
+
+	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+	require.NoError(t, err)
+	rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
+
+	expr, err = parser.ParseExpr(`count({user="bob"})`)
+	require.NoError(t, err)
+	rule2 := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
+
+	group := NewGroup(GroupOptions{
+		Name:     "rule_group",
+		Interval: time.Second,
+		Rules:    []Rule{rule, rule2},
+		Opts:     opts,
+	})
+
+	depMap := buildDependencyMap(group.rules)
+	// A rule with no metric selector cannot be reliably determined to have no dependencies on other rules, and therefore
+	// all rules are not considered independent.
+	require.False(t, depMap.isIndependent(rule))
+	require.False(t, depMap.isIndependent(rule2))
+}
+
+func TestDependentRulesWithNonMetricExpression(t *testing.T) {
+	ctx := context.Background()
+	opts := &ManagerOptions{
+		Context: ctx,
+		Logger:  log.NewNopLogger(),
+	}
+
+	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+	require.NoError(t, err)
+	rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
+
+	expr, err = parser.ParseExpr("user:requests:rate1m <= 0")
+	require.NoError(t, err)
+	rule2 := NewAlertingRule("ZeroRequests", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, log.NewNopLogger())
+
+	expr, err = parser.ParseExpr("3")
+	require.NoError(t, err)
+	rule3 := NewRecordingRule("three", expr, labels.Labels{})
+
+	group := NewGroup(GroupOptions{
+		Name:     "rule_group",
+		Interval: time.Second,
+		Rules:    []Rule{rule, rule2, rule3},
+		Opts:     opts,
+	})
+
+	depMap := buildDependencyMap(group.rules)
+	require.False(t, depMap.isIndependent(rule))
+	require.False(t, depMap.isIndependent(rule2))
+	require.True(t, depMap.isIndependent(rule3))
+}
+
+func TestRulesDependentOnMetaMetrics(t *testing.T) {
+	ctx := context.Background()
+	opts := &ManagerOptions{
+		Context: ctx,
+		Logger:  log.NewNopLogger(),
+	}
+
+	// This rule is not dependent on any other rules in its group but it does depend on `ALERTS`, which is produced by
+	// the rule engine, and is therefore not independent.
+	expr, err := parser.ParseExpr("count(ALERTS)")
+	require.NoError(t, err)
+	rule := NewRecordingRule("alert_count", expr, labels.Labels{})
+
+	// Create another rule so a dependency map is built (no map is built if a group contains one or fewer rules).
+	expr, err = parser.ParseExpr("1")
+	require.NoError(t, err)
+	rule2 := NewRecordingRule("one", expr, labels.Labels{})
+
+	group := NewGroup(GroupOptions{
+		Name:     "rule_group",
+		Interval: time.Second,
+		Rules:    []Rule{rule, rule2},
+		Opts:     opts,
+	})
+
+	depMap := buildDependencyMap(group.rules)
+	require.False(t, depMap.isIndependent(rule))
+}
+
+func TestDependencyMapUpdatesOnGroupUpdate(t *testing.T) {
+	files := []string{"fixtures/rules.yaml"}
+	ruleManager := NewManager(&ManagerOptions{
+		Context: context.Background(),
+		Logger:  log.NewNopLogger(),
+	})
+
+	ruleManager.start()
+	defer ruleManager.Stop()
+
+	err := ruleManager.Update(10*time.Second, files, labels.EmptyLabels(), "", nil)
+	require.NoError(t, err)
+	require.Greater(t, len(ruleManager.groups), 0, "expected non-empty rule groups")
+
+	orig := make(map[string]dependencyMap, len(ruleManager.groups))
+	for _, g := range ruleManager.groups {
+		depMap := buildDependencyMap(g.rules)
+		// No dependency map is expected because there is only one rule in the group.
+		require.Empty(t, depMap)
+		orig[g.Name()] = depMap
+	}
+
+	// Update once without changing groups.
+	err = ruleManager.Update(10*time.Second, files, labels.EmptyLabels(), "", nil)
+	require.NoError(t, err)
+	for h, g := range ruleManager.groups {
+		depMap := buildDependencyMap(g.rules)
+		// Dependency maps are the same because of no updates.
+		require.Equal(t, orig[h], depMap)
+	}
+
+	// Groups will be recreated when updated.
+	files[0] = "fixtures/rules_dependencies.yaml"
+	err = ruleManager.Update(10*time.Second, files, labels.EmptyLabels(), "", nil)
+	require.NoError(t, err)
+
+	for h, g := range ruleManager.groups {
+		const ruleName = "job:http_requests:rate5m"
+		var rr *RecordingRule
+
+		for _, r := range g.rules {
+			if r.Name() == ruleName {
+				rr = r.(*RecordingRule)
+			}
+		}
+
+		require.NotEmptyf(t, rr, "expected to find %q recording rule in fixture", ruleName)
+
+		depMap := buildDependencyMap(g.rules)
+		// Dependency maps must change because the groups would've been updated.
+		require.NotEqual(t, orig[h], depMap)
+		// We expect there to be some dependencies since the new rule group contains a dependency.
+		require.Greater(t, len(depMap), 0)
+		require.Equal(t, 1, depMap.dependents(rr))
+		require.Zero(t, depMap.dependencies(rr))
+	}
+}
+
+func TestAsyncRuleEvaluation(t *testing.T) {
+	storage := teststorage.New(t)
+	t.Cleanup(func() { storage.Close() })
+
+	const artificialDelay = 500 * time.Millisecond
+
+	var (
+		inflightQueries atomic.Int32
+		maxInflight     atomic.Int32
+	)
+
+	optsFactory := func() *ManagerOptions {
+		return &ManagerOptions{
+			Context:    context.Background(),
+			Logger:     log.NewNopLogger(),
+			Appendable: storage,
+			QueryFunc: func(ctx context.Context, q string, ts time.Time) (promql.Vector, error) {
+				inflightQueries.Add(1)
+				defer func() {
+					inflightQueries.Add(-1)
+				}()
+
+				// Artificially delay all query executions to highlight concurrent execution improvement.
+				time.Sleep(artificialDelay)
+
+				// Return a stub sample.
+				return promql.Vector{
+					promql.Sample{Metric: labels.FromStrings("__name__", "test"), T: ts.UnixMilli(), F: 12345},
+				}, nil
+			},
+			RuleDependencyController: NewRuleDependencyController(),
+		}
+	}
+
+	inflightTracker := func(ctx context.Context) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				highWatermark := maxInflight.Load()
+				current := inflightQueries.Load()
+				if current > highWatermark {
+					maxInflight.Store(current)
+				}
+
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}
+
+	t.Run("synchronous evaluation with independent rules", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+
+		ruleManager := NewManager(optsFactory())
+		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, []string{"fixtures/rules_multiple.yaml"}...)
+		require.Empty(t, errs)
+		require.Len(t, groups, 1)
+
+		ruleCount := 4
+
+		for _, group := range groups {
+			require.Len(t, group.rules, ruleCount)
+
+			start := time.Now()
+
+			// Never expect more than 1 inflight query at a time.
+			go inflightTracker(ctx)
+
+			group.Eval(ctx, start)
+
+			require.EqualValues(t, 1, maxInflight.Load())
+			// Each rule should take at least 1 second to execute sequentially.
+			require.GreaterOrEqual(t, time.Since(start).Seconds(), (time.Duration(ruleCount) * artificialDelay).Seconds())
+			// Each rule produces one vector.
+			require.EqualValues(t, ruleCount, testutil.ToFloat64(group.metrics.GroupSamples))
+		}
+
+		cancel()
+	})
+
+	t.Run("asynchronous evaluation with independent and dependent rules", func(t *testing.T) {
+		// Reset.
+		inflightQueries.Store(0)
+		maxInflight.Store(0)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		ruleCount := 4
+		opts := optsFactory()
+
+		// Configure concurrency settings.
+		opts.ConcurrentEvalsEnabled = true
+		opts.MaxConcurrentEvals = 2
+		opts.RuleConcurrencyController = nil
+		ruleManager := NewManager(opts)
+
+		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, []string{"fixtures/rules_multiple.yaml"}...)
+		require.Empty(t, errs)
+		require.Len(t, groups, 1)
+
+		for _, group := range groups {
+			require.Len(t, group.rules, ruleCount)
+
+			start := time.Now()
+
+			go inflightTracker(ctx)
+
+			group.Eval(ctx, start)
+
+			// Max inflight can be 1 synchronous eval and up to MaxConcurrentEvals concurrent evals.
+			require.EqualValues(t, opts.MaxConcurrentEvals+1, maxInflight.Load())
+			// Some rules should execute concurrently so should complete quicker.
+			require.Less(t, time.Since(start).Seconds(), (time.Duration(ruleCount) * artificialDelay).Seconds())
+			// Each rule produces one vector.
+			require.EqualValues(t, ruleCount, testutil.ToFloat64(group.metrics.GroupSamples))
+		}
+
+		cancel()
+	})
+
+	t.Run("asynchronous evaluation of all independent rules, insufficient concurrency", func(t *testing.T) {
+		// Reset.
+		inflightQueries.Store(0)
+		maxInflight.Store(0)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		ruleCount := 6
+		opts := optsFactory()
+
+		// Configure concurrency settings.
+		opts.ConcurrentEvalsEnabled = true
+		opts.MaxConcurrentEvals = 2
+		opts.RuleConcurrencyController = nil
+		ruleManager := NewManager(opts)
+
+		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, []string{"fixtures/rules_multiple_independent.yaml"}...)
+		require.Empty(t, errs)
+		require.Len(t, groups, 1)
+
+		for _, group := range groups {
+			require.Len(t, group.rules, ruleCount)
+
+			start := time.Now()
+
+			go inflightTracker(ctx)
+
+			group.Eval(ctx, start)
+
+			// Max inflight can be 1 synchronous eval and up to MaxConcurrentEvals concurrent evals.
+			require.EqualValues(t, opts.MaxConcurrentEvals+1, maxInflight.Load())
+			// Some rules should execute concurrently so should complete quicker.
+			require.Less(t, time.Since(start).Seconds(), (time.Duration(ruleCount) * artificialDelay).Seconds())
+			// Each rule produces one vector.
+			require.EqualValues(t, ruleCount, testutil.ToFloat64(group.metrics.GroupSamples))
+
+		}
+
+		cancel()
+	})
+
+	t.Run("asynchronous evaluation of all independent rules, sufficient concurrency", func(t *testing.T) {
+		// Reset.
+		inflightQueries.Store(0)
+		maxInflight.Store(0)
+		ctx, cancel := context.WithCancel(context.Background())
+
+		ruleCount := 6
+		opts := optsFactory()
+
+		// Configure concurrency settings.
+		opts.ConcurrentEvalsEnabled = true
+		opts.MaxConcurrentEvals = int64(ruleCount) * 2
+		opts.RuleConcurrencyController = nil
+		ruleManager := NewManager(opts)
+
+		groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, []string{"fixtures/rules_multiple_independent.yaml"}...)
+		require.Empty(t, errs)
+		require.Len(t, groups, 1)
+
+		for _, group := range groups {
+			require.Len(t, group.rules, ruleCount)
+
+			start := time.Now()
+
+			go inflightTracker(ctx)
+
+			group.Eval(ctx, start)
+
+			// Max inflight can be up to MaxConcurrentEvals concurrent evals, since there is sufficient concurrency to run all rules at once.
+			require.LessOrEqual(t, int64(maxInflight.Load()), opts.MaxConcurrentEvals)
+			// Some rules should execute concurrently so should complete quicker.
+			require.Less(t, time.Since(start).Seconds(), (time.Duration(ruleCount) * artificialDelay).Seconds())
+			// Each rule produces one vector.
+			require.EqualValues(t, ruleCount, testutil.ToFloat64(group.metrics.GroupSamples))
+		}
+
+		cancel()
+	})
+}
+
+func TestBoundedRuleEvalConcurrency(t *testing.T) {
+	storage := teststorage.New(t)
+	t.Cleanup(func() { storage.Close() })
+
+	const artificialDelay = time.Millisecond * 100
+
+	var (
+		inflightQueries atomic.Int32
+		maxInflight     atomic.Int32
+		maxConcurrency  int64 = 3
+		groupCount            = 2
+	)
+
+	files := []string{"fixtures/rules_multiple_groups.yaml"}
+	ruleManager := NewManager(&ManagerOptions{
+		Context:                context.Background(),
+		Logger:                 log.NewNopLogger(),
+		Appendable:             storage,
+		ConcurrentEvalsEnabled: true,
+		MaxConcurrentEvals:     maxConcurrency,
+		QueryFunc: func(ctx context.Context, q string, ts time.Time) (promql.Vector, error) {
+			inflightQueries.Add(1)
+			defer func() {
+				inflightQueries.Add(-1)
+			}()
+
+			// Artificially delay all query executions to highlight concurrent execution improvement.
+			time.Sleep(artificialDelay)
+
+			// Return a stub sample.
+			return promql.Vector{
+				promql.Sample{Metric: labels.FromStrings("__name__", "test"), T: ts.UnixMilli(), F: 12345},
+			}, nil
+		},
+		RuleDependencyController: NewRuleDependencyController(),
+	})
+
+	groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, files...)
+	require.Empty(t, errs)
+	require.Len(t, groups, groupCount)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				highWatermark := maxInflight.Load()
+				current := inflightQueries.Load()
+				if current > highWatermark {
+					maxInflight.Store(current)
+				}
+
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}()
+
+	// Evaluate groups concurrently (like they normally do).
+	var wg sync.WaitGroup
+	for _, group := range groups {
+		group := group
+
+		wg.Add(1)
+		go func() {
+			group.Eval(ctx, time.Now())
+			wg.Done()
+		}()
+	}
+
+	wg.Wait()
+	cancel()
+
+	// Synchronous queries also count towards inflight, so at most we can have maxConcurrency+$groupCount inflight evaluations.
+	require.EqualValues(t, maxInflight.Load(), int32(maxConcurrency)+int32(groupCount))
 }
