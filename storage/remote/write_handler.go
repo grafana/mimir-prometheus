@@ -282,7 +282,22 @@ func (h *writeHandler) appendV1Samples(app storage.Appender, ss []prompb.Sample,
 	var ref storage.SeriesRef
 	var err error
 	for _, s := range ss {
-		ref, err = app.Append(ref, labels, s.GetTimestamp(), s.GetValue())
+		if len(s.GetIdentifyingLabels()) == 0 {
+			ref, err = app.Append(ref, labels, s.GetTimestamp(), s.GetValue())
+		} else {
+			// This is an info metric sample
+			ils := make([]int, 0, len(s.GetIdentifyingLabels()))
+			var ilb strings.Builder
+			for i, idx := range s.GetIdentifyingLabels() {
+				ils = append(ils, int(idx))
+				if i > 0 {
+					ilb.WriteRune(',')
+				}
+				ilb.WriteString(strconv.Itoa(int(idx)))
+			}
+			level.Debug(h.logger).Log("msg", "appending info metric sample", "identifying_labels", ilb.String())
+			ref, err = app.AppendInfoSample(ref, labels, s.GetTimestamp(), ils)
+		}
 		if err != nil {
 			if errors.Is(err, storage.ErrOutOfOrderSample) ||
 				errors.Is(err, storage.ErrOutOfBounds) ||
@@ -386,7 +401,22 @@ func (h *writeHandler) appendV2(app storage.Appender, req *writev2.Request, rs *
 
 		// Samples.
 		for _, s := range ts.Samples {
-			ref, err = app.Append(ref, ls, s.GetTimestamp(), s.GetValue())
+			if len(s.GetIdentifyingLabels()) == 0 {
+				ref, err = app.Append(ref, ls, s.GetTimestamp(), s.GetValue())
+			} else {
+				// This is an info metric sample
+				ils := make([]int, 0, len(s.GetIdentifyingLabels()))
+				var ilb strings.Builder
+				for i, idx := range s.GetIdentifyingLabels() {
+					ils = append(ils, int(idx))
+					if i > 0 {
+						ilb.WriteRune(',')
+					}
+					ilb.WriteString(strconv.Itoa(int(idx)))
+				}
+				level.Debug(h.logger).Log("msg", "appending info metric sample", "identifying_labels", ilb.String())
+				ref, err = app.AppendInfoSample(ref, ls, s.GetTimestamp(), ils)
+			}
 			if err == nil {
 				rs.Samples++
 				continue

@@ -135,3 +135,18 @@ func MarshalHistogram(h *histogram.FloatHistogram, stream *jsoniter.Stream) {
 	}
 	stream.WriteObjectEnd()
 }
+
+// MarshalInfoSample marshals an info sample using the passed jsoniter stream.
+func MarshalInfoSample(identifyingLabels []int, stream *jsoniter.Stream) {
+	stream.WriteObjectStart()
+	stream.WriteObjectField(`identifyingLabels`)
+	stream.WriteArrayStart()
+	for i, idx := range identifyingLabels {
+		if i > 0 {
+			stream.WriteMore()
+		}
+		stream.WriteInt(idx)
+	}
+	stream.WriteArrayEnd()
+	stream.WriteObjectEnd()
+}

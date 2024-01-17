@@ -28,6 +28,7 @@ type Sample interface {
 	F() float64
 	H() *histogram.Histogram
 	FH() *histogram.FloatHistogram
+	IdentifyingLabels() []int
 	Type() chunkenc.ValueType
 }
 
@@ -37,10 +38,11 @@ func (s SampleSlice) Get(i int) Sample { return s[i] }
 func (s SampleSlice) Len() int         { return len(s) }
 
 type sample struct {
-	t  int64
-	f  float64
-	h  *histogram.Histogram
-	fh *histogram.FloatHistogram
+	t   int64
+	f   float64
+	h   *histogram.Histogram
+	fh  *histogram.FloatHistogram
+	ils []int
 }
 
 func (s sample) T() int64 {
@@ -59,12 +61,18 @@ func (s sample) FH() *histogram.FloatHistogram {
 	return s.fh
 }
 
+func (s sample) IdentifyingLabels() []int {
+	return s.ils
+}
+
 func (s sample) Type() chunkenc.ValueType {
 	switch {
 	case s.h != nil:
 		return chunkenc.ValHistogram
 	case s.fh != nil:
 		return chunkenc.ValFloatHistogram
+	case s.ils != nil:
+		return chunkenc.ValInfoSample
 	default:
 		return chunkenc.ValFloat
 	}

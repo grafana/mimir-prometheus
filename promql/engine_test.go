@@ -237,6 +237,10 @@ func (q *errQuerier) Select(context.Context, bool, *storage.SelectHints, ...*lab
 	return errSeriesSet{err: q.err}
 }
 
+func (q *errQuerier) InfoMetricDataLabels(context.Context, labels.Labels, int64, ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	return nil, nil, q.err
+}
+
 func (*errQuerier) LabelValues(context.Context, string, *storage.LabelHints, ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	return nil, nil, nil
 }
@@ -3042,14 +3046,14 @@ func TestInstantQueryWithRangeVectorSelector(t *testing.T) {
 			expr: "some_metric[1m]",
 			ts:   baseT.Add(2 * time.Minute),
 			expected: promql.Matrix{
-				{
+				promql.Series{
 					Metric: labels.FromStrings("__name__", "some_metric", "env", "1"),
 					Floats: []promql.FPoint{
 						{T: timestamp.FromTime(baseT.Add(time.Minute)), F: 1},
 						{T: timestamp.FromTime(baseT.Add(2 * time.Minute)), F: 2},
 					},
 				},
-				{
+				promql.Series{
 					Metric: labels.FromStrings("__name__", "some_metric", "env", "2"),
 					Floats: []promql.FPoint{
 						{T: timestamp.FromTime(baseT.Add(time.Minute)), F: 2},

@@ -78,6 +78,9 @@ func CreateBlock(series []storage.Series, dir string, chunkRange int64, logger l
 			case chunkenc.ValFloatHistogram:
 				t, fh := it.AtFloatHistogram(nil)
 				ref, err = app.AppendHistogram(ref, lset, t, nil, fh)
+			case chunkenc.ValInfoSample:
+				t, identifyingLabels := it.AtInfoSample()
+				ref, err = app.AppendInfoSample(ref, lset, t, identifyingLabels)
 			default:
 				return "", fmt.Errorf("unknown sample type %s", typ.String())
 			}

@@ -114,9 +114,10 @@ Loop:
 		it.Reset(chkIter)
 
 		var (
-			t  int64
-			f  float64
-			fh *histogram.FloatHistogram
+			t   int64
+			f   float64
+			fh  *histogram.FloatHistogram
+			ils []int
 		)
 		valueType := it.Seek(maxt)
 		switch valueType {
@@ -124,6 +125,8 @@ Loop:
 			t, f = it.At()
 		case chunkenc.ValFloatHistogram, chunkenc.ValHistogram:
 			t, fh = it.AtFloatHistogram(nil)
+		case chunkenc.ValInfoSample:
+			t, ils = it.AtInfoSample()
 		default:
 			sample, ok := it.PeekBack(1)
 			if !ok {
@@ -150,10 +153,11 @@ Loop:
 		}
 
 		vec = append(vec, promql.Sample{
-			Metric: s.Labels(),
-			T:      t,
-			F:      f,
-			H:      fh,
+			Metric:            s.Labels(),
+			T:                 t,
+			F:                 f,
+			H:                 fh,
+			IdentifyingLabels: ils,
 		})
 	}
 	if ws := set.Warnings(); len(ws) > 0 {

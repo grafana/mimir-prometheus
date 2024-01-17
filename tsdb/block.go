@@ -38,6 +38,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 // IndexWriter serializes the index for a block of series data.
@@ -120,6 +121,12 @@ type IndexReader interface {
 	// LabelNamesFor returns all the label names for the series referred to by the postings.
 	// The names returned are sorted.
 	LabelNamesFor(ctx context.Context, postings index.Postings) ([]string, error)
+
+	// InfoMetricDataLabels queries for the data labels of info metrics which identifying labels are contained in lbls,
+	// at time t.
+	// If matchers are specified, these will filter chosen info metrics based on their data labels, and also constrain
+	// which data labels are returned.
+	InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, sq index.InfoMetricSampleQuerier, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error)
 
 	// Close releases the underlying resources of the reader.
 	Close() error
@@ -536,6 +543,10 @@ func (r blockIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Ma
 	}
 
 	return labelNamesWithMatchers(ctx, r.ir, matchers...)
+}
+
+func (r blockIndexReader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, sq index.InfoMetricSampleQuerier, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	return r.ir.InfoMetricDataLabels(ctx, lbls, t, sq, matchers...)
 }
 
 func (r blockIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {

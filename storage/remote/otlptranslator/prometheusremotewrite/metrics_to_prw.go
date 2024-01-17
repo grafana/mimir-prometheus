@@ -220,5 +220,21 @@ func (c *PrometheusConverter) addSample(sample *prompb.Sample, lbls []prompb.Lab
 
 	ts, _ := c.getOrCreateTimeSeries(lbls)
 	ts.Samples = append(ts.Samples, *sample)
+
+	if len(sample.IdentifyingLabels) > 0 {
+		ils := make([]prompb.Label, 0, len(sample.IdentifyingLabels))
+		for _, ix := range sample.IdentifyingLabels {
+			ils = append(ils, ts.Labels[ix])
+		}
+		var name string
+		for _, l := range ts.Labels {
+			if l.Name == "__name__" {
+				name = l.Value
+				break
+			}
+		}
+		fmt.Printf("Adding sample for OTel info metric %s, identifying labels: %#v\n", name, ils)
+	}
+
 	return ts
 }

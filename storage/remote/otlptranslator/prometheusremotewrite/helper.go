@@ -568,6 +568,7 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 	if settings.DisableTargetInfo || timestamp == 0 {
 		return
 	}
+	fmt.Printf("Adding resource target info\n")
 
 	attributes := resource.Attributes()
 	identifyingAttrs := []string{
@@ -584,6 +585,7 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 	}
 	if nonIdentifyingAttrsCount == 0 {
 		// If we only have job + instance, then target_info isn't useful, so don't add it.
+		fmt.Printf("Only have job + instance\n")
 		return
 	}
 
@@ -594,23 +596,25 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 
 	settings.PromoteResourceAttributes = nil
 	labels := createAttributes(resource, attributes, settings, identifyingAttrs, false, model.MetricNameLabel, name)
-	haveIdentifier := false
-	for _, l := range labels {
+	// Ensure consistent label ordering
+	sort.Sort(ByLabelName(labels))
+	identifyingLabels := make([]int32, 0, 2)
+	for i, l := range labels {
 		if l.Name == model.JobLabel || l.Name == model.InstanceLabel {
-			haveIdentifier = true
-			break
+			fmt.Printf("Have identifying label %s=%s\n", l.Name, l.Value)
+			identifyingLabels = append(identifyingLabels, int32(i))
 		}
 	}
-
-	if !haveIdentifier {
+	if len(identifyingLabels) == 0 {
 		// We need at least one identifying label to generate target_info.
+		fmt.Printf("Got no identifying labels\n")
 		return
 	}
-
 	sample := &prompb.Sample{
 		Value: float64(1),
 		// convert ns to ms
-		Timestamp: convertTimeStamp(timestamp),
+		Timestamp:         convertTimeStamp(timestamp),
+		IdentifyingLabels: identifyingLabels,
 	}
 	converter.addSample(sample, labels)
 }

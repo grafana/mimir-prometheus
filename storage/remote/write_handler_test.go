@@ -762,6 +762,7 @@ func genSeriesWithSample(numSeries int, ts int64) []prompb.TimeSeries {
 type mockAppendable struct {
 	latestSample    map[uint64]int64
 	samples         []mockSample
+	infoSamples     []mockInfoSample
 	latestExemplar  map[uint64]int64
 	exemplars       []mockExemplar
 	latestHistogram map[uint64]int64
@@ -780,6 +781,12 @@ type mockSample struct {
 	l labels.Labels
 	t int64
 	v float64
+}
+
+type mockInfoSample struct {
+	l                 labels.Labels
+	t                 int64
+	identifyingLabels []int
 }
 
 type mockExemplar struct {
@@ -838,6 +845,20 @@ func (m *mockAppendable) Append(_ storage.SeriesRef, l labels.Labels, t int64, v
 
 	m.latestSample[l.Hash()] = t
 	m.samples = append(m.samples, mockSample{l, t, v})
+	return 0, nil
+}
+
+func (m *mockAppendable) AppendInfoSample(_ storage.SeriesRef, l labels.Labels, t int64, identifyingLabels []int) (storage.SeriesRef, error) {
+	latestTS := m.latestSample[l.Hash()]
+	if t < latestTS {
+		return 0, storage.ErrOutOfOrderSample
+	}
+	if t == latestTS {
+		return 0, storage.ErrDuplicateSampleForTimestamp
+	}
+
+	m.latestSample[l.Hash()] = t
+	m.infoSamples = append(m.infoSamples, mockInfoSample{l: l, t: t, identifyingLabels: identifyingLabels})
 	return 0, nil
 }
 

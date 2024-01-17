@@ -153,6 +153,7 @@ func Checkpoint(logger log.Logger, w *WL, from, to int, keep func(id chunks.Head
 		samples               []record.RefSample
 		histogramSamples      []record.RefHistogramSample
 		floatHistogramSamples []record.RefFloatHistogramSample
+		infoSamples           []record.RefInfoSample
 		tstones               []tombstones.Stone
 		exemplars             []record.RefExemplar
 		metadata              []record.RefMetadata
@@ -165,7 +166,7 @@ func Checkpoint(logger log.Logger, w *WL, from, to int, keep func(id chunks.Head
 		latestMetadataMap = make(map[chunks.HeadSeriesRef]record.RefMetadata)
 	)
 	for r.Next() {
-		series, samples, histogramSamples, floatHistogramSamples, tstones, exemplars, metadata = series[:0], samples[:0], histogramSamples[:0], floatHistogramSamples[:0], tstones[:0], exemplars[:0], metadata[:0]
+		series, samples, histogramSamples, floatHistogramSamples, infoSamples, tstones, exemplars, metadata = series[:0], samples[:0], histogramSamples[:0], floatHistogramSamples[:0], infoSamples[:0], tstones[:0], exemplars[:0], metadata[:0]
 
 		// We don't reset the buffer since we batch up multiple records
 		// before writing them to the checkpoint.
@@ -245,6 +246,26 @@ func Checkpoint(logger log.Logger, w *WL, from, to int, keep func(id chunks.Head
 			}
 			stats.TotalSamples += len(floatHistogramSamples)
 			stats.DroppedSamples += len(floatHistogramSamples) - len(repl)
+
+		case record.InfoSamples:
+			infoSamples, err = dec.InfoSamples(rec, infoSamples)
+			if err != nil {
+				return nil, fmt.Errorf("decode info samples: %w", err)
+			}
+			level.Debug(logger).Log("msg", "Checkpointing info samples", "count", len(infoSamples))
+			// Drop irrelevant infoSamples in place.
+			repl := infoSamples[:0]
+			for _, s := range infoSamples {
+				if s.T >= mint {
+					repl = append(repl, s)
+				}
+			}
+			if len(repl) > 0 {
+				buf = enc.InfoSamples(repl, buf)
+			}
+			level.Debug(logger).Log("msg", "Counting filtered info samples from checkpointing", "count", len(repl))
+			stats.TotalSamples += len(infoSamples)
+			stats.DroppedSamples += len(infoSamples) - len(repl)
 
 		case record.Tombstones:
 			tstones, err = dec.Tombstones(rec, tstones)
