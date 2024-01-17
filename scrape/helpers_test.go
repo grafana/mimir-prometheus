@@ -47,6 +47,10 @@ func (a nopAppender) Append(storage.SeriesRef, labels.Labels, int64, float64) (s
 	return 0, nil
 }
 
+func (a nopAppender) AppendInfoSample(storage.SeriesRef, labels.Labels, int64, []int) (storage.SeriesRef, error) {
+	return 0, nil
+}
+
 func (a nopAppender) AppendExemplar(storage.SeriesRef, labels.Labels, exemplar.Exemplar) (storage.SeriesRef, error) {
 	return 0, nil
 }
@@ -77,6 +81,12 @@ func equalFloatSamples(a, b floatSample) bool {
 	return labels.Equal(a.metric, b.metric) && a.t == b.t && math.Float64bits(a.f) == math.Float64bits(b.f)
 }
 
+type infoSample struct {
+	metric            labels.Labels
+	t                 int64
+	identifyingLabels []int
+}
+
 type histogramSample struct {
 	t  int64
 	h  *histogram.Histogram
@@ -96,17 +106,20 @@ func (a *collectResultAppendable) Appender(_ context.Context) storage.Appender {
 type collectResultAppender struct {
 	mtx sync.Mutex
 
-	next                 storage.Appender
-	resultFloats         []floatSample
-	pendingFloats        []floatSample
-	rolledbackFloats     []floatSample
-	resultHistograms     []histogramSample
-	pendingHistograms    []histogramSample
-	rolledbackHistograms []histogramSample
-	resultExemplars      []exemplar.Exemplar
-	pendingExemplars     []exemplar.Exemplar
-	resultMetadata       []metadata.Metadata
-	pendingMetadata      []metadata.Metadata
+	next                  storage.Appender
+	resultFloats          []floatSample
+	pendingFloats         []floatSample
+	rolledbackFloats      []floatSample
+	resultInfoSamples     []infoSample
+	pendingInfoSamples    []infoSample
+	rolledbackInfoSamples []infoSample
+	resultHistograms      []histogramSample
+	pendingHistograms     []histogramSample
+	rolledbackHistograms  []histogramSample
+	resultExemplars       []exemplar.Exemplar
+	pendingExemplars      []exemplar.Exemplar
+	resultMetadata        []metadata.Metadata
+	pendingMetadata       []metadata.Metadata
 }
 
 func (a *collectResultAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
@@ -126,6 +139,29 @@ func (a *collectResultAppender) Append(ref storage.SeriesRef, lset labels.Labels
 	}
 
 	ref, err := a.next.Append(ref, lset, t, v)
+	if err != nil {
+		return 0, err
+	}
+	return ref, err
+}
+
+func (a *collectResultAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Labels, t int64, identifyingLabels []int) (storage.SeriesRef, error) {
+	a.mtx.Lock()
+	defer a.mtx.Unlock()
+	a.pendingInfoSamples = append(a.pendingInfoSamples, infoSample{
+		metric:            lset,
+		t:                 t,
+		identifyingLabels: identifyingLabels,
+	})
+
+	if ref == 0 {
+		ref = storage.SeriesRef(rand.Uint64())
+	}
+	if a.next == nil {
+		return ref, nil
+	}
+
+	ref, err := a.next.AppendInfoSample(ref, lset, t, identifyingLabels)
 	if err != nil {
 		return 0, err
 	}
@@ -176,10 +212,12 @@ func (a *collectResultAppender) Commit() error {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
 	a.resultFloats = append(a.resultFloats, a.pendingFloats...)
+	a.resultInfoSamples = append(a.resultInfoSamples, a.pendingInfoSamples...)
 	a.resultExemplars = append(a.resultExemplars, a.pendingExemplars...)
 	a.resultHistograms = append(a.resultHistograms, a.pendingHistograms...)
 	a.resultMetadata = append(a.resultMetadata, a.pendingMetadata...)
 	a.pendingFloats = nil
+	a.pendingInfoSamples = nil
 	a.pendingExemplars = nil
 	a.pendingHistograms = nil
 	a.pendingMetadata = nil
@@ -193,8 +231,10 @@ func (a *collectResultAppender) Rollback() error {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
 	a.rolledbackFloats = a.pendingFloats
+	a.rolledbackInfoSamples = a.pendingInfoSamples
 	a.rolledbackHistograms = a.pendingHistograms
 	a.pendingFloats = nil
+	a.pendingInfoSamples = nil
 	a.pendingHistograms = nil
 	if a.next == nil {
 		return nil

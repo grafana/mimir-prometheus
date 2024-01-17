@@ -558,6 +558,13 @@ func (c *chainSampleIterator) AtFloatHistogram(fh *histogram.FloatHistogram) (in
 	return t, fh
 }
 
+func (c *chainSampleIterator) AtInfoSample() (int64, []int) {
+	if c.curr == nil {
+		panic("chainSampleIterator.AtInfoSample called before first .Next or after .Next returned false.")
+	}
+	return c.curr.AtInfoSample()
+}
+
 func (c *chainSampleIterator) AtT() int64 {
 	if c.curr == nil {
 		panic("chainSampleIterator.AtT called before first .Next or after .Next returned false.")

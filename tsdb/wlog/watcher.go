@@ -56,6 +56,7 @@ type WriteTo interface {
 	AppendExemplars([]record.RefExemplar) bool
 	AppendHistograms([]record.RefHistogramSample) bool
 	AppendFloatHistograms([]record.RefFloatHistogramSample) bool
+	AppendInfoSamples([]record.RefInfoSample) bool
 	StoreSeries([]record.RefSeries, int)
 
 	// Next two methods are intended for garbage-collection: first we call
@@ -541,6 +542,8 @@ func (w *Watcher) readSegment(r *LiveReader, segmentNum int, tail bool) error {
 		histogramsToSend      []record.RefHistogramSample
 		floatHistograms       []record.RefFloatHistogramSample
 		floatHistogramsToSend []record.RefFloatHistogramSample
+		infoSamples           []record.RefInfoSample
+		infoSamplesToSend     []record.RefInfoSample
 	)
 	for r.Next() && !isClosed(w.quit) {
 		rec := r.Record()
@@ -652,6 +655,38 @@ func (w *Watcher) readSegment(r *LiveReader, segmentNum int, tail bool) error {
 				w.writer.AppendFloatHistograms(floatHistogramsToSend)
 				floatHistogramsToSend = floatHistogramsToSend[:0]
 			}
+		case record.InfoSamples:
+			/*
+				// Skip if experimental "info samples over remote write" is not enabled.
+				if !w.sendInfoSamples {
+					break
+				}
+			*/
+			// If we're not tailing a segment we can ignore any info samples records we see.
+			// This speeds up replay of the WAL by > 10x.
+			if !tail {
+				break
+			}
+			samples, err := dec.InfoSamples(rec, infoSamples[:0])
+			if err != nil {
+				w.recordDecodeFailsMetric.Inc()
+				return err
+			}
+			for _, s := range samples {
+				if s.T > w.startTimestamp {
+					if !w.sendSamples {
+						w.sendSamples = true
+						duration := time.Since(w.startTime)
+						level.Info(w.logger).Log("msg", "Done replaying WAL", "duration", duration)
+					}
+					infoSamplesToSend = append(infoSamplesToSend, s)
+				}
+			}
+			if len(infoSamplesToSend) > 0 {
+				level.Debug(w.logger).Log("msg", "read segment - appending info samples", "count", len(infoSamplesToSend))
+				w.writer.AppendInfoSamples(infoSamplesToSend)
+				infoSamplesToSend = infoSamplesToSend[:0]
+			}
 		case record.Tombstones:
 
 		default:
@@ -688,6 +723,8 @@ func (w *Watcher) readSegmentForGC(r *LiveReader, segmentNum int, _ bool) error 
 		// Ignore these; we're only interested in series.
 		case record.Samples:
 		case record.Exemplars:
+		case record.InfoSamples:
+		// XXX: Check also (float) histograms?
 		case record.Tombstones:
 
 		default:

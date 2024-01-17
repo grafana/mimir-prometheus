@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/go-kit/log/level"
@@ -109,6 +110,18 @@ func (h *headIndexReader) Postings(ctx context.Context, name string, values ...s
 	case 0:
 		return index.EmptyPostings(), nil
 	case 1:
+		if name == "__name__" && values[0] == "target_info" {
+			var vb strings.Builder
+			for i, v := range values {
+				if i > 0 {
+					vb.WriteRune(',')
+				}
+				vb.WriteString(v)
+			}
+			level.Debug(h.head.logger).Log("msg", "Looking up target_info", "values", vb.String())
+		} else {
+			level.Debug(h.head.logger).Log("msg", "Looking up another metric than target_info", "name", name, "value", values[0])
+		}
 		return h.head.postings.Get(name, values[0]), nil
 	default:
 		res := make([]index.Postings, 0, len(values))

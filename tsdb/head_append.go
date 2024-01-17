@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 
 	"github.com/go-kit/log/level"
 
@@ -49,6 +50,16 @@ func (a *initAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	a.head.initTime(t)
 	a.app = a.head.appender()
 	return a.app.Append(ref, lset, t, v)
+}
+
+func (a *initAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Labels, t int64, identifyingLabels []int) (storage.SeriesRef, error) {
+	if a.app != nil {
+		return a.app.AppendInfoSample(ref, lset, t, identifyingLabels)
+	}
+
+	a.head.initTime(t)
+	a.app = a.head.appender()
+	return a.app.AppendInfoSample(ref, lset, t, identifyingLabels)
 }
 
 func (a *initAppender) AppendExemplar(ref storage.SeriesRef, l labels.Labels, e exemplar.Exemplar) (storage.SeriesRef, error) {
@@ -169,6 +180,7 @@ func (h *Head) appender() *headAppender {
 		histograms:            h.getHistogramBuffer(),
 		floatHistograms:       h.getFloatHistogramBuffer(),
 		metadata:              h.getMetadataBuffer(),
+		infoSamples:           h.getInfoSampleBuffer(),
 		appendID:              appendID,
 		cleanupAppendIDsBelow: cleanupAppendIDsBelow,
 	}
@@ -265,6 +277,22 @@ func (h *Head) putMetadataBuffer(b []record.RefMetadata) {
 	h.metadataPool.Put(b[:0])
 }
 
+func (h *Head) getInfoSampleBuffer() []record.RefInfoSample {
+	if b := h.infoSamplesPool.Get(); b != nil {
+		return b
+	}
+
+	return make([]record.RefInfoSample, 0, 512)
+}
+
+func (h *Head) putInfoSampleBuffer(b []record.RefInfoSample) {
+	if b == nil {
+		return
+	}
+
+	h.infoSamplesPool.Put(b[:0])
+}
+
 func (h *Head) getSeriesBuffer() []*memSeries {
 	b := h.seriesPool.Get()
 	if b == nil {
@@ -314,6 +342,8 @@ type headAppender struct {
 	metadata             []record.RefMetadata             // New metadata held by this appender.
 	metadataSeries       []*memSeries                     // Series corresponding to the metadata held by this appender.
 	exemplars            []exemplarWithSeriesRef          // New exemplars held by this appender.
+	infoSamples          []record.RefInfoSample           // New info metric samples held by this appender.
+	infoSeries           []*memSeries                     // Info series corresponding to the info samples held by this appender (using corresponding slice indices - same series may appear more than once).
 
 	appendID, cleanupAppendIDsBelow uint64
 	closed                          bool
@@ -447,6 +477,17 @@ func (a *headAppender) getOrCreate(lset labels.Labels) (*memSeries, error) {
 	return s, nil
 }
 
+func (a *headAppender) getOrCreateInfoMetric(lset labels.Labels, t int64, identifyingLabels []int) (*memSeries, error) {
+	s, err := a.getOrCreate(lset)
+	if err != nil {
+		return s, err
+	}
+
+	a.head.postings.AddInfoMetric(storage.SeriesRef(s.ref), lset, t, identifyingLabels)
+
+	return s, nil
+}
+
 // appendable checks whether the given sample is valid for appending to the series. (if we return false and no error)
 // The sample belongs to the out of order chunk if we return true and no error.
 // An error signifies the sample cannot be handled.
@@ -470,6 +511,50 @@ func (s *memSeries) appendable(t int64, v float64, headMaxt, minValidTime, oooTi
 				return false, 0, storage.ErrDuplicateSampleForTimestamp
 			}
 			// Sample is identical (ts + value) with most current (highest ts) sample in sampleBuf.
+			return false, 0, nil
+		}
+	}
+
+	// The sample cannot go in the in-order chunk. Check if it can go in the out-of-order chunk.
+	if oooTimeWindow > 0 && t >= headMaxt-oooTimeWindow {
+		return true, headMaxt - t, nil
+	}
+
+	// The sample cannot go in both in-order and out-of-order chunk.
+	if oooTimeWindow > 0 {
+		return true, headMaxt - t, storage.ErrTooOldSample
+	}
+	if t < minValidTime {
+		return false, headMaxt - t, storage.ErrOutOfBounds
+	}
+	return false, headMaxt - t, storage.ErrOutOfOrderSample
+}
+
+// appendableInfoSample checks whether the given info sample is valid for appending to the series. (if we return false and no error)
+// The sample belongs to the out of order chunk if we return true and no error.
+// An error signifies the sample cannot be handled.
+func (s *memSeries) appendableInfoSample(t int64, lbls labels.Labels, identifyingLabels []int, headMaxt, minValidTime, oooTimeWindow int64) (isOOO bool, oooDelta int64, err error) {
+	// Check if we can append in the in-order chunk.
+	if t >= minValidTime {
+		if s.headChunks == nil {
+			// The series has no sample and was freshly created.
+			return false, 0, nil
+		}
+		msMaxt := s.maxTime()
+		if t > msMaxt {
+			return false, 0, nil
+		}
+		if t == msMaxt {
+			// We are allowing exact duplicates as we can encounter them in valid cases
+			// like federation and erroring out at that time would be extremely noisy.
+			// This only checks against the latest in-order sample.
+			// The OOO headchunk has its own method to detect these duplicates.
+			slices.Sort(s.lastIdentifyingLabels)
+			slices.Sort(identifyingLabels)
+			if !slices.Equal(identifyingLabels, s.lastIdentifyingLabels) {
+				return false, 0, storage.ErrDuplicateSampleForTimestamp
+			}
+			// Sample is identical (ts + identifyingLabels) with most current (highest ts) sample in sampleBuf.
 			return false, 0, nil
 		}
 	}
@@ -669,6 +754,70 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 	return storage.SeriesRef(s.ref), nil
 }
 
+func (a *headAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Labels, t int64, identifyingLabels []int) (storage.SeriesRef, error) {
+	// For OOO inserts, this restriction is irrelevant and will be checked later once we confirm the sample is an in-order append.
+	// If OOO inserts are disabled, we may as well as check this as early as we can and avoid more work.
+	if a.oooTimeWindow == 0 && t < a.minValidTime {
+		a.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
+		return 0, storage.ErrOutOfBounds
+	}
+
+	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
+	if s == nil {
+		var err error
+		s, err = a.getOrCreateInfoMetric(lset, t, identifyingLabels)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	var ilb strings.Builder
+	for i, idx := range identifyingLabels {
+		if i > 0 {
+			ilb.WriteRune(',')
+		}
+		ilb.WriteString(strconv.Itoa(idx))
+	}
+	level.Debug(a.head.logger).Log("msg", "trying to append info metric sample", "series_ref", ref, "t", t, "identifying_labels", ilb.String())
+
+	s.Lock()
+	// TODO(codesome): If we definitely know at this point that the sample is ooo, then optimise
+	// to skip that sample from the WAL and write only in the WBL.
+	_, delta, err := s.appendableInfoSample(t, lset, identifyingLabels, a.headMaxt, a.minValidTime, a.oooTimeWindow)
+	if err == nil {
+		s.pendingCommit = true
+	}
+	s.Unlock()
+	if delta > 0 {
+		a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
+	}
+	if err != nil {
+		switch {
+		case errors.Is(err, storage.ErrOutOfOrderSample):
+			a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
+		case errors.Is(err, storage.ErrTooOldSample):
+			a.head.metrics.tooOldSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
+		}
+		return 0, err
+	}
+
+	if t < a.mint {
+		a.mint = t
+	}
+	if t > a.maxt {
+		a.maxt = t
+	}
+
+	level.Debug(a.head.logger).Log("msg", "appending info sample", "series_ref", s.ref, "t", t, "identifying_labels", ilb.String())
+	a.infoSamples = append(a.infoSamples, record.RefInfoSample{
+		Ref:               s.ref,
+		T:                 t,
+		IdentifyingLabels: identifyingLabels,
+	})
+	a.infoSeries = append(a.infoSeries, s)
+	return storage.SeriesRef(s.ref), nil
+}
+
 // UpdateMetadata for headAppender assumes the series ref already exists, and so it doesn't
 // use getOrCreate or make any of the lset sanity checks that Append does.
 func (a *headAppender) UpdateMetadata(ref storage.SeriesRef, lset labels.Labels, meta metadata.Metadata) (storage.SeriesRef, error) {
@@ -761,6 +910,14 @@ func (a *headAppender) log() error {
 			return fmt.Errorf("log float histograms: %w", err)
 		}
 	}
+	if len(a.infoSamples) > 0 {
+		level.Debug(a.head.logger).Log("msg", "writing info samples to WAL", "count", len(a.infoSamples))
+		rec = enc.InfoSamples(a.infoSamples, buf)
+		buf = rec[:0]
+		if err := a.head.wal.Log(rec); err != nil {
+			return fmt.Errorf("log info metric samples: %w", err)
+		}
+	}
 	// Exemplars should be logged after samples (float/native histogram/etc),
 	// otherwise it might happen that we send the exemplars in a remote write
 	// batch before the samples, which in turn means the exemplar is rejected
@@ -831,6 +988,7 @@ func (a *headAppender) Commit() (err error) {
 	defer a.head.putHistogramBuffer(a.histograms)
 	defer a.head.putFloatHistogramBuffer(a.floatHistograms)
 	defer a.head.putMetadataBuffer(a.metadata)
+	defer a.head.putInfoSampleBuffer(a.infoSamples)
 	defer a.head.iso.closeAppend(a.appendID)
 
 	var (
@@ -1045,6 +1203,99 @@ func (a *headAppender) Commit() (err error) {
 		series.Unlock()
 	}
 
+	for i, s := range a.infoSamples {
+		series = a.infoSeries[i]
+		series.Lock()
+
+		oooSample, _, err := series.appendableInfoSample(s.T, series.lset, s.IdentifyingLabels, a.headMaxt, a.minValidTime, a.oooTimeWindow)
+		switch {
+		case err == nil:
+			// Do nothing.
+		case errors.Is(err, storage.ErrOutOfOrderSample):
+			// floatsAppended--
+			// floatOOORejected++
+		case errors.Is(err, storage.ErrOutOfBounds):
+			// floatsAppended--
+			// floatOOBRejected++
+		case errors.Is(err, storage.ErrTooOldSample):
+			// floatsAppended--
+			// floatTooOldRejected++
+		default:
+			// floatsAppended--
+		}
+
+		var ok, chunkCreated bool
+		switch {
+		case err != nil:
+			// Do nothing here.
+		case oooSample:
+			// Sample is OOO and OOO handling is enabled
+			// and the delta is within the OOO tolerance.
+			/* TODO
+			var mmapRef chunks.ChunkDiskMapperRef
+			ok, chunkCreated, mmapRef = series.insert(s.T, s.V, a.head.chunkDiskMapper, oooCapMax)
+			if chunkCreated {
+				r, ok := oooMmapMarkers[series.ref]
+				if !ok || r != 0 {
+					// !ok means there are no markers collected for these samples yet. So we first flush the samples
+					// before setting this m-map marker.
+
+					// r != 0 means we have already m-mapped a chunk for this series in the same Commit().
+					// Hence, before we m-map again, we should add the samples and m-map markers
+					// seen till now to the WBL records.
+					collectOOORecords()
+				}
+
+				if oooMmapMarkers == nil {
+					oooMmapMarkers = make(map[chunks.HeadSeriesRef]chunks.ChunkDiskMapperRef)
+				}
+				oooMmapMarkers[series.ref] = mmapRef
+			}
+			if ok {
+				wblSamples = append(wblSamples, s)
+				if s.T < ooomint {
+					ooomint = s.T
+				}
+				if s.T > ooomaxt {
+					ooomaxt = s.T
+				}
+				floatOOOAccepted++
+			} else {
+				// Sample is an exact duplicate of the last sample.
+				// NOTE: We can only detect updates if they clash with a sample in the OOOHeadChunk,
+				// not with samples in already flushed OOO chunks.
+				// TODO(codesome): Add error reporting? It depends on addressing https://github.com/prometheus/prometheus/discussions/10305.
+				floatsAppended--
+			}
+			*/
+		default:
+			ok, chunkCreated = series.appendInfoSample(s.T, s.IdentifyingLabels, a.appendID, appendChunkOpts)
+			if ok {
+				if s.T < inOrderMint {
+					inOrderMint = s.T
+				}
+				if s.T > inOrderMaxt {
+					inOrderMaxt = s.T
+				}
+				/*
+					} else {
+						// The sample is an exact duplicate, and should be silently dropped.
+						floatsAppended--
+				*/
+			}
+			level.Debug(a.head.logger).Log("msg", "committed info sample to WAL and added to head", "series_ref", series.ref, "chunk_created", chunkCreated)
+		}
+
+		if chunkCreated {
+			a.head.metrics.chunks.Inc()
+			a.head.metrics.chunksCreated.Inc()
+		}
+
+		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.pendingCommit = false
+		series.Unlock()
+	}
+
 	a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatOOORejected))
 	a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeHistogram).Add(float64(histoOOORejected))
 	a.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatOOBRejected))
@@ -1113,6 +1364,7 @@ func (s *memSeries) append(t int64, v float64, appendID uint64, o chunkOpts) (sa
 	c.maxTime = t
 
 	s.lastValue = v
+	s.lastIdentifyingLabels = nil
 	s.lastHistogramValue = nil
 	s.lastFloatHistogramValue = nil
 
@@ -1237,6 +1489,37 @@ func (s *memSeries) appendFloatHistogram(t int64, fh *histogram.FloatHistogram, 
 	return true, true
 }
 
+// appendInfoSample adds an info metric sample.
+// s should be the corresponding info metric/time series.
+// Returns whether sample is in order and whether a chunk was created.
+func (s *memSeries) appendInfoSample(t int64, identifyingLabels []int, appendID uint64, o chunkOpts) (bool, bool) {
+	// Every time we receive an OTLP write, a sample is written to target_info for the resource's job/instance combo
+	// plus the resource's other attributes. The sample has the timestamp of the most recent timestamp among the
+	// resource's metric samples.
+	// When writing a target_info sample (per resource) to the head, we also want to write a sample for its
+	// identifying label set. I.e., given a target_info label set, we also need to persist which are its
+	// identifying labels starting from a certain timestamp. When the identifying label set changes,
+	// we have to persist another sample with the new identifying label set.
+	c, sampleInOrder, chunkCreated := s.appendPreprocessor(t, chunkenc.EncInfoMetric, o)
+	if !sampleInOrder {
+		return sampleInOrder, chunkCreated
+	}
+
+	s.app.AppendInfoSample(t, identifyingLabels)
+	c.maxTime = t
+
+	s.lastIdentifyingLabels = identifyingLabels
+	s.lastValue = 0
+	s.lastHistogramValue = nil
+	s.lastFloatHistogramValue = nil
+
+	if appendID > 0 {
+		s.txs.add(appendID)
+	}
+
+	return true, chunkCreated
+}
+
 // appendPreprocessor takes care of cutting new XOR chunks and m-mapping old ones. XOR chunks are cut based on the
 // number of samples they contain with a soft cap in bytes.
 // It is unsafe to call this concurrently with s.iterator(...) without holding the series lock.
@@ -1265,6 +1548,7 @@ func (s *memSeries) appendPreprocessor(t int64, e chunkenc.Encoding, o chunkOpts
 	}
 
 	// Check the chunk size, unless we just created it and if the chunk is too large, cut a new one.
+	// TODO: Reconsider chunk size heuristics for info metric samples.
 	if !chunkCreated && len(c.chunk.Bytes()) > maxBytesPerXORChunk {
 		c = s.cutNewHeadChunk(t, e, o.chunkRange)
 		chunkCreated = true
@@ -1494,8 +1778,8 @@ func (s *memSeries) mmapChunks(chunkDiskMapper chunkDiskMapper) (count int) {
 		return
 	}
 
-	// Write chunks starting from the oldest one and stop before we get to current s.headChunk.
-	// If we have this chain: s.headChunk{t4} -> t3 -> t2 -> t1 -> t0
+	// Write chunks starting from the oldest one and stop before we get to current s.headChunks.
+	// If we have this chain: s.headChunks{t4} -> t3 -> t2 -> t1 -> t0
 	// then we need to write chunks t0 to t3, but skip s.headChunks.
 	for i := s.headChunks.len() - 1; i > 0; i-- {
 		chk := s.headChunks.atOffset(i)
@@ -1546,15 +1830,24 @@ func (a *headAppender) Rollback() (err error) {
 		series.pendingCommit = false
 		series.Unlock()
 	}
+	for i := range a.infoSamples {
+		series = a.infoSeries[i]
+		series.Lock()
+		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.pendingCommit = false
+		series.Unlock()
+	}
 	a.head.putAppendBuffer(a.samples)
 	a.head.putExemplarBuffer(a.exemplars)
 	a.head.putHistogramBuffer(a.histograms)
 	a.head.putFloatHistogramBuffer(a.floatHistograms)
 	a.head.putMetadataBuffer(a.metadata)
+	a.head.putInfoSampleBuffer(a.infoSamples)
 	a.samples = nil
 	a.exemplars = nil
 	a.histograms = nil
 	a.metadata = nil
+	a.infoSamples = nil
 
 	// Series are created in the head memory regardless of rollback. Thus we have
 	// to log them to the WAL in any case.

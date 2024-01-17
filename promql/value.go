@@ -65,9 +65,10 @@ func (s Scalar) MarshalJSON() ([]byte, error) {
 
 // Series is a stream of data points belonging to a metric.
 type Series struct {
-	Metric     labels.Labels `json:"metric"`
-	Floats     []FPoint      `json:"values,omitempty"`
-	Histograms []HPoint      `json:"histograms,omitempty"`
+	Metric      labels.Labels `json:"metric"`
+	Floats      []FPoint      `json:"values,omitempty"`
+	Histograms  []HPoint      `json:"histograms,omitempty"`
+	InfoSamples []InfoPoint   `json:"infoSamples,omitempty"`
 }
 
 func (s Series) String() string {
@@ -75,12 +76,15 @@ func (s Series) String() string {
 	// histograms, each sorted by timestamp. Maybe, in mixed series, that's
 	// fine. Maybe, however, primary sorting by timestamp is preferred, in
 	// which case this has to be changed.
-	vals := make([]string, 0, len(s.Floats)+len(s.Histograms))
+	vals := make([]string, 0, len(s.Floats)+len(s.Histograms)+len(s.InfoSamples))
 	for _, f := range s.Floats {
 		vals = append(vals, f.String())
 	}
 	for _, h := range s.Histograms {
 		vals = append(vals, h.String())
+	}
+	for _, s := range s.InfoSamples {
+		vals = append(vals, s.String())
 	}
 	return fmt.Sprintf("%s =>\n%s", s.Metric, strings.Join(vals, "\n"))
 }
@@ -185,33 +189,81 @@ func totalHPointSize(histograms []HPoint) int {
 	return total
 }
 
+// InfoPoint represents a single info metric data point for a given timestamp.
+type InfoPoint struct {
+	T                 int64
+	IdentifyingLabels []int
+}
+
+func (p InfoPoint) String() string {
+	var b strings.Builder
+	for i, il := range p.IdentifyingLabels {
+		if i < 0 {
+			b.WriteRune(',')
+		}
+		b.WriteString(strconv.Itoa(il))
+	}
+	return fmt.Sprintf("%s @[%v]", b.String(), p.T)
+}
+
+// MarshalJSON implements json.Marshaler.
+//
+// JSON marshaling is only needed for the HTTP API.
+func (p InfoPoint) MarshalJSON() ([]byte, error) {
+	return json.Marshal([...]interface{}{float64(p.T) / 1000, p.IdentifyingLabels})
+}
+
 // Sample is a single sample belonging to a metric. It represents either a float
-// sample or a histogram sample. If H is nil, it is a float sample. Otherwise,
-// it is a histogram sample.
+// sample, a histogram sample or an info metric sample.
 type Sample struct {
-	T int64
-	F float64
-	H *histogram.FloatHistogram
+	T                 int64
+	F                 float64
+	H                 *histogram.FloatHistogram
+	IdentifyingLabels []int
 
 	Metric labels.Labels
 }
 
 func (s Sample) String() string {
 	var str string
-	if s.H == nil {
-		p := FPoint{T: s.T, F: s.F}
-		str = p.String()
-	} else {
+	switch {
+	case s.H != nil:
 		p := HPoint{T: s.T, H: s.H}
 		str = p.String()
+	case s.IdentifyingLabels != nil:
+		p := InfoPoint{T: s.T, IdentifyingLabels: s.IdentifyingLabels}
+		str = p.String()
+	default:
+		p := FPoint{T: s.T, F: s.F}
+		str = p.String()
 	}
+
 	return fmt.Sprintf("%s => %s", s.Metric, str)
 }
 
 // MarshalJSON is mirrored in web/api/v1/api.go with jsoniter because FPoint and
 // HPoint wouldn't be marshaled with jsoniter otherwise.
 func (s Sample) MarshalJSON() ([]byte, error) {
-	if s.H == nil {
+	switch {
+	case s.H != nil:
+		h := struct {
+			M labels.Labels `json:"metric"`
+			H HPoint        `json:"histogram"`
+		}{
+			M: s.Metric,
+			H: HPoint{T: s.T, H: s.H},
+		}
+		return json.Marshal(h)
+	case s.IdentifyingLabels != nil:
+		i := struct {
+			M    labels.Labels `json:"metric"`
+			Info InfoPoint     `json:"identifyingLabels"`
+		}{
+			M:    s.Metric,
+			Info: InfoPoint{T: s.T, IdentifyingLabels: s.IdentifyingLabels},
+		}
+		return json.Marshal(i)
+	default:
 		f := struct {
 			M labels.Labels `json:"metric"`
 			F FPoint        `json:"value"`
@@ -221,14 +273,6 @@ func (s Sample) MarshalJSON() ([]byte, error) {
 		}
 		return json.Marshal(f)
 	}
-	h := struct {
-		M labels.Labels `json:"metric"`
-		H HPoint        `json:"histogram"`
-	}{
-		M: s.Metric,
-		H: HPoint{T: s.T, H: s.H},
-	}
-	return json.Marshal(h)
 }
 
 // Vector is basically only an alias for []Sample, but the contract is that
@@ -302,7 +346,7 @@ func (m Matrix) String() string {
 func (m Matrix) TotalSamples() int {
 	numSamples := 0
 	for _, series := range m {
-		numSamples += len(series.Floats) + totalHPointSize(series.Histograms)
+		numSamples += len(series.Floats) + totalHPointSize(series.Histograms) + len(series.InfoSamples)
 	}
 	return numSamples
 }
@@ -417,21 +461,24 @@ func (ss *StorageSeries) Iterator(it chunkenc.Iterator) chunkenc.Iterator {
 }
 
 type storageSeriesIterator struct {
-	floats               []FPoint
-	histograms           []HPoint
-	iFloats, iHistograms int
-	currT                int64
-	currF                float64
-	currH                *histogram.FloatHistogram
+	floats                             []FPoint
+	histograms                         []HPoint
+	infoSamples                        []InfoPoint
+	iFloats, iHistograms, iInfoSamples int
+	currT                              int64
+	currF                              float64
+	currILs                            []int
+	currH                              *histogram.FloatHistogram
 }
 
 func newStorageSeriesIterator(series Series) *storageSeriesIterator {
 	return &storageSeriesIterator{
-		floats:      series.Floats,
-		histograms:  series.Histograms,
-		iFloats:     -1,
-		iHistograms: 0,
-		currT:       math.MinInt64,
+		floats:       series.Floats,
+		histograms:   series.Histograms,
+		iFloats:      -1,
+		iHistograms:  0,
+		iInfoSamples: -1,
+		currT:        math.MinInt64,
 	}
 }
 
@@ -440,13 +487,15 @@ func (ssi *storageSeriesIterator) reset(series Series) {
 	ssi.histograms = series.Histograms
 	ssi.iFloats = -1
 	ssi.iHistograms = 0
+	ssi.iInfoSamples = -1
 	ssi.currT = math.MinInt64
 	ssi.currF = 0
 	ssi.currH = nil
+	ssi.currILs = nil
 }
 
 func (ssi *storageSeriesIterator) Seek(t int64) chunkenc.ValueType {
-	if ssi.iFloats >= len(ssi.floats) && ssi.iHistograms >= len(ssi.histograms) {
+	if ssi.iFloats >= len(ssi.floats) && ssi.iHistograms >= len(ssi.histograms) && ssi.iInfoSamples >= len(ssi.infoSamples) {
 		return chunkenc.ValNone
 	}
 	for ssi.currT < t {
@@ -456,6 +505,9 @@ func (ssi *storageSeriesIterator) Seek(t int64) chunkenc.ValueType {
 	}
 	if ssi.currH != nil {
 		return chunkenc.ValFloatHistogram
+	}
+	if ssi.currILs != nil {
+		return chunkenc.ValInfoSample
 	}
 	return chunkenc.ValFloat
 }
@@ -472,34 +524,49 @@ func (ssi *storageSeriesIterator) AtFloatHistogram(*histogram.FloatHistogram) (i
 	return ssi.currT, ssi.currH
 }
 
+func (ssi *storageSeriesIterator) AtInfoSample() (int64, []int) {
+	return ssi.currT, ssi.currILs
+}
+
 func (ssi *storageSeriesIterator) AtT() int64 {
 	return ssi.currT
 }
 
 func (ssi *storageSeriesIterator) Next() chunkenc.ValueType {
-	if ssi.currH != nil {
+	switch {
+	case ssi.currH != nil:
 		ssi.iHistograms++
-	} else {
+	case ssi.currILs != nil:
+		ssi.iInfoSamples++
+	default:
 		ssi.iFloats++
 	}
 	var (
-		pickH, pickF        = false, false
-		floatsExhausted     = ssi.iFloats >= len(ssi.floats)
-		histogramsExhausted = ssi.iHistograms >= len(ssi.histograms)
+		pickH, pickF, pickI  = false, false, false
+		floatsExhausted      = ssi.iFloats >= len(ssi.floats)
+		histogramsExhausted  = ssi.iHistograms >= len(ssi.histograms)
+		infoSamplesExhausted = ssi.iInfoSamples >= len(ssi.infoSamples)
+		floatT               = ssi.floats[ssi.iFloats].T
+		histogramT           = ssi.histograms[ssi.iHistograms].T
+		infoSampleT          = ssi.infoSamples[ssi.iInfoSamples].T
 	)
 
 	switch {
-	case floatsExhausted:
-		if histogramsExhausted { // Both exhausted!
-			return chunkenc.ValNone
-		}
-		pickH = true
-	case histogramsExhausted: // and floats not exhausted.
+	case floatsExhausted && histogramsExhausted && infoSamplesExhausted:
+		return chunkenc.ValNone
+	case !floatsExhausted && histogramsExhausted && infoSamplesExhausted:
 		pickF = true
-	// From here on, we have to look at timestamps.
-	case ssi.histograms[ssi.iHistograms].T < ssi.floats[ssi.iFloats].T:
-		// Next histogram comes before next float.
+	case floatsExhausted && !histogramsExhausted && infoSamplesExhausted:
 		pickH = true
+	case floatsExhausted && histogramsExhausted && !infoSamplesExhausted:
+		pickI = true
+	// From here on, we have to look at timestamps.
+	case histogramT < floatT && histogramT < infoSampleT:
+		// Next histogram sample comes before other sample types.
+		pickH = true
+	case infoSampleT < histogramT && infoSampleT < floatT:
+		// Next info metric sample comes before other sample types.
+		pickI = true
 	default:
 		// In all other cases, we pick float so that we first iterate
 		// through floats if the timestamp is the same.
@@ -519,6 +586,13 @@ func (ssi *storageSeriesIterator) Next() chunkenc.ValueType {
 		ssi.currF = 0
 		ssi.currH = p.H
 		return chunkenc.ValFloatHistogram
+	case pickI:
+		p := ssi.infoSamples[ssi.iInfoSamples]
+		ssi.currT = p.T
+		ssi.currILs = p.IdentifyingLabels
+		ssi.currF = 0
+		ssi.currH = nil
+		return chunkenc.ValInfoSample
 	default:
 		panic("storageSeriesIterater.Next failed to pick value type")
 	}

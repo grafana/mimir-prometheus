@@ -57,8 +57,8 @@ func NewListSeries(lset labels.Labels, s []chunks.Sample) *SeriesEntry {
 	}
 }
 
-// NewListChunkSeriesFromSamples returns chunk series entry that allows to iterate over provided samples.
-// NOTE: It uses inefficient chunks encoding implementation, not caring about chunk size.
+// NewListChunkSeriesFromSamples returns a chunk series entry that allows to iterate over provided samples.
+// NOTE: It uses an inefficient chunks encoding implementation, not caring about chunk size.
 // Use only for testing.
 func NewListChunkSeriesFromSamples(lset labels.Labels, samples ...[]chunks.Sample) *ChunkSeriesEntry {
 	chksFromSamples := make([]chunks.Meta, 0, len(samples))
@@ -134,6 +134,11 @@ func (it *listSeriesIterator) AtHistogram(*histogram.Histogram) (int64, *histogr
 func (it *listSeriesIterator) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	s := it.samples.Get(it.idx)
 	return s.T(), s.FH()
+}
+
+func (it *listSeriesIterator) AtInfoSample() (int64, []int) {
+	s := it.samples.Get(it.idx)
+	return s.T(), s.IdentifyingLabels()
 }
 
 func (it *listSeriesIterator) AtT() int64 {
@@ -330,10 +335,11 @@ func (s *seriesToChunkEncoder) Iterator(it chunks.Iterator) chunks.Iterator {
 		lastType = typ
 
 		var (
-			t  int64
-			v  float64
-			h  *histogram.Histogram
-			fh *histogram.FloatHistogram
+			t   int64
+			v   float64
+			h   *histogram.Histogram
+			fh  *histogram.FloatHistogram
+			ils []int
 		)
 		switch typ {
 		case chunkenc.ValFloat:
@@ -369,6 +375,9 @@ func (s *seriesToChunkEncoder) Iterator(it chunks.Iterator) chunks.Iterator {
 				}
 				chk = newChk
 			}
+		case chunkenc.ValInfoSample:
+			t, ils = seriesIter.AtInfoSample()
+			app.AppendInfoSample(t, ils)
 		default:
 			return errChunksIterator{err: fmt.Errorf("unknown sample type %s", typ.String())}
 		}
@@ -428,14 +437,16 @@ func (e errChunksIterator) Err() error      { return e.err }
 // ExpandSamples iterates over all samples in the iterator, buffering all in slice.
 // Optionally it takes samples constructor, useful when you want to compare sample slices with different
 // sample implementations. if nil, sample type from this package will be used.
-func ExpandSamples(iter chunkenc.Iterator, newSampleFn func(t int64, f float64, h *histogram.Histogram, fh *histogram.FloatHistogram) chunks.Sample) ([]chunks.Sample, error) {
+func ExpandSamples(iter chunkenc.Iterator, newSampleFn func(t int64, f float64, h *histogram.Histogram, fh *histogram.FloatHistogram, ils []int) chunks.Sample) ([]chunks.Sample, error) {
 	if newSampleFn == nil {
-		newSampleFn = func(t int64, f float64, h *histogram.Histogram, fh *histogram.FloatHistogram) chunks.Sample {
+		newSampleFn = func(t int64, f float64, h *histogram.Histogram, fh *histogram.FloatHistogram, ils []int) chunks.Sample {
 			switch {
 			case h != nil:
 				return hSample{t, h}
 			case fh != nil:
 				return fhSample{t, fh}
+			case ils != nil:
+				return infoSample{t, ils}
 			default:
 				return fSample{t, f}
 			}
@@ -453,13 +464,16 @@ func ExpandSamples(iter chunkenc.Iterator, newSampleFn func(t int64, f float64, 
 			if math.IsNaN(f) {
 				f = -42
 			}
-			result = append(result, newSampleFn(t, f, nil, nil))
+			result = append(result, newSampleFn(t, f, nil, nil, nil))
 		case chunkenc.ValHistogram:
 			t, h := iter.AtHistogram(nil)
-			result = append(result, newSampleFn(t, 0, h, nil))
+			result = append(result, newSampleFn(t, 0, h, nil, nil))
 		case chunkenc.ValFloatHistogram:
 			t, fh := iter.AtFloatHistogram(nil)
-			result = append(result, newSampleFn(t, 0, nil, fh))
+			result = append(result, newSampleFn(t, 0, nil, fh, nil))
+		case chunkenc.ValInfoSample:
+			t, ils := iter.AtInfoSample()
+			result = append(result, newSampleFn(t, 0, nil, nil, ils))
 		}
 	}
 }

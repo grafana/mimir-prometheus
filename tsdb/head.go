@@ -103,6 +103,7 @@ type Head struct {
 	histogramsPool      zeropool.Pool[[]record.RefHistogramSample]
 	floatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]
 	metadataPool        zeropool.Pool[[]record.RefMetadata]
+	infoSamplesPool     zeropool.Pool[[]record.RefInfoSample]
 	seriesPool          zeropool.Pool[[]*memSeries]
 	bytesPool           zeropool.Pool[[]byte]
 	memChunkPool        sync.Pool
@@ -2066,20 +2067,22 @@ func (s *stripeSeries) getOrSet(hash uint64, lset labels.Labels, createSeries fu
 }
 
 type sample struct {
-	t  int64
-	f  float64
-	h  *histogram.Histogram
-	fh *histogram.FloatHistogram
+	t                 int64
+	f                 float64
+	h                 *histogram.Histogram
+	fh                *histogram.FloatHistogram
+	identifyingLabels []int
 }
 
-func newSample(t int64, v float64, h *histogram.Histogram, fh *histogram.FloatHistogram) chunks.Sample {
-	return sample{t, v, h, fh}
+func newSample(t int64, v float64, h *histogram.Histogram, fh *histogram.FloatHistogram, ils []int) chunks.Sample {
+	return sample{t, v, h, fh, ils}
 }
 
 func (s sample) T() int64                      { return s.t }
 func (s sample) F() float64                    { return s.f }
 func (s sample) H() *histogram.Histogram       { return s.h }
 func (s sample) FH() *histogram.FloatHistogram { return s.fh }
+func (s sample) IdentifyingLabels() []int      { return s.identifyingLabels }
 
 func (s sample) Type() chunkenc.ValueType {
 	switch {
@@ -2087,6 +2090,8 @@ func (s sample) Type() chunkenc.ValueType {
 		return chunkenc.ValHistogram
 	case s.fh != nil:
 		return chunkenc.ValFloatHistogram
+	case s.identifyingLabels != nil:
+		return chunkenc.ValInfoSample
 	default:
 		return chunkenc.ValFloat
 	}
@@ -2137,6 +2142,8 @@ type memSeries struct {
 
 	// We keep the last value here (in addition to appending it to the chunk) so we can check for duplicates.
 	lastValue float64
+	// We keep the last info metric identifying labels here so we can check for duplicates.
+	lastIdentifyingLabels []int
 
 	// We keep the last histogram value here (in addition to appending it to the chunk) so we can check for duplicates.
 	lastHistogramValue      *histogram.Histogram
