@@ -635,6 +635,8 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 	histogramChunkSamplesCount := make([]int, 0)
 	histogramChunkSize := make([]int, 0)
 	histogramChunkBucketsCount := make([]int, 0)
+	infoChunkSamplesCount := make([]int, 0)
+	infoChunkSize := make([]int, 0)
 	var builder labels.ScratchBuilder
 	for postingsr.Next() {
 		var chks []chunks.Meta
@@ -687,6 +689,11 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 					bucketCount += len(f.NegativeBuckets)
 				}
 				histogramChunkBucketsCount = append(histogramChunkBucketsCount, bucketCount)
+			case chunkenc.EncInfoMetric:
+				infoChunkSamplesCount = append(infoChunkSamplesCount, chk.NumSamples())
+				infoChunkSize = append(infoChunkSize, len(chk.Bytes()))
+			default:
+				return fmt.Errorf("unrecognized encoding: %s", chk.Encoding())
 			}
 			totalChunks++
 		}
@@ -703,6 +710,10 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 	displayHistogram("bytes per histogram chunk", histogramChunkSize, totalChunks)
 
 	displayHistogram("buckets per histogram chunk", histogramChunkBucketsCount, totalChunks)
+
+	displayHistogram("samples per info metric chunk", infoChunkSamplesCount, totalChunks)
+	displayHistogram("bytes per info metric chunk", infoChunkSize, totalChunks)
+
 	return nil
 }
 
@@ -769,6 +780,10 @@ func formatSeriesSet(ss storage.SeriesSet) error {
 		for it.Next() == chunkenc.ValHistogram {
 			ts, h := it.AtHistogram(nil)
 			fmt.Printf("%s %s %d\n", lbs, h.String(), ts)
+		}
+		for it.Next() == chunkenc.ValInfoSample {
+			ts, ils := it.AtInfoSample()
+			fmt.Printf("%s %v %d\n", lbs, ils, ts)
 		}
 		if it.Err() != nil {
 			return ss.Err()
