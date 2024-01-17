@@ -267,13 +267,14 @@ func genSeriesWithSample(numSeries int, ts int64) []prompb.TimeSeries {
 }
 
 type mockAppendable struct {
-	latestSample    int64
-	samples         []mockSample
-	latestExemplar  int64
-	exemplars       []mockExemplar
-	latestHistogram int64
-	histograms      []mockHistogram
-	commitErr       error
+	latestSample            int64
+	samples                 []mockSample
+	latestExemplar          int64
+	exemplars               []mockExemplar
+	latestHistogram         int64
+	latestIdentifyingLabels int64
+	histograms              []mockHistogram
+	commitErr               error
 }
 
 type mockSample struct {
@@ -343,6 +344,16 @@ func (m *mockAppendable) AppendHistogram(_ storage.SeriesRef, l labels.Labels, t
 	m.latestHistogram = t
 	m.histograms = append(m.histograms, mockHistogram{l, t, h, fh})
 	return 0, nil
+}
+
+func (m *mockAppendable) AppendIdentifyingLabels(_ storage.SeriesRef, _ labels.Labels, _ []string, t int64) error {
+	if t < m.latestIdentifyingLabels {
+		return storage.ErrOutOfOrderSample
+	}
+
+	m.latestIdentifyingLabels = t
+	// TODO: Record identifying labels sample
+	return nil
 }
 
 func (m *mockAppendable) UpdateMetadata(_ storage.SeriesRef, _ labels.Labels, _ metadata.Metadata) (storage.SeriesRef, error) {

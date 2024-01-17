@@ -190,6 +190,20 @@ func (f *fanoutAppender) AppendHistogram(ref SeriesRef, l labels.Labels, t int64
 	return ref, nil
 }
 
+func (f *fanoutAppender) AppendIdentifyingLabels(ref SeriesRef, l labels.Labels, identifyingLabels []string, t int64) error {
+	if err := f.primary.AppendIdentifyingLabels(ref, l, identifyingLabels, t); err != nil {
+		return err
+	}
+
+	for _, appender := range f.secondaries {
+		if err := appender.AppendIdentifyingLabels(ref, l, identifyingLabels, t); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (f *fanoutAppender) UpdateMetadata(ref SeriesRef, l labels.Labels, m metadata.Metadata) (SeriesRef, error) {
 	ref, err := f.primary.UpdateMetadata(ref, l, m)
 	if err != nil {

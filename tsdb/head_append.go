@@ -78,6 +78,16 @@ func (a *initAppender) AppendHistogram(ref storage.SeriesRef, l labels.Labels, t
 	return a.app.AppendHistogram(ref, l, t, h, fh)
 }
 
+func (a *initAppender) AppendIdentifyingLabels(ref storage.SeriesRef, l labels.Labels, identifyingLabels []string, t int64) error {
+	if a.app != nil {
+		return a.app.AppendIdentifyingLabels(ref, l, identifyingLabels, t)
+	}
+
+	a.head.initTime(t)
+	a.app = a.head.appender()
+	return a.app.AppendIdentifyingLabels(ref, l, identifyingLabels, t)
+}
+
 func (a *initAppender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m metadata.Metadata) (storage.SeriesRef, error) {
 	if a.app != nil {
 		return a.app.UpdateMetadata(ref, l, m)
@@ -169,6 +179,7 @@ func (h *Head) appender() *headAppender {
 		histograms:            h.getHistogramBuffer(),
 		floatHistograms:       h.getFloatHistogramBuffer(),
 		metadata:              h.getMetadataBuffer(),
+		identifyingLabels:     h.getIdentifyingLabelsBuffer(),
 		appendID:              appendID,
 		cleanupAppendIDsBelow: cleanupAppendIDsBelow,
 	}
@@ -279,6 +290,22 @@ func (h *Head) putMetadataBuffer(b []record.RefMetadata) {
 	h.metadataPool.Put(b[:0])
 }
 
+func (h *Head) getIdentifyingLabelsBuffer() []record.RefIdentifyingLabels {
+	if b := h.identifyingLabelsPool.Get(); b != nil {
+		return b
+	}
+
+	return make([]record.RefIdentifyingLabels, 0, 512)
+}
+
+func (h *Head) putIdentifyingLabelsBuffer(b []record.RefIdentifyingLabels) {
+	if b == nil {
+		return
+	}
+
+	h.identifyingLabelsPool.Put(b[:0])
+}
+
 func (h *Head) getSeriesBuffer() []*memSeries {
 	b := h.seriesPool.Get()
 	if b == nil {
@@ -318,16 +345,18 @@ type headAppender struct {
 	headMaxt      int64 // We track it here to not take the lock for every sample appended.
 	oooTimeWindow int64 // Use the same for the entire append, and don't load the atomic for each sample.
 
-	series               []record.RefSeries               // New series held by this appender.
-	samples              []record.RefSample               // New float samples held by this appender.
-	sampleSeries         []*memSeries                     // Float series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
-	histograms           []record.RefHistogramSample      // New histogram samples held by this appender.
-	histogramSeries      []*memSeries                     // HistogramSamples series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
-	floatHistograms      []record.RefFloatHistogramSample // New float histogram samples held by this appender.
-	floatHistogramSeries []*memSeries                     // FloatHistogramSamples series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
-	metadata             []record.RefMetadata             // New metadata held by this appender.
-	metadataSeries       []*memSeries                     // Series corresponding to the metadata held by this appender.
-	exemplars            []exemplarWithSeriesRef          // New exemplars held by this appender.
+	series                  []record.RefSeries               // New series held by this appender.
+	samples                 []record.RefSample               // New float samples held by this appender.
+	sampleSeries            []*memSeries                     // Float series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	histograms              []record.RefHistogramSample      // New histogram samples held by this appender.
+	histogramSeries         []*memSeries                     // HistogramSamples series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	floatHistograms         []record.RefFloatHistogramSample // New float histogram samples held by this appender.
+	floatHistogramSeries    []*memSeries                     // FloatHistogramSamples series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	metadata                []record.RefMetadata             // New metadata held by this appender.
+	metadataSeries          []*memSeries                     // Series corresponding to the metadata held by this appender.
+	exemplars               []exemplarWithSeriesRef          // New exemplars held by this appender.
+	identifyingLabels       []record.RefIdentifyingLabels    // New info metric identifying labels held by this appender.
+	identifyingLabelsSeries []*memSeries                     // Info metric identifying labels series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
 
 	appendID, cleanupAppendIDsBelow uint64
 	closed                          bool
@@ -683,6 +712,24 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 	return storage.SeriesRef(s.ref), nil
 }
 
+func (a *headAppender) AppendIdentifyingLabels(ref storage.SeriesRef, lset labels.Labels, identifyingLabels []string, t int64) error {
+	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
+	if s == nil {
+		s = a.head.series.getByHash(lset.Hash(), lset)
+		if s == nil {
+			return fmt.Errorf("series not found: %d", ref)
+		}
+	}
+
+	s.Lock()
+	s.pendingCommit = true
+	s.Unlock()
+
+	a.identifyingLabels = append(a.identifyingLabels, record.RefIdentifyingLabels{Ref: s.ref, T: t, IdentifyingLabels: identifyingLabels})
+	a.identifyingLabelsSeries = append(a.identifyingLabelsSeries, s)
+	return nil
+}
+
 // UpdateMetadata for headAppender assumes the series ref already exists, and so it doesn't
 // use getOrCreate or make any of the lset sanity checks that Append does.
 func (a *headAppender) UpdateMetadata(ref storage.SeriesRef, lset labels.Labels, meta metadata.Metadata) (storage.SeriesRef, error) {
@@ -775,6 +822,13 @@ func (a *headAppender) log() error {
 			return fmt.Errorf("log float histograms: %w", err)
 		}
 	}
+	if len(a.identifyingLabels) > 0 {
+		rec = enc.IdentifyingLabels(a.identifyingLabels, buf)
+		buf = rec[0:]
+		if err := a.head.wal.Log(rec); err != nil {
+			return fmt.Errorf("log info metric identifying labels: %w", err)
+		}
+	}
 	// Exemplars should be logged after samples (float/native histogram/etc),
 	// otherwise it might happen that we send the exemplars in a remote write
 	// batch before the samples, which in turn means the exemplar is rejected
@@ -845,6 +899,7 @@ func (a *headAppender) Commit() (err error) {
 	defer a.head.putHistogramBuffer(a.histograms)
 	defer a.head.putFloatHistogramBuffer(a.floatHistograms)
 	defer a.head.putMetadataBuffer(a.metadata)
+	defer a.head.putIdentifyingLabelsBuffer(a.identifyingLabels)
 	defer a.head.iso.closeAppend(a.appendID)
 
 	var (
@@ -1059,6 +1114,15 @@ func (a *headAppender) Commit() (err error) {
 		series.Unlock()
 	}
 
+	for i, il := range a.identifyingLabels {
+		series = a.identifyingLabelsSeries[i]
+		series.Lock()
+		series.appendIdentifyingLabels(il.T, il.IdentifyingLabels, a.appendID, appendChunkOpts)
+		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.pendingCommit = false
+		series.Unlock()
+	}
+
 	a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatOOORejected))
 	a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeHistogram).Add(float64(histoOOORejected))
 	a.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatOOBRejected))
@@ -1251,6 +1315,30 @@ func (s *memSeries) appendFloatHistogram(t int64, fh *histogram.FloatHistogram, 
 	return true, true
 }
 
+// appendIdentifyingLabels adds an info metric identifying labels sample.
+// s should be the corresponding info metric/time series.
+func (s *memSeries) appendIdentifyingLabels(t int64, identifyingLabels []string, appendID uint64, o chunkOpts) (bool, bool) {
+	// Every time we receive an OTLP write, a sample is written to target_info for the resource's job/instance combo
+	// plus the resource's other attributes. The sample has the timestamp of the most recent timestamp among the
+	// resource's metric samples.
+	// When writing a target_info sample (per resource) to the head, we also want to write a sample for its
+	// identifying label set. I.e., given a target_info label set, we also need to persist which are its
+	// identifying labels starting from a certain timestamp. When the identifying label set changes,
+	// we have to persist another sample with the new identifying label set.
+	c, sampleInOrder, chunkCreated := s.appendIdentifyingLabelsPreprocessor(t, chunkenc.EncXOR, o)
+	if !sampleInOrder {
+		return sampleInOrder, chunkCreated
+	}
+
+	s.identifyingLabelsApp.AppendIdentifyingLabels(t, identifyingLabels)
+	c.maxTime = t
+	if appendID > 0 {
+		s.txs.add(appendID)
+	}
+
+	return true, chunkCreated
+}
+
 // appendPreprocessor takes care of cutting new XOR chunks and m-mapping old ones. XOR chunks are cut based on the
 // number of samples they contain with a soft cap in bytes.
 // It is unsafe to call this concurrently with s.iterator(...) without holding the series lock.
@@ -1401,6 +1489,77 @@ func (s *memSeries) histogramsAppendPreprocessor(t int64, e chunkenc.Encoding, o
 	return c, true, chunkCreated
 }
 
+// appendIdentifyingLabelsPreprocessor takes care of cutting new XOR chunks and mmapping old ones. XOR chunks are cut based on the
+// number of samples they contain with a soft cap in bytes.
+// It is unsafe to call this concurrently with s.iterator(...) without holding the series lock.
+// This should be called only when appending data.
+func (s *memSeries) appendIdentifyingLabelsPreprocessor(t int64, e chunkenc.Encoding, o chunkOpts) (c *memChunk, sampleInOrder, chunkCreated bool) {
+	// We target chunkenc.MaxBytesPerXORChunk as a hard for the size of an XOR chunk. We must determine whether to cut
+	// a new head chunk without knowing the size of the next sample, however, so we assume the next sample will be a
+	// maximally-sized sample (19 bytes).
+	const maxBytesPerXORChunk = chunkenc.MaxBytesPerXORChunk - 19
+
+	c = s.identifyingLabelsHeadChunks
+	if c == nil {
+		if len(s.identifyingLabelsMmappedChunks) > 0 && s.identifyingLabelsMmappedChunks[len(s.identifyingLabelsMmappedChunks)-1].maxTime >= t {
+			// Out of order sample. Sample timestamp is already in the mmapped chunks, so ignore it.
+			return c, false, false
+		}
+		// There is no head chunk in this series yet, create the first chunk for the sample.
+		c = s.cutNewIdentifyingLabelsHeadChunk(t, e, o.chunkRange)
+		chunkCreated = true
+	}
+
+	// Out of order sample.
+	if c.maxTime >= t {
+		return c, false, chunkCreated
+	}
+
+	// Check the chunk size, unless we just created it and if the chunk is too large, cut a new one.
+	if !chunkCreated && len(c.chunk.Bytes()) > maxBytesPerXORChunk {
+		c = s.cutNewIdentifyingLabelsHeadChunk(t, e, o.chunkRange)
+		chunkCreated = true
+	}
+
+	if c.chunk.Encoding() != e {
+		// The chunk encoding expected by this append is different than the head chunk's
+		// encoding. So we cut a new chunk with the expected encoding.
+		c = s.cutNewIdentifyingLabelsHeadChunk(t, e, o.chunkRange)
+		chunkCreated = true
+
+	}
+
+	numSamples := c.chunk.NumSamples()
+	if numSamples == 0 {
+		// It could be the new chunk created after reading the chunk snapshot,
+		// hence we fix the minTime of the chunk here.
+		c.minTime = t
+		s.identifyingLabelsNextAt = rangeForTimestamp(c.minTime, o.chunkRange)
+	}
+
+	// If we reach 25% of a chunk's desired sample count, predict an end time
+	// for this chunk that will try to make samples equally distributed within
+	// the remaining chunks in the current chunk range.
+	// At latest it must happen at the timestamp set when the chunk was cut.
+	if numSamples == o.samplesPerChunk/4 {
+		maxNextAt := s.identifyingLabelsNextAt
+
+		s.identifyingLabelsNextAt = computeChunkEndTime(c.minTime, c.maxTime, maxNextAt, 4)
+		s.identifyingLabelsNextAt = addJitterToChunkEndTime(s.shardHash, c.minTime, s.identifyingLabelsNextAt, maxNextAt, s.chunkEndTimeVariance)
+	}
+	// If numSamples > samplesPerChunk*2 then our previous prediction was invalid,
+	// most likely because samples rate has changed and now they are arriving more frequently.
+	// Since we assume that the rate is higher, we're being conservative and cutting at 2*samplesPerChunk
+	// as we expect more chunks to come.
+	// Note that next chunk will have its nextAt recalculated for the new rate.
+	if t >= s.identifyingLabelsNextAt || numSamples >= o.samplesPerChunk*2 {
+		c = s.cutNewIdentifyingLabelsHeadChunk(t, e, o.chunkRange)
+		chunkCreated = true
+	}
+
+	return c, true, chunkCreated
+}
+
 // computeChunkEndTime estimates the end timestamp based the beginning of a
 // chunk, its current timestamp and the upper bound up to which we insert data.
 // It assumes that the time range is 1/ratioToFull full.
@@ -1485,6 +1644,39 @@ func (s *memSeries) cutNewOOOHeadChunk(mint int64, chunkDiskMapper chunkDiskMapp
 	return s.ooo.oooHeadChunk, ref
 }
 
+func (s *memSeries) cutNewIdentifyingLabelsHeadChunk(mint int64, e chunkenc.Encoding, chunkRange int64) *memChunk {
+	// When cutting a new head chunk we create a new memChunk instance with .prev
+	// pointing at the current .identifyingLabelsHeadChunks, so it forms a linked list.
+	// All but first identifyingLabelsHeadChunks list elements will be mmapped as soon as possible
+	// so this is a single element list most of the time.
+	s.identifyingLabelsHeadChunks = &memChunk{
+		minTime: mint,
+		maxTime: math.MinInt64,
+		prev:    s.identifyingLabelsHeadChunks,
+	}
+
+	if chunkenc.IsValidEncoding(e) {
+		var err error
+		s.identifyingLabelsHeadChunks.chunk, err = chunkenc.NewEmptyChunk(e)
+		if err != nil {
+			panic(err) // This should never happen.
+		}
+	} else {
+		s.identifyingLabelsHeadChunks.chunk = chunkenc.NewXORChunk()
+	}
+
+	// Set upper bound on when the next chunk must be started. An earlier timestamp
+	// may be chosen dynamically at a later point.
+	s.identifyingLabelsNextAt = rangeForTimestamp(mint, chunkRange)
+
+	app, err := s.identifyingLabelsHeadChunks.chunk.Appender()
+	if err != nil {
+		panic(err)
+	}
+	s.identifyingLabelsApp = app
+	return s.identifyingLabelsHeadChunks
+}
+
 func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) chunks.ChunkDiskMapperRef {
 	if s.ooo == nil || s.ooo.oooHeadChunk == nil {
 		// There is no head chunk, so nothing to m-map here.
@@ -1509,8 +1701,8 @@ func (s *memSeries) mmapChunks(chunkDiskMapper chunkDiskMapper) (count int) {
 		return
 	}
 
-	// Write chunks starting from the oldest one and stop before we get to current s.headChunk.
-	// If we have this chain: s.headChunk{t4} -> t3 -> t2 -> t1 -> t0
+	// Write chunks starting from the oldest one and stop before we get to current s.headChunks.
+	// If we have this chain: s.headChunks{t4} -> t3 -> t2 -> t1 -> t0
 	// then we need to write chunks t0 to t3, but skip s.headChunks.
 	for i := s.headChunks.len() - 1; i > 0; i-- {
 		chk := s.headChunks.atOffset(i)
@@ -1526,6 +1718,34 @@ func (s *memSeries) mmapChunks(chunkDiskMapper chunkDiskMapper) (count int) {
 
 	// Once we've written out all chunks except s.headChunks we need to unlink these from s.headChunk.
 	s.headChunks.prev = nil
+
+	return count
+}
+
+// mmapIdentifyingLabelsChunks will m-map all but first chunk on s.identifyingLabelsHeadChunks list.
+func (s *memSeries) mmapIdentifyingLabelsChunks(chunkDiskMapper chunkDiskMapper) (count int) {
+	if s.identifyingLabelsHeadChunks == nil || s.identifyingLabelsHeadChunks.prev == nil {
+		// There is none or only one identifying labels head chunk, so nothing to m-map here.
+		return
+	}
+
+	// Write chunks starting from the oldest one and stop before we get to current s.identifyingLabelsHeadChunks.
+	// If we have this chain: s.identifyingLabelsHeadChunks{t4} -> t3 -> t2 -> t1 -> t0
+	// then we need to write chunks t0 to t3, but skip s.identifyingLabelsHeadChunks.
+	for i := s.identifyingLabelsHeadChunks.len() - 1; i > 0; i-- {
+		chk := s.identifyingLabelsHeadChunks.atOffset(i)
+		chunkRef := chunkDiskMapper.WriteChunk(s.ref, chk.minTime, chk.maxTime, chk.chunk, false, handleChunkWriteError)
+		s.identifyingLabelsMmappedChunks = append(s.identifyingLabelsMmappedChunks, &mmappedChunk{
+			ref:        chunkRef,
+			numSamples: uint16(chk.chunk.NumSamples()),
+			minTime:    chk.minTime,
+			maxTime:    chk.maxTime,
+		})
+		count++
+	}
+
+	// Once we've written out all chunks except for s.identifyingLabelsHeadChunks we need to unlink these from s.identifyingLabelsHeadChunks.
+	s.identifyingLabelsHeadChunks.prev = nil
 
 	return count
 }
@@ -1561,15 +1781,24 @@ func (a *headAppender) Rollback() (err error) {
 		series.pendingCommit = false
 		series.Unlock()
 	}
+	for i := range a.identifyingLabels {
+		series = a.identifyingLabelsSeries[i]
+		series.Lock()
+		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.pendingCommit = false
+		series.Unlock()
+	}
 	a.head.putAppendBuffer(a.samples)
 	a.head.putExemplarBuffer(a.exemplars)
 	a.head.putHistogramBuffer(a.histograms)
 	a.head.putFloatHistogramBuffer(a.floatHistograms)
 	a.head.putMetadataBuffer(a.metadata)
+	a.head.putIdentifyingLabelsBuffer(a.identifyingLabels)
 	a.samples = nil
 	a.exemplars = nil
 	a.histograms = nil
 	a.metadata = nil
+	a.identifyingLabels = nil
 
 	// Series are created in the head memory regardless of rollback. Thus we have
 	// to log them to the WAL in any case.

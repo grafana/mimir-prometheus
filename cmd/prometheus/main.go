@@ -1534,6 +1534,10 @@ func (n notReadyAppender) AppendHistogram(ref storage.SeriesRef, l labels.Labels
 	return 0, tsdb.ErrNotReady
 }
 
+func (n notReadyAppender) AppendIdentifyingLabels(storage.SeriesRef, labels.Labels, []string, int64) error {
+	return tsdb.ErrNotReady
+}
+
 func (n notReadyAppender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m metadata.Metadata) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }

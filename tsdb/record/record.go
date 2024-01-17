@@ -52,6 +52,8 @@ const (
 	HistogramSamples Type = 7
 	// FloatHistogramSamples is used to match WAL records of type Float Histograms.
 	FloatHistogramSamples Type = 8
+	// IdentifyingLabels is used to match WAL records of type IdentifyingLabels.
+	IdentifyingLabels Type = 9
 )
 
 func (rt Type) String() string {
@@ -163,7 +165,7 @@ type RefMetadata struct {
 	Help string
 }
 
-// RefExemplar is an exemplar with it's labels, timestamp, value the exemplar was collected/observed with, and a reference to a series.
+// RefExemplar is an exemplar with the labels, timestamp, value the exemplar was collected/observed with, and a reference to a series.
 type RefExemplar struct {
 	Ref    chunks.HeadSeriesRef
 	T      int64
@@ -183,6 +185,13 @@ type RefFloatHistogramSample struct {
 	Ref chunks.HeadSeriesRef
 	T   int64
 	FH  *histogram.FloatHistogram
+}
+
+// RefIdentifyingLabels is an identifying label set for an info metric.
+type RefIdentifyingLabels struct {
+	Ref               chunks.HeadSeriesRef
+	T                 int64
+	IdentifyingLabels []string
 }
 
 // RefMmapMarker marks that the all the samples of the given series until now have been m-mapped to disk.
@@ -702,6 +711,32 @@ func (e *Encoder) EncodeExemplarsIntoBuffer(exemplars []RefExemplar, buf *encodi
 		buf.PutBE64(math.Float64bits(ex.V))
 		EncodeLabels(buf, ex.Labels)
 	}
+}
+
+func (e *Encoder) IdentifyingLabels(identifyingLabels []RefIdentifyingLabels, b []byte) []byte {
+	buf := encoding.Encbuf{B: b}
+	buf.PutByte(byte(IdentifyingLabels))
+
+	if len(identifyingLabels) == 0 {
+		return buf.Get()
+	}
+
+	// Store base timestamp and base reference number of first sample.
+	// All samples encode their timestamp and ref as delta to those.
+	first := identifyingLabels[0]
+	buf.PutBE64(uint64(first.Ref))
+	buf.PutBE64int64(first.T)
+
+	for _, il := range identifyingLabels {
+		buf.PutVarint64(int64(il.Ref) - int64(first.Ref))
+		buf.PutVarint64(il.T - first.T)
+		buf.PutUvarint(len(il.IdentifyingLabels))
+		for _, l := range il.IdentifyingLabels {
+			buf.PutUvarintStr(l)
+		}
+	}
+
+	return buf.Get()
 }
 
 func (e *Encoder) MmapMarkers(markers []RefMmapMarker, b []byte) []byte {

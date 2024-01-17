@@ -92,20 +92,21 @@ type Head struct {
 	// This should be typecasted to chunks.ChunkDiskMapperRef after loading.
 	minOOOMmapRef atomic.Uint64
 
-	metrics             *headMetrics
-	opts                *HeadOptions
-	wal, wbl            *wlog.WL
-	exemplarMetrics     *ExemplarMetrics
-	exemplars           ExemplarStorage
-	logger              log.Logger
-	appendPool          zeropool.Pool[[]record.RefSample]
-	exemplarsPool       zeropool.Pool[[]exemplarWithSeriesRef]
-	histogramsPool      zeropool.Pool[[]record.RefHistogramSample]
-	floatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]
-	metadataPool        zeropool.Pool[[]record.RefMetadata]
-	seriesPool          zeropool.Pool[[]*memSeries]
-	bytesPool           zeropool.Pool[[]byte]
-	memChunkPool        sync.Pool
+	metrics               *headMetrics
+	opts                  *HeadOptions
+	wal, wbl              *wlog.WL
+	exemplarMetrics       *ExemplarMetrics
+	exemplars             ExemplarStorage
+	logger                log.Logger
+	appendPool            zeropool.Pool[[]record.RefSample]
+	exemplarsPool         zeropool.Pool[[]exemplarWithSeriesRef]
+	histogramsPool        zeropool.Pool[[]record.RefHistogramSample]
+	floatHistogramsPool   zeropool.Pool[[]record.RefFloatHistogramSample]
+	metadataPool          zeropool.Pool[[]record.RefMetadata]
+	identifyingLabelsPool zeropool.Pool[[]record.RefIdentifyingLabels]
+	seriesPool            zeropool.Pool[[]*memSeries]
+	bytesPool             zeropool.Pool[[]byte]
+	memChunkPool          sync.Pool
 
 	// All series addressable by their ID or hash.
 	series *stripeSeries
@@ -2103,6 +2104,27 @@ type memSeries struct {
 	// to older chunk and so on.
 	headChunks   *memChunk
 	firstChunkID chunks.HeadChunkID // HeadChunkID for mmappedChunks[0]
+
+	// Immutable chunks on disk that have not yet gone into a block, in order of ascending time stamps.
+	// When compaction runs, chunks get moved into a block and all pointers are shifted like so:
+	//
+	//                                    /------- let's say these 2 chunks get stored into a block
+	//                                    |  |
+	// before compaction: identifyingLabelsMmappedChunks=[p5,p6,p7,p8,p9] identifyingLabelsFirstChunkID=5
+	//  after compaction: identifyingLabelsMmappedChunks=[p7,p8,p9]       identifyingLabelsFirstChunkID=7
+	//
+	// pN is the pointer to the mmappedChunk referered to by HeadChunkID=N
+	identifyingLabelsMmappedChunks []*mmappedChunk
+	// Most recent identifying labels chunks in memory that are still being built or waiting to be mmapped.
+	// This is a linked list, identifyingLabelsHeadChunks points to the most recent chunk, identifyingLabelsHeadChunks.next points
+	// to older chunk and so on.
+	identifyingLabelsHeadChunks   *memChunk
+	identifyingLabelsFirstChunkID chunks.HeadChunkID // HeadChunkID for identifyingLabelsMmappedChunks[0]
+	// Current appender for the identifying labels head chunk. Set when a new identifying labels head chunk is cut.
+	// It is nil only if identifyingLabelsHeadChunks is nil. E.g. if there was an appender that created a new series, but rolled back the commit
+	// (the first sample would create a head chunk, hence appender, but rollback skipped it while the Append() call would create a series).
+	identifyingLabelsApp    chunkenc.Appender
+	identifyingLabelsNextAt int64 // Timestamp at which to cut the next identifying labels chunk.
 
 	ooo *memSeriesOOOFields
 

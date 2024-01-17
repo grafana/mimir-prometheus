@@ -245,6 +245,11 @@ type Appender interface {
 	// If the reference is 0 it must not be used for caching.
 	Append(ref SeriesRef, l labels.Labels, t int64, v float64) (SeriesRef, error)
 
+	// AppendIdentifyingLabels sets identifying labels for the given series, which should be an info metric,
+	// for a certain timestamp.
+	// An optional series reference can be provided to accelerate calls.
+	AppendIdentifyingLabels(ref SeriesRef, l labels.Labels, il []string, t int64) error
+
 	// Commit submits the collected samples and purges the batch. If Commit
 	// returns a non-nil error, it also rolls back all modifications made in
 	// the appender so far, as Rollback would do. In any case, an Appender

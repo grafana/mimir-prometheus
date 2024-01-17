@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -570,7 +571,11 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 		// convert ns to ms
 		Timestamp: convertTimeStamp(timestamp),
 	}
-	addSample(tsMap, sample, labels, infoType)
+	sig := addSample(tsMap, sample, labels, infoType)
+
+	identifyingLabels := []string{model.InstanceLabel, model.JobLabel}
+	slices.Sort(identifyingLabels)
+	tsMap[sig].IdentifyingLabels = identifyingLabels
 }
 
 // convertTimeStamp converts OTLP timestamp in ns to timestamp in ms

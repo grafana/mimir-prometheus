@@ -123,10 +123,12 @@ message BucketSpan {
 message TimeSeries {
   // For a timeseries to be valid, and for the samples and exemplars
   // to be ingested by the remote system properly, the labels field is required.
-  repeated Label labels         = 1 [(gogoproto.nullable) = false];
-  repeated Sample samples       = 2 [(gogoproto.nullable) = false];
-  repeated Exemplar exemplars   = 3 [(gogoproto.nullable) = false];
-  repeated Histogram histograms = 4 [(gogoproto.nullable) = false];
+  repeated Label labels             = 1 [(gogoproto.nullable) = false];
+  repeated Sample samples           = 2 [(gogoproto.nullable) = false];
+  repeated Exemplar exemplars       = 3 [(gogoproto.nullable) = false];
+  repeated Histogram histograms     = 4 [(gogoproto.nullable) = false];
+  // Identifying labels for info metrics.
+  repeated string identifyingLabels        = 5;
 }
 
 message Label {

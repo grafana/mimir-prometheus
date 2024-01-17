@@ -171,7 +171,6 @@ func (a *xorAppender) Append(t int64, v float64) {
 		}
 
 		a.writeVDelta(v)
-
 	default:
 		tDelta = uint64(t - a.t)
 		dod := int64(tDelta - a.tDelta)
@@ -208,6 +207,10 @@ func (a *xorAppender) Append(t int64, v float64) {
 	a.v = v
 	binary.BigEndian.PutUint16(a.b.bytes(), num+1)
 	a.tDelta = tDelta
+}
+
+func (a *xorAppender) AppendIdentifyingLabels(t int64, identifyingLabels []string) {
+	// TODO
 }
 
 // bitRange returns whether the given integer can be represented by nbits.

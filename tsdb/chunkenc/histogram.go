@@ -229,6 +229,12 @@ func (a *HistogramAppender) Append(int64, float64) {
 	panic("appended a float sample to a histogram chunk")
 }
 
+// AppendIdentifyingLabels implements Appender. This implementation panics because identifying labels
+// samples must never be appended to a histogram chunk.
+func (a *HistogramAppender) AppendIdentifyingLabels(int64, []string) {
+	panic("appended an identifying labels sample to a histogram chunk")
+}
+
 // appendable returns whether the chunk can be appended to, and if so whether
 // any recoding needs to happen using the provided inserts (in case of any new
 // buckets, positive or negative range, respectively).  If the sample is a gauge

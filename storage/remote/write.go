@@ -297,6 +297,14 @@ func (t *timestampTracker) AppendHistogram(_ storage.SeriesRef, _ labels.Labels,
 	return 0, nil
 }
 
+// AppendIdentifyingLabels implements storage.Appender.
+func (t *timestampTracker) AppendIdentifyingLabels(_ storage.SeriesRef, _ labels.Labels, _ []string, ts int64) error {
+	if ts > t.highestTimestamp {
+		t.highestTimestamp = ts
+	}
+	return nil
+}
+
 func (t *timestampTracker) UpdateMetadata(_ storage.SeriesRef, _ labels.Labels, _ metadata.Metadata) (storage.SeriesRef, error) {
 	// TODO: Add and increment a `metadata` field when we get around to wiring metadata in remote_write.
 	// UpadteMetadata is no-op for remote write (where timestampTracker is being used) for now.

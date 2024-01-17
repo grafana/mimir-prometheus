@@ -55,6 +55,10 @@ func (a nopAppender) AppendHistogram(storage.SeriesRef, labels.Labels, int64, *h
 	return 0, nil
 }
 
+func (a nopAppender) AppendIdentifyingLabels(storage.SeriesRef, labels.Labels, []string, int64) error {
+	return nil
+}
+
 func (a nopAppender) UpdateMetadata(storage.SeriesRef, labels.Labels, metadata.Metadata) (storage.SeriesRef, error) {
 	return 0, nil
 }
@@ -152,6 +156,17 @@ func (a *collectResultAppender) AppendHistogram(ref storage.SeriesRef, l labels.
 	}
 
 	return a.next.AppendHistogram(ref, l, t, h, fh)
+}
+
+func (a *collectResultAppender) AppendIdentifyingLabels(ref storage.SeriesRef, l labels.Labels, identifyingLabels []string, t int64) error {
+	a.mtx.Lock()
+	defer a.mtx.Unlock()
+	// TODO: Add to pendingIdentifyingLabels
+	if a.next == nil {
+		return nil
+	}
+
+	return a.next.AppendIdentifyingLabels(ref, l, identifyingLabels, t)
 }
 
 func (a *collectResultAppender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m metadata.Metadata) (storage.SeriesRef, error) {

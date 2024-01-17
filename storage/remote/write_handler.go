@@ -135,7 +135,6 @@ func (h *writeHandler) write(ctx context.Context, req *prompb.WriteRequest) (err
 				}
 				return err
 			}
-
 		}
 
 		for _, ep := range ts.Exemplars {
@@ -167,6 +166,13 @@ func (h *writeHandler) write(ctx context.Context, req *prompb.WriteRequest) (err
 				if errors.Is(unwrappedErr, storage.ErrOutOfOrderSample) || errors.Is(unwrappedErr, storage.ErrOutOfBounds) || errors.Is(unwrappedErr, storage.ErrDuplicateSampleForTimestamp) {
 					level.Error(h.logger).Log("msg", "Out of order histogram from remote write", "err", err.Error(), "series", labels.String(), "timestamp", hp.Timestamp)
 				}
+				return err
+			}
+		}
+
+		if len(ts.IdentifyingLabels) > 0 {
+			// Info type metric with metadata represented as data labels.
+			if err := app.AppendIdentifyingLabels(ref, labels, ts.IdentifyingLabels, ts.Samples[0].Timestamp); err != nil {
 				return err
 			}
 		}
@@ -217,7 +223,6 @@ func (h *otlpWriteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	prwMetrics := make([]prompb.TimeSeries, 0, len(prwMetricsMap))
-
 	for _, ts := range prwMetricsMap {
 		prwMetrics = append(prwMetrics, *ts)
 	}
