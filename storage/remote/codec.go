@@ -157,6 +157,17 @@ func ToQueryResult(ss storage.SeriesSet, sampleLimit int) (*prompb.QueryResult, 
 			case chunkenc.ValFloatHistogram:
 				ts, fh := iter.AtFloatHistogram(nil)
 				histograms = append(histograms, FloatHistogramToHistogramProto(ts, fh))
+			case chunkenc.ValInfoSample:
+				ts, ils := iter.AtInfoSample()
+				identifyingLabels := make([]int32, 0, len(ils))
+				for _, il := range ils {
+					identifyingLabels = append(identifyingLabels, int32(il))
+				}
+				samples = append(samples, prompb.Sample{
+					Timestamp:         ts,
+					Value:             1,
+					IdentifyingLabels: identifyingLabels,
+				})
 			default:
 				return nil, ss.Warnings(), fmt.Errorf("unrecognized value type: %s", valType)
 			}
@@ -366,9 +377,10 @@ func (c *concreteSeriesSet) Warnings() annotations.Annotations { return nil }
 
 // concreteSeries implements storage.Series.
 type concreteSeries struct {
-	labels     labels.Labels
-	floats     []prompb.Sample
-	histograms []prompb.Histogram
+	labels      labels.Labels
+	floats      []prompb.Sample
+	histograms  []prompb.Histogram
+	infoSamples []prompb.Sample
 }
 
 func (c *concreteSeries) Labels() labels.Labels {
@@ -387,6 +399,7 @@ func (c *concreteSeries) Iterator(it chunkenc.Iterator) chunkenc.Iterator {
 type concreteSeriesIterator struct {
 	floatsCur     int
 	histogramsCur int
+	infosCur      int
 	curValType    chunkenc.ValueType
 	series        *concreteSeries
 }
@@ -395,6 +408,7 @@ func newConcreteSeriesIterator(series *concreteSeries) chunkenc.Iterator {
 	return &concreteSeriesIterator{
 		floatsCur:     -1,
 		histogramsCur: -1,
+		infosCur:      -1,
 		curValType:    chunkenc.ValNone,
 		series:        series,
 	}
@@ -403,6 +417,7 @@ func newConcreteSeriesIterator(series *concreteSeries) chunkenc.Iterator {
 func (c *concreteSeriesIterator) reset(series *concreteSeries) {
 	c.floatsCur = -1
 	c.histogramsCur = -1
+	c.infosCur = -1
 	c.curValType = chunkenc.ValNone
 	c.series = series
 }
@@ -415,26 +430,43 @@ func (c *concreteSeriesIterator) Seek(t int64) chunkenc.ValueType {
 	if c.histogramsCur == -1 {
 		c.histogramsCur = 0
 	}
-	if c.floatsCur >= len(c.series.floats) && c.histogramsCur >= len(c.series.histograms) {
+	if c.infosCur == -1 {
+		c.infosCur = 0
+	}
+	if c.floatsCur >= len(c.series.floats) && c.histogramsCur >= len(c.series.histograms) && c.infosCur >= len(c.series.infoSamples) {
 		return chunkenc.ValNone
 	}
 
 	// No-op check.
-	if (c.curValType == chunkenc.ValFloat && c.series.floats[c.floatsCur].Timestamp >= t) ||
-		((c.curValType == chunkenc.ValHistogram || c.curValType == chunkenc.ValFloatHistogram) && c.series.histograms[c.histogramsCur].Timestamp >= t) {
-		return c.curValType
+	switch c.curValType {
+	case chunkenc.ValFloat:
+		if c.series.floats[c.floatsCur].Timestamp >= t {
+			return c.curValType
+		}
+	case chunkenc.ValHistogram, chunkenc.ValFloatHistogram:
+		if c.series.histograms[c.histogramsCur].Timestamp >= t {
+			return c.curValType
+		}
+	case chunkenc.ValInfoSample:
+		if c.series.infoSamples[c.infosCur].Timestamp >= t {
+			return c.curValType
+		}
 	}
 
 	c.curValType = chunkenc.ValNone
 
-	// Binary search between current position and end for both float and histograms samples.
+	// Binary search between current position and end for all sample types.
 	c.floatsCur += sort.Search(len(c.series.floats)-c.floatsCur, func(n int) bool {
 		return c.series.floats[n+c.floatsCur].Timestamp >= t
 	})
 	c.histogramsCur += sort.Search(len(c.series.histograms)-c.histogramsCur, func(n int) bool {
 		return c.series.histograms[n+c.histogramsCur].Timestamp >= t
 	})
+	c.infosCur += sort.Search(len(c.series.infoSamples)-c.infosCur, func(n int) bool {
+		return c.series.infoSamples[n+c.infosCur].Timestamp >= t
+	})
 	switch {
+	// TODO: Handle cases with overlapping info samples
 	case c.floatsCur < len(c.series.floats) && c.histogramsCur < len(c.series.histograms):
 		// If float samples and histogram samples have overlapping timestamps prefer the float samples.
 		if c.series.floats[c.floatsCur].Timestamp <= c.series.histograms[c.histogramsCur].Timestamp {
@@ -455,6 +487,8 @@ func (c *concreteSeriesIterator) Seek(t int64) chunkenc.ValueType {
 		c.curValType = chunkenc.ValFloat
 	case c.histogramsCur < len(c.series.histograms):
 		c.curValType = getHistogramValType(&c.series.histograms[c.histogramsCur])
+	case c.infosCur < len(c.series.infoSamples):
+		c.curValType = chunkenc.ValInfoSample
 	}
 	return c.curValType
 }
@@ -498,10 +532,26 @@ func (c *concreteSeriesIterator) AtFloatHistogram(*histogram.FloatHistogram) (in
 	}
 }
 
+// AtInfoSample implements chunkenc.Iterator.
+func (c *concreteSeriesIterator) AtInfoSample() (int64, []int) {
+	if c.curValType != chunkenc.ValInfoSample {
+		panic("iterator is not on an info metric sample")
+	}
+	s := c.series.infoSamples[c.infosCur]
+	ils := make([]int, 0, len(s.IdentifyingLabels))
+	for _, il := range s.IdentifyingLabels {
+		ils = append(ils, int(il))
+	}
+	return s.Timestamp, ils
+}
+
 // AtT implements chunkenc.Iterator.
 func (c *concreteSeriesIterator) AtT() int64 {
 	if c.curValType == chunkenc.ValHistogram || c.curValType == chunkenc.ValFloatHistogram {
 		return c.series.histograms[c.histogramsCur].Timestamp
+	}
+	if c.curValType == chunkenc.ValInfoSample {
+		return c.series.infoSamples[c.infosCur].Timestamp
 	}
 	return c.series.floats[c.floatsCur].Timestamp
 }
@@ -518,24 +568,33 @@ func (c *concreteSeriesIterator) Next() chunkenc.ValueType {
 	if c.histogramsCur+1 < len(c.series.histograms) {
 		peekHistTS = c.series.histograms[c.histogramsCur+1].Timestamp
 	}
+	peekInfoTS := noTS
+	if c.infosCur+1 < len(c.series.infoSamples) {
+		peekInfoTS = c.series.infoSamples[c.infosCur+1].Timestamp
+	}
 	c.curValType = chunkenc.ValNone
 	switch {
-	case peekFloatTS < peekHistTS:
+	case peekFloatTS < peekHistTS && peekFloatTS < peekInfoTS:
 		c.floatsCur++
 		c.curValType = chunkenc.ValFloat
-	case peekHistTS < peekFloatTS:
+	case peekHistTS < peekFloatTS && peekHistTS < peekInfoTS:
 		c.histogramsCur++
 		c.curValType = chunkenc.ValHistogram
-	case peekFloatTS == noTS && peekHistTS == noTS:
+	case peekInfoTS < peekFloatTS && peekInfoTS < peekHistTS:
+		c.infosCur++
+		c.curValType = chunkenc.ValInfoSample
+	case peekFloatTS == noTS && peekHistTS == noTS && peekInfoTS == noTS:
 		// This only happens when the iterator is exhausted; we set the cursors off the end to prevent
 		// Seek() from returning anything afterwards.
 		c.floatsCur = len(c.series.floats)
 		c.histogramsCur = len(c.series.histograms)
+		c.infosCur = len(c.series.infoSamples)
 	default:
-		// Prefer float samples to histogram samples if there's a conflict. We advance the cursor for histograms
+		// Prefer float samples to other samples if there's a conflict. We advance the cursor for histograms
 		// anyway otherwise the histogram sample will get selected on the next call to Next().
 		c.floatsCur++
 		c.histogramsCur++
+		c.infosCur++
 		c.curValType = chunkenc.ValFloat
 	}
 	return c.curValType

@@ -63,6 +63,12 @@ const (
 	one  bit = true
 )
 
+// Reset resets b around stream.
+func (b *bstream) Reset(stream []byte) {
+	b.stream = stream
+	b.count = 0
+}
+
 func (b *bstream) writeBit(bit bit) {
 	if b.count == 0 {
 		b.stream = append(b.stream, 0)

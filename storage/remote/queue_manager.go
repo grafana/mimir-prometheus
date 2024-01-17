@@ -846,6 +846,66 @@ outer:
 	return true
 }
 
+func (t *QueueManager) AppendInfoSamples(infoSamples []record.RefInfoSample) bool {
+	/*
+		if !t.sendInfoSamples {
+			return true
+		}
+	*/
+	currentTime := time.Now()
+outer:
+	for _, s := range infoSamples {
+		if isSampleOld(currentTime, time.Duration(t.cfg.SampleAgeLimit), s.T) {
+			t.metrics.droppedSamplesTotal.WithLabelValues(reasonTooOld).Inc()
+			continue
+		}
+
+		t.seriesMtx.Lock()
+		lbls, ok := t.seriesLabels[s.Ref]
+		if !ok {
+			t.dataDropped.incr(1)
+			if _, ok := t.droppedSeries[s.Ref]; !ok {
+				level.Info(t.logger).Log("msg", "Dropped info sample for series that was not explicitly dropped via relabelling", "ref", s.Ref)
+				t.metrics.droppedSamplesTotal.WithLabelValues(reasonUnintentionalDroppedSeries).Inc()
+			} else {
+				t.metrics.droppedSamplesTotal.WithLabelValues(reasonDroppedSeries).Inc()
+			}
+			t.seriesMtx.Unlock()
+			continue
+		}
+		t.seriesMtx.Unlock()
+
+		// Start with a very small backoff. This should not be t.cfg.MinBackoff
+		// as it can happen without errors, and we want to pickup work after
+		// filling a queue/resharding as quickly as possible.
+		// TODO: Consider using the average duration of a request as the backoff.
+		backoff := model.Duration(5 * time.Millisecond)
+		for {
+			select {
+			case <-t.quit:
+				return false
+			default:
+			}
+			if t.shards.enqueue(s.Ref, timeSeries{
+				seriesLabels:      lbls,
+				timestamp:         s.T,
+				identifyingLabels: s.IdentifyingLabels,
+				sType:             tInfoMetric,
+			}) {
+				continue outer
+			}
+
+			t.metrics.enqueueRetriesTotal.Inc()
+			time.Sleep(time.Duration(backoff))
+			backoff *= 2
+			if backoff > t.cfg.MaxBackoff {
+				backoff = t.cfg.MaxBackoff
+			}
+		}
+	}
+	return true
+}
+
 // Start the queue manager sending samples to the remote storage.
 // Does not block.
 func (t *QueueManager) Start() {
@@ -1260,6 +1320,9 @@ func (s *shards) enqueue(ref chunks.HeadSeriesRef, data timeSeries) bool {
 		case tHistogram, tFloatHistogram:
 			s.qm.metrics.pendingHistograms.Inc()
 			s.enqueuedHistograms.Inc()
+		case tInfoMetric:
+			s.qm.metrics.pendingSamples.Inc()
+			s.enqueuedSamples.Inc()
 		}
 		return true
 	}
@@ -1279,13 +1342,14 @@ type queue struct {
 }
 
 type timeSeries struct {
-	seriesLabels   labels.Labels
-	value          float64
-	histogram      *histogram.Histogram
-	floatHistogram *histogram.FloatHistogram
-	timestamp      int64
-	exemplarLabels labels.Labels
-	// The type of series: sample, exemplar, or histogram.
+	seriesLabels      labels.Labels
+	value             float64
+	histogram         *histogram.Histogram
+	floatHistogram    *histogram.FloatHistogram
+	identifyingLabels []int
+	timestamp         int64
+	exemplarLabels    labels.Labels
+	// The type of series: sample, exemplar, histogram, or info metric.
 	sType seriesType
 }
 
@@ -1296,6 +1360,7 @@ const (
 	tExemplar
 	tHistogram
 	tFloatHistogram
+	tInfoMetric
 )
 
 func newQueue(batchSize, capacity int) *queue {
@@ -1528,6 +1593,17 @@ func (s *shards) populateTimeSeries(batch []timeSeries, pendingData []prompb.Tim
 		case tFloatHistogram:
 			pendingData[nPending].Histograms = append(pendingData[nPending].Histograms, FloatHistogramToHistogramProto(d.timestamp, d.floatHistogram))
 			nPendingHistograms++
+		case tInfoMetric:
+			identifyingLabels := make([]int32, 0, len(d.identifyingLabels))
+			for _, idx := range d.identifyingLabels {
+				identifyingLabels = append(identifyingLabels, int32(idx))
+			}
+			pendingData[nPending].Samples = append(pendingData[nPending].Samples, prompb.Sample{
+				Value:             1,
+				Timestamp:         d.timestamp,
+				IdentifyingLabels: identifyingLabels,
+			})
+			nPendingSamples++
 		}
 	}
 	return nPendingSamples, nPendingExemplars, nPendingHistograms
