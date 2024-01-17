@@ -363,6 +363,8 @@ type bucketLimitAppender struct {
 	limit int
 }
 
+// TODO: Support appending of info metric samples.
+
 func (app *bucketLimitAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels, t int64, h *histogram.Histogram, fh *histogram.FloatHistogram) (storage.SeriesRef, error) {
 	if h != nil {
 		for len(h.PositiveBuckets)+len(h.NegativeBuckets) > app.limit {

@@ -85,6 +85,7 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	// Floats and no Histograms to calculate a rate. Otherwise, drop this
 	// Vector element.
 	metricName := samples.Metric.Get(labels.MetricName)
+	// TODO: Handle info metric samples
 	if len(samples.Histograms) > 0 && len(samples.Floats) > 0 {
 		return enh.Out, annos.Add(annotations.NewMixedFloatsHistogramsWarning(metricName, args[0].PositionRange()))
 	}
@@ -116,6 +117,7 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 			}
 			prevValue = currPoint.F
 		}
+		// TODO: Handle info metric samples
 	default:
 		// TODO: add RangeTooShortWarning
 		return enh.Out, annos

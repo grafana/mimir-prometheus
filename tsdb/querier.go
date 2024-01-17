@@ -875,6 +875,10 @@ func (p *populateWithDelSeriesIterator) AtFloatHistogram(fh *histogram.FloatHist
 	return p.curr.AtFloatHistogram(fh)
 }
 
+func (p *populateWithDelSeriesIterator) AtInfoSample() (int64, []int) {
+	return p.curr.AtInfoSample()
+}
+
 func (p *populateWithDelSeriesIterator) AtT() int64 {
 	return p.curr.AtT()
 }
@@ -1020,6 +1024,20 @@ func (p *populateWithDelChunkSeriesIterator) populateCurrForSingleChunk() bool {
 				break
 			}
 		}
+	case chunkenc.ValInfoSample:
+		newChunk = chunkenc.NewInfoSampleChunk()
+		if app, err = newChunk.Appender(); err != nil {
+			break
+		}
+		for vt := valueType; vt != chunkenc.ValNone; vt = p.currDelIter.Next() {
+			if vt != chunkenc.ValInfoSample {
+				err = fmt.Errorf("found value type %v in info metric chunk", vt)
+				break
+			}
+			var ils []int
+			t, ils = p.currDelIter.AtInfoSample()
+			app.AppendInfoSample(t, ils)
+		}
 	default:
 		err = fmt.Errorf("populateCurrForSingleChunk: value type %v unsupported", valueType)
 	}
@@ -1076,7 +1094,7 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 		// Check if the encoding has changed (i.e. we need to create a new
 		// chunk as chunks can't have multiple encoding types).
 		// For the first sample, the following condition will always be true as
-		// ValNoneNone != ValFloat | ValHistogram | ValFloatHistogram.
+		// ValNoneNone != ValFloat | ValHistogram | ValFloatHistogram | ValInfoSample.
 		if currentValueType != prevValueType {
 			if prevValueType != chunkenc.ValNone {
 				p.chunksFromIterable = append(p.chunksFromIterable, chunks.Meta{Chunk: currentChunk, MinTime: cmint, MaxTime: cmaxt})
@@ -1113,6 +1131,14 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 				// counter reset header for the appender that's returned.
 				newChunk, recoded, app, err = app.AppendFloatHistogram(nil, t, v, false)
 			}
+		case chunkenc.ValInfoSample:
+			{
+				var ils []int
+				t, ils = p.currDelIter.AtInfoSample()
+				app.AppendInfoSample(t, ils)
+			}
+		default:
+			err = fmt.Errorf("unrecognized chunk encoding %s", currentValueType)
 		}
 
 		if err != nil {
@@ -1287,6 +1313,10 @@ func (it *DeletedIterator) AtHistogram(h *histogram.Histogram) (int64, *histogra
 func (it *DeletedIterator) AtFloatHistogram(fh *histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	t, h := it.Iter.AtFloatHistogram(fh)
 	return t, h
+}
+
+func (it *DeletedIterator) AtInfoSample() (int64, []int) {
+	return it.Iter.AtInfoSample()
 }
 
 func (it *DeletedIterator) AtT() int64 {

@@ -245,6 +245,9 @@ type Appender interface {
 	// If the reference is 0 it must not be used for caching.
 	Append(ref SeriesRef, l labels.Labels, t int64, v float64) (SeriesRef, error)
 
+	// AppendInfoSample adds an info metric sample for the given series.
+	AppendInfoSample(ref SeriesRef, l labels.Labels, t int64, identifyingLabels []int) (SeriesRef, error)
+
 	// Commit submits the collected samples and purges the batch. If Commit
 	// returns a non-nil error, it also rolls back all modifications made in
 	// the appender so far, as Rollback would do. In any case, an Appender

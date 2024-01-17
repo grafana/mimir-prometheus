@@ -233,6 +233,12 @@ func (a *HistogramAppender) Append(int64, float64) {
 	panic("appended a float sample to a histogram chunk")
 }
 
+// AppendInfoSample implements Appender. This implementation panics because info metric
+// samples must never be appended to a histogram chunk.
+func (a *HistogramAppender) AppendInfoSample(int64, []int) {
+	panic("appended an info metric sample to a histogram chunk")
+}
+
 // appendable returns whether the chunk can be appended to, and if so whether
 // any recoding needs to happen using the provided inserts (in case of any new
 // buckets, positive or negative range, respectively).  If the sample is a gauge
@@ -870,6 +876,10 @@ func (it *histogramIterator) AtFloatHistogram(fh *histogram.FloatHistogram) (int
 	}
 
 	return it.t, fh
+}
+
+func (it *histogramIterator) AtInfoSample() (int64, []int) {
+	panic("cannot call histogramIterator.AtInfoSample")
 }
 
 func (it *histogramIterator) AtT() int64 {

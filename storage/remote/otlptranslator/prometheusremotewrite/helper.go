@@ -568,25 +568,24 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 	if len(settings.Namespace) > 0 {
 		name = settings.Namespace + "_" + name
 	}
-
-	labels := createAttributes(resource, attributes, settings.ExternalLabels, identifyingAttrs, false, model.MetricNameLabel, name)
-	haveIdentifier := false
-	for _, l := range labels {
-		if l.Name == model.JobLabel || l.Name == model.InstanceLabel {
-			haveIdentifier = true
-			break
+	labels := createAttributes(resource, attributes, settings.ExternalLabels, model.MetricNameLabel, name)
+	// Ensure consistent label ordering
+	sort.Sort(ByLabelName(labels))
+	identifyingLabels := make([]int32, 0, 2)
+	for i, l := range labels {
+		if l.Name == model.InstanceLabel || l.Name == model.JobLabel {
+			identifyingLabels = append(identifyingLabels, int32(i))
 		}
 	}
-
-	if !haveIdentifier {
-		// We need at least one identifying label to generate target_info.
-		return
+	if len(identifyingLabels) != 2 {
+		// target_info has to be identified by the job/instance tuple, one of them isn't enough on its own.
+		identifyingLabels = nil
 	}
-
 	sample := &prompb.Sample{
 		Value: float64(1),
 		// convert ns to ms
-		Timestamp: convertTimeStamp(timestamp),
+		Timestamp:         convertTimeStamp(timestamp),
+		IdentifyingLabels: identifyingLabels,
 	}
 	converter.addSample(sample, labels)
 }

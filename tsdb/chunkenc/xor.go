@@ -223,6 +223,10 @@ func (a *xorAppender) writeVDelta(v float64) {
 	xorWrite(a.b, v, a.v, &a.leading, &a.trailing)
 }
 
+func (a *xorAppender) AppendInfoSample(int64, []int) {
+	panic("appended an info metric sample to a float chunk")
+}
+
 func (a *xorAppender) AppendHistogram(*HistogramAppender, int64, *histogram.Histogram, bool) (Chunk, bool, Appender, error) {
 	panic("appended a histogram sample to a float chunk")
 }
@@ -269,6 +273,10 @@ func (it *xorIterator) AtHistogram(*histogram.Histogram) (int64, *histogram.Hist
 
 func (it *xorIterator) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	panic("cannot call xorIterator.AtFloatHistogram")
+}
+
+func (it *xorIterator) AtInfoSample() (int64, []int) {
+	panic("cannot call xorIterator.AtInfoSample")
 }
 
 func (it *xorIterator) AtT() int64 {

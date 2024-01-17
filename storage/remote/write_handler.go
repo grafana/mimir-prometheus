@@ -134,7 +134,16 @@ func (h *writeHandler) write(ctx context.Context, req *prompb.WriteRequest) (err
 		}
 		var ref storage.SeriesRef
 		for _, s := range ts.Samples {
-			ref, err = timeLimitApp.Append(ref, labels, s.Timestamp, s.Value)
+			if len(s.IdentifyingLabels) == 0 {
+				ref, err = timeLimitApp.Append(ref, labels, s.Timestamp, s.Value)
+			} else {
+				// This is an info metric sample
+				ils := make([]int, 0, len(s.IdentifyingLabels))
+				for _, idx := range s.IdentifyingLabels {
+					ils = append(ils, int(idx))
+				}
+				ref, err = app.AppendInfoSample(ref, labels, s.Timestamp, ils)
+			}
 			if err != nil {
 				unwrappedErr := errors.Unwrap(err)
 				if unwrappedErr == nil {

@@ -78,6 +78,7 @@ func marshalSeriesJSON(s promql.Series, stream *jsoniter.Stream) {
 	stream.WriteObjectField(`metric`)
 	marshalLabelsJSON(s.Metric, stream)
 
+	// TODO: Handle info metric samples
 	for i, p := range s.Floats {
 		stream.WriteMore()
 		if i == 0 {
@@ -147,6 +148,7 @@ func marshalSampleJSON(s promql.Sample, stream *jsoniter.Stream) {
 	stream.WriteArrayStart()
 	jsonutil.MarshalTimestamp(s.T, stream)
 	stream.WriteMore()
+	// TODO: Handle info metric samples
 	if s.H == nil {
 		jsonutil.MarshalFloat(s.F, stream)
 	} else {

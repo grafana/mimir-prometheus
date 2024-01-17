@@ -495,7 +495,7 @@ func (c *LeveledCompactor) Compact(dest string, dirs []string, open []*Block) ([
 	return ulids, nil
 }
 
-// shardedBlock describes single *output* block during compaction. This struct is passed between
+// shardedBlock describes a single *output* block during compaction. This struct is passed between
 // compaction methods to wrap output block details, index and chunk writer together.
 // Shard index is determined by the position of this structure in the slice of output blocks.
 type shardedBlock struct {
