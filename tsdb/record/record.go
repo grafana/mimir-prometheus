@@ -52,6 +52,8 @@ const (
 	HistogramSamples Type = 7
 	// FloatHistogramSamples is used to match WAL records of type Float Histograms.
 	FloatHistogramSamples Type = 8
+	// InfoSamples is used to match WAL records of type Info Samples.
+	InfoSamples Type = 9
 )
 
 func (rt Type) String() string {
@@ -68,6 +70,8 @@ func (rt Type) String() string {
 		return "histogram_samples"
 	case FloatHistogramSamples:
 		return "float_histogram_samples"
+	case InfoSamples:
+		return "info_metric_samples"
 	case MmapMarkers:
 		return "mmapmarkers"
 	case Metadata:
@@ -185,6 +189,13 @@ type RefFloatHistogramSample struct {
 	FH  *histogram.FloatHistogram
 }
 
+// RefInfoSample is an info metric sample.
+type RefInfoSample struct {
+	Ref               chunks.HeadSeriesRef
+	T                 int64
+	IdentifyingLabels []int
+}
+
 // RefMmapMarker marks that the all the samples of the given series until now have been m-mapped to disk.
 type RefMmapMarker struct {
 	Ref     chunks.HeadSeriesRef
@@ -207,7 +218,7 @@ func (d *Decoder) Type(rec []byte) Type {
 		return Unknown
 	}
 	switch t := Type(rec[0]); t {
-	case Series, Samples, Tombstones, Exemplars, MmapMarkers, Metadata, HistogramSamples, FloatHistogramSamples:
+	case Series, Samples, Tombstones, Exemplars, MmapMarkers, Metadata, HistogramSamples, FloatHistogramSamples, InfoSamples:
 		return t
 	}
 	return Unknown
@@ -543,7 +554,49 @@ func (d *Decoder) FloatHistogramSamples(rec []byte, histograms []RefFloatHistogr
 	return histograms, nil
 }
 
-// DecodeFloatHistogram decodes a Histogram from a byte slice.
+// InfoSamples appends info samples in rec to the given slice.
+func (d *Decoder) InfoSamples(rec []byte, infoSamples []RefInfoSample) ([]RefInfoSample, error) {
+	dec := encoding.Decbuf{B: rec}
+
+	if Type(dec.Byte()) != InfoSamples {
+		return nil, errors.New("invalid record type")
+	}
+	if dec.Len() == 0 {
+		return infoSamples, nil
+	}
+	baseRef := dec.Be64()
+	baseTime := dec.Be64int64()
+	// Allow 1 byte for each varint and 8 for the length; the output slice must be at least that big.
+	if minSize := dec.Len() / (1 + 1 + 8); cap(infoSamples) < minSize {
+		infoSamples = make([]RefInfoSample, 0, minSize)
+	}
+	for len(dec.B) > 0 && dec.Err() == nil {
+		dref := dec.Varint64()
+		dtime := dec.Varint64()
+		l := dec.Uvarint()
+		identifyingLabels := make([]int, 0, l)
+		for i := 0; i < l; i++ {
+			idx := int(dec.Uvarint32())
+			identifyingLabels = append(identifyingLabels, idx)
+		}
+
+		infoSamples = append(infoSamples, RefInfoSample{
+			Ref:               chunks.HeadSeriesRef(int64(baseRef) + dref),
+			T:                 baseTime + dtime,
+			IdentifyingLabels: identifyingLabels,
+		})
+	}
+
+	if dec.Err() != nil {
+		return nil, fmt.Errorf("decode error after %d info samples: %w", len(infoSamples), dec.Err())
+	}
+	if len(dec.B) > 0 {
+		return nil, fmt.Errorf("unexpected %d bytes left in entry", len(dec.B))
+	}
+	return infoSamples, nil
+}
+
+// DecodeFloatHistogram decodes a FloatHistogram from a byte slice.
 func DecodeFloatHistogram(buf *encoding.Decbuf, fh *histogram.FloatHistogram) {
 	fh.CounterResetHint = histogram.CounterResetHint(buf.Byte())
 
@@ -587,6 +640,18 @@ func DecodeFloatHistogram(buf *encoding.Decbuf, fh *histogram.FloatHistogram) {
 	for i := range fh.NegativeBuckets {
 		fh.NegativeBuckets[i] = buf.Be64Float64()
 	}
+}
+
+// DecodeInfoSample decodes an info sample from a byte slice.
+func DecodeInfoSample(buf *encoding.Decbuf) []int {
+	l := buf.Uvarint()
+	identifyingLabels := make([]int, 0, l)
+	for i := 0; i < l; i++ {
+		idx := buf.Uvarint()
+		identifyingLabels = append(identifyingLabels, idx)
+	}
+
+	return identifyingLabels
 }
 
 // Encoder encodes series, sample, and tombstones records.
@@ -702,6 +767,32 @@ func (e *Encoder) EncodeExemplarsIntoBuffer(exemplars []RefExemplar, buf *encodi
 		buf.PutBE64(math.Float64bits(ex.V))
 		EncodeLabels(buf, ex.Labels)
 	}
+}
+
+func (e *Encoder) InfoSamples(infoSamples []RefInfoSample, b []byte) []byte {
+	buf := encoding.Encbuf{B: b}
+	buf.PutByte(byte(InfoSamples))
+
+	if len(infoSamples) == 0 {
+		return buf.Get()
+	}
+
+	// Store base timestamp and base reference number of first sample.
+	// All samples encode their timestamp and ref as delta to those.
+	first := infoSamples[0]
+	buf.PutBE64(uint64(first.Ref))
+	buf.PutBE64int64(first.T)
+
+	for _, s := range infoSamples {
+		buf.PutVarint64(int64(s.Ref) - int64(first.Ref))
+		buf.PutVarint64(s.T - first.T)
+		buf.PutUvarint(len(s.IdentifyingLabels))
+		for _, idx := range s.IdentifyingLabels {
+			buf.PutUvarint32(uint32(idx))
+		}
+	}
+
+	return buf.Get()
 }
 
 func (e *Encoder) MmapMarkers(markers []RefMmapMarker, b []byte) []byte {
@@ -829,5 +920,13 @@ func EncodeFloatHistogram(buf *encoding.Encbuf, h *histogram.FloatHistogram) {
 	buf.PutUvarint(len(h.NegativeBuckets))
 	for _, b := range h.NegativeBuckets {
 		buf.PutBEFloat64(b)
+	}
+}
+
+// EncodeInfoSample encodes the info sample into a byte slice.
+func EncodeInfoSample(buf *encoding.Encbuf, identifyingLabels []int) {
+	buf.PutUvarint(len(identifyingLabels))
+	for _, idx := range identifyingLabels {
+		buf.PutUvarint(idx)
 	}
 }

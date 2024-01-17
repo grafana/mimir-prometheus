@@ -94,7 +94,7 @@ func (b *BufferedSeriesIterator) Seek(t int64) chunkenc.ValueType {
 		switch b.valueType {
 		case chunkenc.ValNone:
 			return chunkenc.ValNone
-		case chunkenc.ValFloat, chunkenc.ValHistogram, chunkenc.ValFloatHistogram:
+		case chunkenc.ValFloat, chunkenc.ValHistogram, chunkenc.ValFloatHistogram, chunkenc.ValInfoSample:
 			b.lastTime = b.AtT()
 		default:
 			panic(fmt.Errorf("BufferedSeriesIterator: unknown value type %v", b.valueType))
@@ -126,6 +126,9 @@ func (b *BufferedSeriesIterator) Next() chunkenc.ValueType {
 	case chunkenc.ValFloatHistogram:
 		t, fh := b.it.AtFloatHistogram(&b.fhReader)
 		b.buf.addFH(fhSample{t: t, fh: fh})
+	case chunkenc.ValInfoSample:
+		t, ils := b.it.AtInfoSample()
+		b.buf.addInfoSample(infoSample{t: t, ils: ils})
 	default:
 		panic(fmt.Errorf("BufferedSeriesIterator: unknown value type %v", b.valueType))
 	}
@@ -150,6 +153,11 @@ func (b *BufferedSeriesIterator) AtHistogram(fh *histogram.Histogram) (int64, *h
 // AtFloatHistogram returns the current float-histogram element of the iterator.
 func (b *BufferedSeriesIterator) AtFloatHistogram(fh *histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	return b.it.AtFloatHistogram(fh)
+}
+
+// AtInfoSample returns the current info metric element of the iterator.
+func (b *BufferedSeriesIterator) AtInfoSample() (int64, []int) {
+	return b.it.AtInfoSample()
 }
 
 // AtT returns the current timestamp of the iterator.
@@ -183,6 +191,10 @@ func (s fSample) FH() *histogram.FloatHistogram {
 	panic("FH() called for fSample")
 }
 
+func (s fSample) IdentifyingLabels() []int {
+	panic("IdentifyingLabels() called for fSample")
+}
+
 func (s fSample) Type() chunkenc.ValueType {
 	return chunkenc.ValFloat
 }
@@ -206,6 +218,10 @@ func (s hSample) H() *histogram.Histogram {
 
 func (s hSample) FH() *histogram.FloatHistogram {
 	return s.h.ToFloat(nil)
+}
+
+func (s hSample) IdentifyingLabels() []int {
+	panic("IdentifyingLabels() called for hSample")
 }
 
 func (s hSample) Type() chunkenc.ValueType {
@@ -233,8 +249,41 @@ func (s fhSample) FH() *histogram.FloatHistogram {
 	return s.fh
 }
 
+func (s fhSample) IdentifyingLabels() []int {
+	panic("IdentifyingLabels() called for fhSample")
+}
+
 func (s fhSample) Type() chunkenc.ValueType {
 	return chunkenc.ValFloatHistogram
+}
+
+type infoSample struct {
+	t   int64
+	ils []int
+}
+
+func (s infoSample) T() int64 {
+	return s.t
+}
+
+func (s infoSample) F() float64 {
+	panic("F() called for infoSample")
+}
+
+func (s infoSample) H() *histogram.Histogram {
+	panic("H() called for infoSample")
+}
+
+func (s infoSample) FH() *histogram.FloatHistogram {
+	panic("FH() called for infoSample")
+}
+
+func (s infoSample) IdentifyingLabels() []int {
+	return s.ils
+}
+
+func (s infoSample) Type() chunkenc.ValueType {
+	return chunkenc.ValInfoSample
 }
 
 type sampleRing struct {
@@ -249,6 +298,7 @@ type sampleRing struct {
 	fBuf     []fSample
 	hBuf     []hSample
 	fhBuf    []fhSample
+	infoBuf  []infoSample
 	bufInUse bufType
 
 	i int // Position of most recent element in ring buffer.
@@ -266,6 +316,7 @@ const (
 	fBuf
 	hBuf
 	fhBuf
+	infoBuf
 )
 
 // newSampleRing creates a new sampleRing. If you do not know the prefereed
@@ -286,6 +337,8 @@ func newSampleRing(delta int64, size int, typ chunkenc.ValueType) *sampleRing {
 		r.hBuf = make([]hSample, size)
 	case chunkenc.ValFloatHistogram:
 		r.fhBuf = make([]fhSample, size)
+	case chunkenc.ValInfoSample:
+		r.infoBuf = make([]infoSample, size)
 	default:
 		// Do not initialize anything because the 1st sample will be
 		// added to one of the other bufs anyway.
@@ -315,12 +368,13 @@ func (r *sampleRing) iterator() *SampleRingIterator {
 // SampleRingIterator is returned by BufferedSeriesIterator.Buffer() and can be
 // used to iterate samples buffered in the lookback window.
 type SampleRingIterator struct {
-	r  *sampleRing
-	i  int
-	t  int64
-	f  float64
-	h  *histogram.Histogram
-	fh *histogram.FloatHistogram
+	r                 *sampleRing
+	i                 int
+	t                 int64
+	f                 float64
+	h                 *histogram.Histogram
+	fh                *histogram.FloatHistogram
+	identifyingLabels []int
 }
 
 func (it *SampleRingIterator) reset(r *sampleRing) {
@@ -328,6 +382,7 @@ func (it *SampleRingIterator) reset(r *sampleRing) {
 	it.i = -1
 	it.h = nil
 	it.fh = nil
+	it.identifyingLabels = nil
 }
 
 func (it *SampleRingIterator) Next() chunkenc.ValueType {
@@ -351,6 +406,11 @@ func (it *SampleRingIterator) Next() chunkenc.ValueType {
 		it.t = s.t
 		it.fh = s.fh
 		return chunkenc.ValFloatHistogram
+	case infoBuf:
+		s := it.r.atInfoSample(it.i)
+		it.t = s.t
+		it.identifyingLabels = s.ils
+		return chunkenc.ValInfoSample
 	}
 	s := it.r.at(it.i)
 	it.t = s.T()
@@ -363,6 +423,9 @@ func (it *SampleRingIterator) Next() chunkenc.ValueType {
 		it.fh = s.FH()
 		it.h = nil
 		return chunkenc.ValFloatHistogram
+	case chunkenc.ValInfoSample:
+		it.identifyingLabels = s.IdentifyingLabels()
+		return chunkenc.ValInfoSample
 	default:
 		it.f = s.F()
 		return chunkenc.ValFloat
@@ -394,6 +457,11 @@ func (it *SampleRingIterator) AtFloatHistogram(fh *histogram.FloatHistogram) (in
 	return it.t, it.fh.Copy()
 }
 
+// AtInfoSample returns the current info metric element of the iterator.
+func (it *SampleRingIterator) AtInfoSample() (int64, []int) {
+	return it.t, it.identifyingLabels
+}
+
 func (it *SampleRingIterator) AtT() int64 {
 	return it.t
 }
@@ -416,6 +484,11 @@ func (r *sampleRing) atH(i int) hSample {
 func (r *sampleRing) atFH(i int) fhSample {
 	j := (r.f + i) % len(r.fhBuf)
 	return r.fhBuf[j]
+}
+
+func (r *sampleRing) atInfoSample(i int) infoSample {
+	j := (r.f + i) % len(r.infoBuf)
+	return r.infoBuf[j]
 }
 
 // add adds a sample to the ring buffer and frees all samples that fall out of
@@ -530,6 +603,23 @@ func (r *sampleRing) addFH(s fhSample) {
 		r.iBuf = addSample(s, r.iBuf, r)
 	default:
 		// Already have specialized samples that are not fhSamples.
+		// Need to call the checked add method for conversion.
+		r.add(s)
+	}
+}
+
+// addInfoSample is a version of the add method specialized for infoSample.
+func (r *sampleRing) addInfoSample(s infoSample) {
+	switch r.bufInUse {
+	case infoBuf: // Add to existing infoSamples.
+		r.infoBuf = addInfoSample(s, r.infoBuf, r)
+	case noBuf: // Add first sample.
+		r.infoBuf = addInfoSample(s, r.infoBuf, r)
+		r.bufInUse = infoBuf
+	case iBuf: // Already have interface samples. Add to the interface buf.
+		r.iBuf = addSample(s, r.iBuf, r)
+	default:
+		// Already have specialized samples that are not infoSamples.
 		// Need to call the checked add method for conversion.
 		r.add(s)
 	}
@@ -735,6 +825,45 @@ func addFH(s fhSample, buf []fhSample, r *sampleRing) []fhSample {
 	} else {
 		s.fh.CopyTo(buf[r.i].fh)
 	}
+	r.l++
+
+	// Free head of the buffer of samples that just fell out of the range.
+	tmin := s.T() - r.delta
+	for buf[r.f].T() < tmin {
+		r.f++
+		if r.f >= l {
+			r.f -= l
+		}
+		r.l--
+	}
+	return buf
+}
+
+// addInfoSample is a handcoded specialization of genericAdd (see above).
+func addInfoSample(s infoSample, buf []infoSample, r *sampleRing) []infoSample {
+	l := len(buf)
+	// Grow the ring buffer if it fits no more elements.
+	if l == 0 {
+		buf = make([]infoSample, 16)
+		l = 16
+	}
+	if l == r.l {
+		newBuf := make([]infoSample, 2*l)
+		copy(newBuf[l+r.f:], buf[r.f:])
+		copy(newBuf, buf[:r.f])
+
+		buf = newBuf
+		r.i = r.f
+		r.f += l
+		l = 2 * l
+	} else {
+		r.i++
+		if r.i >= l {
+			r.i -= l
+		}
+	}
+
+	buf[r.i] = s
 	r.l++
 
 	// Free head of the buffer of samples that just fell out of the range.

@@ -348,6 +348,10 @@ func (m *mockSeriesIterator) AtFloatHistogram(*histogram.FloatHistogram) (int64,
 	return 0, nil // Not really mocked.
 }
 
+func (m *mockSeriesIterator) AtInfoSample() (int64, []int) {
+	return 0, nil // Not really mocked.
+}
+
 func (m *mockSeriesIterator) AtT() int64 {
 	return 0 // Not really mocked.
 }
@@ -372,6 +376,10 @@ func (it *fakeSeriesIterator) AtHistogram(*histogram.Histogram) (int64, *histogr
 
 func (it *fakeSeriesIterator) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	return it.idx * it.step, &histogram.FloatHistogram{} // Value doesn't matter.
+}
+
+func (it *fakeSeriesIterator) AtInfoSample() (int64, []int) {
+	return it.idx * it.step, nil // Value doesn't matter.
 }
 
 func (it *fakeSeriesIterator) AtT() int64 {

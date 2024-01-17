@@ -14,6 +14,7 @@
 package storage
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -32,13 +33,15 @@ type MemoizedSeriesIterator struct {
 	valueType chunkenc.ValueType
 
 	// Keep track of the previously returned value.
-	prevTime           int64
-	prevValue          float64
-	prevFloatHistogram *histogram.FloatHistogram
+	prevTime              int64
+	prevValue             float64
+	prevFloatHistogram    *histogram.FloatHistogram
+	prevIdentifyingLabels []int
 }
 
 // NewMemoizedEmptyIterator is like NewMemoizedIterator but it's initialised with an empty iterator.
 func NewMemoizedEmptyIterator(delta int64) *MemoizedSeriesIterator {
+	fmt.Printf("NewMemoizedEmptyIterator: Creating nopIterator\n")
 	return NewMemoizedIterator(chunkenc.NewNopIterator(), delta)
 }
 
@@ -64,11 +67,11 @@ func (b *MemoizedSeriesIterator) Reset(it chunkenc.Iterator) {
 
 // PeekPrev returns the previous element of the iterator. If there is none buffered,
 // ok is false.
-func (b *MemoizedSeriesIterator) PeekPrev() (t int64, v float64, fh *histogram.FloatHistogram, ok bool) {
+func (b *MemoizedSeriesIterator) PeekPrev() (t int64, v float64, fh *histogram.FloatHistogram, ils []int, ok bool) {
 	if b.prevTime == math.MinInt64 {
-		return 0, 0, nil, false
+		return 0, 0, nil, nil, false
 	}
-	return b.prevTime, b.prevValue, b.prevFloatHistogram, true
+	return b.prevTime, b.prevValue, b.prevFloatHistogram, b.prevIdentifyingLabels, true
 }
 
 // Seek advances the iterator to the element at time t or greater.
@@ -111,9 +114,15 @@ func (b *MemoizedSeriesIterator) Next() chunkenc.ValueType {
 	case chunkenc.ValFloat:
 		b.prevTime, b.prevValue = b.it.At()
 		b.prevFloatHistogram = nil
+		b.prevIdentifyingLabels = nil
 	case chunkenc.ValHistogram, chunkenc.ValFloatHistogram:
-		b.prevValue = 0
 		b.prevTime, b.prevFloatHistogram = b.it.AtFloatHistogram(nil)
+		b.prevValue = 0
+		b.prevIdentifyingLabels = nil
+	case chunkenc.ValInfoSample:
+		b.prevTime, b.prevIdentifyingLabels = b.it.AtInfoSample()
+		b.prevValue = 0
+		b.prevFloatHistogram = nil
 	}
 
 	b.valueType = b.it.Next()
@@ -139,6 +148,11 @@ func (b *MemoizedSeriesIterator) AtFloatHistogram() (int64, *histogram.FloatHist
 // AtT returns the timestamp of the current element of the iterator.
 func (b *MemoizedSeriesIterator) AtT() int64 {
 	return b.it.AtT()
+}
+
+// AtInfoSample returns the current info sample element of the iterator.
+func (b *MemoizedSeriesIterator) AtInfoSample() (int64, []int) {
+	return b.it.AtInfoSample()
 }
 
 // Err returns the last encountered error.
