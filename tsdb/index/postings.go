@@ -407,26 +407,19 @@ func (p *MemPostings) PostingsForMatcher(ctx context.Context, m *labels.Matcher)
 	}
 
 	count := 0
-	srCount := 0
 	for v, srs := range e {
 		if m.Matches(v) && len(srs) > 0 {
 			count++
-			srCount += len(srs)
 		}
 	}
 
 	its := make([]Postings, 0, count)
-	srSlab := make([]storage.SeriesRef, srCount)
 	for val, srs := range e {
 		if !m.Matches(val) || len(srs) == 0 {
 			continue
 		}
 
-		// Make a copy with thread safety in mind
-		srsCpy := srSlab[0:len(srs)]
-		copy(srsCpy, srs)
-		its = append(its, NewListPostings(srsCpy))
-		srSlab = srSlab[len(srs):]
+		its = append(its, NewListPostings(srs))
 	}
 	p.mtx.RUnlock()
 
