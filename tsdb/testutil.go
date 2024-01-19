@@ -95,7 +95,6 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 	for name, expectedItem := range expected {
 		actualItem, ok := actual[name]
 		require.True(t, ok, "Expected series %s not found", name)
-		require.Equal(t, len(expectedItem), len(actualItem), "Length not expected for %s", name)
 		compareSamples(t, name, expectedItem, actualItem, ignoreCounterResets)
 	}
 	for name := range actual {
@@ -105,6 +104,7 @@ func requireEqualSamples(t *testing.T, expected, actual map[string][]chunks.Samp
 }
 
 func compareSamples(t *testing.T, name string, expected, actual []chunks.Sample, ignoreCounterResets bool) {
+	require.Equal(t, len(expected), len(actual), "Length not expected for %s", name)
 	for i, s := range expected {
 		expectedSample := s
 		actualSample := actual[i]
