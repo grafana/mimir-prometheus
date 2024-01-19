@@ -1702,7 +1702,7 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 			}
 			// Read from the postings table.
 			d := encoding.NewDecbufAt(r.b, int(postingsOff), castagnoliTable)
-			_, p, err := r.dec.Postings(d.Get())
+			p, err := r.dec.PostingsFromDecbuf(d)
 			if err != nil {
 				return nil, fmt.Errorf("decode postings: %w", err)
 			}
@@ -1764,7 +1764,7 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 				if string(v) == value {
 					// Read from the postings table.
 					d2 := encoding.NewDecbufAt(r.b, int(postingsOff), castagnoliTable)
-					_, p, err := r.dec.Postings(d2.Get())
+					p, err := r.dec.PostingsFromDecbuf(d2)
 					if err != nil {
 						return nil, fmt.Errorf("decode postings: %w", err)
 					}
@@ -1828,7 +1828,7 @@ func (r *Reader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) Post
 		if m.Matches(s) {
 			// We want this postings iterator since the value is a match
 			postingsDec := encoding.NewDecbufAt(r.b, int(postingsOff), castagnoliTable)
-			_, p, err := r.dec.PostingsFromDecbuf(postingsDec)
+			p, err := r.dec.PostingsFromDecbuf(postingsDec)
 			if err != nil {
 				return ErrPostings(fmt.Errorf("decode postings: %w", err))
 			}
@@ -1860,7 +1860,7 @@ func (r *Reader) postingsForMatcherV1(ctx context.Context, m *labels.Matcher) Po
 
 		// Read from the postings table.
 		d := encoding.NewDecbufAt(r.b, int(offset), castagnoliTable)
-		_, p, err := r.dec.PostingsFromDecbuf(d)
+		p, err := r.dec.PostingsFromDecbuf(d)
 		if err != nil {
 			return ErrPostings(fmt.Errorf("decode postings: %w", err))
 		}
@@ -1982,23 +1982,17 @@ type Decoder struct {
 	LookupSymbol func(context.Context, uint32) (string, error)
 }
 
-// Postings returns a postings list for b and its number of elements.
-func (dec *Decoder) Postings(b []byte) (int, Postings, error) {
-	d := encoding.Decbuf{B: b}
-	return dec.PostingsFromDecbuf(d)
-}
-
-// PostingsFromDecbuf returns a postings list for d and its number of elements.
-func (dec *Decoder) PostingsFromDecbuf(d encoding.Decbuf) (int, Postings, error) {
+// PostingsFromDecbuf returns a postings list for d.
+func (dec *Decoder) PostingsFromDecbuf(d encoding.Decbuf) (Postings, error) {
 	n := d.Be32int()
 	l := d.Get()
 	if d.Err() != nil {
-		return 0, nil, d.Err()
+		return nil, d.Err()
 	}
 	if len(l) != 4*n {
-		return 0, nil, fmt.Errorf("unexpected postings length, should be %d bytes for %d postings, got %d bytes", 4*n, n, len(l))
+		return nil, fmt.Errorf("unexpected postings length, should be %d bytes for %d postings, got %d bytes", 4*n, n, len(l))
 	}
-	return n, newBigEndianPostings(l), nil
+	return newBigEndianPostings(l), nil
 }
 
 // LabelNamesOffsetsFor decodes the offsets of the name symbols for a given series.

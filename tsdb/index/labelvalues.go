@@ -89,7 +89,7 @@ func (it *intersectLabelValuesV1) Next() bool {
 		postingsOff := it.postingOffsets[val]
 		// Read from the postings table.
 		d := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
-		_, curPostings, err := it.dec.Postings(d.Get())
+		curPostings, err := it.dec.PostingsFromDecbuf(d)
 		if err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
@@ -165,7 +165,7 @@ func (it *intersectLabelValues) Next() bool {
 		postingsOff := int(it.d.Uvarint64())
 		// Read from the postings table
 		postingsDec := encoding.NewDecbufAt(it.b, postingsOff, castagnoliTable)
-		_, curPostings, err := it.dec.Postings(postingsDec.Get())
+		curPostings, err := it.dec.PostingsFromDecbuf(postingsDec)
 		if err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false

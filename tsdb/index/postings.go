@@ -421,10 +421,7 @@ func (p *MemPostings) PostingsForMatcher(ctx context.Context, pr PostingsReader,
 	for _, val := range values {
 		srs := e[val]
 		if len(srs) > 0 {
-			// Make a copy with thread safety in mind
-			srsCpy := make([]storage.SeriesRef, len(srs))
-			copy(srsCpy, srs)
-			its = append(its, NewListPostings(srsCpy))
+			its = append(its, NewListPostings(srs))
 		}
 	}
 	p.mtx.RUnlock()
