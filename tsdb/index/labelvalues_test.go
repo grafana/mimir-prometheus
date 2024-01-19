@@ -163,16 +163,11 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 
 func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 	mp := NewMemPostings()
-	mp.Add(1, labels.FromStrings("a", "1"))
-	mp.Add(1, labels.FromStrings("b", "1"))
-	mp.Add(2, labels.FromStrings("a", "1"))
-	mp.Add(2, labels.FromStrings("b", "2"))
-	mp.Add(3, labels.FromStrings("a", "1"))
-	mp.Add(3, labels.FromStrings("b", "3"))
-	mp.Add(4, labels.FromStrings("a", "1"))
-	mp.Add(4, labels.FromStrings("b", "4"))
-	mp.Add(5, labels.FromStrings("a", "2"))
-	mp.Add(5, labels.FromStrings("b", "5"))
+	mp.Add(1, labels.FromStrings("a", "1", "b", "1"))
+	mp.Add(2, labels.FromStrings("a", "1", "b", "2"))
+	mp.Add(3, labels.FromStrings("a", "1", "b", "3"))
+	mp.Add(4, labels.FromStrings("a", "1", "b", "4"))
+	mp.Add(5, labels.FromStrings("a", "2", "b", "5"))
 	p := mp.Get("a", "1")
 
 	it := mp.LabelValuesExcluding(p, "b")
