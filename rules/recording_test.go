@@ -249,3 +249,25 @@ func TestRecordingEvalWithOrigin(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, detail, NewRuleDetail(rule))
 }
+
+func TestRecordingRule_SetNoDependentRules(t *testing.T) {
+	rule := NewRecordingRule("1", &parser.NumberLiteral{Val: 1}, labels.EmptyLabels())
+	require.False(t, rule.GetNoDependentRules())
+
+	rule.SetNoDependentRules(false)
+	require.False(t, rule.GetNoDependentRules())
+
+	rule.SetNoDependentRules(true)
+	require.True(t, rule.GetNoDependentRules())
+}
+
+func TestRecordingRule_SetNoDependencyRules(t *testing.T) {
+	rule := NewRecordingRule("1", &parser.NumberLiteral{Val: 1}, labels.EmptyLabels())
+	require.False(t, rule.GetNoDependencyRules())
+
+	rule.SetNoDependencyRules(false)
+	require.False(t, rule.GetNoDependencyRules())
+
+	rule.SetNoDependencyRules(true)
+	require.True(t, rule.GetNoDependencyRules())
+}
