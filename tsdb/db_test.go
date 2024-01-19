@@ -4609,7 +4609,6 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 24 * time.Hour.Milliseconds()
-	opts.AllowOverlappingCompaction = false
 
 	series1 := labels.FromStrings("foo", "bar1")
 
