@@ -544,23 +544,23 @@ func Merge(_ context.Context, its ...Postings) Postings {
 
 type mergedPostings struct {
 	p   []Postings
-	lt  *loser.Tree[storage.SeriesRef, Postings]
+	h   *loser.Tree[storage.SeriesRef, Postings]
 	cur storage.SeriesRef
 }
 
-func newMergedPostings(p []Postings) (*mergedPostings, bool) {
+func newMergedPostings(p []Postings) (m *mergedPostings, nonEmpty bool) {
 	const maxVal = storage.SeriesRef(math.MaxUint64) // This value must be higher than all real values used in the tree.
 	lt := loser.New(p, maxVal)
-	return &mergedPostings{p: p, lt: lt}, true
+	return &mergedPostings{p: p, h: lt}, true
 }
 
 func (it *mergedPostings) Next() bool {
 	for {
-		if !it.lt.Next() {
+		if !it.h.Next() {
 			return false
 		}
 		// Remove duplicate entries.
-		newItem := it.lt.At()
+		newItem := it.h.At()
 		if newItem != it.cur {
 			it.cur = newItem
 			return true
@@ -569,14 +569,14 @@ func (it *mergedPostings) Next() bool {
 }
 
 func (it *mergedPostings) Seek(id storage.SeriesRef) bool {
-	for !it.lt.IsEmpty() && it.lt.At() < id {
-		finished := !it.lt.Winner().Seek(id)
-		it.lt.Fix(finished)
+	for !it.h.IsEmpty() && it.h.At() < id {
+		finished := !it.h.Winner().Seek(id)
+		it.h.Fix(finished)
 	}
-	if it.lt.IsEmpty() {
+	if it.h.IsEmpty() {
 		return false
 	}
-	it.cur = it.lt.At()
+	it.cur = it.h.At()
 	return true
 }
 
@@ -736,7 +736,7 @@ func (it *ListPostings) Err() error {
 // big endian numbers.
 type bigEndianPostings struct {
 	list []byte
-	cur  storage.SeriesRef
+	cur  uint32
 }
 
 func newBigEndianPostings(list []byte) *bigEndianPostings {
@@ -744,12 +744,12 @@ func newBigEndianPostings(list []byte) *bigEndianPostings {
 }
 
 func (it *bigEndianPostings) At() storage.SeriesRef {
-	return it.cur
+	return storage.SeriesRef(it.cur)
 }
 
 func (it *bigEndianPostings) Next() bool {
 	if len(it.list) >= 4 {
-		it.cur = storage.SeriesRef(binary.BigEndian.Uint32(it.list))
+		it.cur = binary.BigEndian.Uint32(it.list)
 		it.list = it.list[4:]
 		return true
 	}
@@ -757,7 +757,7 @@ func (it *bigEndianPostings) Next() bool {
 }
 
 func (it *bigEndianPostings) Seek(x storage.SeriesRef) bool {
-	if it.cur >= x {
+	if storage.SeriesRef(it.cur) >= x {
 		return true
 	}
 
@@ -768,7 +768,7 @@ func (it *bigEndianPostings) Seek(x storage.SeriesRef) bool {
 	})
 	if i < num {
 		j := i * 4
-		it.cur = storage.SeriesRef(binary.BigEndian.Uint32(it.list[j:]))
+		it.cur = binary.BigEndian.Uint32(it.list[j:])
 		it.list = it.list[j+4:]
 		return true
 	}

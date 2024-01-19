@@ -56,7 +56,7 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches
 	}
 	slices.Sort(vals)
 	return &intersectLabelValuesV1{
-		seriesRefs:     e,
+		postingOffsets: e,
 		values:         vals,
 		postings:       NewPostingsCloner(postings),
 		b:              r.b,
@@ -66,7 +66,7 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches
 }
 
 type intersectLabelValuesV1 struct {
-	seriesRefs     map[string]uint64
+	postingOffsets map[string]uint64
 	values         []string
 	postings       *PostingsCloner
 	b              ByteSlice
@@ -86,7 +86,7 @@ func (it *intersectLabelValuesV1) Next() bool {
 		val := it.values[0]
 		it.values = it.values[1:]
 
-		postingsOff := it.seriesRefs[val]
+		postingsOff := it.postingOffsets[val]
 		// Read from the postings table.
 		d := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
 		_, curPostings, err := it.dec.Postings(d.Get())

@@ -466,7 +466,7 @@ type ChunkIterable interface {
 	Iterator(chunks.Iterator) chunks.Iterator
 }
 
-// LabelValues is an iterator over label values.
+// LabelValues is an iterator over label values in sorted order.
 type LabelValues interface {
 	// Next tries to advance the iterator and returns true if it could, false otherwise.
 	Next() bool
