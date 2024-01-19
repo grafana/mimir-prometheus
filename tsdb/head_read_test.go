@@ -555,34 +555,31 @@ func TestMemSeries_chunk(t *testing.T) {
 }
 
 func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
-	mp := index.NewMemPostings()
-	mp.Add(1, labels.FromStrings("a", "1"))
-	mp.Add(1, labels.FromStrings("b", "1"))
-	mp.Add(2, labels.FromStrings("a", "1"))
-	mp.Add(2, labels.FromStrings("b", "2"))
-	mp.Add(3, labels.FromStrings("a", "1"))
-	mp.Add(3, labels.FromStrings("b", "3"))
-	mp.Add(4, labels.FromStrings("a", "1"))
-	mp.Add(4, labels.FromStrings("b", "4"))
-	mp.Add(5, labels.FromStrings("a", "2"))
-	mp.Add(5, labels.FromStrings("b", "5"))
-	r := headIndexReader{
-		head: &Head{
-			postings: mp,
-		},
-	}
-	p := mp.Get("a", "1")
+	t.Run("excluding based on non-empty postings", func(t *testing.T) {
+		mp := index.NewMemPostings()
+		mp.Add(1, labels.FromStrings("a", "1", "b", "1"))
+		mp.Add(2, labels.FromStrings("a", "1", "b", "2"))
+		mp.Add(3, labels.FromStrings("a", "1", "b", "3"))
+		mp.Add(4, labels.FromStrings("a", "1", "b", "4"))
+		mp.Add(5, labels.FromStrings("a", "2", "b", "5"))
+		r := headIndexReader{
+			head: &Head{
+				postings: mp,
+			},
+		}
+		p := mp.Get("a", "1")
 
-	it := r.LabelValuesFor(p, "b")
+		it := r.LabelValuesFor(p, "b")
 
-	var vals []string
-	for it.Next() {
-		vals = append(vals, it.At())
-	}
-	require.NoError(t, it.Err())
-	require.Empty(t, it.Warnings())
-	// Note that b=5 is filtered out, since it has a=2, while our postings have a=1
-	require.Equal(t, []string{"1", "2", "3", "4"}, vals)
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		// Note that b=5 is filtered out, since it has a=2, while our postings have a=1
+		require.Equal(t, []string{"1", "2", "3", "4"}, vals)
+	})
 
 	t.Run("empty postings", func(t *testing.T) {
 		r := headIndexReader{
@@ -599,33 +596,30 @@ func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 }
 
 func TestHeadIndexReader_LabelValuesExcluding(t *testing.T) {
-	mp := index.NewMemPostings()
-	mp.Add(1, labels.FromStrings("a", "1"))
-	mp.Add(1, labels.FromStrings("b", "1"))
-	mp.Add(2, labels.FromStrings("a", "1"))
-	mp.Add(2, labels.FromStrings("b", "2"))
-	mp.Add(3, labels.FromStrings("a", "1"))
-	mp.Add(3, labels.FromStrings("b", "3"))
-	mp.Add(4, labels.FromStrings("a", "1"))
-	mp.Add(4, labels.FromStrings("b", "4"))
-	mp.Add(5, labels.FromStrings("a", "2"))
-	mp.Add(5, labels.FromStrings("b", "5"))
-	r := headIndexReader{
-		head: &Head{
-			postings: mp,
-		},
-	}
-	p := mp.Get("a", "1")
-	it := r.LabelValuesExcluding(p, "b")
+	t.Run("excluding based on non-empty postings", func(t *testing.T) {
+		mp := index.NewMemPostings()
+		mp.Add(1, labels.FromStrings("a", "1", "b", "1"))
+		mp.Add(2, labels.FromStrings("a", "1", "b", "2"))
+		mp.Add(3, labels.FromStrings("a", "1", "b", "3"))
+		mp.Add(4, labels.FromStrings("a", "1", "b", "4"))
+		mp.Add(5, labels.FromStrings("a", "2", "b", "5"))
+		r := headIndexReader{
+			head: &Head{
+				postings: mp,
+			},
+		}
+		p := mp.Get("a", "1")
+		it := r.LabelValuesExcluding(p, "b")
 
-	var vals []string
-	for it.Next() {
-		vals = append(vals, it.At())
-	}
-	require.NoError(t, it.Err())
-	require.Empty(t, it.Warnings())
-	// Note that only b=5 is not filtered out, since it has a=2, while our postings have a=1
-	require.Equal(t, []string{"5"}, vals)
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		// Note that only b=5 is not filtered out, since it has a=2, while our postings have a=1
+		require.Equal(t, []string{"5"}, vals)
+	})
 
 	t.Run("empty postings", func(t *testing.T) {
 		r := headIndexReader{
