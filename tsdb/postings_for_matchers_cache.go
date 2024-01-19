@@ -38,6 +38,7 @@ type IndexPostingsReader interface {
 	// during background garbage collections. Input values must be sorted.
 	Postings(ctx context.Context, name string, values ...string) (index.Postings, error)
 
+	// PostingsForMatcher returns an iterator over postings matching the provided label matcher.
 	PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings
 }
 
