@@ -57,7 +57,7 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches
 	slices.Sort(vals)
 	return &intersectLabelValuesV1{
 		postingOffsets: e,
-		values:         vals,
+		values:         storage.NewListLabelValues(vals),
 		postings:       NewPostingsCloner(postings),
 		b:              r.b,
 		dec:            r.dec,
@@ -67,7 +67,7 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches
 
 type intersectLabelValuesV1 struct {
 	postingOffsets map[string]uint64
-	values         []string
+	values         *storage.ListLabelValues
 	postings       *PostingsCloner
 	b              ByteSlice
 	dec            *Decoder
@@ -82,9 +82,8 @@ func (it *intersectLabelValuesV1) Next() bool {
 	}
 
 	// Look for a value with intersecting postings
-	for len(it.values) > 0 {
-		val := it.values[0]
-		it.values = it.values[1:]
+	for it.values.Next() {
+		val := it.values.At()
 
 		postingsOff := it.postingOffsets[val]
 		// Read from the postings table.
