@@ -414,12 +414,10 @@ func (p *MemPostings) PostingsForMatcher(ctx context.Context, m *labels.Matcher)
 	}
 
 	its := make([]Postings, 0, count)
-	for val, srs := range e {
-		if !m.Matches(val) || len(srs) == 0 {
-			continue
+	for v, srs := range e {
+		if m.Matches(v) && len(srs) > 0 {
+			its = append(its, NewListPostings(srs))
 		}
-
-		its = append(its, NewListPostings(srs))
 	}
 	p.mtx.RUnlock()
 
