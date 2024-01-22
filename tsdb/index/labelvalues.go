@@ -292,28 +292,16 @@ func intersect(p1, p2 Postings) bool {
 	return false
 }
 
-// notSubset returns whether p1 is not a subset of p2.
-func notSubset(p1, p2 Postings) bool {
-	if !p1.Next() {
-		// p1 is the empty set and should be contained in any set
-		return false
-	}
-
-	// Look for a value in p1 which is not in p2
-	cur := p1.At()
-	for {
-		if !p2.Seek(cur) || p2.At() != cur {
-			// cur can not be found in p2 -> p1 is not a subset of p2
+// notSubset returns whether subset is not a subset of sub.
+func notSubset(subset, set Postings) bool {
+	// Look for a value in subset which is not in set.
+	for subset.Next() {
+		if cur := subset.At(); !set.Seek(cur) || set.At() != cur {
+			// Cur is not in set, so subset is not a subset of set.
 			return true
 		}
-
-		if !p1.Next() {
-			// Exhausted p1, with only matches against p2
-			break
-		}
-
-		cur = p1.At()
 	}
 
+	// Couldn't find any value in subset which is not in set.
 	return false
 }
