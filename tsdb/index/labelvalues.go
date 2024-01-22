@@ -95,8 +95,13 @@ func (it *intersectLabelValuesV1) Next() bool {
 			return false
 		}
 
-		isMatch := intersect(curPostings, it.postings.Clone())
-		if isMatch == it.includeMatches {
+		isMatch := false
+		if it.includeMatches {
+			isMatch = intersect(curPostings, it.postings.Clone())
+		} else {
+			isMatch = notSubset(curPostings, it.postings.Clone())
+		}
+		if isMatch {
 			it.cur = val
 			return true
 		}
@@ -164,8 +169,13 @@ func (it *intersectLabelValues) Next() bool {
 			return false
 		}
 		it.exhausted = string(val) == it.lastVal
-		isMatch := intersect(curPostings, it.postings.Clone())
-		if isMatch == it.includeMatches {
+		isMatch := false
+		if it.includeMatches {
+			isMatch = intersect(curPostings, it.postings.Clone())
+		} else {
+			isMatch = notSubset(curPostings, it.postings.Clone())
+		}
+		if isMatch {
 			// Make sure to allocate a new string
 			it.cur = string(val)
 			return true
@@ -224,38 +234,27 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 		candidates = append(candidates, &lps[len(lps)-1])
 	}
 
-	indexes, err := FindIntersectingPostings(postings, candidates)
+	var (
+		indexes []int
+		err     error
+	)
+	if includeMatches {
+		indexes, err = FindIntersectingPostings(postings, candidates)
+	} else {
+		indexes, err = findNonIntersectingPostings(postings, candidates)
+	}
 	p.mtx.RUnlock()
 	if err != nil {
 		return storage.ErrLabelValues(err)
 	}
-	if includeMatches {
-		// Filter the values, keeping only those with intersecting postings
-		if len(vals) != len(indexes) {
-			slices.Sort(indexes)
-			for i, index := range indexes {
-				vals[i] = vals[index]
-			}
-			vals = vals[:len(indexes)]
-		}
-	} else {
-		// Filter the values, keeping only those without intersecting postings
-		if len(vals) == len(indexes) {
-			return storage.EmptyLabelValues()
-		}
 
+	// Filter the values
+	if len(vals) != len(indexes) {
 		slices.Sort(indexes)
-		keep := make([]string, 0, len(vals)-len(indexes))
-		idx := 0
-		for i, val := range vals {
-			for idx < len(indexes) && indexes[idx] < i {
-				idx++
-			}
-			if idx == len(indexes) || indexes[idx] != i {
-				keep = append(keep, val)
-			}
+		for i, index := range indexes {
+			vals[i] = vals[index]
 		}
-		vals = keep
+		vals = vals[:len(indexes)]
 	}
 
 	slices.Sort(vals)
@@ -289,6 +288,32 @@ func intersect(p1, p2 Postings) bool {
 		}
 
 		return true
+	}
+
+	return false
+}
+
+// notSubset returns whether p1 is not a subset of p2.
+func notSubset(p1, p2 Postings) bool {
+	if !p1.Next() {
+		// p1 is the empty set and should be contained in any set
+		return false
+	}
+
+	// Look for a value in p1 which is not in p2
+	cur := p1.At()
+	for {
+		if !p2.Seek(cur) || p2.At() != cur {
+			// cur can not be found in p2 -> p1 is not a subset of p2
+			return true
+		}
+
+		if !p1.Next() {
+			// Exhausted p1, with only matches against p2
+			break
+		}
+
+		cur = p1.At()
 	}
 
 	return false

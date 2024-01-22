@@ -220,6 +220,10 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 			"unique", fmt.Sprintf("value%d", i),
 		), []chunks.Sample{sample{100, 0, nil, nil}}))
 	}
+	// Add another series with an overlapping unique label, but leaving out the tens label
+	seriesEntries = append(seriesEntries, storage.NewListSeries(labels.FromStrings(
+		"unique", "value99",
+	), []chunks.Sample{sample{100, 0, nil, nil}}))
 
 	blockDir := createBlock(t, tmpdir, seriesEntries)
 	files, err := sequenceFiles(chunkDir(blockDir))
@@ -261,6 +265,15 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 			labelName:      "tens",
 			matchers:       []*labels.Matcher{labels.MustNewMatcher(labels.MatchNotEqual, "unique", "")},
 			expectedValues: []string{"value0", "value1", "value2", "value3", "value4", "value5", "value6", "value7", "value8", "value9"},
+		}, {
+			// In this case, we query for the "unique" label where the "tens" label is absent.
+			// We have one series where "tens" is empty (unique="value99"), but also another with
+			// the same value for "unique" and "tens" present. Make sure that unique="value99" is
+			// still found.
+			name:           "get unique ID where tens is empty",
+			labelName:      "unique",
+			matchers:       []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "tens", "")},
+			expectedValues: []string{"value99"},
 		},
 	}
 
