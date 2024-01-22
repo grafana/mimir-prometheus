@@ -109,7 +109,7 @@ type IndexReader interface {
 	// LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 	LabelValuesFor(p index.Postings, name string) storage.LabelValues
 
-	// LabelValuesExcluding returns LabelValues for the given label name in the series *not* referred to by postings.
+	// LabelValuesExcluding returns LabelValues for the given label name in all other series than those referred to by postings.
 	LabelValuesExcluding(p index.Postings, name string) storage.LabelValues
 
 	// LabelNamesFor returns all the label names for the series referred to by IDs.
@@ -558,7 +558,7 @@ func (r blockIndexReader) LabelValuesFor(postings index.Postings, name string) s
 	return r.ir.LabelValuesFor(postings, name)
 }
 
-// LabelValuesExcluding returns LabelValues for the given label name in the series *not* referred to by postings.
+// LabelValuesExcluding returns LabelValues for the given label name in all other series than those referred to by postings.
 func (r blockIndexReader) LabelValuesExcluding(postings index.Postings, name string) storage.LabelValues {
 	return r.ir.LabelValuesExcluding(postings, name)
 }

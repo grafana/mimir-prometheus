@@ -179,7 +179,7 @@ func (h *headIndexReader) LabelValuesFor(postings index.Postings, name string) s
 	return h.head.postings.LabelValuesFor(postings, name)
 }
 
-// LabelValuesExcluding returns LabelValues for the given label name in the series *not* referred to by postings.
+// LabelValuesExcluding returns LabelValues for the given label name in all other series than those referred to by postings.
 func (h *headIndexReader) LabelValuesExcluding(postings index.Postings, name string) storage.LabelValues {
 	return h.head.postings.LabelValuesExcluding(postings, name)
 }
