@@ -65,9 +65,9 @@ type Rule interface {
 
 	// SetNoDependentRules sets whether there's no other rule in the rule group that depends on this rule.
 	SetNoDependentRules(bool)
-	GetNoDependentRules() bool
+	NoDependentRules() bool
 
 	// SetNoDependencyRules sets whether this rule doesn't depend on the output of any rule in the rule group.
 	SetNoDependencyRules(bool)
-	GetNoDependencyRules() bool
+	NoDependencyRules() bool
 }

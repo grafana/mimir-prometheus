@@ -933,13 +933,13 @@ func TestAlertingRule_SetNoDependentRules(t *testing.T) {
 		"",
 		true, log.NewNopLogger(),
 	)
-	require.False(t, rule.GetNoDependentRules())
+	require.False(t, rule.NoDependentRules())
 
 	rule.SetNoDependentRules(false)
-	require.False(t, rule.GetNoDependentRules())
+	require.False(t, rule.NoDependentRules())
 
 	rule.SetNoDependentRules(true)
-	require.True(t, rule.GetNoDependentRules())
+	require.True(t, rule.NoDependentRules())
 }
 
 func TestAlertingRule_SetNoDependencyRules(t *testing.T) {
@@ -954,11 +954,11 @@ func TestAlertingRule_SetNoDependencyRules(t *testing.T) {
 		"",
 		true, log.NewNopLogger(),
 	)
-	require.False(t, rule.GetNoDependencyRules())
+	require.False(t, rule.NoDependencyRules())
 
 	rule.SetNoDependencyRules(false)
-	require.False(t, rule.GetNoDependencyRules())
+	require.False(t, rule.NoDependencyRules())
 
 	rule.SetNoDependencyRules(true)
-	require.True(t, rule.GetNoDependencyRules())
+	require.True(t, rule.NoDependencyRules())
 }

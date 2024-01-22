@@ -1915,8 +1915,8 @@ func TestManager_LoadGroups_ShouldCheckWhetherEachRuleHasDependentsAndDependenci
 		for _, r := range ruleManager.Rules() {
 			exp, ok := expected[r.Name()]
 			require.Truef(t, ok, "rule: %s", r.String())
-			require.Equalf(t, exp.noDependentRules, r.GetNoDependentRules(), "rule: %s", r.String())
-			require.Equalf(t, exp.noDependencyRules, r.GetNoDependencyRules(), "rule: %s", r.String())
+			require.Equalf(t, exp.noDependentRules, r.NoDependentRules(), "rule: %s", r.String())
+			require.Equalf(t, exp.noDependencyRules, r.NoDependencyRules(), "rule: %s", r.String())
 		}
 	})
 
@@ -1926,8 +1926,8 @@ func TestManager_LoadGroups_ShouldCheckWhetherEachRuleHasDependentsAndDependenci
 		require.Len(t, groups, 1)
 
 		for _, r := range ruleManager.Rules() {
-			require.Truef(t, r.GetNoDependentRules(), "rule: %s", r.String())
-			require.Truef(t, r.GetNoDependencyRules(), "rule: %s", r.String())
+			require.Truef(t, r.NoDependentRules(), "rule: %s", r.String())
+			require.Truef(t, r.NoDependencyRules(), "rule: %s", r.String())
 		}
 	})
 }
