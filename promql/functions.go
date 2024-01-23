@@ -103,17 +103,25 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 		numSamplesMinusOne = len(samples.Floats) - 1
 		firstT = samples.Floats[0].T
 		lastT = samples.Floats[numSamplesMinusOne].T
-		resultFloat = samples.Floats[numSamplesMinusOne].F - samples.Floats[0].F
 		if !isCounter {
+			resultFloat = samples.Floats[numSamplesMinusOne].F - samples.Floats[0].F
 			break
 		}
 		// Handle counter resets:
 		prevValue := samples.Floats[0].F
 		for _, currPoint := range samples.Floats[1:] {
 			if currPoint.F < prevValue {
-				resultFloat += prevValue
+				// counter reset
+				if currPoint.F == 0 {
+					resultFloat += prevValue
+					prevValue = 0
+				}
+				// else: counter value is not reset but decreased, ignored
+			} else if currPoint.F > prevValue {
+				resultFloat += currPoint.F - prevValue
+				prevValue = currPoint.F
 			}
-			prevValue = currPoint.F
+			// else: counter value is not changed, ignored
 		}
 	default:
 		// TODO: add RangeTooShortWarning
