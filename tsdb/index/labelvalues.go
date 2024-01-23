@@ -240,7 +240,7 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 	if includeMatches {
 		indexes, err = FindIntersectingPostings(postings, candidates)
 	} else {
-		indexes, err = findNonIntersectingPostings(postings, candidates)
+		indexes, err = findNonSubsetPostings(postings, candidates)
 	}
 	p.mtx.RUnlock()
 	if err != nil {

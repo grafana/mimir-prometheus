@@ -834,10 +834,10 @@ func FindIntersectingPostings(p Postings, candidates []Postings) (indexes []int,
 	return indexes, nil
 }
 
-// findNonIntersectingPostings checks the intersection of p and candidates[i] for each i in candidates,
-// if intersection is empty, i is added to the indexes returned.
+// findNonSubsetPostings checks whether candidates[i] for each i in candidates is a subset of p.
+// If not a subset, i is added to the indexes returned.
 // Returned indexes are not sorted.
-func findNonIntersectingPostings(p Postings, candidates []Postings) (indexes []int, err error) {
+func findNonSubsetPostings(p Postings, candidates []Postings) (indexes []int, err error) {
 	h := make(postingsWithIndexHeap, 0, len(candidates))
 	for idx, it := range candidates {
 		switch {
