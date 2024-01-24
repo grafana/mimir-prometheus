@@ -97,11 +97,11 @@ func (it *intersectLabelValuesV1) Next() bool {
 
 		isMatch := false
 		if it.includeMatches {
-			isMatch = intersect(curPostings, it.postings.Clone())
+			isMatch = intersect(it.postings.Clone(), curPostings)
 		} else {
 			// We only want to include this value if curPostings is not fully contained
 			// by the postings iterator (which is to be excluded).
-			isMatch = nonSubset(curPostings, it.postings.Clone())
+			isMatch = !contains(it.postings.Clone(), curPostings)
 		}
 		if isMatch {
 			it.cur = val
@@ -173,11 +173,11 @@ func (it *intersectLabelValues) Next() bool {
 		it.exhausted = string(val) == it.lastVal
 		isMatch := false
 		if it.includeMatches {
-			isMatch = intersect(curPostings, it.postings.Clone())
+			isMatch = intersect(it.postings.Clone(), curPostings)
 		} else {
 			// We only want to include this value if curPostings is not fully contained
 			// by the postings iterator (which is to be excluded).
-			isMatch = nonSubset(curPostings, it.postings.Clone())
+			isMatch = !contains(it.postings.Clone(), curPostings)
 		}
 		if isMatch {
 			// Make sure to allocate a new string
@@ -301,16 +301,14 @@ func intersect(p1, p2 Postings) bool {
 	return false
 }
 
-// nonSubset returns whether subset is not a subset of sub.
-func nonSubset(subset, set Postings) bool {
-	// Look for a value in subset which is not in set.
-	for subset.Next() {
-		if cur := subset.At(); !set.Seek(cur) || set.At() != cur {
-			// Cur is not in set, so subset is not a subset of set.
-			return true
+// contains returns whether subp is contained in p.
+func contains(p, subp Postings) bool {
+	for subp.Next() {
+		if needle := subp.At(); !p.Seek(needle) || p.At() != needle {
+			return false
 		}
 	}
 
-	// Couldn't find any value in subset which is not in set.
-	return false
+	// Couldn't find any value in subp which is not in p.
+	return true
 }
