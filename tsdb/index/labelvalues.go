@@ -16,6 +16,7 @@ func (r *Reader) LabelValuesFor(postings Postings, name string) storage.LabelVal
 }
 
 // LabelValuesExcluding returns LabelValues for the given label name in all other series than those referred to by postings.
+// This is useful for obtaining label values for other postings than the ones you wish to exclude.
 func (r *Reader) LabelValuesExcluding(postings Postings, name string) storage.LabelValues {
 	return r.labelValuesFor(postings, name, false)
 }
@@ -98,7 +99,9 @@ func (it *intersectLabelValuesV1) Next() bool {
 		if it.includeMatches {
 			isMatch = intersect(curPostings, it.postings.Clone())
 		} else {
-			isMatch = notSubset(curPostings, it.postings.Clone())
+			// We only want to include this value if curPostings is not fully contained
+			// by the postings iterator (which is to be excluded).
+			isMatch = nonSubset(curPostings, it.postings.Clone())
 		}
 		if isMatch {
 			it.cur = val
@@ -172,7 +175,9 @@ func (it *intersectLabelValues) Next() bool {
 		if it.includeMatches {
 			isMatch = intersect(curPostings, it.postings.Clone())
 		} else {
-			isMatch = notSubset(curPostings, it.postings.Clone())
+			// We only want to include this value if curPostings is not fully contained
+			// by the postings iterator (which is to be excluded).
+			isMatch = nonSubset(curPostings, it.postings.Clone())
 		}
 		if isMatch {
 			// Make sure to allocate a new string
@@ -209,6 +214,7 @@ func (p *MemPostings) LabelValuesFor(postings Postings, name string) storage.Lab
 }
 
 // LabelValuesExcluding returns LabelValues for the given label name in all other series than those referred to by postings.
+// This is useful for obtaining label values for other postings than the ones you wish to exclude.
 func (p *MemPostings) LabelValuesExcluding(postings Postings, name string) storage.LabelValues {
 	return p.labelValuesFor(postings, name, false)
 }
@@ -240,6 +246,9 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 	if includeMatches {
 		indexes, err = FindIntersectingPostings(postings, candidates)
 	} else {
+		// We wish to exclude the postings when finding label values, meaning that
+		// we want to filter down candidates to only those not fully contained
+		// by postings (a fully contained postings iterator should be excluded).
 		indexes, err = findNonSubsetPostings(postings, candidates)
 	}
 	p.mtx.RUnlock()
@@ -292,8 +301,8 @@ func intersect(p1, p2 Postings) bool {
 	return false
 }
 
-// notSubset returns whether subset is not a subset of sub.
-func notSubset(subset, set Postings) bool {
+// nonSubset returns whether subset is not a subset of sub.
+func nonSubset(subset, set Postings) bool {
 	// Look for a value in subset which is not in set.
 	for subset.Next() {
 		if cur := subset.At(); !set.Seek(cur) || set.At() != cur {
