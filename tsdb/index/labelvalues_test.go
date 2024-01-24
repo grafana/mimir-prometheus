@@ -25,6 +25,7 @@ func TestReader_LabelValuesFor(t *testing.T) {
 		labels.FromStrings("a", "1", "b", "3"),
 		labels.FromStrings("a", "1", "b", "4"),
 		labels.FromStrings("a", "2", "b", "5"),
+		labels.FromStrings("d", "1"),
 	}
 
 	require.NoError(t, iw.AddSymbol("1"))
@@ -34,6 +35,7 @@ func TestReader_LabelValuesFor(t *testing.T) {
 	require.NoError(t, iw.AddSymbol("5"))
 	require.NoError(t, iw.AddSymbol("a"))
 	require.NoError(t, iw.AddSymbol("b"))
+	require.NoError(t, iw.AddSymbol("d"))
 
 	// Postings lists are only written if a series with the respective
 	// reference was added before.
@@ -61,12 +63,34 @@ func TestReader_LabelValuesFor(t *testing.T) {
 		require.Equal(t, []string{"1", "2", "3", "4"}, vals)
 	})
 
-	t.Run("empty result set", func(t *testing.T) {
+	t.Run("requesting a non-existent label value", func(t *testing.T) {
 		// Obtain postings where a=1
 		p, err := ir.Postings(ctx, "a", "1")
-
 		require.NoError(t, err)
+
 		it := ir.LabelValuesFor(p, "c")
+		require.False(t, it.Next())
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+	})
+
+	t.Run("filtering based on empty postings", func(t *testing.T) {
+		// Obtain postings where c=1
+		p, err := ir.Postings(ctx, "c", "1")
+		require.NoError(t, err)
+
+		it := ir.LabelValuesFor(p, "a")
+		require.False(t, it.Next())
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+	})
+
+	t.Run("filtering based on a postings set missing the label", func(t *testing.T) {
+		// Obtain postings where d=1
+		p, err := ir.Postings(ctx, "d", "1")
+		require.NoError(t, err)
+
+		it := ir.LabelValuesFor(p, "a")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
@@ -90,6 +114,7 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 		labels.FromStrings("a", "1", "b", "5"),
 		// This should be the only value of 5 found, since a!=1
 		labels.FromStrings("a", "2", "b", "5"),
+		labels.FromStrings("d", "1"),
 	}
 
 	require.NoError(t, iw.AddSymbol("1"))
@@ -99,6 +124,7 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 	require.NoError(t, iw.AddSymbol("5"))
 	require.NoError(t, iw.AddSymbol("a"))
 	require.NoError(t, iw.AddSymbol("b"))
+	require.NoError(t, iw.AddSymbol("d"))
 
 	// Postings lists are only written if a series with the respective
 	// reference was added before.
@@ -126,7 +152,7 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 		require.Equal(t, []string{"5"}, vals)
 	})
 
-	t.Run("empty result set", func(t *testing.T) {
+	t.Run("requesting a non-existent label value", func(t *testing.T) {
 		// Obtain postings where a=1
 		p, err := ir.Postings(ctx, "a", "1")
 		require.NoError(t, err)
@@ -135,6 +161,38 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
+	})
+
+	t.Run("filtering based on empty postings", func(t *testing.T) {
+		// Obtain postings where c=1
+		p, err := ir.Postings(ctx, "c", "1")
+		require.NoError(t, err)
+
+		it := ir.LabelValuesExcluding(p, "a")
+
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		require.Equal(t, []string{"1", "2"}, vals)
+	})
+
+	t.Run("filtering based on a postings set missing the label", func(t *testing.T) {
+		// Obtain postings where d=1
+		p, err := ir.Postings(ctx, "d", "1")
+		require.NoError(t, err)
+
+		it := ir.LabelValuesExcluding(p, "a")
+
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		require.Equal(t, []string{"1", "2"}, vals)
 	})
 }
 
@@ -145,9 +203,11 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 	mp.Add(3, labels.FromStrings("a", "1", "b", "3"))
 	mp.Add(4, labels.FromStrings("a", "1", "b", "4"))
 	mp.Add(5, labels.FromStrings("a", "2", "b", "5"))
-	p := mp.Get("a", "1")
+	mp.Add(6, labels.FromStrings("d", "1"))
 
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
+		p := mp.Get("a", "1")
+
 		it := mp.LabelValuesFor(p, "b")
 
 		var vals []string
@@ -160,8 +220,28 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 		require.Equal(t, []string{"1", "2", "3", "4"}, vals)
 	})
 
-	t.Run("empty result set", func(t *testing.T) {
+	t.Run("requesting a non-existent label value", func(t *testing.T) {
+		p := mp.Get("a", "1")
+
 		it := mp.LabelValuesFor(p, "c")
+		require.False(t, it.Next())
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+	})
+
+	t.Run("filtering based on empty postings", func(t *testing.T) {
+		p := mp.Get("c", "1")
+
+		it := mp.LabelValuesFor(p, "a")
+		require.False(t, it.Next())
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+	})
+
+	t.Run("filtering based on a postings set missing the label", func(t *testing.T) {
+		p := mp.Get("d", "1")
+
+		it := mp.LabelValuesFor(p, "a")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
@@ -178,9 +258,11 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 	mp.Add(5, labels.FromStrings("a", "1", "b", "5"))
 	// This should be the only value of 5 found, since a!=1
 	mp.Add(6, labels.FromStrings("a", "2", "b", "5"))
-	p := mp.Get("a", "1")
+	mp.Add(7, labels.FromStrings("d", "1"))
 
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
+		p := mp.Get("a", "1")
+
 		it := mp.LabelValuesExcluding(p, "b")
 
 		var vals []string
@@ -193,10 +275,40 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 		require.Equal(t, []string{"5"}, vals)
 	})
 
-	t.Run("empty result set", func(t *testing.T) {
+	t.Run("requesting a non-existent label value", func(t *testing.T) {
+		p := mp.Get("a", "1")
+
 		it := mp.LabelValuesExcluding(p, "c")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
+	})
+
+	t.Run("filtering based on empty postings", func(t *testing.T) {
+		p := mp.Get("c", "1")
+
+		it := mp.LabelValuesExcluding(p, "a")
+
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		require.Equal(t, []string{"1", "2"}, vals)
+	})
+
+	t.Run("filtering based on a postings set missing the label", func(t *testing.T) {
+		p := mp.Get("d", "1")
+
+		it := mp.LabelValuesExcluding(p, "a")
+
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		require.Equal(t, []string{"1", "2"}, vals)
 	})
 }
