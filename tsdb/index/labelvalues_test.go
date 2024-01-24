@@ -45,11 +45,11 @@ func TestReader_LabelValuesFor(t *testing.T) {
 	ir, err := NewFileReader(fn)
 	require.NoError(t, err)
 
-	// Obtain postings where a=1
-	p, err := ir.Postings(ctx, "a", "1")
-	require.NoError(t, err)
-
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
+		// Obtain postings where a=1
+		p, err := ir.Postings(ctx, "a", "1")
+		require.NoError(t, err)
+
 		it := ir.LabelValuesFor(p, "b")
 		var vals []string
 		for it.Next() {
@@ -62,6 +62,10 @@ func TestReader_LabelValuesFor(t *testing.T) {
 	})
 
 	t.Run("empty result set", func(t *testing.T) {
+		// Obtain postings where a=1
+		p, err := ir.Postings(ctx, "a", "1")
+
+		require.NoError(t, err)
 		it := ir.LabelValuesFor(p, "c")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
@@ -106,11 +110,11 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 	ir, err := NewFileReader(fn)
 	require.NoError(t, err)
 
-	// Obtain postings where a=1
-	p, err := ir.Postings(ctx, "a", "1")
-	require.NoError(t, err)
-
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
+		// Obtain postings where a=1
+		p, err := ir.Postings(ctx, "a", "1")
+		require.NoError(t, err)
+
 		it := ir.LabelValuesExcluding(p, "b")
 		var vals []string
 		for it.Next() {
@@ -123,6 +127,10 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 	})
 
 	t.Run("empty result set", func(t *testing.T) {
+		// Obtain postings where a=1
+		p, err := ir.Postings(ctx, "a", "1")
+		require.NoError(t, err)
+
 		it := ir.LabelValuesExcluding(p, "c")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
