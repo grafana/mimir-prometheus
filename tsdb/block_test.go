@@ -239,6 +239,13 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, indexReader.Close()) }()
 
+	var uniqueWithout30s []string
+	for i := 0; i < 100; i++ {
+		if i/10 != 3 {
+			uniqueWithout30s = append(uniqueWithout30s, fmt.Sprintf("value%d", i))
+		}
+	}
+	sort.Strings(uniqueWithout30s)
 	testCases := []struct {
 		name           string
 		labelName      string
@@ -265,6 +272,14 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 			labelName:      "tens",
 			matchers:       []*labels.Matcher{labels.MustNewMatcher(labels.MatchNotEqual, "unique", "")},
 			expectedValues: []string{"value0", "value1", "value2", "value3", "value4", "value5", "value6", "value7", "value8", "value9"},
+		}, {
+			name:      "get unique IDs based on tens not being equal to a certain value, while not empty",
+			labelName: "unique",
+			matchers: []*labels.Matcher{
+				labels.MustNewMatcher(labels.MatchNotEqual, "tens", "value3"),
+				labels.MustNewMatcher(labels.MatchNotEqual, "tens", ""),
+			},
+			expectedValues: uniqueWithout30s,
 		}, {
 			// In this case, we query for the "unique" label where the "tens" label is absent.
 			// We have one series where "tens" is empty (unique="value99"), but also another with
@@ -556,10 +571,10 @@ func createHead(tb testing.TB, w *wlog.WL, series []storage.Series, chunkDir str
 				t, v := it.At()
 				ref, err = app.Append(ref, lset, t, v)
 			case chunkenc.ValHistogram:
-				t, h := it.AtHistogram()
+				t, h := it.AtHistogram(nil)
 				ref, err = app.AppendHistogram(ref, lset, t, h, nil)
 			case chunkenc.ValFloatHistogram:
-				t, fh := it.AtFloatHistogram()
+				t, fh := it.AtFloatHistogram(nil)
 				ref, err = app.AppendHistogram(ref, lset, t, nil, fh)
 			default:
 				err = fmt.Errorf("unknown sample type %s", typ.String())
