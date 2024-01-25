@@ -1,6 +1,10 @@
 package storage
 
-import "github.com/prometheus/prometheus/util/annotations"
+import (
+	"fmt"
+
+	"github.com/prometheus/prometheus/util/annotations"
+)
 
 // errLabelValues is an empty LabelValues iterator with an error.
 type errLabelValues struct {
@@ -16,6 +20,9 @@ func (e errLabelValues) Close() error                      { return nil }
 
 // ErrLabelValues returns a LabelValues with err.
 func ErrLabelValues(err error) LabelValues {
+	if err == nil {
+		return errLabelValues{err: fmt.Errorf("nil error provided")}
+	}
 	return errLabelValues{err: err}
 }
 
