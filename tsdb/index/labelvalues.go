@@ -249,7 +249,7 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 		// We wish to exclude the postings when finding label values, meaning that
 		// we want to filter down candidates to only those not fully contained
 		// by postings (a fully contained postings iterator should be excluded).
-		indexes, err = findNonSubsetPostings(postings, candidates)
+		indexes, err = findNonContainedPostings(postings, candidates)
 	}
 	p.mtx.RUnlock()
 	if err != nil {

@@ -834,11 +834,11 @@ func FindIntersectingPostings(p Postings, candidates []Postings) (indexes []int,
 	return indexes, nil
 }
 
-// findNonSubsetPostings checks whether candidates[i] for each i in candidates is a subset of p.
-// If not a subset, i is added to the indexes returned.
+// findNonContainedPostings checks whether candidates[i] for each i in candidates is contained in p.
+// If not contained, i is added to the indexes returned.
 // The idea is the need to find postings iterators not fully contained in a set you wish to exclude.
 // Returned indexes are not sorted.
-func findNonSubsetPostings(p Postings, candidates []Postings) (indexes []int, err error) {
+func findNonContainedPostings(p Postings, candidates []Postings) (indexes []int, err error) {
 	h := make(postingsWithIndexHeap, 0, len(candidates))
 	for idx, it := range candidates {
 		switch {
