@@ -46,6 +46,9 @@ func TestReader_LabelValuesFor(t *testing.T) {
 
 	ir, err := NewFileReader(fn)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, ir.Close())
+	})
 
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
 		// Obtain postings where a=1
@@ -53,6 +56,9 @@ func TestReader_LabelValuesFor(t *testing.T) {
 		require.NoError(t, err)
 
 		it := ir.LabelValuesFor(p, "b")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 		var vals []string
 		for it.Next() {
 			vals = append(vals, it.At())
@@ -69,17 +75,19 @@ func TestReader_LabelValuesFor(t *testing.T) {
 		require.NoError(t, err)
 
 		it := ir.LabelValuesFor(p, "c")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
 	})
 
 	t.Run("filtering based on empty postings", func(t *testing.T) {
-		// Obtain postings where c=1
-		p, err := ir.Postings(ctx, "c", "1")
-		require.NoError(t, err)
-
-		it := ir.LabelValuesFor(p, "a")
+		it := ir.LabelValuesFor(EmptyPostings(), "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
@@ -91,6 +99,9 @@ func TestReader_LabelValuesFor(t *testing.T) {
 		require.NoError(t, err)
 
 		it := ir.LabelValuesFor(p, "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
@@ -135,6 +146,9 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 
 	ir, err := NewFileReader(fn)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, ir.Close())
+	})
 
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
 		// Obtain postings where a=1
@@ -142,6 +156,9 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 		require.NoError(t, err)
 
 		it := ir.LabelValuesExcluding(p, "b")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 		var vals []string
 		for it.Next() {
 			vals = append(vals, it.At())
@@ -158,17 +175,19 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 		require.NoError(t, err)
 
 		it := ir.LabelValuesExcluding(p, "c")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
 	})
 
 	t.Run("filtering based on empty postings", func(t *testing.T) {
-		// Obtain postings where c=1
-		p, err := ir.Postings(ctx, "c", "1")
-		require.NoError(t, err)
-
-		it := ir.LabelValuesExcluding(p, "a")
+		it := ir.LabelValuesExcluding(EmptyPostings(), "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
 		var vals []string
 		for it.Next() {
@@ -185,6 +204,9 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 		require.NoError(t, err)
 
 		it := ir.LabelValuesExcluding(p, "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
 		var vals []string
 		for it.Next() {
@@ -209,6 +231,9 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 		p := mp.Get("a", "1")
 
 		it := mp.LabelValuesFor(p, "b")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
 		var vals []string
 		for it.Next() {
@@ -224,15 +249,21 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 		p := mp.Get("a", "1")
 
 		it := mp.LabelValuesFor(p, "c")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
+
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
 	})
 
 	t.Run("filtering based on empty postings", func(t *testing.T) {
-		p := mp.Get("c", "1")
+		it := mp.LabelValuesFor(EmptyPostings(), "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
-		it := mp.LabelValuesFor(p, "a")
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
@@ -242,6 +273,10 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 		p := mp.Get("d", "1")
 
 		it := mp.LabelValuesFor(p, "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
+
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
@@ -264,6 +299,9 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 		p := mp.Get("a", "1")
 
 		it := mp.LabelValuesExcluding(p, "b")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
 		var vals []string
 		for it.Next() {
@@ -279,15 +317,20 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 		p := mp.Get("a", "1")
 
 		it := mp.LabelValuesExcluding(p, "c")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
+
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
 	})
 
 	t.Run("filtering based on empty postings", func(t *testing.T) {
-		p := mp.Get("c", "1")
-
-		it := mp.LabelValuesExcluding(p, "a")
+		it := mp.LabelValuesExcluding(EmptyPostings(), "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
 		var vals []string
 		for it.Next() {
@@ -302,6 +345,9 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 		p := mp.Get("d", "1")
 
 		it := mp.LabelValuesExcluding(p, "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
 		var vals []string
 		for it.Next() {
