@@ -419,7 +419,7 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 		return allValues, nil
 	}
 
-	p, err := PostingsForMatchers(ctx, r, matchers...)
+	p, err := r.PostingsForMatchers(ctx, false, matchers...)
 	if err != nil {
 		return nil, fmt.Errorf("fetching postings for matchers: %w", err)
 	}
