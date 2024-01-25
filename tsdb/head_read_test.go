@@ -555,21 +555,32 @@ func TestMemSeries_chunk(t *testing.T) {
 }
 
 func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
-	t.Run("filtering based on non-empty postings", func(t *testing.T) {
+	getMemPostings := func() *index.MemPostings {
 		mp := index.NewMemPostings()
 		mp.Add(1, labels.FromStrings("a", "1", "b", "1"))
 		mp.Add(2, labels.FromStrings("a", "1", "b", "2"))
 		mp.Add(3, labels.FromStrings("a", "1", "b", "3"))
 		mp.Add(4, labels.FromStrings("a", "1", "b", "4"))
 		mp.Add(5, labels.FromStrings("a", "2", "b", "5"))
+		return mp
+	}
+
+	t.Run("filtering based on non-empty postings", func(t *testing.T) {
+		mp := getMemPostings()
 		r := headIndexReader{
 			head: &Head{
 				postings: mp,
 			},
 		}
+		t.Cleanup(func() {
+			require.NoError(t, r.Close())
+		})
 		p := mp.Get("a", "1")
 
 		it := r.LabelValuesFor(p, "b")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
 		var vals []string
 		for it.Next() {
@@ -581,14 +592,44 @@ func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 		require.Equal(t, []string{"1", "2", "3", "4"}, vals)
 	})
 
-	t.Run("empty postings", func(t *testing.T) {
+	t.Run("filtering based on empty postings", func(t *testing.T) {
+		mp := getMemPostings()
 		r := headIndexReader{
 			head: &Head{
-				postings: index.NewMemPostings(),
+				postings: mp,
 			},
 		}
+		t.Cleanup(func() {
+			require.NoError(t, r.Close())
+		})
 
-		it := r.LabelValuesFor(index.EmptyPostings(), "test")
+		it := r.LabelValuesFor(index.EmptyPostings(), "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
+
+		require.False(t, it.Next())
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+	})
+
+	t.Run("non-existent label name", func(t *testing.T) {
+		mp := getMemPostings()
+		r := headIndexReader{
+			head: &Head{
+				postings: mp,
+			},
+		}
+		t.Cleanup(func() {
+			require.NoError(t, r.Close())
+		})
+		p := mp.Get("a", "1")
+
+		it := r.LabelValuesFor(p, "c")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
+
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
@@ -596,7 +637,7 @@ func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 }
 
 func TestHeadIndexReader_LabelValuesExcluding(t *testing.T) {
-	t.Run("filtering based on non-empty postings", func(t *testing.T) {
+	getMemPostings := func() *index.MemPostings {
 		mp := index.NewMemPostings()
 		mp.Add(1, labels.FromStrings("a", "1", "b", "1"))
 		mp.Add(2, labels.FromStrings("a", "1", "b", "2"))
@@ -606,14 +647,25 @@ func TestHeadIndexReader_LabelValuesExcluding(t *testing.T) {
 		mp.Add(5, labels.FromStrings("a", "1", "b", "5"))
 		// This should be the only value of 5 found, since a!=1
 		mp.Add(6, labels.FromStrings("a", "2", "b", "5"))
+		return mp
+	}
 
+	t.Run("filtering based on non-empty postings", func(t *testing.T) {
+		mp := getMemPostings()
 		r := headIndexReader{
 			head: &Head{
 				postings: mp,
 			},
 		}
+		t.Cleanup(func() {
+			require.NoError(t, r.Close())
+		})
+
 		p := mp.Get("a", "1")
 		it := r.LabelValuesExcluding(p, "b")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
 
 		var vals []string
 		for it.Next() {
@@ -625,14 +677,47 @@ func TestHeadIndexReader_LabelValuesExcluding(t *testing.T) {
 		require.Equal(t, []string{"5"}, vals)
 	})
 
-	t.Run("empty postings", func(t *testing.T) {
+	t.Run("filtering based on empty postings", func(t *testing.T) {
+		mp := getMemPostings()
 		r := headIndexReader{
 			head: &Head{
-				postings: index.NewMemPostings(),
+				postings: mp,
 			},
 		}
+		t.Cleanup(func() {
+			require.NoError(t, r.Close())
+		})
 
-		it := r.LabelValuesExcluding(index.EmptyPostings(), "test")
+		it := r.LabelValuesExcluding(index.EmptyPostings(), "a")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
+
+		var vals []string
+		for it.Next() {
+			vals = append(vals, it.At())
+		}
+		require.NoError(t, it.Err())
+		require.Empty(t, it.Warnings())
+		require.Equal(t, []string{"1", "2"}, vals)
+	})
+
+	t.Run("non-existent label name", func(t *testing.T) {
+		mp := getMemPostings()
+		r := headIndexReader{
+			head: &Head{
+				postings: mp,
+			},
+		}
+		t.Cleanup(func() {
+			require.NoError(t, r.Close())
+		})
+
+		it := r.LabelValuesExcluding(index.EmptyPostings(), "c")
+		t.Cleanup(func() {
+			require.NoError(t, it.Close())
+		})
+
 		require.False(t, it.Next())
 		require.NoError(t, it.Err())
 		require.Empty(t, it.Warnings())
