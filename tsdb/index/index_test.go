@@ -166,7 +166,7 @@ func TestIndexRW_Postings(t *testing.T) {
 
 	fn := filepath.Join(dir, indexFilename)
 
-	iw, err := NewWriter(context.Background(), fn)
+	iw, err := NewWriter(ctx, fn)
 	require.NoError(t, err)
 
 	series := []labels.Labels{
@@ -307,7 +307,7 @@ func TestPostingsMany(t *testing.T) {
 
 	fn := filepath.Join(dir, indexFilename)
 
-	iw, err := NewWriter(context.Background(), fn)
+	iw, err := NewWriter(ctx, fn)
 	require.NoError(t, err)
 
 	// Create a label in the index which has 999 values.
@@ -430,7 +430,7 @@ func TestPersistence_index_e2e(t *testing.T) {
 		})
 	}
 
-	iw, err := NewWriter(context.Background(), filepath.Join(dir, indexFilename))
+	iw, err := NewWriter(ctx, filepath.Join(dir, indexFilename))
 	require.NoError(t, err)
 
 	syms := []string{}
