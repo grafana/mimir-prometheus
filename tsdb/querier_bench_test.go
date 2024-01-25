@@ -186,13 +186,16 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 
 func benchmarkLabelValuesWithMatchers(b *testing.B, ir IndexReader) {
 	i1 := labels.MustNewMatcher(labels.MatchEqual, "i", "1")
+	i1Plus := labels.MustNewMatcher(labels.MatchRegexp, "i", "1.+")
+	i1PostingsBenchSuffix := labels.MustNewMatcher(labels.MatchEqual, "i", "1"+postingsBenchSuffix)
+	iSuffix := labels.MustNewMatcher(labels.MatchRegexp, "i", ".+ddd")
 	iStar := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.*$")
 	jNotFoo := labels.MustNewMatcher(labels.MatchNotEqual, "j", "foo")
 	jXXXYYY := labels.MustNewMatcher(labels.MatchRegexp, "j", "XXX|YYY")
 	jXplus := labels.MustNewMatcher(labels.MatchRegexp, "j", "X.+")
 	n1 := labels.MustNewMatcher(labels.MatchEqual, "n", "1"+postingsBenchSuffix)
 	nX := labels.MustNewMatcher(labels.MatchNotEqual, "n", "X"+postingsBenchSuffix)
-	nPlus := labels.MustNewMatcher(labels.MatchRegexp, "i", "^.+$")
+	nPlus := labels.MustNewMatcher(labels.MatchRegexp, "n", "^.+$")
 	primesTimes := labels.MustNewMatcher(labels.MatchEqual, "i_times_n", "533701") // = 76243*7, ie. multiplication of primes. It will match single i*n combination.
 	nonPrimesTimes := labels.MustNewMatcher(labels.MatchEqual, "i_times_n", "20")  // 1*20, 2*10, 4*5, 5*4
 	times12 := labels.MustNewMatcher(labels.MatchRegexp, "i_times_n", "12.*")
@@ -204,6 +207,7 @@ func benchmarkLabelValuesWithMatchers(b *testing.B, ir IndexReader) {
 		labelName string
 		matchers  []*labels.Matcher
 	}{
+		// i is never "1", this isn't matching anything.
 		{`i with i="1"`, "i", []*labels.Matcher{i1}},
 		// i has 100k values.
 		{`i with n="1"`, "i", []*labels.Matcher{n1}},
@@ -216,9 +220,16 @@ func benchmarkLabelValuesWithMatchers(b *testing.B, ir IndexReader) {
 		{`i with i_times_n=533701`, "i", []*labels.Matcher{primesTimes}},
 		{`i with i_times_n=20`, "i", []*labels.Matcher{nonPrimesTimes}},
 		{`i with i_times_n=~"12.*""`, "i", []*labels.Matcher{times12}},
+		// matchers on i itself
+		{`i with i="1aaa...ddd"`, "i", []*labels.Matcher{i1PostingsBenchSuffix}},
+		{`i with i=~"1.+"`, "i", []*labels.Matcher{i1Plus}},
+		{`i with i=~"1.+",i=~".+ddd"`, "i", []*labels.Matcher{i1Plus, iSuffix}},
 		// n has 10 values.
 		{`n with j!="foo"`, "n", []*labels.Matcher{jNotFoo}},
 		{`n with i="1"`, "n", []*labels.Matcher{i1}},
+		{`n with i=~"1.+"`, "n", []*labels.Matcher{i1Plus}},
+		// there's no label "none"
+		{`none with i=~"1"`, "none", []*labels.Matcher{i1Plus}},
 	}
 
 	for _, c := range cases {
