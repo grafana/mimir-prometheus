@@ -2418,6 +2418,14 @@ func (m mockIndex) ShardedPostings(p index.Postings, shardIndex, shardCount uint
 	return index.NewListPostings(out)
 }
 
+func (mockIndex) LabelValuesFor(index.Postings, string) storage.LabelValues {
+	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
+}
+
+func (mockIndex) LabelValuesExcluding(index.Postings, string) storage.LabelValues {
+	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
+}
+
 func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	s, ok := m.series[ref]
 	if !ok {
@@ -3349,13 +3357,15 @@ func TestPostingsForMatcher(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		ir := &mockMatcherIndex{}
-		_, err := postingsForMatcher(ctx, ir, tc.matcher)
-		if tc.hasError {
-			require.Error(t, err)
-		} else {
-			require.NoError(t, err)
-		}
+		t.Run(tc.matcher.String(), func(t *testing.T) {
+			ir := &mockMatcherIndex{}
+			_, err := postingsForMatcher(ctx, ir, tc.matcher)
+			if tc.hasError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
 	}
 }
 
