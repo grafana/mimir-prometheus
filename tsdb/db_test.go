@@ -4632,7 +4632,7 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 	}
 
 	verifySamples := func(minT, maxT int64, expSamples []chunks.Sample, oooCount int) {
-		require.Equal(t, float64(oooCount), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+		requireEqualOOOSamples(t, oooCount, db)
 
 		// Verify samples querier.
 		querier, err := db.Querier(minT, maxT)
@@ -5487,7 +5487,7 @@ func testQuerierOOOQuery(t *testing.T,
 			require.NotNil(t, gotSamples)
 			require.Len(t, seriesSet, 1)
 			compareSamples(t, series1.String(), expSamples, gotSamples, true)
-			require.GreaterOrEqual(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+			requireEqualOOOSamples(t, oooSamples, db)
 		})
 	}
 }
@@ -5704,7 +5704,7 @@ func testChunkQuerierOOOQuery(t *testing.T,
 			chks := queryChunks(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
 			require.NotNil(t, chks[series1.String()])
 			require.Len(t, chks, 1)
-			require.Equal(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+			requireEqualOOOSamples(t, oooSamples, db)
 			var gotSamples []chunks.Sample
 			for _, chunk := range chks[series1.String()] {
 				it := chunk.Chunk.Iterator(nil)
@@ -5964,7 +5964,7 @@ func testOOOAppendAndQuery(t *testing.T, scenario sampleTypeScenario) {
 			}
 		}
 		requireEqualSamples(t, expSamples, seriesSet, true)
-		require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+		requireEqualOOOSamples(t, totalSamples-2, db)
 	}
 
 	verifyOOOMinMaxTimes := func(expMin, expMax int64) {
@@ -6083,7 +6083,7 @@ func testOOODisabled(t *testing.T, scenario sampleTypeScenario) {
 
 	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
 	requireEqualSamples(t, expSamples, seriesSet, true)
-	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	requireEqualOOOSamples(t, 0, db)
 	require.Equal(t, float64(failedSamples),
 		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples.WithLabelValues(scenario.sampleType))+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples.WithLabelValues(scenario.sampleType)),
 		"number of ooo/oob samples mismatch")
@@ -8377,4 +8377,11 @@ Outer:
 	}
 
 	require.NoError(t, writerErr)
+}
+
+func requireEqualOOOSamples(t *testing.T, expectedSamples int, db *DB) {
+	require.GreaterOrEqual(t, float64(expectedSamples),
+		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended.WithLabelValues(sampleMetricTypeFloat))+
+			prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended.WithLabelValues(sampleMetricTypeHistogram)),
+		"number of ooo appended samples mismatch")
 }
