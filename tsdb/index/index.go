@@ -1798,7 +1798,7 @@ func (r *Reader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) Post
 
 			// Read from the postings table.
 			d := encoding.NewDecbufAt(r.b, int(offset), castagnoliTable)
-			_, p, err := r.dec.Postings(d.Get())
+			_, p, err := r.dec.PostingsFromDecbuf(d)
 			if err != nil {
 				return ErrPostings(fmt.Errorf("decode postings: %w", err))
 			}
