@@ -547,6 +547,10 @@ func (r blockIndexReader) Postings(ctx context.Context, name string, values ...s
 }
 
 func (r blockIndexReader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings {
+	if p, ok := fastPostingsForMatcher(ctx, r, m); ok {
+		return p
+	}
+
 	return r.ir.PostingsForMatcher(ctx, m)
 }
 
