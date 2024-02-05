@@ -3022,9 +3022,7 @@ func TestPostingsForMatchers(t *testing.T) {
 				}
 			}
 			require.NoError(t, p.Err())
-			if len(exp) != 0 {
-				t.Errorf("Evaluating %v, missing results %+v", c.matchers, exp)
-			}
+			require.Empty(t, exp, "Evaluating %v", c.matchers)
 		})
 	}
 }
@@ -3107,9 +3105,7 @@ func TestClose(t *testing.T) {
 	createBlock(t, dir, genSeries(1, 1, 10, 20))
 
 	db, err := Open(dir, nil, nil, DefaultOptions(), nil)
-	if err != nil {
-		t.Fatalf("Opening test storage failed: %s", err)
-	}
+	require.NoError(t, err, "Opening test storage failed: %s")
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
