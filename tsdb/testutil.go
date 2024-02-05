@@ -3,6 +3,8 @@ package tsdb
 import (
 	"testing"
 
+	"github.com/prometheus/prometheus/tsdb/chunkenc"
+
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -28,17 +30,17 @@ type tsValue struct {
 
 type sampleTypeScenario struct {
 	sampleType string
-	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample)
+	appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, sample, error)
 	sampleFunc func(ts, value int64) sample
 }
 
 var sampleTypeScenarios = map[string]sampleTypeScenario{
 	float: {
 		sampleType: sampleMetricTypeFloat,
-		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, sample, error) {
 			s := sample{t: ts, f: float64(value)}
 			ref, err := appender.Append(0, lbls, ts, s.f)
-			return ref, err, s
+			return ref, s, err
 		},
 		sampleFunc: func(ts, value int64) sample {
 			return sample{t: ts, f: float64(value)}
@@ -46,10 +48,10 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 	},
 	intHistogram: {
 		sampleType: sampleMetricTypeHistogram,
-		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, sample, error) {
 			s := sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(value))}
 			ref, err := appender.AppendHistogram(0, lbls, ts, s.h, nil)
-			return ref, err, s
+			return ref, s, err
 		},
 		sampleFunc: func(ts, value int64) sample {
 			return sample{t: ts, h: tsdbutil.GenerateTestHistogram(int(value))}
@@ -57,10 +59,10 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 	},
 	floatHistogram: {
 		sampleType: sampleMetricTypeHistogram,
-		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, sample, error) {
 			s := sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(value))}
 			ref, err := appender.AppendHistogram(0, lbls, ts, nil, s.fh)
-			return ref, err, s
+			return ref, s, err
 		},
 		sampleFunc: func(ts, value int64) sample {
 			return sample{t: ts, fh: tsdbutil.GenerateTestFloatHistogram(int(value))}
@@ -68,10 +70,10 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 	},
 	gaugeIntHistogram: {
 		sampleType: sampleMetricTypeHistogram,
-		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, sample, error) {
 			s := sample{t: ts, h: tsdbutil.GenerateTestGaugeHistogram(int(value))}
 			ref, err := appender.AppendHistogram(0, lbls, ts, s.h, nil)
-			return ref, err, s
+			return ref, s, err
 		},
 		sampleFunc: func(ts, value int64) sample {
 			return sample{t: ts, h: tsdbutil.GenerateTestGaugeHistogram(int(value))}
@@ -79,10 +81,10 @@ var sampleTypeScenarios = map[string]sampleTypeScenario{
 	},
 	gaugeFloatHistogram: {
 		sampleType: sampleMetricTypeHistogram,
-		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample) {
+		appendFunc: func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, sample, error) {
 			s := sample{t: ts, fh: tsdbutil.GenerateTestGaugeFloatHistogram(int(value))}
 			ref, err := appender.AppendHistogram(0, lbls, ts, nil, s.fh)
-			return ref, err, s
+			return ref, s, err
 		},
 		sampleFunc: func(ts, value int64) sample {
 			return sample{t: ts, fh: tsdbutil.GenerateTestGaugeFloatHistogram(int(value))}
@@ -153,4 +155,24 @@ func counterResetAsString(h histogram.CounterResetHint) string {
 		return "GaugeType"
 	}
 	panic("Unexpected counter reset type")
+}
+
+func samplesFromIterator(t testing.TB, it chunkenc.Iterator) []chunks.Sample {
+	var samples []chunks.Sample
+	for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
+		switch typ {
+		case chunkenc.ValFloat:
+			ts, val := it.At()
+			samples = append(samples, sample{t: ts, f: val})
+		case chunkenc.ValHistogram:
+			ts, val := it.AtHistogram(nil)
+			samples = append(samples, sample{t: ts, h: val})
+		case chunkenc.ValFloatHistogram:
+			ts, val := it.AtFloatHistogram(nil)
+			samples = append(samples, sample{t: ts, fh: val})
+		default:
+			t.Fatalf("unknown sample value type %s", typ)
+		}
+	}
+	return samples
 }

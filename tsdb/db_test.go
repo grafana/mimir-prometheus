@@ -105,23 +105,9 @@ func query(t testing.TB, q storage.Querier, matchers ...*labels.Matcher) map[str
 	for ss.Next() {
 		series := ss.At()
 
-		samples := []chunks.Sample{}
 		it = series.Iterator(it)
-		for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
-			switch typ {
-			case chunkenc.ValFloat:
-				ts, v := it.At()
-				samples = append(samples, sample{t: ts, f: v})
-			case chunkenc.ValHistogram:
-				ts, h := it.AtHistogram(nil)
-				samples = append(samples, sample{t: ts, h: h})
-			case chunkenc.ValFloatHistogram:
-				ts, fh := it.AtFloatHistogram(nil)
-				samples = append(samples, sample{t: ts, fh: fh})
-			default:
-				t.Fatalf("unknown sample type in query %s", typ.String())
-			}
-		}
+		samples := samplesFromIterator(t, it)
+
 		require.NoError(t, it.Err())
 
 		if len(samples) == 0 {
@@ -4655,19 +4641,7 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 		var gotChunkSamples []chunks.Sample
 		for _, chunk := range chks[series1.String()] {
 			it := chunk.Chunk.Iterator(nil)
-			for t := it.Next(); t != chunkenc.ValNone; t = it.Next() {
-				switch t {
-				case chunkenc.ValFloat:
-					t, v := it.At()
-					gotChunkSamples = append(gotChunkSamples, sample{t: t, f: v})
-				case chunkenc.ValHistogram:
-					t, v := it.AtHistogram()
-					gotChunkSamples = append(gotChunkSamples, sample{t: t, h: v})
-				case chunkenc.ValFloatHistogram:
-					t, v := it.AtFloatHistogram()
-					gotChunkSamples = append(gotChunkSamples, sample{t: t, fh: v})
-				}
-			}
+			gotChunkSamples = append(gotChunkSamples, samplesFromIterator(t, it)...)
 			require.NoError(t, it.Err())
 		}
 		compareSamples(t, series1.String(), expSamples, gotChunkSamples, true)
@@ -4792,9 +4766,9 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
+			_, _, err = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -4982,9 +4956,9 @@ func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScen
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
+			_, _, err = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -5095,9 +5069,9 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScen
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
+			_, _, err = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -5206,9 +5180,9 @@ func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sa
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
-			_, err, _ = scenario.appendFunc(app, series2, ts, 2*ts)
+			_, _, err = scenario.appendFunc(app, series2, ts, 2*ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -5580,24 +5554,6 @@ func testChunkQuerierOOOQuery(t *testing.T,
 		return expSamples, totalAppended
 	}
 
-	extractSamples := func(it chunkenc.Iterator) []chunks.Sample {
-		var samples []chunks.Sample
-		for t := it.Next(); t != chunkenc.ValNone; t = it.Next() {
-			switch t {
-			case chunkenc.ValFloat:
-				t, v := it.At()
-				samples = append(samples, sample{t: t, f: v})
-			case chunkenc.ValHistogram:
-				t, v := it.AtHistogram()
-				samples = append(samples, sample{t: t, h: v})
-			case chunkenc.ValFloatHistogram:
-				t, v := it.AtFloatHistogram()
-				samples = append(samples, sample{t: t, fh: v})
-			}
-		}
-		return samples
-	}
-
 	type sampleBatch struct {
 		minT         int64
 		maxT         int64
@@ -5708,7 +5664,7 @@ func testChunkQuerierOOOQuery(t *testing.T,
 			var gotSamples []chunks.Sample
 			for _, chunk := range chks[series1.String()] {
 				it := chunk.Chunk.Iterator(nil)
-				gotSamples = append(gotSamples, extractSamples(it)...)
+				gotSamples = append(gotSamples, samplesFromIterator(t, it)...)
 				require.NoError(t, it.Err())
 			}
 			compareSamples(t, series1.String(), expSamples, gotSamples, true)
@@ -5856,7 +5812,7 @@ func testOOONativeHistogramsWithCounterResets(t *testing.T, scenario sampleTypeS
 					if resetCount {
 						j = 0
 					}
-					_, err, s := scenario.appendFunc(app, lbls, minutes(i), j)
+					_, s, err := scenario.appendFunc(app, lbls, minutes(i), j)
 					require.NoError(t, err)
 					if s.Type() == chunkenc.ValHistogram {
 						s.H().CounterResetHint = batch.expCounterResetHints[smplIdx]
@@ -5922,7 +5878,7 @@ func testOOOAppendAndQuery(t *testing.T, scenario sampleTypeScenario) {
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
 			val := rand.Intn(1000)
-			_, err, s := scenario.appendFunc(app, lbls, min, int64(val))
+			_, s, err := scenario.appendFunc(app, lbls, min, int64(val))
 			if faceError {
 				require.Error(t, err)
 			} else {
@@ -6054,7 +6010,7 @@ func testOOODisabled(t *testing.T, scenario sampleTypeScenario) {
 		key := lbls.String()
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
-			_, err, _ := scenario.appendFunc(app, lbls, min, min)
+			_, _, err := scenario.appendFunc(app, lbls, min, min)
 			if faceError {
 				require.Error(t, err)
 				failedSamples++
@@ -6131,7 +6087,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		from, to := minutes(fromMins), minutes(toMins)
 		for min := from; min <= to; min += time.Minute.Milliseconds() {
 			val := rand.Intn(1000)
-			_, err, s := scenario.appendFunc(app, lbls, min, int64(val))
+			_, s, err := scenario.appendFunc(app, lbls, min, int64(val))
 			require.NoError(t, err)
 			expSamples[key] = append(expSamples[key], s)
 			totalSamples++
@@ -6174,21 +6130,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		chk, err := db.head.chunkDiskMapper.Chunk(mc.ref)
 		require.NoError(t, err)
 		it := chk.Iterator(nil)
-		for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
-			switch typ {
-			case chunkenc.ValFloat:
-				ts, val := it.At()
-				s1MmapSamples = append(s1MmapSamples, sample{t: ts, f: val})
-			case chunkenc.ValHistogram:
-				ts, val := it.AtHistogram()
-				s1MmapSamples = append(s1MmapSamples, sample{t: ts, h: val})
-			case chunkenc.ValFloatHistogram:
-				ts, val := it.AtFloatHistogram()
-				s1MmapSamples = append(s1MmapSamples, sample{t: ts, fh: val})
-			default:
-				t.Fatalf("unknown type %s", typ)
-			}
-		}
+		s1MmapSamples = append(s1MmapSamples, samplesFromIterator(t, it)...)
 	}
 	require.NotEmpty(t, s1MmapSamples)
 
@@ -6708,7 +6650,7 @@ func testOOOCompactionFailure(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -7001,7 +6943,7 @@ func testOOOMmapCorruption(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 			allSamples = append(allSamples, s)
 			if inMmapAfterCorruption {
@@ -7148,7 +7090,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			if success {
 				require.NoError(t, err)
 				allSamples = append(allSamples, s)
@@ -7359,7 +7301,7 @@ func testNoGapAfterRestartWithOOO(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, _ := scenario.appendFunc(app, series1, ts, ts)
+			_, _, err := scenario.appendFunc(app, series1, ts, ts)
 			if success {
 				require.NoError(t, err)
 			} else {
@@ -7491,7 +7433,7 @@ func testWblReplayAfterOOODisableAndRestart(t *testing.T, scenario sampleTypeSce
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 			allSamples = append(allSamples, s)
 		}
@@ -7560,7 +7502,7 @@ func testPanicOnApplyConfig(t *testing.T, scenario sampleTypeScenario) {
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 			allSamples = append(allSamples, s)
 		}
@@ -7619,7 +7561,7 @@ func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenari
 		app := db.Appender(context.Background())
 		for min := fromMins; min <= toMins; min++ {
 			ts := min * time.Minute.Milliseconds()
-			_, err, s := scenario.appendFunc(app, series1, ts, ts)
+			_, s, err := scenario.appendFunc(app, series1, ts, ts)
 			require.NoError(t, err)
 			allSamples = append(allSamples, s)
 		}
@@ -7978,23 +7920,9 @@ func TestQueryHistogramFromBlocksWithCompaction(t *testing.T) {
 
 			for _, s := range series {
 				key := s.Labels().String()
-				it = s.Iterator(it)
 				slice := exp[key]
-				for typ := it.Next(); typ != chunkenc.ValNone; typ = it.Next() {
-					switch typ {
-					case chunkenc.ValFloat:
-						ts, v := it.At()
-						slice = append(slice, sample{t: ts, f: v})
-					case chunkenc.ValHistogram:
-						ts, h := it.AtHistogram(nil)
-						slice = append(slice, sample{t: ts, h: h})
-					case chunkenc.ValFloatHistogram:
-						ts, h := it.AtFloatHistogram(nil)
-						slice = append(slice, sample{t: ts, fh: h})
-					default:
-						t.Fatalf("unexpected sample value type %d", typ)
-					}
-				}
+				it = s.Iterator(it)
+				slice = append(slice, samplesFromIterator(t, it)...)
 				sort.Slice(slice, func(i, j int) bool {
 					return slice[i].T() < slice[j].T()
 				})

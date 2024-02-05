@@ -213,11 +213,11 @@ func testBoundedIterable(t *testing.T,
 						t, v := it.At()
 						samples = append(samples, sample{t, v, nil, nil})
 					case chunkenc.ValHistogram:
-						t, v := it.AtHistogram()
+						t, v := it.AtHistogram(nil)
 						v.CounterResetHint = histogram.UnknownCounterReset
 						samples = append(samples, sample{t, 0, v, nil})
 					case chunkenc.ValFloatHistogram:
-						t, v := it.AtFloatHistogram()
+						t, v := it.AtFloatHistogram(nil)
 						v.CounterResetHint = histogram.UnknownCounterReset
 						samples = append(samples, sample{t, 0, nil, v})
 					}
@@ -231,11 +231,11 @@ func testBoundedIterable(t *testing.T,
 					t, v := it.At()
 					samples = append(samples, sample{t, v, nil, nil})
 				case chunkenc.ValHistogram:
-					t, v := it.AtHistogram()
+					t, v := it.AtHistogram(nil)
 					v.CounterResetHint = histogram.UnknownCounterReset
 					samples = append(samples, sample{t, 0, v, nil})
 				case chunkenc.ValFloatHistogram:
-					t, v := it.AtFloatHistogram()
+					t, v := it.AtFloatHistogram(nil)
 					v.CounterResetHint = histogram.UnknownCounterReset
 					samples = append(samples, sample{t, 0, nil, v})
 				}
@@ -392,11 +392,11 @@ func testMergedOOOChunks(t *testing.T,
 			t, v := it.At()
 			actSamples = append(actSamples, sample{t, v, nil, nil})
 		case chunkenc.ValHistogram:
-			t, v := it.AtHistogram()
+			t, v := it.AtHistogram(nil)
 			v.CounterResetHint = histogram.UnknownCounterReset
 			actSamples = append(actSamples, sample{t, 0, v, nil})
 		case chunkenc.ValFloatHistogram:
-			t, v := it.AtFloatHistogram()
+			t, v := it.AtFloatHistogram(nil)
 			v.CounterResetHint = histogram.UnknownCounterReset
 			actSamples = append(actSamples, sample{t, 0, nil, v})
 		}

@@ -2612,7 +2612,7 @@ func testOutOfOrderSamplesMetric(t *testing.T, scenario sampleTypeScenario) {
 	db.EnableOOONativeHistograms()
 
 	appendSample := func(appender storage.Appender, ts int64) (storage.SeriesRef, error) {
-		ref, err, _ := scenario.appendFunc(appender, labels.FromStrings("a", "b"), ts, 99)
+		ref, _, err := scenario.appendFunc(appender, labels.FromStrings("a", "b"), ts, 99)
 		return ref, err
 	}
 
@@ -4367,12 +4367,6 @@ func TestHistogramCounterResetHeader(t *testing.T) {
 	}
 }
 
-type expOOOMmappedChunks struct {
-	header     chunkenc.CounterResetHeader
-	mint, maxt int64
-	numSamples uint16
-}
-
 func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 	for _, floatHisto := range []bool{true, false} {
 		t.Run(fmt.Sprintf("floatHistogram=%t", floatHisto), func(t *testing.T) {
@@ -4395,6 +4389,12 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 				}
 				require.NoError(t, err)
 				require.NoError(t, app.Commit())
+			}
+
+			type expOOOMmappedChunks struct {
+				header     chunkenc.CounterResetHeader
+				mint, maxt int64
+				numSamples uint16
 			}
 
 			var expChunks []expOOOMmappedChunks
@@ -4813,7 +4813,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	l := labels.FromStrings("foo", "bar")
 	appendSample := func(mins int64, isOOO bool) {
 		app := h.Appender(context.Background())
-		_, err, s := scenario.appendFunc(app, l, mins*time.Minute.Milliseconds(), mins)
+		_, s, err := scenario.appendFunc(app, l, mins*time.Minute.Milliseconds(), mins)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 
@@ -4860,26 +4860,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	require.Len(t, chks, 1)
 
 	it := chks[0].chunk.Iterator(nil)
-	actOOOSamples := make([]chunks.Sample, 0, len(expOOOSamples))
-	for {
-		valType := it.Next()
-		if valType == chunkenc.ValNone {
-			break
-		}
-		switch valType {
-		case chunkenc.ValFloat:
-			ts, v := it.At()
-			actOOOSamples = append(actOOOSamples, sample{t: ts, f: v})
-		case chunkenc.ValHistogram:
-			ts, v := it.AtHistogram()
-			actOOOSamples = append(actOOOSamples, sample{t: ts, h: v})
-		case chunkenc.ValFloatHistogram:
-			ts, v := it.AtFloatHistogram()
-			actOOOSamples = append(actOOOSamples, sample{t: ts, fh: v})
-		default:
-			t.Error("Unexpected sample type")
-		}
-	}
+	actOOOSamples := samplesFromIterator(t, it)
 
 	// OOO chunk will be sorted. Hence sort the expected samples.
 	sort.Slice(expOOOSamples, func(i, j int) bool {
@@ -4925,7 +4906,7 @@ func testOOOMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	l := labels.FromStrings("foo", "bar")
 	appendSample := func(mins int64) {
 		app := h.Appender(context.Background())
-		_, err, _ := scenario.appendFunc(app, l, mins*time.Minute.Milliseconds(), mins)
+		_, _, err := scenario.appendFunc(app, l, mins*time.Minute.Milliseconds(), mins)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 	}
@@ -5207,7 +5188,7 @@ func TestOOOAppendWithNoSeries(t *testing.T) {
 	}
 }
 
-func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, error, sample)) {
+func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Appender, lbls labels.Labels, ts, value int64) (storage.SeriesRef, sample, error)) {
 	dir := t.TempDir()
 	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
 	require.NoError(t, err)
@@ -5230,7 +5211,7 @@ func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Ap
 
 	appendSample := func(lbls labels.Labels, ts int64) {
 		app := h.Appender(context.Background())
-		_, err, _ := appendFunc(app, lbls, ts*time.Minute.Milliseconds(), ts)
+		_, _, err := appendFunc(app, lbls, ts*time.Minute.Milliseconds(), ts)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 	}
@@ -5278,7 +5259,7 @@ func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Ap
 	// Now 179m is too old.
 	s4 := newLabels(4)
 	app := h.Appender(context.Background())
-	_, err, _ = appendFunc(app, s4, 179*time.Minute.Milliseconds(), 179)
+	_, _, err = appendFunc(app, s4, 179*time.Minute.Milliseconds(), 179)
 	require.Equal(t, storage.ErrTooOldSample, err)
 	require.NoError(t, app.Rollback())
 	verifyOOOSamples(s3, 1)
@@ -5320,7 +5301,7 @@ func testHeadMinOOOTimeUpdate(t *testing.T, scenario sampleTypeScenario) {
 
 	appendSample := func(ts int64) {
 		app := h.Appender(context.Background())
-		_, err, _ = scenario.appendFunc(app, labels.FromStrings("a", "b"), ts*time.Minute.Milliseconds(), 99.0)
+		_, _, err = scenario.appendFunc(app, labels.FromStrings("a", "b"), ts*time.Minute.Milliseconds(), 99.0)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 	}
