@@ -329,7 +329,7 @@ type headAppender struct {
 
 func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
 	// For OOO inserts, this restriction is irrelevant and will be checked later once we confirm the sample is an in-order append.
-	// If OOO inserts are disabled, we may as well as check this as early as we can and avoid more work.
+	// Fail fast if OOO is disabled.
 	if a.oooTimeWindow == 0 && t < a.minValidTime {
 		a.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
 		return 0, storage.ErrOutOfBounds
@@ -630,12 +630,12 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 	}
 
 	// For OOO inserts, this restriction is irrelevant and will be checked later once we confirm the histogram sample is an in-order append.
-	// If OOO inserts are disabled, we may as well as check this as early as we can and avoid more work.
+	// Fail fast if OOO is disabled.
 	if a.oooTimeWindow == 0 && t < a.minValidTime {
 		a.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeHistogram).Inc()
 		return 0, storage.ErrOutOfBounds
 	}
-	// If OOO is enabled, but OOO native histogram ingestion is disabled
+	// Also fail fast if OOO is enabled, but OOO native histogram ingestion is disabled.
 	if a.oooTimeWindow > 0 && t < a.minValidTime && !a.head.opts.EnableOOONativeHistograms.Load() {
 		return 0, storage.ErrOOONativeHistogramsDisabled
 	}
@@ -1735,7 +1735,7 @@ func (s *memSeries) mmapCurrentOOOHeadChunk(chunkDiskMapper chunkDiskMapper) []c
 		handleChunkWriteError(err)
 		return nil
 	}
-	chunkRefs := make([]chunks.ChunkDiskMapperRef, 0, 1)
+	chunkRefs := make([]chunks.ChunkDiskMapperRef, 0, len(chks))
 	for _, memchunk := range chks {
 		chunkRef := chunkDiskMapper.WriteChunk(s.ref, memchunk.minTime, memchunk.maxTime, memchunk.chunk, true, handleChunkWriteError)
 		chunkRefs = append(chunkRefs, chunkRef)
