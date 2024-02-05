@@ -1780,9 +1780,8 @@ func TestRuleGroupEvalIterationFunc(t *testing.T) {
 			evaluationTimestamp: atomic.NewTime(time.Time{}),
 			evaluationDuration:  atomic.NewDuration(0),
 			lastError:           atomic.NewError(nil),
-
-			noDependentRules:  atomic.NewBool(false),
-			noDependencyRules: atomic.NewBool(false),
+			noDependentRules:    atomic.NewBool(false),
+			noDependencyRules:   atomic.NewBool(false),
 		}
 
 		group := NewGroup(GroupOptions{
