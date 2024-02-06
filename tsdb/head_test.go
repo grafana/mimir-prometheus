@@ -52,20 +52,30 @@ import (
 	"github.com/prometheus/prometheus/tsdb/wlog"
 )
 
-func newTestHead(t testing.TB, chunkRange int64, compressWAL wlog.CompressionType, oooEnabled bool) (*Head, *wlog.WL) {
-	dir := t.TempDir()
-	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, compressWAL)
-	require.NoError(t, err)
-
+// newTestHeadDefaultOptions returns the HeadOptions that should be used by default in unit tests.
+func newTestHeadDefaultOptions(chunkRange int64, oooEnabled bool) *HeadOptions {
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = chunkRange
-	opts.ChunkDirRoot = dir
 	opts.EnableExemplarStorage = true
 	opts.MaxExemplars.Store(config.DefaultExemplarsConfig.MaxExemplars)
 	opts.EnableNativeHistograms.Store(true)
 	if oooEnabled {
 		opts.OutOfOrderTimeWindow.Store(10 * time.Minute.Milliseconds())
 	}
+	return opts
+}
+
+func newTestHead(t testing.TB, chunkRange int64, compressWAL wlog.CompressionType, oooEnabled bool) (*Head, *wlog.WL) {
+	return newTestHeadWithOptions(t, compressWAL, newTestHeadDefaultOptions(chunkRange, oooEnabled))
+}
+
+func newTestHeadWithOptions(t testing.TB, compressWAL wlog.CompressionType, opts *HeadOptions) (*Head, *wlog.WL) {
+	dir := t.TempDir()
+	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, compressWAL)
+	require.NoError(t, err)
+
+	// Override the chunks dir with the testing one.
+	opts.ChunkDirRoot = dir
 
 	h, err := NewHead(nil, nil, wal, nil, opts, nil)
 	require.NoError(t, err)
@@ -196,7 +206,7 @@ func readTestWAL(t testing.TB, dir string) (recs []interface{}) {
 			require.NoError(t, err)
 			recs = append(recs, exemplars)
 		default:
-			t.Fatalf("unknown record type")
+			require.Fail(t, "unknown record type")
 		}
 	}
 	require.NoError(t, r.Err())
@@ -342,8 +352,7 @@ func BenchmarkLoadWLs(b *testing.B) {
 						}
 						for k := 0; k < c.batches*c.seriesPerBatch; k++ {
 							// Create one mmapped chunk per series, with one sample at the given time.
-							lbls := labels.Labels{}
-							s := newMemSeries(lbls, chunks.HeadSeriesRef(k)*101, labels.StableHash(lbls), 0, 0, defaultIsolationDisabled)
+							s := newMemSeries(labels.Labels{}, chunks.HeadSeriesRef(k)*101, 0, 0, 0, defaultIsolationDisabled)
 							s.append(c.mmappedChunkT, 42, 0, cOpts)
 							// There's only one head chunk because only a single sample is appended. mmapChunks()
 							// ignores the latest chunk, so we need to cut a new head chunk to guarantee the chunk with
@@ -913,8 +922,7 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 		},
 	}
 
-	lbls := labels.FromStrings("a", "b")
-	s := newMemSeries(lbls, 1, labels.StableHash(lbls), 0, 0, defaultIsolationDisabled)
+	s := newMemSeries(labels.FromStrings("a", "b"), 1, 0, 0, 0, defaultIsolationDisabled)
 
 	for i := 0; i < 4000; i += 5 {
 		ok, _ := s.append(int64(i), float64(i), 0, cOpts)
@@ -1055,7 +1063,7 @@ func TestMemSeries_truncateChunks_scenarios(t *testing.T) {
 				require.NoError(t, chunkDiskMapper.Close())
 			}()
 
-			series := newMemSeries(labels.EmptyLabels(), 1, labels.StableHash(labels.EmptyLabels()), 0, 0, true)
+			series := newMemSeries(labels.EmptyLabels(), 1, 0, 0, 0, true)
 
 			cOpts := chunkOpts{
 				chunkDiskMapper: chunkDiskMapper,
@@ -1363,7 +1371,7 @@ func TestDeletedSamplesAndSeriesStillInWALAfterCheckpoint(t *testing.T) {
 		case []record.RefMetadata:
 			metadata++
 		default:
-			t.Fatalf("unknown record type")
+			require.Fail(t, "unknown record type")
 		}
 	}
 	require.Equal(t, 1, series)
@@ -1612,9 +1620,7 @@ func TestComputeChunkEndTime(t *testing.T) {
 	for testName, tc := range cases {
 		t.Run(testName, func(t *testing.T) {
 			got := computeChunkEndTime(tc.start, tc.cur, tc.max, tc.ratioToFull)
-			if got != tc.res {
-				t.Errorf("expected %d for (start: %d, cur: %d, max: %d, ratioToFull: %f), got %d", tc.res, tc.start, tc.cur, tc.max, tc.ratioToFull, got)
-			}
+			require.Equal(t, tc.res, got, "(start: %d, cur: %d, max: %d)", tc.start, tc.cur, tc.max)
 		})
 	}
 }
@@ -1633,8 +1639,7 @@ func TestMemSeries_append(t *testing.T) {
 		samplesPerChunk: DefaultSamplesPerChunk,
 	}
 
-	lbls := labels.Labels{}
-	s := newMemSeries(lbls, 1, labels.StableHash(lbls), 0, 0, defaultIsolationDisabled)
+	s := newMemSeries(labels.Labels{}, 1, 0, 0, 0, defaultIsolationDisabled)
 
 	// Add first two samples at the very end of a chunk range and the next two
 	// on and after it.
@@ -1695,8 +1700,7 @@ func TestMemSeries_appendHistogram(t *testing.T) {
 		samplesPerChunk: DefaultSamplesPerChunk,
 	}
 
-	lbls := labels.Labels{}
-	s := newMemSeries(lbls, 1, labels.StableHash(lbls), 0, 0, defaultIsolationDisabled)
+	s := newMemSeries(labels.Labels{}, 1, 0, 0, 0, defaultIsolationDisabled)
 
 	histograms := tsdbutil.GenerateTestHistograms(4)
 	histogramWithOneMoreBucket := histograms[3].Copy()
@@ -1758,8 +1762,7 @@ func TestMemSeries_append_atVariableRate(t *testing.T) {
 		samplesPerChunk: samplesPerChunk,
 	}
 
-	lbls := labels.Labels{}
-	s := newMemSeries(lbls, 1, labels.StableHash(lbls), 0, 0, defaultIsolationDisabled)
+	s := newMemSeries(labels.Labels{}, 1, 0, 0, 0, defaultIsolationDisabled)
 
 	// At this slow rate, we will fill the chunk in two block durations.
 	slowRate := (DefaultBlockDuration * 2) / samplesPerChunk
@@ -2557,7 +2560,7 @@ func TestIsolationAppendIDZeroIsNoop(t *testing.T) {
 
 	ok, _ := s.append(0, 0, 0, cOpts)
 	require.True(t, ok, "Series append failed.")
-	require.Equal(t, 0, s.txs.txIDCount, "Series should not have an appendID after append with appendID=0.")
+	require.Equal(t, 0, int(s.txs.txIDCount), "Series should not have an appendID after append with appendID=0.")
 }
 
 func TestHeadSeriesChunkRace(t *testing.T) {
@@ -2906,7 +2909,9 @@ func TestHeadLabelNamesWithMatchers(t *testing.T) {
 }
 
 func TestHeadShardedPostings(t *testing.T) {
-	head, _ := newTestHead(t, 1000, wlog.CompressionNone, false)
+	headOpts := newTestHeadDefaultOptions(1000, false)
+	headOpts.EnableSharding = true
+	head, _ := newTestHeadWithOptions(t, wlog.CompressionNone, headOpts)
 	defer func() {
 		require.NoError(t, head.Close())
 	}()
@@ -3106,8 +3111,7 @@ func TestIteratorSeekIntoBuffer(t *testing.T) {
 		samplesPerChunk: DefaultSamplesPerChunk,
 	}
 
-	lbls := labels.Labels{}
-	s := newMemSeries(lbls, 1, labels.StableHash(lbls), 0, 0, defaultIsolationDisabled)
+	s := newMemSeries(labels.Labels{}, 1, 0, 0, 0, defaultIsolationDisabled)
 
 	for i := 0; i < 7; i++ {
 		ok, _ := s.append(int64(i), float64(i), 0, cOpts)
