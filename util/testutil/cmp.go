@@ -24,13 +24,13 @@ import (
 )
 
 // Replacement for require.Equal using go-cmp adapted for Prometheus data structures, instead of DeepEqual.
-func RequireEqual(t *testing.T, expected, actual interface{}, msgAndArgs ...interface{}) {
+func RequireEqual(t testing.TB, expected, actual interface{}, msgAndArgs ...interface{}) {
 	t.Helper()
 	RequireEqualWithOptions(t, expected, actual, nil, msgAndArgs...)
 }
 
 // As RequireEqual but allows extra cmp.Options.
-func RequireEqualWithOptions(t *testing.T, expected, actual interface{}, extra []cmp.Option, msgAndArgs ...interface{}) {
+func RequireEqualWithOptions(t testing.TB, expected, actual interface{}, extra []cmp.Option, msgAndArgs ...interface{}) {
 	t.Helper()
 	options := append([]cmp.Option{cmp.Comparer(labels.Equal)}, extra...)
 	if cmp.Equal(expected, actual, options...) {
