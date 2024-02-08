@@ -228,10 +228,10 @@ func (q *query) Cancel() {
 
 // Close implements the Query interface.
 func (q *query) Close() {
-	// TODO: Handle info metric samples
 	for _, s := range q.matrix {
 		putFPointSlice(s.Floats)
 		putHPointSlice(s.Histograms)
+		putInfoPointSlice(s.InfoSamples)
 	}
 }
 
@@ -713,6 +713,7 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 			lookbackDelta:            s.LookbackDelta,
 			samplesStats:             query.sampleStats,
 			noStepSubqueryIntervalFn: ng.noStepSubqueryIntervalFn,
+			querier:                  querier,
 		}
 		query.sampleStats.InitStepTracking(start, start, 1)
 
@@ -743,10 +744,12 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 			for i, s := range mat {
 				// Point might have a different timestamp, force it to the evaluation
 				// timestamp as that is when we ran the evaluation.
-				// TODO: Handle info metric samples
-				if len(s.Histograms) > 0 {
+				switch {
+				case len(s.Histograms) > 0:
 					vector[i] = Sample{Metric: s.Metric, H: s.Histograms[0].H, T: start}
-				} else {
+				case len(s.InfoSamples) > 0:
+					vector[i] = Sample{Metric: s.Metric, IdentifyingLabels: s.InfoSamples[0].IdentifyingLabels, T: start}
+				default:
 					vector[i] = Sample{Metric: s.Metric, F: s.Floats[0].F, T: start}
 				}
 			}
@@ -771,6 +774,7 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 		lookbackDelta:            s.LookbackDelta,
 		samplesStats:             query.sampleStats,
 		noStepSubqueryIntervalFn: ng.noStepSubqueryIntervalFn,
+		querier:                  querier,
 	}
 	query.sampleStats.InitStepTracking(evaluator.startTimestamp, evaluator.endTimestamp, evaluator.interval)
 	val, warnings, err := evaluator.Eval(s.Expr)
@@ -1024,6 +1028,8 @@ type evaluator struct {
 	lookbackDelta            time.Duration
 	samplesStats             *stats.QuerySamples
 	noStepSubqueryIntervalFn func(rangeMillis int64) int64
+
+	querier storage.Querier
 }
 
 // errorf causes a panic with the input formatted into an error.
@@ -1097,6 +1103,8 @@ type EvalNodeHelper struct {
 	rightSigs    map[string]Sample
 	matchedSigs  map[string]map[uint64]struct{}
 	resultMetric map[string]labels.Labels
+
+	Querier storage.Querier
 }
 
 func (enh *EvalNodeHelper) resetBuilder(lbls labels.Labels) {
@@ -1146,7 +1154,7 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 			biggestLen = len(matrixes[i])
 		}
 	}
-	enh := &EvalNodeHelper{Out: make(Vector, 0, biggestLen)}
+	enh := &EvalNodeHelper{Out: make(Vector, 0, biggestLen), Querier: ev.querier}
 	type seriesAndTimestamp struct {
 		Series
 		ts int64
@@ -1175,6 +1183,9 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 		}
 	}
 
+	// For each timestamp, iterate over the expressions, and for each series in each expression's matrix,
+	// append a corresponding sample to the expression's input vector.
+	// Then, call funcCall.
 	for ts := ev.startTimestamp; ts <= ev.endTimestamp; ts += ev.interval {
 		if err := contextDone(ev.ctx, "expression evaluation"); err != nil {
 			ev.error(err)
@@ -1190,7 +1201,6 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 			}
 
 			for si, series := range matrixes[i] {
-				// TODO: Handle info metric samples
 				switch {
 				case len(series.Floats) > 0 && series.Floats[0].T == ts:
 					vectors[i] = append(vectors[i], Sample{Metric: series.Metric, F: series.Floats[0].F, T: ts})
@@ -1200,6 +1210,11 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 				case len(series.Histograms) > 0 && series.Histograms[0].T == ts:
 					vectors[i] = append(vectors[i], Sample{Metric: series.Metric, H: series.Histograms[0].H, T: ts})
 					matrixes[i][si].Histograms = series.Histograms[1:]
+				case len(series.InfoSamples) > 0 && series.InfoSamples[0].T == ts:
+					vectors[i] = append(vectors[i], Sample{Metric: series.Metric, IdentifyingLabels: series.InfoSamples[0].IdentifyingLabels, T: ts})
+					// Move input vectors forward so we don't have to re-scan the same
+					// past points at the next step.
+					matrixes[i][si].InfoSamples = series.InfoSamples[1:]
 				default:
 					continue
 				}
@@ -1242,11 +1257,13 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 			}
 			mat := make(Matrix, len(result))
 			for i, s := range result {
-				// TODO: Handle info metric samples
-				if s.H == nil {
-					mat[i] = Series{Metric: s.Metric, Floats: []FPoint{{T: ts, F: s.F}}}
-				} else {
+				switch {
+				case s.H != nil:
 					mat[i] = Series{Metric: s.Metric, Histograms: []HPoint{{T: ts, H: s.H}}}
+				case s.IdentifyingLabels != nil:
+					mat[i] = Series{Metric: s.Metric, InfoSamples: []InfoPoint{{T: ts, IdentifyingLabels: s.IdentifyingLabels}}}
+				default:
+					mat[i] = Series{Metric: s.Metric, Floats: []FPoint{{T: ts, F: s.F}}}
 				}
 			}
 			ev.currentSamples = originalNumSamples + mat.TotalSamples()
@@ -1266,17 +1283,22 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 			} else {
 				ss = seriesAndTimestamp{Series{Metric: sample.Metric}, ts}
 			}
-			// TODO: Handle info metric samples
-			if sample.H == nil {
+			switch {
+			case sample.H != nil:
+				if ss.Histograms != nil {
+					ss.Histograms = getHPointSlice(numSteps)
+				}
+				ss.Histograms = append(ss.Histograms, HPoint{T: ts, H: sample.H})
+			case sample.IdentifyingLabels != nil:
+				if ss.InfoSamples == nil {
+					ss.InfoSamples = getInfoPointSlice(numSteps)
+				}
+				ss.InfoSamples = append(ss.InfoSamples, InfoPoint{T: ts, IdentifyingLabels: sample.IdentifyingLabels})
+			default:
 				if ss.Floats == nil {
 					ss.Floats = getFPointSlice(numSteps)
 				}
 				ss.Floats = append(ss.Floats, FPoint{T: ts, F: sample.F})
-			} else {
-				if ss.Histograms == nil {
-					ss.Histograms = getHPointSlice(numSteps)
-				}
-				ss.Histograms = append(ss.Histograms, HPoint{T: ts, H: sample.H})
 			}
 			seriess[h] = ss
 		}
@@ -1285,9 +1307,9 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 	// Reuse the original point slices.
 	for _, m := range origMatrixes {
 		for _, s := range m {
-			// TODO: Handle info metric samples
 			putFPointSlice(s.Floats)
 			putHPointSlice(s.Histograms)
+			putInfoPointSlice(s.InfoSamples)
 		}
 	}
 	// Assemble the output matrix. By the time we get here we know we don't have too many samples.
@@ -1473,6 +1495,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 		// Reuse objects across steps to save memory allocations.
 		var floats []FPoint
 		var histograms []HPoint
+		var infoSamples []InfoPoint
 		var prevSS *Series
 		inMatrix := make(Matrix, 1)
 		inArgs[matrixArgIndex] = inMatrix
@@ -1484,13 +1507,15 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 			if err := contextDone(ev.ctx, "expression evaluation"); err != nil {
 				ev.error(err)
 			}
-			ev.currentSamples -= len(floats) + totalHPointSize(histograms)
-			// TODO: Handle info metric samples
+			ev.currentSamples -= len(floats) + totalHPointSize(histograms) + len(infoSamples)
 			if floats != nil {
 				floats = floats[:0]
 			}
 			if histograms != nil {
 				histograms = histograms[:0]
+			}
+			if infoSamples != nil {
+				infoSamples = infoSamples[:0]
 			}
 			chkIter = s.Iterator(chkIter)
 			it.Reset(chkIter)
@@ -1522,14 +1547,14 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				if ts == ev.startTimestamp || selVS.Timestamp == nil {
 					maxt := ts - offset
 					mint := maxt - selRange
-					floats, histograms = ev.matrixIterSlice(it, mint, maxt, floats, histograms)
+					floats, histograms, infoSamples = ev.matrixIterSlice(it, mint, maxt, floats, histograms, infoSamples)
 				}
-				if len(floats)+len(histograms) == 0 {
+				if len(floats)+len(histograms)+len(infoSamples) == 0 {
 					continue
 				}
-				// TODO: Handle info metric samples
 				inMatrix[0].Floats = floats
 				inMatrix[0].Histograms = histograms
+				inMatrix[0].InfoSamples = infoSamples
 				enh.Ts = ts
 				// Make the function call.
 				outVec, annos := call(inArgs, e.Args, enh)
@@ -1580,10 +1605,10 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 		}
 		ev.samplesStats.UpdatePeak(ev.currentSamples)
 
-		// TODO: Handle info metric samples
-		ev.currentSamples -= len(floats) + totalHPointSize(histograms)
+		ev.currentSamples -= len(floats) + totalHPointSize(histograms) + len(infoSamples)
 		putFPointSlice(floats)
 		putMatrixSelectorHPointSlice(histograms)
+		putInfoPointSlice(infoSamples)
 
 		// The absent_over_time function returns 0 or 1 series. So far, the matrix
 		// contains multiple series. The following code will create a new series
@@ -1592,8 +1617,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 			steps := int(1 + (ev.endTimestamp-ev.startTimestamp)/ev.interval)
 			// Iterate once to look for a complete series.
 			for _, s := range mat {
-				// TODO: Handle info metric samples
-				if len(s.Floats)+len(s.Histograms) == steps {
+				if len(s.Floats)+len(s.Histograms)+len(s.InfoSamples) == steps {
 					return Matrix{}, warnings
 				}
 			}
@@ -1601,11 +1625,13 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 			found := map[int64]struct{}{}
 
 			for i, s := range mat {
-				// TODO: Handle info metric samples
 				for _, p := range s.Floats {
 					found[p.T] = struct{}{}
 				}
 				for _, p := range s.Histograms {
+					found[p.T] = struct{}{}
+				}
+				for _, p := range s.InfoSamples {
 					found[p.T] = struct{}{}
 				}
 				if i > 0 && len(found) == steps {
@@ -1726,20 +1752,11 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 
 			for ts, step := ev.startTimestamp, -1; ts <= ev.endTimestamp; ts += ev.interval {
 				step++
-				_, f, h, ok := ev.vectorSelectorSingle(it, e, ts)
+				_, f, h, ils, ok := ev.vectorSelectorSingle(it, e, ts)
 				if ok {
 					// TODO: Handle info metric samples
-					if h == nil {
-						ev.currentSamples++
-						ev.samplesStats.IncrementSamplesAtStep(step, 1)
-						if ev.currentSamples > ev.maxSamples {
-							ev.error(ErrTooManySamples(env))
-						}
-						if ss.Floats == nil {
-							ss.Floats = reuseOrGetFPointSlices(prevSS, numSteps)
-						}
-						ss.Floats = append(ss.Floats, FPoint{F: f, T: ts})
-					} else {
+					switch {
+					case h != nil:
 						point := HPoint{H: h, T: ts}
 						histSize := point.size()
 						ev.currentSamples += histSize
@@ -1751,6 +1768,26 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 							ss.Histograms = reuseOrGetHPointSlices(prevSS, numSteps)
 						}
 						ss.Histograms = append(ss.Histograms, point)
+					case ils != nil:
+						ev.currentSamples++
+						ev.samplesStats.IncrementSamplesAtStep(step, 1)
+						if ev.currentSamples > ev.maxSamples {
+							ev.error(ErrTooManySamples(env))
+						}
+						if ss.InfoSamples == nil {
+							ss.InfoSamples = reuseOrGetInfoPointSlices(prevSS, numSteps)
+						}
+						ss.InfoSamples = append(ss.InfoSamples, InfoPoint{T: ts, IdentifyingLabels: ils})
+					default:
+						ev.currentSamples++
+						ev.samplesStats.IncrementSamplesAtStep(step, 1)
+						if ev.currentSamples > ev.maxSamples {
+							ev.error(ErrTooManySamples(env))
+						}
+						if ss.Floats == nil {
+							ss.Floats = reuseOrGetFPointSlices(prevSS, numSteps)
+						}
+						ss.Floats = append(ss.Floats, FPoint{F: f, T: ts})
 					}
 				}
 			}
@@ -1904,6 +1941,18 @@ func reuseOrGetFPointSlices(prevSS *Series, numSteps int) (r []FPoint) {
 	return getFPointSlice(numSteps)
 }
 
+// reuseOrGetInfoPointSlices reuses the space from previous slice to create new slice if the former has lots of room.
+// The previous slices capacity is adjusted so when it is re-used from the pool it doesn't overflow into the new one.
+func reuseOrGetInfoPointSlices(prevSS *Series, numSteps int) (r []InfoPoint) {
+	if prevSS != nil && cap(prevSS.InfoSamples)-2*len(prevSS.InfoSamples) > 0 {
+		r = prevSS.InfoSamples[len(prevSS.InfoSamples):]
+		prevSS.InfoSamples = prevSS.InfoSamples[0:len(prevSS.InfoSamples):len(prevSS.InfoSamples)]
+		return
+	}
+
+	return getInfoPointSlice(numSteps)
+}
+
 func (ev *evaluator) rangeEvalTimestampFunctionOverVectorSelector(vs *parser.VectorSelector, call FunctionCall, e *parser.Call) (parser.Value, annotations.Annotations) {
 	ws, err := checkAndExpandSeriesSet(ev.ctx, vs)
 	if err != nil {
@@ -1927,22 +1976,28 @@ func (ev *evaluator) rangeEvalTimestampFunctionOverVectorSelector(vs *parser.Vec
 		vec := make(Vector, 0, len(vs.Series))
 		for i, s := range vs.Series {
 			it := seriesIterators[i]
-			t, f, h, ok := ev.vectorSelectorSingle(it, vs, enh.Ts)
+			t, f, h, ils, ok := ev.vectorSelectorSingle(it, vs, enh.Ts)
 			if ok {
 				vec = append(vec, Sample{
-					Metric: s.Labels(),
-					T:      t,
-					F:      f,
-					H:      h,
+					Metric:            s.Labels(),
+					T:                 t,
+					F:                 f,
+					H:                 h,
+					IdentifyingLabels: ils,
 				})
 				histSize := 0
 				if h != nil {
-					histSize := h.Size() / 16 // 16 bytes per sample.
-					ev.currentSamples += histSize
+					histSize = h.Size() / 16 // 16 bytes per sample.
 				}
-				ev.currentSamples++
+				numSamples := 1 + histSize
+				if ils != nil {
+					// Arve: Is this correct?
+					numSamples++
+				}
+				ev.currentSamples += numSamples
 
-				ev.samplesStats.IncrementSamplesAtTimestamp(enh.Ts, int64(1+histSize))
+				// Arve: is it correct to use numSamples here?
+				ev.samplesStats.IncrementSamplesAtTimestamp(enh.Ts, int64(numSamples))
 				if ev.currentSamples > ev.maxSamples {
 					ev.error(ErrTooManySamples(env))
 				}
@@ -1956,15 +2011,15 @@ func (ev *evaluator) rangeEvalTimestampFunctionOverVectorSelector(vs *parser.Vec
 
 // vectorSelectorSingle evaluates an instant vector for the iterator of one time series.
 func (ev *evaluator) vectorSelectorSingle(it *storage.MemoizedSeriesIterator, node *parser.VectorSelector, ts int64) (
-	int64, float64, *histogram.FloatHistogram, bool,
+	int64, float64, *histogram.FloatHistogram, []int, bool,
 ) {
 	refTime := ts - durationMilliseconds(node.Offset)
 	var t int64
 	var v float64
 	var h *histogram.FloatHistogram
+	var ils []int
 
 	valueType := it.Seek(refTime)
-	// TODO: Handle info metric samples
 	switch valueType {
 	case chunkenc.ValNone:
 		if it.Err() != nil {
@@ -1974,6 +2029,8 @@ func (ev *evaluator) vectorSelectorSingle(it *storage.MemoizedSeriesIterator, no
 		t, v = it.At()
 	case chunkenc.ValFloatHistogram:
 		t, h = it.AtFloatHistogram()
+	case chunkenc.ValInfoSample:
+		t, ils = it.AtInfoSample()
 	default:
 		panic(fmt.Errorf("unknown value type %v", valueType))
 	}
@@ -1981,18 +2038,19 @@ func (ev *evaluator) vectorSelectorSingle(it *storage.MemoizedSeriesIterator, no
 		var ok bool
 		t, v, h, _, ok = it.PeekPrev()
 		if !ok || t < refTime-durationMilliseconds(ev.lookbackDelta) {
-			return 0, 0, nil, false
+			return 0, 0, nil, nil, false
 		}
 	}
 	if value.IsStaleNaN(v) || (h != nil && value.IsStaleNaN(h.Sum)) {
-		return 0, 0, nil, false
+		return 0, 0, nil, nil, false
 	}
-	return t, v, h, true
+	return t, v, h, ils, true
 }
 
 var (
-	fPointPool zeropool.Pool[[]FPoint]
-	hPointPool zeropool.Pool[[]HPoint]
+	fPointPool    zeropool.Pool[[]FPoint]
+	hPointPool    zeropool.Pool[[]HPoint]
+	infoPointPool zeropool.Pool[[]InfoPoint]
 
 	// matrixSelectorHPool holds reusable histogram slices used by the matrix
 	// selector. The key difference between this pool and the hPointPool is that
@@ -2042,6 +2100,26 @@ func putHPointSlice(p []HPoint) {
 	}
 }
 
+func getInfoPointSlice(sz int) []InfoPoint {
+	if p := infoPointPool.Get(); p != nil {
+		return p
+	}
+
+	if sz > maxPointsSliceSize {
+		sz = maxPointsSliceSize
+	}
+
+	return make([]InfoPoint, 0, sz)
+}
+
+// putInfoPointSlice will return an InfoPoint slice of size max(maxPointsSliceSize, sz).
+// This function is called with an estimated size which often can be over-estimated.
+func putInfoPointSlice(p []InfoPoint) {
+	if p != nil {
+		infoPointPool.Put(p[:0])
+	}
+}
+
 func getMatrixSelectorHPoints() []HPoint {
 	if p := matrixSelectorHPool.Get(); p != nil {
 		return p
@@ -2085,9 +2163,8 @@ func (ev *evaluator) matrixSelector(node *parser.MatrixSelector) (Matrix, annota
 			Metric: series[i].Labels(),
 		}
 
-		// TODO: Handle info metric samples
-		ss.Floats, ss.Histograms = ev.matrixIterSlice(it, mint, maxt, nil, nil)
-		totalSize := int64(len(ss.Floats)) + int64(totalHPointSize(ss.Histograms))
+		ss.Floats, ss.Histograms, ss.InfoSamples = ev.matrixIterSlice(it, mint, maxt, nil, nil, nil)
+		totalSize := int64(len(ss.Floats)) + int64(totalHPointSize(ss.Histograms)) + int64(len(ss.InfoSamples))
 		ev.samplesStats.IncrementSamplesAtTimestamp(ev.startTimestamp, totalSize)
 
 		if totalSize > 0 {
@@ -2095,6 +2172,7 @@ func (ev *evaluator) matrixSelector(node *parser.MatrixSelector) (Matrix, annota
 		} else {
 			putFPointSlice(ss.Floats)
 			putHPointSlice(ss.Histograms)
+			putInfoPointSlice(ss.InfoSamples)
 		}
 	}
 	return matrix, ws
@@ -2110,11 +2188,10 @@ func (ev *evaluator) matrixSelector(node *parser.MatrixSelector) (Matrix, annota
 // are populated from the iterator.
 func (ev *evaluator) matrixIterSlice(
 	it *storage.BufferedSeriesIterator, mint, maxt int64,
-	floats []FPoint, histograms []HPoint,
-) ([]FPoint, []HPoint) {
-	mintFloats, mintHistograms := mint, mint
+	floats []FPoint, histograms []HPoint, infoSamples []InfoPoint,
+) ([]FPoint, []HPoint, []InfoPoint) {
+	mintFloats, mintHistograms, mintInfoSamples := mint, mint, mint
 
-	// TODO: Handle info metric samples
 	// First floats...
 	if len(floats) > 0 && floats[len(floats)-1].T >= mint {
 		// There is an overlap between previous and current ranges, retain common
@@ -2164,6 +2241,28 @@ func (ev *evaluator) matrixIterSlice(
 		}
 	}
 
+	// ...then the same for info metric samples. TODO: Use generics?
+	if len(infoSamples) > 0 && infoSamples[len(infoSamples)-1].T >= mint {
+		// There is an overlap between previous and current ranges, retain common
+		// points. In most such cases:
+		//   (a) the overlap is significantly larger than the eval step; and/or
+		//   (b) the number of samples is relatively small.
+		// so a linear search will be as fast as a binary search.
+		var drop int
+		for drop = 0; infoSamples[drop].T < mint; drop++ {
+		}
+		ev.currentSamples -= drop
+		copy(infoSamples, infoSamples[drop:])
+		infoSamples = infoSamples[:len(infoSamples)-drop]
+		// Only append points with timestamps after the last timestamp we have.
+		mintInfoSamples = infoSamples[len(infoSamples)-1].T + 1
+	} else {
+		ev.currentSamples -= len(infoSamples)
+		if infoSamples != nil {
+			infoSamples = infoSamples[:0]
+		}
+	}
+
 	soughtValueType := it.Seek(maxt)
 	if soughtValueType == chunkenc.ValNone {
 		if it.Err() != nil {
@@ -2174,7 +2273,6 @@ func (ev *evaluator) matrixIterSlice(
 	buf := it.Buffer()
 loop:
 	for {
-		// TODO: Handle info metric samples
 		switch buf.Next() {
 		case chunkenc.ValNone:
 			break loop
@@ -2217,6 +2315,19 @@ loop:
 				}
 				floats = append(floats, FPoint{T: t, F: f})
 			}
+		case chunkenc.ValInfoSample:
+			t, ils := buf.AtInfoSample()
+			// Timestamps in the buffer are guaranteed to be smaller than maxt.
+			if t >= mintInfoSamples {
+				ev.currentSamples++
+				if ev.currentSamples > ev.maxSamples {
+					ev.error(ErrTooManySamples(env))
+				}
+				if infoSamples == nil {
+					infoSamples = getInfoPointSlice(16)
+				}
+				infoSamples = append(infoSamples, InfoPoint{T: t, IdentifyingLabels: ils})
+			}
 		}
 	}
 	// The sought sample might also be in the range.
@@ -2256,9 +2367,21 @@ loop:
 			}
 			floats = append(floats, FPoint{T: t, F: f})
 		}
+	case chunkenc.ValInfoSample:
+		t, ils := it.AtInfoSample()
+		if t == maxt {
+			ev.currentSamples++
+			if ev.currentSamples > ev.maxSamples {
+				ev.error(ErrTooManySamples(env))
+			}
+			if infoSamples == nil {
+				infoSamples = getInfoPointSlice(16)
+			}
+			infoSamples = append(infoSamples, InfoPoint{T: t, IdentifyingLabels: ils})
+		}
 	}
 	ev.samplesStats.UpdatePeak(ev.currentSamples)
-	return floats, histograms
+	return floats, histograms, infoSamples
 }
 
 func (ev *evaluator) VectorAnd(lhs, rhs Vector, matching *parser.VectorMatching, lhsh, rhsh []EvalSeriesHelper, enh *EvalNodeHelper) Vector {

@@ -630,6 +630,7 @@ func (wp *walSubsetProcessor) reuseInfoBuf() []record.RefInfoSample {
 func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmappedChunks map[chunks.HeadSeriesRef][]*mmappedChunk) (unknownRefs, unknownHistogramRefs, unknownInfoRefs, mmapOverlappingChunks uint64) {
 	defer close(wp.output)
 	defer close(wp.histogramsOutput)
+	defer close(wp.infoOutput)
 
 	minValidTime := h.minValidTime.Load()
 	mint, maxt := int64(math.MaxInt64), int64(math.MinInt64)

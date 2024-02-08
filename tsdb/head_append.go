@@ -1482,6 +1482,7 @@ func (s *memSeries) appendFloatHistogram(t int64, fh *histogram.FloatHistogram, 
 
 // appendInfoSample adds an info metric sample.
 // s should be the corresponding info metric/time series.
+// Returns whether sample is in order and whether a chunk was created.
 func (s *memSeries) appendInfoSample(t int64, identifyingLabels []int, appendID uint64, o chunkOpts) (bool, bool) {
 	// Every time we receive an OTLP write, a sample is written to target_info for the resource's job/instance combo
 	// plus the resource's other attributes. The sample has the timestamp of the most recent timestamp among the
@@ -1538,6 +1539,7 @@ func (s *memSeries) appendPreprocessor(t int64, e chunkenc.Encoding, o chunkOpts
 	}
 
 	// Check the chunk size, unless we just created it and if the chunk is too large, cut a new one.
+	// TODO: Reconsider chunk size heuristics for info metric samples.
 	if !chunkCreated && len(c.chunk.Bytes()) > maxBytesPerXORChunk {
 		c = s.cutNewHeadChunk(t, e, o.chunkRange)
 		chunkCreated = true

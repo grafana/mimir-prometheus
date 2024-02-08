@@ -246,7 +246,7 @@ func Checkpoint(logger log.Logger, w *WL, from, to int, keep func(id chunks.Head
 			}
 			stats.TotalSamples += len(floatHistogramSamples)
 			stats.DroppedSamples += len(floatHistogramSamples) - len(repl)
-			
+
 		case record.InfoSamples:
 			infoSamples, err = dec.InfoSamples(rec, infoSamples)
 			if err != nil {

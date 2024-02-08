@@ -71,8 +71,9 @@ func NewMemPostings() *MemPostings {
 // until EnsureOrder() was called once.
 func NewUnorderedMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, 512),
-		ordered: false,
+		m:           make(map[string]map[string][]storage.SeriesRef, 512),
+		ordered:     false,
+		infoMetrics: make(map[storage.SeriesRef][]infoMetricEntry, 512),
 	}
 }
 

@@ -14,6 +14,7 @@
 package promql
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"slices"
@@ -30,6 +31,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/promql/parser/posrange"
+	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/annotations"
 )
 
@@ -1491,6 +1493,126 @@ func funcYear(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper)
 	}), nil
 }
 
+// === info(vector parser.ValueTypeVector, [ls label-selector]) (Vector, Annotations) ===
+func funcInfo(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
+	vector := vals[0].(Vector)
+	var dataLabelMatchers []*labels.Matcher
+	if len(args) > 1 {
+		// TODO: Introduce a dedicated LabelSelector type
+		labelSelector := args[1].(*parser.VectorSelector)
+		dataLabelMatchers = labelSelector.LabelMatchers
+	}
+
+	if len(vector) == 0 {
+		return enh.Out, nil
+	}
+
+	if enh.Dmn == nil {
+		enh.Dmn = make(map[uint64]labels.Labels, len(enh.Out))
+	}
+
+	ts := vector[0].T
+	hints := &storage.SelectHints{
+		Start: ts,
+		End:   ts,
+		Func:  "info",
+	}
+	selectors := []*labels.Matcher{
+		labels.MustNewMatcher(labels.MatchRegexp, "__name__", ".+_info"),
+	}
+	selectors = append(selectors, dataLabelMatchers...)
+
+	it := enh.Querier.Select(context.TODO(), false, hints, selectors...)
+	var infoSeries []storage.Series
+	for it.Next() {
+		infoSeries = append(infoSeries, it.At())
+	}
+	if it.Err() != nil {
+		var annots annotations.Annotations
+		annots.Add(fmt.Errorf("querying for info metrics: %w", it.Err()))
+		return nil, annots
+	}
+
+	for _, s := range vector {
+		// Hash of sample's label set (the label set identifies the metric)
+		h := s.Metric.Hash()
+		if ls, ok := enh.Dmn[h]; ok {
+			// We've encountered this label set/metric before and can re-use the previous result
+			enh.Out = append(enh.Out, Sample{
+				Metric: ls,
+				F:      s.F,
+				H:      s.H,
+			})
+			continue
+		}
+
+		lb := labels.NewBuilder(s.Metric)
+
+		// Find info series with matching labels, these are identifying labels
+		addedDataLabels := map[string]struct{}{}
+		for _, series := range infoSeries {
+			infoLbls := series.Labels()
+
+			identifyingLabels := map[string]string{}
+			dataLabels := map[string]string{}
+			infoLbls.Range(func(l labels.Label) {
+				if l.Name == "__name__" {
+					return
+				}
+
+				if s.Metric.Has(l.Name) {
+					identifyingLabels[l.Name] = l.Value
+					return
+				}
+
+				if len(dataLabelMatchers) > 0 {
+					// Keep only data labels among dataLabelMatchers
+					found := false
+					for _, m := range dataLabelMatchers {
+						if m.Name == l.Name {
+							found = true
+							break
+						}
+					}
+					if !found {
+						return
+					}
+				}
+				dataLabels[l.Name] = l.Value
+			})
+			if len(identifyingLabels) == 0 {
+				continue
+			}
+
+			name := infoLbls.Get("__name__")
+			fmt.Printf("Identifying labels for info metric %s: %#v, data labels: %#v\n", name, identifyingLabels, dataLabels)
+			for n, v := range dataLabels {
+				if lb.Get(n) == "" {
+					lb.Set(n, v)
+				}
+
+				addedDataLabels[n] = struct{}{}
+			}
+		}
+
+		// If info metric data label matchers are specified, we should only include series where
+		// info metric data labels are found
+		if len(dataLabelMatchers) > 0 && len(addedDataLabels) == 0 {
+			continue
+		}
+
+		ls := lb.Labels()
+		enh.Dmn[h] = ls
+		enh.Out = append(enh.Out, Sample{
+			Metric: ls,
+			F:      s.F,
+			H:      s.H,
+		})
+	}
+
+	return enh.Out, nil
+}
+
 // FunctionCalls is a list of all functions supported by PromQL, including their types.
 var FunctionCalls = map[string]FunctionCall{
 	"abs":                funcAbs,
@@ -1531,6 +1653,7 @@ var FunctionCalls = map[string]FunctionCall{
 	"hour":               funcHour,
 	"idelta":             funcIdelta,
 	"increase":           funcIncrease,
+	"info":               funcInfo,
 	"irate":              funcIrate,
 	"label_replace":      funcLabelReplace,
 	"label_join":         funcLabelJoin,

@@ -82,7 +82,6 @@ func (b *MemoizedSeriesIterator) Seek(t int64) chunkenc.ValueType {
 		b.prevTime = math.MinInt64
 
 		b.valueType = b.it.Seek(t0)
-		// TODO: Handle info metric samples
 		switch b.valueType {
 		case chunkenc.ValNone:
 			return chunkenc.ValNone
