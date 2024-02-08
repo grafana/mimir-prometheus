@@ -24,9 +24,6 @@ import (
 	"time"
 
 	"github.com/go-kit/log"
-
-	"github.com/prometheus/prometheus/util/testutil"
-
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
