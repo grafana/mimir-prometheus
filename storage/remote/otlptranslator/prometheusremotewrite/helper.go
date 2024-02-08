@@ -545,6 +545,7 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 	if settings.DisableTargetInfo || timestamp == 0 {
 		return
 	}
+	fmt.Printf("Adding resource target info\n")
 
 	attributes := resource.Attributes()
 	identifyingAttrs := []string{
@@ -561,6 +562,7 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 	}
 	if nonIdentifyingAttrsCount == 0 {
 		// If we only have job + instance, then target_info isn't useful, so don't add it.
+		fmt.Printf("Only have job + instance\n")
 		return
 	}
 
@@ -568,18 +570,21 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 	if len(settings.Namespace) > 0 {
 		name = settings.Namespace + "_" + name
 	}
-	labels := createAttributes(resource, attributes, settings.ExternalLabels, model.MetricNameLabel, name)
+
+	labels := createAttributes(resource, attributes, settings.ExternalLabels, identifyingAttrs, false, model.MetricNameLabel, name)
 	// Ensure consistent label ordering
 	sort.Sort(ByLabelName(labels))
 	identifyingLabels := make([]int32, 0, 2)
 	for i, l := range labels {
-		if l.Name == model.InstanceLabel || l.Name == model.JobLabel {
+		if l.Name == model.JobLabel || l.Name == model.InstanceLabel {
+			fmt.Printf("Have identifying label %s=%s\n", l.Name, l.Value)
 			identifyingLabels = append(identifyingLabels, int32(i))
 		}
 	}
-	if len(identifyingLabels) != 2 {
-		// target_info has to be identified by the job/instance tuple, one of them isn't enough on its own.
-		identifyingLabels = nil
+	if len(identifyingLabels) == 0 {
+		// We need at least one identifying label to generate target_info.
+		fmt.Printf("Got no identifying labels\n")
+		return
 	}
 	sample := &prompb.Sample{
 		Value: float64(1),

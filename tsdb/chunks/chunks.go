@@ -722,7 +722,7 @@ func nextSequenceFile(dir string) (string, int, error) {
 		}
 		// It is not necessary that we find the files in number order,
 		// for example with '1000000' and '200000', '1000000' would come first.
-		// Though this is a very very rare case, we check anyway for the max id.
+		// Though this is a very very race case, we check anyway for the max id.
 		if j > i {
 			i = j
 		}

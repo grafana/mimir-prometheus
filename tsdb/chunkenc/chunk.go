@@ -353,7 +353,6 @@ func (p *pool) Get(e Encoding, b []byte) (Chunk, error) {
 
 func (p *pool) Put(c Chunk) error {
 	var sp *sync.Pool
-	var ok bool
 	switch c.Encoding() {
 	case EncXOR:
 		_, ok := c.(*XORChunk)

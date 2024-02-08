@@ -26,10 +26,9 @@ type InfoSampleChunk struct {
 	b bstream
 }
 
-// NewInfoSampleChunk returns a new chunk with info metric encoding of the given
-// size.
+// NewInfoSampleChunk returns a new chunk with info metric encoding.
 func NewInfoSampleChunk() *InfoSampleChunk {
-	b := make([]byte, 3, 128)
+	b := make([]byte, 2, 128)
 	return &InfoSampleChunk{b: bstream{stream: b, count: 0}}
 }
 
@@ -85,28 +84,24 @@ func (c *InfoSampleChunk) Appender() (Appender, error) {
 	}, nil
 }
 
-// Iterator implements the Chunk interface.
-func (c *InfoSampleChunk) Iterator(it Iterator) Iterator {
-	return c.iterator(it)
-}
-
 func (c *InfoSampleChunk) iterator(it Iterator) *infoSampleIterator {
 	if iter, ok := it.(*infoSampleIterator); ok {
 		iter.Reset(c.b.bytes())
 		return iter
 	}
 
-	iter := &infoSampleIterator{
+	return &infoSampleIterator{
 		// The first 2 bytes contain chunk headers.
 		// We skip that for actual samples.
 		br:       newBReader(c.b.bytes()[2:]),
 		numTotal: binary.BigEndian.Uint16(c.b.bytes()),
 		t:        math.MinInt64,
 	}
-	// The first 3 bytes contain chunk headers.
-	// We skip that for actual samples.
-	_, _ = iter.br.readBits(24)
-	return iter
+}
+
+// Iterator implements the Chunk interface.
+func (c *InfoSampleChunk) Iterator(it Iterator) Iterator {
+	return c.iterator(it)
 }
 
 type infoSampleAppender struct {
@@ -151,10 +146,8 @@ func (a *infoSampleAppender) AppendInfoSample(t int64, identifyingLabels []int) 
 	} else {
 		tDelta := t - a.t
 		tDod := tDelta - a.tDelta
-
-		putVarbitInt(a.b, tDod)
-
 		a.tDelta = tDelta
+		putVarbitInt(a.b, tDod)
 
 		if slices.Equal(a.ils, identifyingLabels) {
 			// The labels do not change
@@ -165,7 +158,6 @@ func (a *infoSampleAppender) AppendInfoSample(t int64, identifyingLabels []int) 
 			lDelta := len(identifyingLabels) - len(a.ils)
 			lDod := int64(lDelta - a.lDelta)
 			a.lDelta = lDelta
-
 			putVarbitInt(a.b, lDod)
 			for _, ix := range identifyingLabels {
 				putVarbitInt(a.b, int64(ix))
@@ -175,6 +167,7 @@ func (a *infoSampleAppender) AppendInfoSample(t int64, identifyingLabels []int) 
 
 	a.t = t
 	a.ils = identifyingLabels
+	binary.BigEndian.PutUint16(a.b.bytes(), num+1)
 }
 
 type infoSampleIterator struct {

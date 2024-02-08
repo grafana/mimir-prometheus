@@ -227,6 +227,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 					}
 					return
 				}
+				level.Debug(h.logger).Log("msg", "decoded info metric samples from WAL", "count", len(samples))
 				decoded <- samples
 			case record.Metadata:
 				meta := metadataPool.Get()[:0]
@@ -630,6 +631,7 @@ func (wp *walSubsetProcessor) reuseInfoBuf() []record.RefInfoSample {
 func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmappedChunks map[chunks.HeadSeriesRef][]*mmappedChunk) (unknownRefs, unknownHistogramRefs, unknownInfoRefs, mmapOverlappingChunks uint64) {
 	defer close(wp.output)
 	defer close(wp.histogramsOutput)
+	defer close(wp.infoOutput)
 
 	minValidTime := h.minValidTime.Load()
 	mint, maxt := int64(math.MaxInt64), int64(math.MinInt64)
@@ -704,6 +706,10 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmapp
 				mint = s.t
 			}
 		}
+		select {
+		case wp.histogramsOutput <- in.histogramSamples:
+		default:
+		}
 
 		for _, s := range in.infoSamples {
 			if s.T < minValidTime {
@@ -729,16 +735,6 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmapp
 				mint = s.T
 			}
 		}
-		select {
-		case wp.output <- in.samples:
-		default:
-		}
-
-		select {
-		case wp.histogramsOutput <- in.histogramSamples:
-		default:
-		}
-
 		select {
 		case wp.infoOutput <- in.infoSamples:
 		default:

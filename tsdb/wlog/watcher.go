@@ -667,12 +667,12 @@ func (w *Watcher) readSegment(r *LiveReader, segmentNum int, tail bool) error {
 			if !tail {
 				break
 			}
-			samples, err := dec.InfoSamples(rec, infoSamples[:0])
+			infoSamples, err := dec.InfoSamples(rec, infoSamples[:0])
 			if err != nil {
 				w.recordDecodeFailsMetric.Inc()
 				return err
 			}
-			for _, s := range samples {
+			for _, s := range infoSamples {
 				if s.T > w.startTimestamp {
 					if !w.sendSamples {
 						w.sendSamples = true
@@ -683,6 +683,7 @@ func (w *Watcher) readSegment(r *LiveReader, segmentNum int, tail bool) error {
 				}
 			}
 			if len(infoSamplesToSend) > 0 {
+				level.Debug(w.logger).Log("msg", "read segment - appending info samples", "count", len(infoSamplesToSend))
 				w.writer.AppendInfoSamples(infoSamplesToSend)
 				infoSamplesToSend = infoSamplesToSend[:0]
 			}

@@ -157,6 +157,32 @@ func (q *mergeGenericQuerier) Select(ctx context.Context, sortSeries bool, hints
 	}}
 }
 
+func (q *mergeGenericQuerier) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	seen := make(map[string]struct{})
+	var annots annotations.Annotations
+	var lb labels.ScratchBuilder
+	for _, querier := range q.queriers {
+		lbls, anns, err := querier.InfoMetricDataLabels(ctx, lbls, t, matchers...)
+		if len(anns) > 0 {
+			annots.Merge(anns)
+		}
+		if err != nil {
+			return labels.Labels{}, annots, fmt.Errorf("InfoMetricDataLabels() from merge generic querier: %w", err)
+		}
+		lbls.Range(func(l labels.Label) {
+			if _, ok := seen[l.Name]; ok {
+				return
+			}
+
+			seen[l.Name] = struct{}{}
+			lb.Add(l.Name, l.Value)
+		})
+	}
+
+	lb.Sort()
+	return lb.Labels(), annots, nil
+}
+
 type labelGenericQueriers []genericQuerier
 
 func (l labelGenericQueriers) Len() int               { return len(l) }

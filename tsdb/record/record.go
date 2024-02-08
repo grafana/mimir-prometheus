@@ -167,7 +167,7 @@ type RefMetadata struct {
 	Help string
 }
 
-// RefExemplar is an exemplar with the labels, timestamp, value the exemplar was collected/observed with, and a reference to a series.
+// RefExemplar is an exemplar with it's labels, timestamp, value the exemplar was collected/observed with, and a reference to a series.
 type RefExemplar struct {
 	Ref    chunks.HeadSeriesRef
 	T      int64
@@ -889,7 +889,7 @@ func (e *Encoder) FloatHistogramSamples(histograms []RefFloatHistogramSample, b 
 	return buf.Get()
 }
 
-// EncodeFloatHistogram encodes the Float Histogram into a byte slice.
+// Encode encodes the Float Histogram into a byte slice.
 func EncodeFloatHistogram(buf *encoding.Encbuf, h *histogram.FloatHistogram) {
 	buf.PutByte(byte(h.CounterResetHint))
 

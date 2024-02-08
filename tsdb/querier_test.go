@@ -2475,6 +2475,10 @@ func (m mockIndex) LabelNames(_ context.Context, matchers ...*labels.Matcher) ([
 	return l, nil
 }
 
+func (m mockIndex) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	panic("not implemented")
+}
+
 func BenchmarkQueryIterator(b *testing.B) {
 	cases := []struct {
 		numBlocks                   int

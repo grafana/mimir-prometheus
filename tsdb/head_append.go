@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/go-kit/log/level"
 
@@ -477,6 +479,17 @@ func (a *headAppender) getOrCreate(lset labels.Labels) (*memSeries, error) {
 	return s, nil
 }
 
+func (a *headAppender) getOrCreateInfoMetric(lset labels.Labels, t int64, identifyingLabels []int) (*memSeries, error) {
+	s, err := a.getOrCreate(lset)
+	if err != nil {
+		return s, err
+	}
+
+	a.head.postings.AddInfoMetric(storage.SeriesRef(s.ref), lset, t, identifyingLabels)
+
+	return s, nil
+}
+
 // appendable checks whether the given sample is valid for appending to the series. (if we return false and no error)
 // The sample belongs to the out of order chunk if we return true and no error.
 // An error signifies the sample cannot be handled.
@@ -754,11 +767,20 @@ func (a *headAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Label
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
 	if s == nil {
 		var err error
-		s, err = a.getOrCreate(lset)
+		s, err = a.getOrCreateInfoMetric(lset, t, identifyingLabels)
 		if err != nil {
 			return 0, err
 		}
 	}
+
+	var ilb strings.Builder
+	for i, idx := range identifyingLabels {
+		if i > 0 {
+			ilb.WriteRune(',')
+		}
+		ilb.WriteString(strconv.Itoa(idx))
+	}
+	level.Debug(a.head.logger).Log("msg", "trying to append info metric sample", "series_ref", ref, "t", t, "identifying_labels", ilb.String())
 
 	s.Lock()
 	// TODO(codesome): If we definitely know at this point that the sample is ooo, then optimise
@@ -788,6 +810,7 @@ func (a *headAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Label
 		a.maxt = t
 	}
 
+	level.Debug(a.head.logger).Log("msg", "appending info sample", "series_ref", s.ref, "t", t, "identifying_labels", ilb.String())
 	a.infoSamples = append(a.infoSamples, record.RefInfoSample{
 		Ref:               s.ref,
 		T:                 t,
@@ -890,6 +913,7 @@ func (a *headAppender) log() error {
 		}
 	}
 	if len(a.infoSamples) > 0 {
+		level.Debug(a.head.logger).Log("msg", "writing info samples to WAL", "count", len(a.infoSamples))
 		rec = enc.InfoSamples(a.infoSamples, buf)
 		buf = rec[:0]
 		if err := a.head.wal.Log(rec); err != nil {
@@ -1261,6 +1285,7 @@ func (a *headAppender) Commit() (err error) {
 						floatsAppended--
 				*/
 			}
+			level.Debug(a.head.logger).Log("msg", "committed info sample to WAL and added to head", "series_ref", series.ref, "chunk_created", chunkCreated)
 		}
 
 		if chunkCreated {
@@ -1468,6 +1493,7 @@ func (s *memSeries) appendFloatHistogram(t int64, fh *histogram.FloatHistogram, 
 
 // appendInfoSample adds an info metric sample.
 // s should be the corresponding info metric/time series.
+// Returns whether sample is in order and whether a chunk was created.
 func (s *memSeries) appendInfoSample(t int64, identifyingLabels []int, appendID uint64, o chunkOpts) (bool, bool) {
 	// Every time we receive an OTLP write, a sample is written to target_info for the resource's job/instance combo
 	// plus the resource's other attributes. The sample has the timestamp of the most recent timestamp among the
@@ -1524,6 +1550,7 @@ func (s *memSeries) appendPreprocessor(t int64, e chunkenc.Encoding, o chunkOpts
 	}
 
 	// Check the chunk size, unless we just created it and if the chunk is too large, cut a new one.
+	// TODO: Reconsider chunk size heuristics for info metric samples.
 	if !chunkCreated && len(c.chunk.Bytes()) > maxBytesPerXORChunk {
 		c = s.cutNewHeadChunk(t, e, o.chunkRange)
 		chunkCreated = true

@@ -203,7 +203,7 @@ func (p InfoPoint) String() string {
 		}
 		b.WriteString(strconv.Itoa(il))
 	}
-	return fmt.Sprintf("%s @[%v]", b.String(), p.T)
+	return fmt.Sprintf("%s @[%d]", b.String(), p.T)
 }
 
 // MarshalJSON implements json.Marshaler.
@@ -237,7 +237,6 @@ func (s Sample) String() string {
 		p := FPoint{T: s.T, F: s.F}
 		str = p.String()
 	}
-
 	return fmt.Sprintf("%s => %s", s.Metric, str)
 }
 
@@ -592,7 +591,7 @@ func (ssi *storageSeriesIterator) Next() chunkenc.ValueType {
 		ssi.currILs = p.IdentifyingLabels
 		ssi.currF = 0
 		ssi.currH = nil
-		return chunkenc.ValFloat
+		return chunkenc.ValInfoSample
 	default:
 		panic("storageSeriesIterater.Next failed to pick value type")
 	}

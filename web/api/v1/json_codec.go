@@ -78,7 +78,6 @@ func marshalSeriesJSON(s promql.Series, stream *jsoniter.Stream) {
 	stream.WriteObjectField(`metric`)
 	marshalLabelsJSON(s.Metric, stream)
 
-	// TODO: Handle info metric samples
 	for i, p := range s.Floats {
 		stream.WriteMore()
 		if i == 0 {
@@ -101,6 +100,20 @@ func marshalSeriesJSON(s promql.Series, stream *jsoniter.Stream) {
 	if len(s.Histograms) > 0 {
 		stream.WriteArrayEnd()
 	}
+
+	if len(s.InfoSamples) > 0 {
+		stream.WriteMore()
+		stream.WriteObjectField(`infoSamples`)
+		stream.WriteArrayStart()
+		for i, p := range s.InfoSamples {
+			if i > 0 {
+				stream.WriteMore()
+			}
+			marshalInfoPointJSON(unsafe.Pointer(&p), stream)
+		}
+		stream.WriteArrayEnd()
+	}
+
 	stream.WriteObjectEnd()
 }
 
@@ -148,11 +161,13 @@ func marshalSampleJSON(s promql.Sample, stream *jsoniter.Stream) {
 	stream.WriteArrayStart()
 	jsonutil.MarshalTimestamp(s.T, stream)
 	stream.WriteMore()
-	// TODO: Handle info metric samples
-	if s.H == nil {
-		jsonutil.MarshalFloat(s.F, stream)
-	} else {
+	switch {
+	case s.H != nil:
 		jsonutil.MarshalHistogram(s.H, stream)
+	case s.IdentifyingLabels != nil:
+		jsonutil.MarshalInfoSample(s.IdentifyingLabels, stream)
+	default:
+		jsonutil.MarshalFloat(s.F, stream)
 	}
 	stream.WriteArrayEnd()
 	stream.WriteObjectEnd()
@@ -184,6 +199,28 @@ func marshalHPointJSON(p promql.HPoint, stream *jsoniter.Stream) {
 	stream.WriteMore()
 	jsonutil.MarshalHistogram(p.H, stream)
 	stream.WriteArrayEnd()
+}
+
+// marshalInfoPointJSON writes {"timestamp": <float>, "identifyingLabels": [<int>]}.
+func marshalInfoPointJSON(ptr unsafe.Pointer, stream *jsoniter.Stream) {
+	p := *((*promql.InfoPoint)(ptr))
+	stream.WriteObjectStart()
+
+	stream.WriteObjectField(`timestamp`)
+	jsonutil.MarshalTimestamp(p.T, stream)
+
+	stream.WriteMore()
+	stream.WriteObjectField(`identifyingLabels`)
+	stream.WriteArrayStart()
+	for i, idx := range p.IdentifyingLabels {
+		if i > 0 {
+			stream.WriteMore()
+		}
+		stream.WriteInt(idx)
+	}
+	stream.WriteArrayEnd()
+
+	stream.WriteObjectEnd()
 }
 
 // marshalExemplarJSON writes.

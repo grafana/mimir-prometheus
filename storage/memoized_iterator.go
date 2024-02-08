@@ -14,6 +14,7 @@
 package storage
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -40,6 +41,7 @@ type MemoizedSeriesIterator struct {
 
 // NewMemoizedEmptyIterator is like NewMemoizedIterator but it's initialised with an empty iterator.
 func NewMemoizedEmptyIterator(delta int64) *MemoizedSeriesIterator {
+	fmt.Printf("NewMemoizedEmptyIterator: Creating nopIterator\n")
 	return NewMemoizedIterator(chunkenc.NewNopIterator(), delta)
 }
 
@@ -82,7 +84,6 @@ func (b *MemoizedSeriesIterator) Seek(t int64) chunkenc.ValueType {
 		b.prevTime = math.MinInt64
 
 		b.valueType = b.it.Seek(t0)
-		// TODO: Handle info metric samples
 		switch b.valueType {
 		case chunkenc.ValNone:
 			return chunkenc.ValNone
