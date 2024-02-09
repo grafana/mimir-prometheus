@@ -211,7 +211,7 @@ type Options struct {
 	// EnableSharding enables query sharding support in TSDB.
 	EnableSharding bool
 
-	// Timely compaction allows head compaction to happen if the min block in the head is appendable, without requiring
+	// Timely compaction allows head compaction to happen if the min block in the head is compactable, without requiring
 	// the head to exceed 1.5 times the chunk range.
 	TimelyCompaction bool
 
