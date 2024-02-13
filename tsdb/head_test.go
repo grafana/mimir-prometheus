@@ -2973,6 +2973,61 @@ func TestHeadShardedPostings(t *testing.T) {
 	}
 }
 
+func TestHeadCompactable(t *testing.T) {
+	headOpts := newTestHeadDefaultOptions(20, false)
+
+	testCases := []struct {
+		name             string
+		timelyCompaction bool
+		minT             int64
+		maxT             int64
+		expectedResult   bool
+	}{
+		{
+			name:             "with timely compaction, compaction allowed",
+			timelyCompaction: true,
+			minT:             19,
+			maxT:             31, // Covers more than 1/2 a chunk range beyond the previous block, which is from 0-20
+			expectedResult:   true,
+		}, {
+			name:             "with timely compaction, compaction not allowed",
+			timelyCompaction: true,
+			minT:             9,
+			maxT:             17, // Covers less than 1/2 a chunk range beyond the previous block
+			expectedResult:   false,
+		}, {
+			name:             "without timely compaction, compaction allowed",
+			timelyCompaction: false,
+			minT:             1,
+			maxT:             32, // Covers more than 1.5 times the chunk range
+			expectedResult:   true,
+		}, {
+			name:             "without timely compaction, compaction not allowed",
+			timelyCompaction: false,
+			minT:             3,
+			maxT:             19, // Covers less than 1.5 times the chunk range
+			expectedResult:   false,
+		},
+	}
+
+	lbls := labels.FromStrings("a", "b")
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			headOpts.TimelyCompaction = tc.timelyCompaction
+			head, _ := newTestHeadWithOptions(t, wlog.CompressionNone, headOpts)
+			defer func() {
+				require.NoError(t, head.Close())
+			}()
+			app := head.Appender(context.Background())
+			app.Append(0, lbls, tc.minT, 0)
+			app.Append(0, lbls, tc.maxT, 0)
+			app.Commit()
+
+			require.Equal(t, tc.expectedResult, head.compactable())
+		})
+	}
+}
+
 func TestErrReuseAppender(t *testing.T) {
 	head, _ := newTestHead(t, 1000, wlog.CompressionNone, false)
 	defer func() {
