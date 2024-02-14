@@ -61,6 +61,8 @@ type IndexWriter interface {
 
 // IndexReader provides reading access of serialized index data.
 type IndexReader interface {
+	index.PostingsReader
+
 	// Symbols return an iterator over sorted string symbols that may occur in
 	// series' labels and indices. It is not safe to use the returned strings
 	// beyond the lifetime of the index reader.
@@ -71,12 +73,6 @@ type IndexReader interface {
 
 	// LabelValues returns possible label values which may not be sorted.
 	LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error)
-
-	// Postings returns the postings list iterator for the label pairs.
-	// The Postings here contain the offsets to the series inside the index.
-	// Found IDs are not strictly required to point to a valid Series, e.g.
-	// during background garbage collections.
-	Postings(ctx context.Context, name string, values ...string) (index.Postings, error)
 
 	// PostingsForMatcher returns a sorted iterator over postings matching the provided label matcher.
 	// This method will not return postings for missing labels.
@@ -547,10 +543,6 @@ func (r blockIndexReader) Postings(ctx context.Context, name string, values ...s
 }
 
 func (r blockIndexReader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings {
-	if p, ok := fastPostingsForMatcher(ctx, r, m); ok {
-		return p
-	}
-
 	return r.ir.PostingsForMatcher(ctx, m)
 }
 

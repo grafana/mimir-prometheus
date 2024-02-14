@@ -164,14 +164,10 @@ func (oh *OOOHeadIndexReader) PostingsForMatchers(ctx context.Context, concurren
 	return oh.head.pfmc.PostingsForMatchers(ctx, oh, concurrent, ms...)
 }
 
-// PostingsForMatcher needs to be overridden so that the right IndexReader
-// implementation gets passed to fastPostingsForMatcher.
+// PostingsForMatcher needs to be overridden so that the right PostingsReader
+// implementation gets passed down.
 func (oh *OOOHeadIndexReader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings {
-	if p, ok := fastPostingsForMatcher(ctx, oh, m); ok {
-		return p
-	}
-
-	return oh.head.postings.PostingsForMatcher(ctx, m)
+	return oh.head.postings.PostingsForMatcher(ctx, oh, m)
 }
 
 // LabelValues needs to be overridden from the headIndexReader implementation due
