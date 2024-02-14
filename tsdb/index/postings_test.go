@@ -998,13 +998,30 @@ func TestMemPostings_Delete(t *testing.T) {
 	require.Empty(t, expanded, "expected empty postings, got %v", expanded)
 }
 
+type mockPostingsReader struct {
+	mp *MemPostings
+}
+
+func (pr mockPostingsReader) Postings(ctx context.Context, name string, values ...string) (Postings, error) {
+	res := make([]Postings, 0, len(values))
+	for _, value := range values {
+		if p := pr.mp.Get(name, value); !IsEmptyPostingsType(p) {
+			res = append(res, p)
+		}
+	}
+	return Merge(ctx, res...), nil
+}
+
 func TestMemPostings_PostingsForMatcher(t *testing.T) {
 	p := NewMemPostings()
 	p.Add(1, labels.FromStrings("lbl1", "a"))
 	p.Add(2, labels.FromStrings("lbl1", "b"))
 	p.Add(3, labels.FromStrings("lbl2", "a"))
+	pr := mockPostingsReader{
+		mp: p,
+	}
 
-	it := p.PostingsForMatcher(context.Background(), labels.MustNewMatcher(labels.MatchRegexp, "lbl1", "[a,b]"))
+	it := p.PostingsForMatcher(context.Background(), pr, labels.MustNewMatcher(labels.MatchRegexp, "lbl1", "[a,b]"))
 	postings, err := ExpandPostings(it)
 	require.NoError(t, err)
 
