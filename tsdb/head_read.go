@@ -122,11 +122,7 @@ func (h *headIndexReader) Postings(ctx context.Context, name string, values ...s
 }
 
 func (h *headIndexReader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings {
-	if p, ok := fastPostingsForMatcher(ctx, h, m); ok {
-		return p
-	}
-
-	return h.head.postings.PostingsForMatcher(ctx, m)
+	return h.head.postings.PostingsForMatcher(ctx, h, m)
 }
 
 func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
