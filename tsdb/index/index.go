@@ -1132,7 +1132,7 @@ type Reader struct {
 	cacheProvider ReaderCacheProvider
 }
 
-// PostingsReader provides reading access of postings.
+// PostingsReader provides reading of postings.
 type PostingsReader interface {
 	// Postings returns the postings list iterator for the label pairs.
 	// The Postings here contain the offsets to the series inside the index.
@@ -1800,28 +1800,7 @@ func (r *Reader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) Post
 	}
 
 	if r.version == FormatV1 {
-		e := r.postingsV1[m.Name]
-		if len(e) == 0 {
-			return EmptyPostings()
-		}
-
-		var its []Postings
-		for val, offset := range e {
-			if !m.Matches(val) {
-				continue
-			}
-
-			// Read from the postings table.
-			d := encoding.NewDecbufAt(r.b, int(offset), castagnoliTable)
-			_, p, err := r.dec.PostingsFromDecbuf(d)
-			if err != nil {
-				return ErrPostings(fmt.Errorf("decode postings: %w", err))
-			}
-
-			its = append(its, p)
-		}
-
-		return Merge(ctx, its...)
+		return r.postingsForMatcherV1(ctx, m)
 	}
 
 	e := r.postings[m.Name]
@@ -1864,6 +1843,31 @@ func (r *Reader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) Post
 	}
 	if d.Err() != nil {
 		return ErrPostings(fmt.Errorf("get postings offset entry: %w", d.Err()))
+	}
+
+	return Merge(ctx, its...)
+}
+
+func (r *Reader) postingsForMatcherV1(ctx context.Context, m *labels.Matcher) Postings {
+	e := r.postingsV1[m.Name]
+	if len(e) == 0 {
+		return EmptyPostings()
+	}
+
+	var its []Postings
+	for val, offset := range e {
+		if !m.Matches(val) {
+			continue
+		}
+
+		// Read from the postings table.
+		d := encoding.NewDecbufAt(r.b, int(offset), castagnoliTable)
+		_, p, err := r.dec.PostingsFromDecbuf(d)
+		if err != nil {
+			return ErrPostings(fmt.Errorf("decode postings: %w", err))
+		}
+
+		its = append(its, p)
 	}
 
 	return Merge(ctx, its...)
