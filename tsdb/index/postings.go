@@ -410,14 +410,7 @@ func (p *MemPostings) PostingsForMatcher(ctx context.Context, pr PostingsReader,
 		return EmptyPostings()
 	}
 
-	count := 0
-	for v, srs := range e {
-		if m.Matches(v) && len(srs) > 0 {
-			count++
-		}
-	}
-
-	its := make([]Postings, 0, count)
+	var its []Postings
 	for v, srs := range e {
 		if m.Matches(v) && len(srs) > 0 {
 			its = append(its, NewListPostings(srs))
