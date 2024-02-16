@@ -488,11 +488,11 @@ func (b *ScratchBuilder) Overwrite(ls *Labels) {
 
 // Equal returns true if the Builder would build Labels the same as passed in.
 func (b *ScratchBuilder) Equal(a Labels) bool {
-	return Equal(Labels(b.add), a)
+	return Equal(b.add, a)
 }
 
 // Hash returns a hash value for the label set.
-// Note: the result is not guaranteed to be consistent across different runs of Prometheus.
+// Note: the result must be consistent with what Labels.Hash() would return.
 func (b *ScratchBuilder) Hash() uint64 {
-	return Labels(b.add).Hash()
+	return b.add.Hash()
 }

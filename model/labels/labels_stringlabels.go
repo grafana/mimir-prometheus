@@ -726,28 +726,16 @@ func (b *ScratchBuilder) Equal(a Labels) bool {
 }
 
 // Hash returns a hash value for the label set.
-// Note: the result is not guaranteed to be consistent across different runs of Prometheus.
+// Note: the result must be consistent with what Labels.Hash() would return.
 func (b *ScratchBuilder) Hash() uint64 {
-	// Use xxhash.Sum64(b) for fast path as it's faster.
-	buf := make([]byte, 0, 1024)
-	for i, v := range b.add {
-		if len(buf)+len(v.Name)+len(v.Value)+2 >= cap(buf) {
-			// If labels entry is 1KB+ do not allocate whole entry.
-			h := xxhash.New()
-			_, _ = h.Write(buf)
-			for _, v := range b.add[i:] {
-				_, _ = h.WriteString(v.Name)
-				_, _ = h.Write(seps)
-				_, _ = h.WriteString(v.Value)
-				_, _ = h.Write(seps)
-			}
-			return h.Sum64()
-		}
-
-		buf = append(buf, v.Name...)
-		buf = append(buf, seps[0])
-		buf = append(buf, v.Value...)
-		buf = append(buf, seps[0])
+	var stackArray [2048]byte
+	var buf []byte
+	size := labelsSize(b.add)
+	if size < len(stackArray) {
+		buf = stackArray[:size]
+	} else {
+		buf = make([]byte, size)
 	}
+	marshalLabelsToSizedBuffer(b.add, buf)
 	return xxhash.Sum64(buf)
 }

@@ -828,7 +828,7 @@ func (b *ScratchBuilder) Equal(a Labels) bool {
 }
 
 // Hash returns a hash value for the label set.
-// Note: the result is not guaranteed to be consistent across different runs of Prometheus.
+// Note: the result must be consistent with what Labels.Hash() would return.
 func (b *ScratchBuilder) Hash() uint64 {
 	// Use xxhash.Sum64(b) for fast path as it's faster.
 	buf := make([]byte, 0, 1024)
