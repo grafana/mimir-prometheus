@@ -24,11 +24,12 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb/encoding"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestRecord_EncodeDecode(t *testing.T) {
 	var enc Encoder
-	var dec Decoder
+	dec := NewDecoder(labels.NewSymbolTable())
 
 	series := []RefSeries{
 		{
@@ -44,7 +45,7 @@ func TestRecord_EncodeDecode(t *testing.T) {
 	}
 	decSeries, err := dec.Series(enc.Series(series, nil), nil)
 	require.NoError(t, err)
-	require.Equal(t, series, decSeries)
+	testutil.RequireEqual(t, series, decSeries)
 
 	metadata := []RefMetadata{
 		{
@@ -107,7 +108,7 @@ func TestRecord_EncodeDecode(t *testing.T) {
 	}
 	decExemplars, err := dec.Exemplars(enc.Exemplars(exemplars, nil), nil)
 	require.NoError(t, err)
-	require.Equal(t, exemplars, decExemplars)
+	testutil.RequireEqual(t, exemplars, decExemplars)
 
 	histograms := []RefHistogramSample{
 		{
@@ -186,7 +187,7 @@ func TestRecord_EncodeDecode(t *testing.T) {
 // Bugfix check for pull/521 and pull/523.
 func TestRecord_Corrupted(t *testing.T) {
 	var enc Encoder
-	var dec Decoder
+	dec := NewDecoder(labels.NewSymbolTable())
 
 	t.Run("Test corrupted series record", func(t *testing.T) {
 		series := []RefSeries{

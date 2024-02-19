@@ -37,6 +37,7 @@ import (
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb"
 	"github.com/prometheus/prometheus/util/teststorage"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 var scenarios = map[string]struct {
@@ -390,7 +391,7 @@ func TestFederationWithNativeHistograms(t *testing.T) {
 	body, err := io.ReadAll(res.Body)
 	require.NoError(t, err)
 
-	p := textparse.NewProtobufParser(body, false)
+	p := textparse.NewProtobufParser(body, false, labels.NewSymbolTable())
 	var actVec promql.Vector
 	metricFamilies := 0
 	l := labels.Labels{}
@@ -427,5 +428,5 @@ func TestFederationWithNativeHistograms(t *testing.T) {
 	// TODO(codesome): Once PromQL is able to set the CounterResetHint on histograms,
 	// test it with switching histogram types for metric families.
 	require.Equal(t, 4, metricFamilies)
-	require.Equal(t, expVec, actVec)
+	testutil.RequireEqual(t, expVec, actVec)
 }

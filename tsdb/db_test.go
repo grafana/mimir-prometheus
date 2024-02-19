@@ -4038,7 +4038,7 @@ func TestOOOWALWrite(t *testing.T) {
 
 		var (
 			records []interface{}
-			dec     record.Decoder
+			dec     record.Decoder = record.NewDecoder(labels.NewSymbolTable())
 		)
 		for r.Next() {
 			rec := r.Record()
@@ -4065,11 +4065,11 @@ func TestOOOWALWrite(t *testing.T) {
 
 	// The normal WAL.
 	actRecs := getRecords(path.Join(dir, "wal"))
-	require.Equal(t, inOrderRecords, actRecs)
+	testutil.RequireEqual(t, inOrderRecords, actRecs)
 
 	// The WBL.
 	actRecs = getRecords(path.Join(dir, wlog.WblDirName))
-	require.Equal(t, oooRecords, actRecs)
+	testutil.RequireEqual(t, oooRecords, actRecs)
 }
 
 // Tests https://github.com/prometheus/prometheus/issues/10291#issuecomment-1044373110.
@@ -5397,7 +5397,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		require.NoError(t, err)
 		sr, err := wlog.NewSegmentsReader(originalWblDir)
 		require.NoError(t, err)
-		var dec record.Decoder
+		dec := record.NewDecoder(labels.NewSymbolTable())
 		r, markers, addedRecs := wlog.NewReader(sr), 0, 0
 		for r.Next() {
 			rec := r.Record()

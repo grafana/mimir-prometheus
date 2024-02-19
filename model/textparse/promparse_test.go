@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestPromParse(t *testing.T) {
@@ -170,7 +171,7 @@ testmetric{label="\"bar\""} 1`
 		},
 	}
 
-	p := NewPromParser([]byte(input))
+	p := NewPromParser([]byte(input), labels.NewSymbolTable())
 	i := 0
 
 	var res labels.Labels
@@ -191,7 +192,7 @@ testmetric{label="\"bar\""} 1`
 			require.Equal(t, exp[i].m, string(m))
 			require.Equal(t, exp[i].t, ts)
 			require.Equal(t, exp[i].v, v)
-			require.Equal(t, exp[i].lset, res)
+			testutil.RequireEqual(t, exp[i].lset, res)
 
 		case EntryType:
 			m, typ := p.Type()
@@ -280,7 +281,7 @@ func TestPromParseErrors(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		p := NewPromParser([]byte(c.input))
+		p := NewPromParser([]byte(c.input), labels.NewSymbolTable())
 		var err error
 		for err == nil {
 			_, err = p.Next()
@@ -334,7 +335,7 @@ func TestPromNullByteHandling(t *testing.T) {
 	}
 
 	for i, c := range cases {
-		p := NewPromParser([]byte(c.input))
+		p := NewPromParser([]byte(c.input), labels.NewSymbolTable())
 		var err error
 		for err == nil {
 			_, err = p.Next()
@@ -355,7 +356,7 @@ const (
 )
 
 func BenchmarkParse(b *testing.B) {
-	for parserName, parser := range map[string]func([]byte) Parser{
+	for parserName, parser := range map[string]func([]byte, *labels.SymbolTable) Parser{
 		"prometheus":  NewPromParser,
 		"openmetrics": NewOpenMetricsParser,
 	} {
@@ -374,8 +375,9 @@ func BenchmarkParse(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 
+				st := labels.NewSymbolTable()
 				for i := 0; i < b.N; i += promtestdataSampleCount {
-					p := parser(buf)
+					p := parser(buf, st)
 
 				Outer:
 					for i < b.N {
@@ -402,8 +404,9 @@ func BenchmarkParse(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 
+				st := labels.NewSymbolTable()
 				for i := 0; i < b.N; i += promtestdataSampleCount {
-					p := parser(buf)
+					p := parser(buf, st)
 
 				Outer:
 					for i < b.N {
@@ -435,8 +438,9 @@ func BenchmarkParse(b *testing.B) {
 				b.ReportAllocs()
 				b.ResetTimer()
 
+				st := labels.NewSymbolTable()
 				for i := 0; i < b.N; i += promtestdataSampleCount {
-					p := parser(buf)
+					p := parser(buf, st)
 
 				Outer:
 					for i < b.N {
