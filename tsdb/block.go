@@ -74,8 +74,8 @@ type IndexReader interface {
 	// LabelValues returns possible label values which may not be sorted.
 	LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error)
 
-	// PostingsForMatcher returns a sorted iterator over postings matching the provided label matcher.
-	// This method will not return postings for missing labels.
+	// PostingsForMatcher returns a sorted iterator over postings having a label matching the provided label matcher.
+	// If no postings are found having a label with the correct name and matching value, an empty iterator is returned.
 	PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings
 
 	// PostingsForMatchers assembles a single postings iterator based on the given matchers.
