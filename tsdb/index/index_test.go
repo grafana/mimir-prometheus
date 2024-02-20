@@ -14,6 +14,7 @@
 package index
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -24,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -571,10 +573,16 @@ func TestReader_PostingsForMatcher(t *testing.T) {
 
 	symbols := map[string]struct{}{}
 	series := []labels.Labels{
-		labels.FromStrings("lbl1", "a"),
-		labels.FromStrings("lbl1", "b"),
-		labels.FromStrings("lbl2", "a"),
+		labels.FromStrings("n", "1"),
+		labels.FromStrings("n", "1", "i", "a"),
+		labels.FromStrings("n", "1", "i", "b"),
+		labels.FromStrings("n", "2"),
+		labels.FromStrings("n", "2.5"),
 	}
+	// Make sure we insert in-order
+	slices.SortFunc(series, func(a, b labels.Labels) int {
+		return cmp.Compare(a.String(), b.String())
+	})
 	for _, ls := range series {
 		ls.Range(func(l labels.Label) {
 			symbols[l.Name] = struct{}{}
@@ -601,17 +609,160 @@ func TestReader_PostingsForMatcher(t *testing.T) {
 		require.NoError(t, ir.Close())
 	})
 
-	expPostings, err := ir.Postings(ctx, "lbl1", "a", "b")
-	require.NoError(t, err)
-	expSrs, err := ExpandPostings(expPostings)
-	require.NoError(t, err)
-	require.Len(t, expSrs, 2)
+	testCases := []struct {
+		matcher *labels.Matcher
+		exp     []labels.Labels
+	}{
+		// Simple equals.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchEqual, "n", "1"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1"),
+				labels.FromStrings("n", "1", "i", "a"),
+				labels.FromStrings("n", "1", "i", "b"),
+			},
+		},
+		{
+			// PostingsForMatcher will only return postings for the matcher's label.
+			matcher: labels.MustNewMatcher(labels.MatchEqual, "missing", ""),
+			exp:     []labels.Labels{},
+		},
+		// Not equals.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotEqual, "n", "1"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "2"),
+				labels.FromStrings("n", "2.5"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotEqual, "i", ""),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1", "i", "a"),
+				labels.FromStrings("n", "1", "i", "b"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotEqual, "missing", ""),
+			exp:     []labels.Labels{},
+		},
+		// Regexp.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "n", "^1$"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1"),
+				labels.FromStrings("n", "1", "i", "a"),
+				labels.FromStrings("n", "1", "i", "b"),
+			},
+		},
+		{
+			// PostingsForMatcher will only return postings for the matcher's label.
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "^$"),
+			exp:     []labels.Labels{},
+		},
+		// Not regexp.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotRegexp, "n", "^1$"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "2"),
+				labels.FromStrings("n", "2.5"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotRegexp, "n", "1"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "2"),
+				labels.FromStrings("n", "2.5"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotRegexp, "n", "1|2.5"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "2"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotRegexp, "n", "(1|2.5)"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "2"),
+			},
+		},
+		// Set optimization for regexp.
+		// Refer to https://github.com/prometheus/prometheus/issues/2651.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "n", "1|2"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1"),
+				labels.FromStrings("n", "1", "i", "a"),
+				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "2"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "a|b"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1", "i", "a"),
+				labels.FromStrings("n", "1", "i", "b"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "(a|b)"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1", "i", "a"),
+				labels.FromStrings("n", "1", "i", "b"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "n", "x1|2"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "2"),
+			},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "n", "2|2\\.5"),
+			exp: []labels.Labels{
+				labels.FromStrings("n", "2"),
+				labels.FromStrings("n", "2.5"),
+			},
+		},
+		// Empty value.
+		{
+			// PostingsForMatcher will only return postings having a matching label.
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "c||d"),
+			exp:     []labels.Labels{},
+		},
+		{
+			// PostingsForMatcher will only return postings having a matching label.
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "(c||d)"),
+			exp:     []labels.Labels{},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.matcher.String(), func(t *testing.T) {
+			exp := map[string]struct{}{}
+			for _, l := range tc.exp {
+				exp[l.String()] = struct{}{}
+			}
 
-	it := ir.PostingsForMatcher(ctx, labels.MustNewMatcher(labels.MatchRegexp, "lbl1", "[a,b]"))
-	srs, err := ExpandPostings(it)
-	require.NoError(t, err)
+			it := ir.PostingsForMatcher(ctx, tc.matcher)
 
-	require.Equal(t, expSrs, srs)
+			var builder labels.ScratchBuilder
+			for it.Next() {
+				require.NoError(t, ir.Series(it.At(), &builder, nil))
+				lbls := builder.Labels()
+				_, ok := exp[lbls.String()]
+				require.True(t, ok, "Got unexpected label set %s", lbls.String())
+				delete(exp, lbls.String())
+			}
+			require.NoError(t, it.Err())
+
+			var remaining []string
+			for l := range exp {
+				remaining = append(remaining, l)
+			}
+			require.Empty(t, remaining, "Didn't find all expected label sets")
+		})
+	}
 }
 
 // TestNewFileReaderErrorNoOpenFiles ensures that in case of an error no file remains open.
