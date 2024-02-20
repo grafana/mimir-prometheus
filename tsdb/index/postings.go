@@ -24,11 +24,11 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bboreham/go-loser"
 	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/util/loser"
 )
 
 var allPostingsKey = labels.Label{}
@@ -410,21 +410,10 @@ func (p *MemPostings) PostingsForMatcher(ctx context.Context, pr PostingsReader,
 		return EmptyPostings()
 	}
 
-	values := make([]string, 0, len(e))
-	for v := range e {
-		if m.Matches(v) {
-			values = append(values, v)
-		}
-	}
-
-	its := make([]Postings, 0, len(values))
-	for _, val := range values {
-		srs := e[val]
-		if len(srs) > 0 {
-			// Make a copy with thread safety in mind
-			srsCpy := make([]storage.SeriesRef, len(srs))
-			copy(srsCpy, srs)
-			its = append(its, NewListPostings(srsCpy))
+	var its []Postings
+	for v, srs := range e {
+		if m.Matches(v) && len(srs) > 0 {
+			its = append(its, NewListPostings(srs))
 		}
 	}
 	p.mtx.RUnlock()
@@ -455,6 +444,9 @@ type Postings interface {
 
 	// Err returns the last error of the iterator.
 	Err() error
+
+	// Reset the iterator to its initial state.
+	Reset()
 }
 
 // errPostings is an empty iterator that always errors.
@@ -466,6 +458,7 @@ func (e errPostings) Next() bool                  { return false }
 func (e errPostings) Seek(storage.SeriesRef) bool { return false }
 func (e errPostings) At() storage.SeriesRef       { return 0 }
 func (e errPostings) Err() error                  { return e.err }
+func (e errPostings) Reset()                      {}
 
 var emptyPostings = errPostings{}
 
@@ -561,6 +554,13 @@ func (it *intersectPostings) Err() error {
 	return nil
 }
 
+func (it *intersectPostings) Reset() {
+	for _, p := range it.arr {
+		p.Reset()
+	}
+	it.cur = 0
+}
+
 // Merge returns a new iterator over the union of the input iterators.
 func Merge(_ context.Context, its ...Postings) Postings {
 	if len(its) == 0 {
@@ -579,23 +579,23 @@ func Merge(_ context.Context, its ...Postings) Postings {
 
 type mergedPostings struct {
 	p   []Postings
-	h   *loser.Tree[storage.SeriesRef, Postings]
+	lt  *loser.Tree[storage.SeriesRef, Postings]
 	cur storage.SeriesRef
 }
 
-func newMergedPostings(p []Postings) (m *mergedPostings, nonEmpty bool) {
+func newMergedPostings(p []Postings) (*mergedPostings, bool) {
 	const maxVal = storage.SeriesRef(math.MaxUint64) // This value must be higher than all real values used in the tree.
 	lt := loser.New(p, maxVal)
-	return &mergedPostings{p: p, h: lt}, true
+	return &mergedPostings{p: p, lt: lt}, true
 }
 
 func (it *mergedPostings) Next() bool {
 	for {
-		if !it.h.Next() {
+		if !it.lt.Next() {
 			return false
 		}
 		// Remove duplicate entries.
-		newItem := it.h.At()
+		newItem := it.lt.At()
 		if newItem != it.cur {
 			it.cur = newItem
 			return true
@@ -604,14 +604,14 @@ func (it *mergedPostings) Next() bool {
 }
 
 func (it *mergedPostings) Seek(id storage.SeriesRef) bool {
-	for !it.h.IsEmpty() && it.h.At() < id {
-		finished := !it.h.Winner().Seek(id)
-		it.h.Fix(finished)
+	for !it.lt.IsEmpty() && it.lt.At() < id {
+		finished := !it.lt.Winner().Seek(id)
+		it.lt.Fix(finished)
 	}
-	if it.h.IsEmpty() {
+	if it.lt.IsEmpty() {
 		return false
 	}
-	it.cur = it.h.At()
+	it.cur = it.lt.At()
 	return true
 }
 
@@ -626,6 +626,15 @@ func (it mergedPostings) Err() error {
 		}
 	}
 	return nil
+}
+
+func (it *mergedPostings) Reset() {
+	// Reset the loser tree and its iterators
+	for _, p := range it.p {
+		p.Reset()
+	}
+	it.lt.Reset(it.p)
+	it.cur = 0
 }
 
 // Without returns a new postings list that contains all elements from the full list that
@@ -713,9 +722,17 @@ func (rp *removedPostings) Err() error {
 	return rp.remove.Err()
 }
 
+func (rp *removedPostings) Reset() {
+	rp.full.Reset()
+	rp.remove.Reset()
+	rp.cur = 0
+	rp.initialized = false
+}
+
 // ListPostings implements the Postings interface over a plain list.
 type ListPostings struct {
 	list []storage.SeriesRef
+	i    int
 	cur  storage.SeriesRef
 }
 
@@ -724,7 +741,10 @@ func NewListPostings(list []storage.SeriesRef) Postings {
 }
 
 func newListPostings(list ...storage.SeriesRef) *ListPostings {
-	return &ListPostings{list: list}
+	return &ListPostings{
+		list: list,
+		i:    -1,
+	}
 }
 
 func (it *ListPostings) At() storage.SeriesRef {
@@ -732,13 +752,15 @@ func (it *ListPostings) At() storage.SeriesRef {
 }
 
 func (it *ListPostings) Next() bool {
-	if len(it.list) > 0 {
-		it.cur = it.list[0]
-		it.list = it.list[1:]
-		return true
+	if it.i >= len(it.list)-1 {
+		it.i = len(it.list)
+		it.cur = 0
+		return false
 	}
-	it.cur = 0
-	return false
+
+	it.i++
+	it.cur = it.list[it.i]
+	return true
 }
 
 func (it *ListPostings) Seek(x storage.SeriesRef) bool {
@@ -746,20 +768,25 @@ func (it *ListPostings) Seek(x storage.SeriesRef) bool {
 	if it.cur >= x {
 		return true
 	}
-	if len(it.list) == 0 {
-		return false
+
+	start := it.i
+	if start < 0 {
+		start = 0
 	}
 
 	// Do binary search between current position and end.
-	i := sort.Search(len(it.list), func(i int) bool {
-		return it.list[i] >= x
+	l := it.list[start:]
+	i := sort.Search(len(l), func(i int) bool {
+		return l[i] >= x
 	})
-	if i < len(it.list) {
-		it.cur = it.list[i]
-		it.list = it.list[i+1:]
+	if i < len(l) {
+		it.i = start + i
+		it.cur = it.list[it.i]
 		return true
 	}
-	it.list = nil
+
+	it.i = len(it.list)
+	it.cur = 0
 	return false
 }
 
@@ -767,52 +794,77 @@ func (it *ListPostings) Err() error {
 	return nil
 }
 
+func (it *ListPostings) Reset() {
+	it.i = -1
+	it.cur = 0
+}
+
 // bigEndianPostings implements the Postings interface over a byte stream of
 // big endian numbers.
 type bigEndianPostings struct {
 	list []byte
-	cur  uint32
+	i    int
+	cur  storage.SeriesRef
 }
 
 func newBigEndianPostings(list []byte) *bigEndianPostings {
-	return &bigEndianPostings{list: list}
+	return &bigEndianPostings{
+		list: list,
+		i:    -4,
+	}
 }
 
 func (it *bigEndianPostings) At() storage.SeriesRef {
-	return storage.SeriesRef(it.cur)
+	return it.cur
 }
 
 func (it *bigEndianPostings) Next() bool {
-	if len(it.list) >= 4 {
-		it.cur = binary.BigEndian.Uint32(it.list)
-		it.list = it.list[4:]
-		return true
+	if it.i >= len(it.list)-4 {
+		it.i = len(it.list)
+		return false
 	}
-	return false
+
+	it.i += 4
+	it.cur = storage.SeriesRef(binary.BigEndian.Uint32(it.list[it.i:]))
+	return true
 }
 
 func (it *bigEndianPostings) Seek(x storage.SeriesRef) bool {
-	if storage.SeriesRef(it.cur) >= x {
+	if it.cur >= x {
 		return true
 	}
 
-	num := len(it.list) / 4
+	start := it.i
+	if start >= len(it.list) {
+		return false
+	}
+	if start < 0 {
+		start = 0
+	}
+
+	l := it.list[start:]
+	num := len(l) / 4
 	// Do binary search between current position and end.
 	i := sort.Search(num, func(i int) bool {
-		return binary.BigEndian.Uint32(it.list[i*4:]) >= uint32(x)
+		return binary.BigEndian.Uint32(l[i*4:]) >= uint32(x)
 	})
 	if i < num {
 		j := i * 4
-		it.cur = binary.BigEndian.Uint32(it.list[j:])
-		it.list = it.list[j+4:]
+		it.cur = storage.SeriesRef(binary.BigEndian.Uint32(l[j:]))
+		it.i = start + j
 		return true
 	}
-	it.list = nil
+
 	return false
 }
 
 func (it *bigEndianPostings) Err() error {
 	return nil
+}
+
+func (it *bigEndianPostings) Reset() {
+	it.i = -4
+	it.cur = 0
 }
 
 // PostingsCloner takes an existing Postings and allows independently clone them.
@@ -1065,4 +1117,9 @@ func (p *prependPostings) Err() error {
 		return nil
 	}
 	return p.rest.Err()
+}
+
+func (p *prependPostings) Reset() {
+	p.ix = -1
+	p.rest.Reset()
 }

@@ -30,8 +30,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/util/annotations"
-
-	"github.com/bboreham/go-loser"
+	"github.com/prometheus/prometheus/util/loser"
 )
 
 type mergeGenericQuerier struct {

@@ -1258,30 +1258,3 @@ func (cr nopChunkReader) ChunkOrIterable(chunks.Meta) (chunkenc.Chunk, chunkenc.
 }
 
 func (cr nopChunkReader) Close() error { return nil }
-
-// fastPostingsForMatcher tries fast-paths for getting postings for a given matcher.
-// If a fast-path was chosen, the resulting Postings and true are returned. Otherwise nil and false are returned.
-func fastPostingsForMatcher(ctx context.Context, ir IndexReader, m *labels.Matcher) (index.Postings, bool) {
-	// Fast-path for equal matching.
-	if m.Type == labels.MatchEqual {
-		p, err := ir.Postings(ctx, m.Name, m.Value)
-		if err != nil {
-			return index.ErrPostings(err), true
-		}
-		return p, true
-	}
-
-	// Fast-path for set matching.
-	if m.Type == labels.MatchRegexp {
-		setMatches := m.SetMatches()
-		if len(setMatches) > 0 {
-			p, err := ir.Postings(ctx, m.Name, setMatches...)
-			if err != nil {
-				return index.ErrPostings(err), true
-			}
-			return p, true
-		}
-	}
-
-	return nil, false
-}

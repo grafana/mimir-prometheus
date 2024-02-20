@@ -2381,16 +2381,6 @@ func (m mockIndex) PostingsForMatcher(ctx context.Context, matcher *labels.Match
 	return index.Merge(ctx, res...)
 }
 
-func (m mockIndex) PostingsForMatcher(ctx context.Context, matcher *labels.Matcher) index.Postings {
-	var res []index.Postings
-	for l, srs := range m.postings {
-		if l.Name == matcher.Name && matcher.Matches(l.Value) {
-			res = append(res, index.NewListPostings(srs))
-		}
-	}
-	return index.Merge(ctx, res...)
-}
-
 func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {

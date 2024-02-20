@@ -2005,8 +2005,24 @@ type Decoder struct {
 
 // Postings returns a postings list for b and its number of elements.
 func (dec *Decoder) Postings(b []byte) (int, Postings, error) {
+	var p bigEndianPostings
+	n, err := dec.PostingsInPlace(b, &p)
+	return n, &p, err
+}
+
+func (dec *Decoder) PostingsInPlace(b []byte, p *bigEndianPostings) (int, error) {
 	d := encoding.Decbuf{B: b}
-	return dec.PostingsFromDecbuf(d)
+	n := d.Be32int()
+	l := d.Get()
+	if d.Err() != nil {
+		return 0, d.Err()
+	}
+	if len(l) != 4*n {
+		return 0, fmt.Errorf("unexpected postings length, should be %d bytes for %d postings, got %d bytes", 4*n, n, len(l))
+	}
+	p.list = l
+	p.Reset()
+	return n, nil
 }
 
 // PostingsFromDecbuf returns a postings list for d and its number of elements.

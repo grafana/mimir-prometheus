@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"reflect"
@@ -189,7 +190,7 @@ func (r *Reader) labelValuesFor(postings Postings, name string, includeMatches b
 		b:              r.b,
 		dec:            r.dec,
 		lastVal:        lastVal,
-		postings:       NewPostingsCloner(postings),
+		postings:       postings,
 		includeMatches: includeMatches,
 	}
 }
@@ -207,7 +208,7 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches
 	return &intersectLabelValuesV1{
 		postingOffsets: e,
 		values:         storage.NewListLabelValues(vals, nil),
-		postings:       NewPostingsCloner(postings),
+		postings:       postings,
 		b:              r.b,
 		dec:            r.dec,
 		includeMatches: includeMatches,
@@ -217,7 +218,8 @@ func (r *Reader) labelValuesForV1(postings Postings, name string, includeMatches
 type intersectLabelValuesV1 struct {
 	postingOffsets map[string]uint64
 	values         *storage.ListLabelValues
-	postings       *PostingsCloner
+	postings       Postings
+	curPostings    bigEndianPostings
 	b              ByteSlice
 	dec            *Decoder
 	cur            string
@@ -237,19 +239,20 @@ func (it *intersectLabelValuesV1) Next() bool {
 		postingsOff := it.postingOffsets[val]
 		// Read from the postings table.
 		d := encoding.NewDecbufAt(it.b, int(postingsOff), castagnoliTable)
-		_, curPostings, err := it.dec.Postings(d.Get())
-		if err != nil {
+		if _, err := it.dec.PostingsInPlace(d.Get(), &it.curPostings); err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
 		}
 
+		it.postings.Reset()
+
 		isMatch := false
 		if it.includeMatches {
-			isMatch = intersect(it.postings.Clone(), curPostings)
+			isMatch = intersect(it.postings, &it.curPostings)
 		} else {
 			// We only want to include this value if curPostings is not fully contained
 			// by the postings iterator (which is to be excluded).
-			isMatch = !contains(it.postings.Clone(), curPostings)
+			isMatch = !contains(it.postings, &it.curPostings)
 		}
 		if isMatch {
 			it.cur = val
@@ -278,9 +281,11 @@ func (it *intersectLabelValuesV1) Close() error {
 
 type intersectLabelValues struct {
 	d              *encoding.Decbuf
+	d2             encoding.Decbuf
 	b              ByteSlice
 	dec            *Decoder
-	postings       *PostingsCloner
+	postings       Postings
+	curPostings    bigEndianPostings
 	lastVal        string
 	skip           int
 	cur            string
@@ -312,20 +317,26 @@ func (it *intersectLabelValues) Next() bool {
 		val := it.d.UvarintBytes()
 		postingsOff := int(it.d.Uvarint64())
 		// Read from the postings table
-		postingsDec := encoding.NewDecbufAt(it.b, postingsOff, castagnoliTable)
-		_, curPostings, err := it.dec.Postings(postingsDec.Get())
-		if err != nil {
+		b := it.b.Range(postingsOff, postingsOff+4)
+		l := int(binary.BigEndian.Uint32(b))
+		b = it.b.Range(postingsOff+4, postingsOff+4+l+4)
+		it.d2.B = b[:len(b)-4]
+		if exp := binary.BigEndian.Uint32(b[len(b)-4:]); it.d2.Crc32(castagnoliTable) != exp {
+			it.d2.E = encoding.ErrInvalidChecksum
+		}
+		if _, err := it.dec.PostingsInPlace(it.d2.Get(), &it.curPostings); err != nil {
 			it.err = fmt.Errorf("decode postings: %w", err)
 			return false
 		}
 		it.exhausted = string(val) == it.lastVal
+		it.postings.Reset()
 		isMatch := false
 		if it.includeMatches {
-			isMatch = intersect(it.postings.Clone(), curPostings)
+			isMatch = intersect(it.postings, &it.curPostings)
 		} else {
 			// We only want to include this value if curPostings is not fully contained
 			// by the postings iterator (which is to be excluded).
-			isMatch = !contains(it.postings.Clone(), curPostings)
+			isMatch = !contains(it.postings, &it.curPostings)
 		}
 		if isMatch {
 			// Make sure to allocate a new string

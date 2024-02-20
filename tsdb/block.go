@@ -82,9 +82,6 @@ type IndexReader interface {
 	// If no postings are found having a label with the correct name and matching value, an empty iterator is returned.
 	PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings
 
-	// PostingsForMatcher returns an iterator over postings matching the provided label matcher.
-	PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings
-
 	// PostingsForMatchers assembles a single postings iterator based on the given matchers.
 	// The resulting postings are not ordered by series.
 	// If concurrent hint is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
@@ -565,10 +562,6 @@ func (r blockIndexReader) Postings(ctx context.Context, name string, values ...s
 }
 
 func (r blockIndexReader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) index.Postings {
-	if p, ok := fastPostingsForMatcher(ctx, r, m); ok {
-		return p
-	}
-
 	return r.ir.PostingsForMatcher(ctx, m)
 }
 
