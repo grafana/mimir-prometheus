@@ -1013,19 +1013,119 @@ func (pr mockPostingsReader) Postings(ctx context.Context, name string, values .
 }
 
 func TestMemPostings_PostingsForMatcher(t *testing.T) {
+	series := []labels.Labels{
+		labels.FromStrings("n", "1"),
+		labels.FromStrings("n", "1", "i", "a"),
+		labels.FromStrings("n", "1", "i", "b"),
+		labels.FromStrings("n", "2"),
+		labels.FromStrings("n", "2.5"),
+	}
+
 	p := NewMemPostings()
-	p.Add(1, labels.FromStrings("lbl1", "a"))
-	p.Add(2, labels.FromStrings("lbl1", "b"))
-	p.Add(3, labels.FromStrings("lbl2", "a"))
+	for i, lbls := range series {
+		p.Add(storage.SeriesRef(i+1), lbls)
+	}
 	pr := mockPostingsReader{
 		mp: p,
 	}
 
-	it := p.PostingsForMatcher(context.Background(), pr, labels.MustNewMatcher(labels.MatchRegexp, "lbl1", "[a,b]"))
-	postings, err := ExpandPostings(it)
-	require.NoError(t, err)
+	testCases := []struct {
+		matcher *labels.Matcher
+		exp     []storage.SeriesRef
+	}{
+		// Simple equals.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchEqual, "n", "1"),
+			exp:     []storage.SeriesRef{1, 2, 3},
+		},
+		{
+			// PostingsForMatcher will only return postings for the matcher's label.
+			matcher: labels.MustNewMatcher(labels.MatchEqual, "missing", ""),
+			exp:     []storage.SeriesRef{},
+		},
+		// Not equals.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotEqual, "n", "1"),
+			exp:     []storage.SeriesRef{4, 5},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotEqual, "i", ""),
+			exp:     []storage.SeriesRef{2, 3},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotEqual, "missing", ""),
+			exp:     []storage.SeriesRef{},
+		},
+		// Regexp.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "n", "^1$"),
+			exp:     []storage.SeriesRef{1, 2, 3},
+		},
+		{
+			// PostingsForMatcher will only return postings for the matcher's label.
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "^$"),
+			exp:     []storage.SeriesRef{},
+		},
+		// Not regexp.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotRegexp, "n", "^1$"),
+			exp:     []storage.SeriesRef{4, 5},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotRegexp, "n", "1"),
+			exp:     []storage.SeriesRef{4, 5},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotRegexp, "n", "1|2.5"),
+			exp:     []storage.SeriesRef{4},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchNotRegexp, "n", "(1|2.5)"),
+			exp:     []storage.SeriesRef{4},
+		},
+		// Set optimization for regexp.
+		// Refer to https://github.com/prometheus/prometheus/issues/2651.
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "n", "1|2"),
+			exp:     []storage.SeriesRef{1, 2, 3, 4},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "a|b"),
+			exp:     []storage.SeriesRef{2, 3},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "(a|b)"),
+			exp:     []storage.SeriesRef{2, 3},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "n", "x1|2"),
+			exp:     []storage.SeriesRef{4},
+		},
+		{
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "n", "2|2\\.5"),
+			exp:     []storage.SeriesRef{4, 5},
+		},
+		// Empty value.
+		{
+			// PostingsForMatcher will only return postings having a matching label.
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "c||d"),
+			exp:     []storage.SeriesRef{},
+		},
+		{
+			// PostingsForMatcher will only return postings having a matching label.
+			matcher: labels.MustNewMatcher(labels.MatchRegexp, "i", "(c||d)"),
+			exp:     []storage.SeriesRef{},
+		},
+	}
+	for _, tc := range testCases {
+		t.Run(tc.matcher.String(), func(t *testing.T) {
+			it := p.PostingsForMatcher(context.Background(), pr, tc.matcher)
+			srs, err := ExpandPostings(it)
+			require.NoError(t, err)
 
-	require.Equal(t, []storage.SeriesRef{1, 2}, postings)
+			require.ElementsMatch(t, tc.exp, srs)
+		})
+	}
 }
 
 func TestPostingsCloner(t *testing.T) {
