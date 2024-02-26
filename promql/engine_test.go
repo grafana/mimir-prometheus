@@ -25,8 +25,6 @@ import (
 
 	"github.com/go-kit/log"
 
-	"github.com/prometheus/prometheus/util/testutil"
-
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -39,6 +37,7 @@ import (
 	"github.com/prometheus/prometheus/util/annotations"
 	"github.com/prometheus/prometheus/util/stats"
 	"github.com/prometheus/prometheus/util/teststorage"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestMain(m *testing.M) {
@@ -1632,7 +1631,7 @@ load 1ms
 				sort.Sort(expMat)
 				sort.Sort(res.Value.(Matrix))
 			}
-			require.Equal(t, c.result, res.Value, "query %q failed", c.query)
+			testutil.RequireEqual(t, c.result, res.Value, "query %q failed", c.query)
 		})
 	}
 }
@@ -1957,7 +1956,7 @@ func TestSubquerySelector(t *testing.T) {
 					require.Equal(t, c.Result.Err, res.Err)
 					mat := res.Value.(Matrix)
 					sort.Sort(mat)
-					require.Equal(t, c.Result.Value, mat)
+					testutil.RequireEqual(t, c.Result.Value, mat)
 				})
 			}
 		})
@@ -2002,7 +2001,7 @@ load 1m
 
 	res := qry.Exec(context.Background())
 	require.NoError(t, res.Err)
-	require.Equal(t, expectedResult, res.Value)
+	testutil.RequireEqual(t, expectedResult, res.Value)
 }
 
 type FakeQueryLogger struct {
@@ -3168,7 +3167,7 @@ func TestRangeQuery(t *testing.T) {
 
 			res := qry.Exec(context.Background())
 			require.NoError(t, res.Err)
-			require.Equal(t, c.Result, res.Value)
+			testutil.RequireEqual(t, c.Result, res.Value)
 		})
 	}
 }
@@ -4368,7 +4367,7 @@ func TestNativeHistogram_Sum_Count_Add_AvgOperator(t *testing.T) {
 					vector, err := res.Vector()
 					require.NoError(t, err)
 
-					require.Equal(t, exp, vector)
+					testutil.RequireEqual(t, exp, vector)
 				}
 
 				// sum().
@@ -4626,7 +4625,7 @@ func TestNativeHistogram_SubOperator(t *testing.T) {
 						}
 					}
 
-					require.Equal(t, exp, vector)
+					testutil.RequireEqual(t, exp, vector)
 				}
 
 				// - operator.
@@ -4774,7 +4773,7 @@ func TestNativeHistogram_MulDivOperator(t *testing.T) {
 					vector, err := res.Vector()
 					require.NoError(t, err)
 
-					require.Equal(t, exp, vector)
+					testutil.RequireEqual(t, exp, vector)
 				}
 
 				// histogram * scalar.
