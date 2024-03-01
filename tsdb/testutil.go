@@ -138,7 +138,7 @@ func compareSamples(t *testing.T, name string, expected, actual []chunks.Sample,
 				require.Equal(t, expectedHist, actualHist, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 			}
 		default:
-			require.Equal(t, expectedSample, expectedSample, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
+			require.Equal(t, expectedSample, actualSample, "Sample doesn't match for %s[%d] at ts %d", name, i, expectedSample.T())
 		}
 	}
 }
