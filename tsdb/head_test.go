@@ -4867,10 +4867,122 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 		return expOOOSamples[i].T() < expOOOSamples[j].T()
 	})
 
-	// Passing in true for the 'ignoreCounterResets' parameter prevents differences in counter reset headers
-	// from being factored in to the sample comparison
-	// TODO(fionaliao): understand counter reset behaviour, might want to modify this later
 	compareSamples(t, l.String(), expOOOSamples, actOOOSamples, true)
+
+	require.NoError(t, h.Close())
+}
+
+func TestWBLReplayWithMultipleEncodingsAndCounterResets(t *testing.T) {
+	dir := t.TempDir()
+	wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
+	require.NoError(t, err)
+	oooWlog, err := wlog.NewSize(nil, nil, filepath.Join(dir, wlog.WblDirName), 32768, wlog.CompressionSnappy)
+	require.NoError(t, err)
+
+	opts := DefaultHeadOptions()
+	opts.ChunkRange = 1000
+	opts.ChunkDirRoot = dir
+	opts.OutOfOrderTimeWindow.Store(30 * time.Minute.Milliseconds())
+	opts.EnableNativeHistograms.Store(true)
+	opts.EnableOOONativeHistograms.Store(true)
+
+	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Init(0))
+
+	var expOOOSamples []chunks.Sample
+	l := labels.FromStrings("foo", "bar")
+	appendSample := func(mins int64, counterReset bool, typeName string) sample {
+		app := h.Appender(context.Background())
+		ts := mins * time.Minute.Milliseconds()
+		val := mins
+		if counterReset {
+			val = 0
+		}
+		_, s, err := sampleTypeScenarios[typeName].appendFunc(app, l, ts, val)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		return s
+	}
+
+	// In-order sample.
+	appendSample(60, false, float)
+
+	// Out of order samples.
+	// First OOO chunk.
+	s := appendSample(31, false, intHistogram)
+	expOOOSamples = append(expOOOSamples, s)
+	s = appendSample(32, true, intHistogram)
+
+	// A new OOO chunk is started due to counter reset.
+	expOOOSamples = append(expOOOSamples, copyWithCounterReset(s, histogram.CounterReset))
+	s = appendSample(34, false, intHistogram)
+	expOOOSamples = append(expOOOSamples, copyWithCounterReset(s, histogram.NotCounterReset))
+	s = appendSample(39, false, intHistogram)
+	expOOOSamples = append(expOOOSamples, copyWithCounterReset(s, histogram.NotCounterReset))
+
+	// A new OOO chunk is started due to encoding change.
+	s = appendSample(40, false, floatHistogram)
+	expOOOSamples = append(expOOOSamples, s)
+
+	// A new OOO chunk is started due to counter reset.
+	s = appendSample(42, true, floatHistogram)
+	expOOOSamples = append(expOOOSamples, copyWithCounterReset(s, histogram.CounterReset))
+	s = appendSample(43, false, floatHistogram)
+	expOOOSamples = append(expOOOSamples, copyWithCounterReset(s, histogram.NotCounterReset))
+
+	// A new OOO chunk is started due to encoding change.
+	s = appendSample(44, false, intHistogram)
+	expOOOSamples = append(expOOOSamples, s)
+
+	// A new OOO chunk is started due to encoding change.
+	s = appendSample(45, false, floatHistogram)
+	expOOOSamples = append(expOOOSamples, s)
+
+	// A new OOO chunk is started due to encoding change.
+	s = appendSample(50, false, float)
+	expOOOSamples = append(expOOOSamples, s)
+	s = appendSample(57, false, float)
+	expOOOSamples = append(expOOOSamples, s)
+
+	// Check that Head's time ranges are set properly.
+	require.Equal(t, 60*time.Minute.Milliseconds(), h.MinTime())
+	require.Equal(t, 60*time.Minute.Milliseconds(), h.MaxTime())
+	require.Equal(t, 31*time.Minute.Milliseconds(), h.MinOOOTime())
+	require.Equal(t, 57*time.Minute.Milliseconds(), h.MaxOOOTime())
+
+	// Restart head.
+	require.NoError(t, h.Close())
+	wal, err = wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionSnappy)
+	require.NoError(t, err)
+	oooWlog, err = wlog.NewSize(nil, nil, filepath.Join(dir, wlog.WblDirName), 32768, wlog.CompressionSnappy)
+	require.NoError(t, err)
+	h, err = NewHead(nil, nil, wal, oooWlog, opts, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Init(0)) // Replay happens here.
+
+	// Get the ooo samples from the Head.
+	ms, ok, err := h.getOrCreate(l.Hash(), l)
+	require.NoError(t, err)
+	require.False(t, ok)
+	require.NotNil(t, ms)
+
+	chks, err := ms.ooo.oooHeadChunk.chunk.ToEncodedChunks(math.MinInt64, math.MaxInt64)
+	require.NoError(t, err)
+	require.Len(t, chks, 7)
+
+	var actOOOSamples []chunks.Sample
+	for _, chk := range chks {
+		it := chk.chunk.Iterator(nil)
+		actOOOSamples = append(actOOOSamples, samplesFromIterator(t, it)...)
+	}
+
+	// OOO chunk will be sorted. Hence sort the expected samples.
+	sort.Slice(expOOOSamples, func(i, j int) bool {
+		return expOOOSamples[i].T() < expOOOSamples[j].T()
+	})
+
+	compareSamples(t, l.String(), expOOOSamples, actOOOSamples, false)
 
 	require.NoError(t, h.Close())
 }
