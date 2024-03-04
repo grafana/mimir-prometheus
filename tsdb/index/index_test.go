@@ -14,7 +14,6 @@
 package index
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -25,7 +24,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -564,50 +562,84 @@ func TestReaderWithInvalidBuffer(t *testing.T) {
 }
 
 func TestReader_PostingsForMatcher(t *testing.T) {
-	dir := t.TempDir()
-	fn := filepath.Join(dir, indexFilename)
-	ctx := context.Background()
+	testPostingsForMatcher(t, func(t *testing.T, series []labels.Labels) indexReader {
+		t.Helper()
 
-	iw, err := NewWriter(ctx, fn)
-	require.NoError(t, err)
+		dir := t.TempDir()
+		fn := filepath.Join(dir, indexFilename)
+		ctx := context.Background()
 
-	symbols := map[string]struct{}{}
+		iw, err := NewWriter(ctx, fn)
+		require.NoError(t, err)
+
+		symbols := map[string]struct{}{}
+		for _, ls := range series {
+			ls.Range(func(l labels.Label) {
+				symbols[l.Name] = struct{}{}
+				symbols[l.Value] = struct{}{}
+			})
+		}
+
+		var syms []string
+		for s := range symbols {
+			syms = append(syms, s)
+		}
+		sort.Strings(syms)
+		for _, s := range syms {
+			require.NoError(t, iw.AddSymbol(s))
+		}
+
+		for i, s := range series {
+			require.NoError(t, iw.AddSeries(storage.SeriesRef(i), s))
+		}
+		require.NoError(t, iw.Close())
+
+		ir, err := NewFileReader(fn)
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			require.NoError(t, ir.Close())
+		})
+
+		return blockIndexReader{
+			r: ir,
+		}
+	})
+}
+
+type blockIndexReader struct {
+	r *Reader
+}
+
+// Labels adds label pairs belonging to the series identified by sr, to builder.
+func (ir blockIndexReader) Labels(sr storage.SeriesRef, builder *labels.ScratchBuilder) error {
+	return ir.r.Series(sr, builder, nil)
+}
+
+// PostingsForMatcher wraps ir.r.PostingsForMatcher.
+func (ir blockIndexReader) PostingsForMatcher(ctx context.Context, matcher *labels.Matcher) Postings {
+	return ir.r.PostingsForMatcher(ctx, matcher)
+}
+
+type indexReader interface {
+	PostingsForMatcher(context.Context, *labels.Matcher) Postings
+	Labels(storage.SeriesRef, *labels.ScratchBuilder) error
+}
+
+// testPostingsForMatcher is a utility function that executes the PostingsForMatcher test suite for an indexReader
+// returned by the setUp function.
+func testPostingsForMatcher(t *testing.T, setUp func(*testing.T, []labels.Labels) indexReader) {
+	t.Helper()
+
+	// These have to be ordered
 	series := []labels.Labels{
+		labels.FromStrings("i", "a", "n", "1"),
+		labels.FromStrings("i", "b", "n", "1"),
 		labels.FromStrings("n", "1"),
-		labels.FromStrings("n", "1", "i", "a"),
-		labels.FromStrings("n", "1", "i", "b"),
 		labels.FromStrings("n", "2"),
 		labels.FromStrings("n", "2.5"),
 	}
-	// Make sure we insert in-order
-	slices.SortFunc(series, func(a, b labels.Labels) int {
-		return cmp.Compare(a.String(), b.String())
-	})
-	for _, ls := range series {
-		ls.Range(func(l labels.Label) {
-			symbols[l.Name] = struct{}{}
-			symbols[l.Value] = struct{}{}
-		})
-	}
-	var syms []string
-	for s := range symbols {
-		syms = append(syms, s)
-	}
-	sort.Strings(syms)
-	for _, s := range syms {
-		require.NoError(t, iw.AddSymbol(s))
-	}
 
-	for i, s := range series {
-		require.NoError(t, iw.AddSeries(storage.SeriesRef(i), s))
-	}
-	require.NoError(t, iw.Close())
-
-	ir, err := NewFileReader(fn)
-	require.NoError(t, err)
-	t.Cleanup(func() {
-		require.NoError(t, ir.Close())
-	})
+	ir := setUp(t, series)
 
 	testCases := []struct {
 		matcher *labels.Matcher
@@ -744,11 +776,11 @@ func TestReader_PostingsForMatcher(t *testing.T) {
 				exp[l.String()] = struct{}{}
 			}
 
-			it := ir.PostingsForMatcher(ctx, tc.matcher)
+			it := ir.PostingsForMatcher(context.Background(), tc.matcher)
 
-			var builder labels.ScratchBuilder
 			for it.Next() {
-				require.NoError(t, ir.Series(it.At(), &builder, nil))
+				builder := labels.NewScratchBuilder(0)
+				require.NoError(t, ir.Labels(it.At(), &builder))
 				lbls := builder.Labels()
 				_, ok := exp[lbls.String()]
 				require.True(t, ok, "Got unexpected label set %s", lbls.String())
