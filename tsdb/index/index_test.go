@@ -207,7 +207,7 @@ func TestIndexRW_Postings(t *testing.T) {
 
 		require.NoError(t, err)
 		require.Empty(t, c)
-		require.Equal(t, series[i], builder.Labels())
+		testutil.RequireEqual(t, series[i], builder.Labels())
 	}
 	require.NoError(t, p.Err())
 
@@ -495,7 +495,7 @@ func TestPersistence_index_e2e(t *testing.T) {
 
 			err = mi.Series(expp.At(), &eBuilder, &expchks)
 			require.NoError(t, err)
-			require.Equal(t, eBuilder.Labels(), builder.Labels())
+			testutil.RequireEqual(t, eBuilder.Labels(), builder.Labels())
 			require.Equal(t, expchks, chks)
 		}
 		require.False(t, expp.Next(), "Expected no more postings for %q=%q", p.Name, p.Value)
