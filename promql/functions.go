@@ -1321,47 +1321,59 @@ func funcChanges(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelp
 	return append(enh.Out, Sample{F: float64(changes)}), nil
 }
 
-// label_replace function operates only on series; does not look at timestamps or values.
-func (ev *evaluator) evalLabelReplace(args parser.Expressions) (parser.Value, annotations.Annotations) {
+// === label_replace(Vector parser.ValueTypeVector, dst_label, replacement, src_labelname, regex parser.ValueTypeString) (Vector, Annotations) ===
+func funcLabelReplace(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	var (
+		vector   = vals[0].(Vector)
 		dst      = stringFromArg(args[1])
 		repl     = stringFromArg(args[2])
 		src      = stringFromArg(args[3])
 		regexStr = stringFromArg(args[4])
 	)
 
-	regex, err := regexp.Compile("^(?:" + regexStr + ")$")
-	if err != nil {
-		panic(fmt.Errorf("invalid regular expression in label_replace(): %s", regexStr))
-	}
-	if !model.LabelNameRE.MatchString(dst) {
-		panic(fmt.Errorf("invalid destination label name in label_replace(): %s", dst))
-	}
-
-	val, ws := ev.eval(args[0])
-	matrix := val.(Matrix)
-	lb := labels.NewBuilder(labels.EmptyLabels())
-
-	for i, el := range matrix {
-		srcVal := el.Metric.Get(src)
-		indexes := regex.FindStringSubmatchIndex(srcVal)
-		if indexes != nil { // Only replace when regexp matches.
-			res := regex.ExpandString([]byte{}, repl, srcVal, indexes)
-			lb.Reset(el.Metric)
-			lb.Set(dst, string(res))
-			matrix[i].Metric = lb.Labels()
+	if enh.regex == nil {
+		var err error
+		enh.regex, err = regexp.Compile("^(?:" + regexStr + ")$")
+		if err != nil {
+			panic(fmt.Errorf("invalid regular expression in label_replace(): %s", regexStr))
 		}
-	}
-	if matrix.ContainsSameLabelset() {
-		ev.errorf("vector cannot contain metrics with the same labelset")
+		if !model.LabelNameRE.MatchString(dst) {
+			panic(fmt.Errorf("invalid destination label name in label_replace(): %s", dst))
+		}
+		enh.Dmn = make(map[uint64]labels.Labels, len(enh.Out))
 	}
 
-	return matrix, ws
-}
+	for _, el := range vector {
+		h := el.Metric.Hash()
+		var outMetric labels.Labels
+		if l, ok := enh.Dmn[h]; ok {
+			outMetric = l
+		} else {
+			srcVal := el.Metric.Get(src)
+			indexes := enh.regex.FindStringSubmatchIndex(srcVal)
+			if indexes == nil {
+				// If there is no match, no replacement should take place.
+				outMetric = el.Metric
+				enh.Dmn[h] = outMetric
+			} else {
+				res := enh.regex.ExpandString([]byte{}, repl, srcVal, indexes)
 
-// === label_replace(Vector parser.ValueTypeVector, dst_label, replacement, src_labelname, regex parser.ValueTypeString) (Vector, Annotations) ===
-func funcLabelReplace(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
-	panic("funcLabelReplace wrong implementation called")
+				lb := labels.NewBuilder(el.Metric).Del(dst)
+				if len(res) > 0 {
+					lb.Set(dst, string(res))
+				}
+				outMetric = lb.Labels()
+				enh.Dmn[h] = outMetric
+			}
+		}
+
+		enh.Out = append(enh.Out, Sample{
+			Metric: outMetric,
+			F:      el.F,
+			H:      el.H,
+		})
+	}
+	return enh.Out, nil
 }
 
 // === Vector(s Scalar) (Vector, Annotations) ===
@@ -1373,13 +1385,19 @@ func funcVector(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelpe
 		}), nil
 }
 
-// label_join function operates only on series; does not look at timestamps or values.
-func (ev *evaluator) evalLabelJoin(args parser.Expressions) (parser.Value, annotations.Annotations) {
+// === label_join(vector model.ValVector, dest_labelname, separator, src_labelname...) (Vector, Annotations) ===
+func funcLabelJoin(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
 	var (
+		vector    = vals[0].(Vector)
 		dst       = stringFromArg(args[1])
 		sep       = stringFromArg(args[2])
 		srcLabels = make([]string, len(args)-3)
 	)
+
+	if enh.Dmn == nil {
+		enh.Dmn = make(map[uint64]labels.Labels, len(enh.Out))
+	}
+
 	for i := 3; i < len(args); i++ {
 		src := stringFromArg(args[i])
 		if !model.LabelName(src).IsValid() {
@@ -1388,27 +1406,42 @@ func (ev *evaluator) evalLabelJoin(args parser.Expressions) (parser.Value, annot
 		srcLabels[i-3] = src
 	}
 
-	val, ws := ev.eval(args[0])
-	matrix := val.(Matrix)
-	srcVals := make([]string, len(srcLabels))
-	lb := labels.NewBuilder(labels.EmptyLabels())
-
-	for i, el := range matrix {
-		for i, src := range srcLabels {
-			srcVals[i] = el.Metric.Get(src)
-		}
-		strval := strings.Join(srcVals, sep)
-		lb.Reset(el.Metric)
-		lb.Set(dst, strval)
-		matrix[i].Metric = lb.Labels()
+	if !model.LabelName(dst).IsValid() {
+		panic(fmt.Errorf("invalid destination label name in label_join(): %s", dst))
 	}
 
-	return matrix, ws
-}
+	srcVals := make([]string, len(srcLabels))
+	for _, el := range vector {
+		h := el.Metric.Hash()
+		var outMetric labels.Labels
+		if l, ok := enh.Dmn[h]; ok {
+			outMetric = l
+		} else {
 
-// === label_join(vector model.ValVector, dest_labelname, separator, src_labelname...) (Vector, Annotations) ===
-func funcLabelJoin(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
-	panic("funcLabelReplace wrong implementation called")
+			for i, src := range srcLabels {
+				srcVals[i] = el.Metric.Get(src)
+			}
+
+			lb := labels.NewBuilder(el.Metric)
+
+			strval := strings.Join(srcVals, sep)
+			if strval == "" {
+				lb.Del(dst)
+			} else {
+				lb.Set(dst, strval)
+			}
+
+			outMetric = lb.Labels()
+			enh.Dmn[h] = outMetric
+		}
+
+		enh.Out = append(enh.Out, Sample{
+			Metric: outMetric,
+			F:      el.F,
+			H:      el.H,
+		})
+	}
+	return enh.Out, nil
 }
 
 // Common code for date related functions.
