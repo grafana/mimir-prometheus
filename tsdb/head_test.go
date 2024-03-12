@@ -3026,8 +3026,23 @@ func TestHeadCompactable(t *testing.T) {
 			app.Commit()
 
 			require.Equal(t, tc.expectedResult, head.compactable())
+			require.False(t, head.IsMinTimeUnset())
+			require.False(t, head.IsMaxTimeUnset())
 		})
 	}
+}
+
+func TestHeadCompactableEmpty(t *testing.T) {
+	headOpts := newTestHeadDefaultOptions(20, false)
+	headOpts.TimelyCompaction = true
+	head, _ := newTestHeadWithOptions(t, wlog.CompressionNone, headOpts)
+	defer func() {
+		require.NoError(t, head.Close())
+	}()
+
+	require.False(t, head.compactable())
+	require.True(t, head.IsMinTimeUnset())
+	require.True(t, head.IsMaxTimeUnset())
 }
 
 func TestErrReuseAppender(t *testing.T) {

@@ -1119,7 +1119,7 @@ func (h *Head) SetMinValidTime(minValidTime int64) {
 
 // Truncate removes old data before mint from the head and WAL.
 func (h *Head) Truncate(mint int64) (err error) {
-	initialize := h.MinTime() == math.MaxInt64
+	initialize := h.IsMinTimeUnset()
 	if err := h.truncateMemory(mint); err != nil {
 		return err
 	}
@@ -1145,7 +1145,7 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 		}
 	}()
 
-	initialize := h.MinTime() == math.MaxInt64
+	initialize := h.IsMinTimeUnset()
 
 	if h.MinTime() >= mint && !initialize {
 		return nil
@@ -1643,9 +1643,19 @@ func (h *Head) MinTime() int64 {
 	return h.minTime.Load()
 }
 
+// IsMinTimeUnset returns true if the head does not yet have a MinTime set, false otherwise.
+func (h *Head) IsMinTimeUnset() bool {
+	return h.MinTime() == math.MaxInt64
+}
+
 // MaxTime returns the highest timestamp seen in data of the head.
 func (h *Head) MaxTime() int64 {
 	return h.maxTime.Load()
+}
+
+// IsMaxTimeUnset returns true if the head does not yet have a MaxTime set, false otherwise.
+func (h *Head) IsMaxTimeUnset() bool {
+	return h.MaxTime() == math.MinInt64
 }
 
 // MinOOOTime returns the lowest time bound on visible data in the out of order
@@ -1665,10 +1675,15 @@ func (h *Head) MaxOOOTime() int64 {
 // Else the head has a compactable range when the head time range is 1.5 times the chunk range.
 // The 0.5 acts as a buffer of the appendable window.
 func (h *Head) compactable() bool {
+	if h.IsMinTimeUnset() || h.IsMaxTimeUnset() {
+		return false
+	}
+
 	if h.opts.TimelyCompaction {
 		minBlockEnd := rangeForTimestamp(h.MinTime(), h.chunkRange.Load())
 		return minBlockEnd < h.appendableMinValidTime()
 	}
+
 	return h.MaxTime()-h.MinTime() > h.chunkRange.Load()/2*3
 }
 
