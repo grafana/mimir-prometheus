@@ -448,7 +448,7 @@ var (
 	PrometheusText0_0_4  ScrapeProtocol = "PrometheusText0.0.4"
 	OpenMetricsText0_0_1 ScrapeProtocol = "OpenMetricsText0.0.1"
 	OpenMetricsText1_0_0 ScrapeProtocol = "OpenMetricsText1.0.0"
-	UTF8NamesHeader      string         = "validchars=utf8"
+	UTF8NamesHeader                     = "escaping=allow-utf-8"
 
 	ScrapeProtocolsHeaders = map[ScrapeProtocol]string{
 		PrometheusProto:      "application/vnd.google.protobuf;proto=io.prometheus.client.MetricFamily;encoding=delimited",
