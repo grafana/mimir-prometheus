@@ -190,7 +190,7 @@ Loop:
 	for _, s := range vec {
 		isHistogram := s.H != nil
 		if isHistogram &&
-			format != expfmt.FmtProtoDelim && format != expfmt.FmtProtoText && format != expfmt.FmtProtoCompact {
+			format.FormatType() != expfmt.TypeProtoDelim && format.FormatType() != expfmt.TypeProtoText && format.FormatType() != expfmt.TypeProtoCompact {
 			// Can't serve the native histogram.
 			// TODO(codesome): Serve them when other protocols get the native histogram support.
 			continue

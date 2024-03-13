@@ -8,7 +8,7 @@ global:
   label_limit: 30
   label_name_length_limit: 200
   label_value_length_limit: 200
-  utf8_names: true
+  utf8_names: false
   # scrape_timeout is set to the global default (10s).
 
   external_labels:
