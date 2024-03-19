@@ -2327,6 +2327,11 @@ func (m mockIndex) LabelValues(_ context.Context, name string, matchers ...*labe
 	return values, nil
 }
 
+func (m mockIndex) LabelValuesStream(context.Context, string, ...*labels.Matcher) storage.LabelValues {
+	// TODO
+	return storage.EmptyLabelValues()
+}
+
 func (m mockIndex) LabelValueFor(_ context.Context, id storage.SeriesRef, label string) (string, error) {
 	return m.series[id].l.Get(label), nil
 }
@@ -2364,6 +2369,16 @@ func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 		return labels.Compare(m.series[ep[i]].l, m.series[ep[j]].l) < 0
 	})
 	return index.NewListPostings(ep)
+}
+
+func (m mockIndex) PostingsForMatcher(ctx context.Context, matcher *labels.Matcher) index.Postings {
+	var res []index.Postings
+	for l, srs := range m.postings {
+		if l.Name == matcher.Name && matcher.Matches(l.Value) {
+			res = append(res, index.NewListPostings(srs))
+		}
+	}
+	return index.Merge(ctx, res...)
 }
 
 func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
@@ -2424,6 +2439,15 @@ func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder,
 	builder.Assign(s.l)
 	*chks = append((*chks)[:0], s.chunks...)
 
+	return nil
+}
+
+func (m mockIndex) Labels(ref storage.SeriesRef, builder *labels.ScratchBuilder) error {
+	s, ok := m.series[ref]
+	if !ok {
+		return storage.ErrNotFound
+	}
+	builder.Assign(s.l)
 	return nil
 }
 
@@ -3262,96 +3286,6 @@ func benchQuery(b *testing.B, expExpansions int, q storage.Querier, selectors la
 	}
 }
 
-// mockMatcherIndex is used to check if the regex matcher works as expected.
-type mockMatcherIndex struct{}
-
-func (m mockMatcherIndex) Symbols() index.StringIter { return nil }
-
-func (m mockMatcherIndex) Close() error { return nil }
-
-// SortedLabelValues will return error if it is called.
-func (m mockMatcherIndex) SortedLabelValues(context.Context, string, ...*labels.Matcher) ([]string, error) {
-	return []string{}, errors.New("sorted label values called")
-}
-
-// LabelValues will return error if it is called.
-func (m mockMatcherIndex) LabelValues(context.Context, string, ...*labels.Matcher) ([]string, error) {
-	return []string{}, errors.New("label values called")
-}
-
-func (m mockMatcherIndex) LabelValueFor(context.Context, storage.SeriesRef, string) (string, error) {
-	return "", errors.New("label value for called")
-}
-
-func (m mockMatcherIndex) LabelNamesFor(ctx context.Context, ids ...storage.SeriesRef) ([]string, error) {
-	return nil, errors.New("label names for for called")
-}
-
-func (m mockMatcherIndex) Postings(context.Context, string, ...string) (index.Postings, error) {
-	return index.EmptyPostings(), nil
-}
-
-func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {
-	return index.EmptyPostings(), nil
-}
-
-func (m mockMatcherIndex) SortedPostings(p index.Postings) index.Postings {
-	return index.EmptyPostings()
-}
-
-func (m mockMatcherIndex) ShardedPostings(ps index.Postings, shardIndex, shardCount uint64) index.Postings {
-	return ps
-}
-
-func (m mockMatcherIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
-	return nil
-}
-
-func (m mockMatcherIndex) LabelNames(context.Context, ...*labels.Matcher) ([]string, error) {
-	return []string{}, nil
-}
-
-func TestPostingsForMatcher(t *testing.T) {
-	ctx := context.Background()
-
-	cases := []struct {
-		matcher  *labels.Matcher
-		hasError bool
-	}{
-		{
-			// Equal label matcher will just return.
-			matcher:  labels.MustNewMatcher(labels.MatchEqual, "test", "test"),
-			hasError: false,
-		},
-		{
-			// Regex matcher which doesn't have '|' will call Labelvalues()
-			matcher:  labels.MustNewMatcher(labels.MatchRegexp, "test", ".*"),
-			hasError: true,
-		},
-		{
-			matcher:  labels.MustNewMatcher(labels.MatchRegexp, "test", "a|b"),
-			hasError: false,
-		},
-		{
-			// Test case for double quoted regex matcher
-			matcher:  labels.MustNewMatcher(labels.MatchRegexp, "test", "^(?:a|b)$"),
-			hasError: false,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.matcher.String(), func(t *testing.T) {
-			ir := &mockMatcherIndex{}
-			_, err := postingsForMatcher(ctx, ir, tc.matcher)
-			if tc.hasError {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
-		})
-	}
-}
-
 func TestBlockBaseSeriesSet(t *testing.T) {
 	type refdSeries struct {
 		lset   labels.Labels
@@ -3621,62 +3555,7 @@ func TestQueryWithDeletedHistograms(t *testing.T) {
 	}
 }
 
-func TestPrependPostings(t *testing.T) {
-	t.Run("empty", func(t *testing.T) {
-		p := newPrependPostings(nil, index.NewListPostings(nil))
-		require.False(t, p.Next())
-	})
-
-	t.Run("next+At", func(t *testing.T) {
-		p := newPrependPostings([]storage.SeriesRef{10, 20, 30}, index.NewListPostings([]storage.SeriesRef{200, 300, 500}))
-
-		for _, s := range []storage.SeriesRef{10, 20, 30, 200, 300, 500} {
-			require.True(t, p.Next())
-			require.Equal(t, s, p.At())
-			require.Equal(t, s, p.At()) // Multiple calls return same value.
-		}
-		require.False(t, p.Next())
-	})
-
-	t.Run("seek+At", func(t *testing.T) {
-		p := newPrependPostings([]storage.SeriesRef{10, 20, 30}, index.NewListPostings([]storage.SeriesRef{200, 300, 500}))
-
-		require.True(t, p.Seek(5))
-		require.Equal(t, storage.SeriesRef(10), p.At())
-		require.Equal(t, storage.SeriesRef(10), p.At())
-
-		require.True(t, p.Seek(15))
-		require.Equal(t, storage.SeriesRef(20), p.At())
-		require.Equal(t, storage.SeriesRef(20), p.At())
-
-		require.True(t, p.Seek(20)) // Seeking to "current" value doesn't move postings iterator.
-		require.Equal(t, storage.SeriesRef(20), p.At())
-		require.Equal(t, storage.SeriesRef(20), p.At())
-
-		require.True(t, p.Seek(50))
-		require.Equal(t, storage.SeriesRef(200), p.At())
-		require.Equal(t, storage.SeriesRef(200), p.At())
-
-		require.False(t, p.Seek(1000))
-		require.False(t, p.Next())
-	})
-
-	t.Run("err", func(t *testing.T) {
-		err := fmt.Errorf("error")
-		p := newPrependPostings([]storage.SeriesRef{10, 20, 30}, index.ErrPostings(err))
-
-		for _, s := range []storage.SeriesRef{10, 20, 30} {
-			require.True(t, p.Next())
-			require.Equal(t, s, p.At())
-			require.NoError(t, p.Err())
-		}
-		// Advancing after prepended values returns false, and gives us access to error.
-		require.False(t, p.Next())
-		require.Equal(t, err, p.Err())
-	})
-}
-
-func TestLabelsValuesWithMatchersOptimization(t *testing.T) {
+func TestLabelValuesWithMatchersOptimization(t *testing.T) {
 	dir := t.TempDir()
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
