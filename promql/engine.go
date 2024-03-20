@@ -228,6 +228,7 @@ func (q *query) Cancel() {
 
 // Close implements the Query interface.
 func (q *query) Close() {
+	// TODO: Handle info metric samples
 	for _, s := range q.matrix {
 		putFPointSlice(s.Floats)
 		putHPointSlice(s.Histograms)
@@ -742,6 +743,7 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 			for i, s := range mat {
 				// Point might have a different timestamp, force it to the evaluation
 				// timestamp as that is when we ran the evaluation.
+				// TODO: Handle info metric samples
 				if len(s.Histograms) > 0 {
 					vector[i] = Sample{Metric: s.Metric, H: s.Histograms[0].H, T: start}
 				} else {
@@ -1188,6 +1190,7 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 			}
 
 			for si, series := range matrixes[i] {
+				// TODO: Handle info metric samples
 				switch {
 				case len(series.Floats) > 0 && series.Floats[0].T == ts:
 					vectors[i] = append(vectors[i], Sample{Metric: series.Metric, F: series.Floats[0].F, T: ts})
@@ -1239,6 +1242,7 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 			}
 			mat := make(Matrix, len(result))
 			for i, s := range result {
+				// TODO: Handle info metric samples
 				if s.H == nil {
 					mat[i] = Series{Metric: s.Metric, Floats: []FPoint{{T: ts, F: s.F}}}
 				} else {
@@ -1262,6 +1266,7 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 			} else {
 				ss = seriesAndTimestamp{Series{Metric: sample.Metric}, ts}
 			}
+			// TODO: Handle info metric samples
 			if sample.H == nil {
 				if ss.Floats == nil {
 					ss.Floats = getFPointSlice(numSteps)
@@ -1280,6 +1285,7 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 	// Reuse the original point slices.
 	for _, m := range origMatrixes {
 		for _, s := range m {
+			// TODO: Handle info metric samples
 			putFPointSlice(s.Floats)
 			putHPointSlice(s.Histograms)
 		}
@@ -1479,6 +1485,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				ev.error(err)
 			}
 			ev.currentSamples -= len(floats) + totalHPointSize(histograms)
+			// TODO: Handle info metric samples
 			if floats != nil {
 				floats = floats[:0]
 			}
@@ -1520,6 +1527,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				if len(floats)+len(histograms) == 0 {
 					continue
 				}
+				// TODO: Handle info metric samples
 				inMatrix[0].Floats = floats
 				inMatrix[0].Histograms = histograms
 				enh.Ts = ts
@@ -1572,6 +1580,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 		}
 		ev.samplesStats.UpdatePeak(ev.currentSamples)
 
+		// TODO: Handle info metric samples
 		ev.currentSamples -= len(floats) + totalHPointSize(histograms)
 		putFPointSlice(floats)
 		putMatrixSelectorHPointSlice(histograms)
@@ -1583,6 +1592,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 			steps := int(1 + (ev.endTimestamp-ev.startTimestamp)/ev.interval)
 			// Iterate once to look for a complete series.
 			for _, s := range mat {
+				// TODO: Handle info metric samples
 				if len(s.Floats)+len(s.Histograms) == steps {
 					return Matrix{}, warnings
 				}
@@ -1591,6 +1601,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 			found := map[int64]struct{}{}
 
 			for i, s := range mat {
+				// TODO: Handle info metric samples
 				for _, p := range s.Floats {
 					found[p.T] = struct{}{}
 				}
@@ -1717,6 +1728,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				step++
 				_, f, h, ok := ev.vectorSelectorSingle(it, e, ts)
 				if ok {
+					// TODO: Handle info metric samples
 					if h == nil {
 						ev.currentSamples++
 						ev.samplesStats.IncrementSamplesAtStep(step, 1)
@@ -1743,6 +1755,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				}
 			}
 
+			// TODO: Handle info metric samples
 			if len(ss.Floats)+len(ss.Histograms) > 0 {
 				mat = append(mat, ss)
 				prevSS = &mat[len(mat)-1]
@@ -1836,6 +1849,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 			panic(fmt.Errorf("unexpected result in StepInvariantExpr evaluation: %T", expr))
 		}
 		for i := range mat {
+			// TODO: Handle info metric samples
 			if len(mat[i].Floats)+len(mat[i].Histograms) != 1 {
 				panic(fmt.Errorf("unexpected number of samples"))
 			}
@@ -1950,6 +1964,7 @@ func (ev *evaluator) vectorSelectorSingle(it *storage.MemoizedSeriesIterator, no
 	var h *histogram.FloatHistogram
 
 	valueType := it.Seek(refTime)
+	// TODO: Handle info metric samples
 	switch valueType {
 	case chunkenc.ValNone:
 		if it.Err() != nil {
@@ -1964,7 +1979,7 @@ func (ev *evaluator) vectorSelectorSingle(it *storage.MemoizedSeriesIterator, no
 	}
 	if valueType == chunkenc.ValNone || t > refTime {
 		var ok bool
-		t, v, h, ok = it.PeekPrev()
+		t, v, h, _, ok = it.PeekPrev()
 		if !ok || t < refTime-durationMilliseconds(ev.lookbackDelta) {
 			return 0, 0, nil, false
 		}
@@ -2070,6 +2085,7 @@ func (ev *evaluator) matrixSelector(node *parser.MatrixSelector) (Matrix, annota
 			Metric: series[i].Labels(),
 		}
 
+		// TODO: Handle info metric samples
 		ss.Floats, ss.Histograms = ev.matrixIterSlice(it, mint, maxt, nil, nil)
 		totalSize := int64(len(ss.Floats)) + int64(totalHPointSize(ss.Histograms))
 		ev.samplesStats.IncrementSamplesAtTimestamp(ev.startTimestamp, totalSize)
@@ -2098,6 +2114,7 @@ func (ev *evaluator) matrixIterSlice(
 ) ([]FPoint, []HPoint) {
 	mintFloats, mintHistograms := mint, mint
 
+	// TODO: Handle info metric samples
 	// First floats...
 	if len(floats) > 0 && floats[len(floats)-1].T >= mint {
 		// There is an overlap between previous and current ranges, retain common
@@ -2157,6 +2174,7 @@ func (ev *evaluator) matrixIterSlice(
 	buf := it.Buffer()
 loop:
 	for {
+		// TODO: Handle info metric samples
 		switch buf.Next() {
 		case chunkenc.ValNone:
 			break loop
@@ -2392,6 +2410,7 @@ func (ev *evaluator) VectorBinop(op parser.ItemType, lhs, rhs Vector, matching *
 			fl, fr = fr, fl
 			hl, hr = hr, hl
 		}
+		// TODO: Handle info metric samples
 		floatValue, histogramValue, keep := vectorElemBinop(op, fl, fr, hl, hr)
 		switch {
 		case returnBool:
@@ -2428,6 +2447,7 @@ func (ev *evaluator) VectorBinop(op parser.ItemType, lhs, rhs Vector, matching *
 			insertedSigs[insertSig] = struct{}{}
 		}
 
+		// TODO: Handle info metric samples
 		enh.Out = append(enh.Out, Sample{
 			Metric: metric,
 			F:      floatValue,
@@ -2508,6 +2528,7 @@ func (ev *evaluator) VectorscalarBinop(op parser.ItemType, lhs Vector, rhs Scala
 			lf, rf = rf, lf
 			lh, rh = rh, lh
 		}
+		// TODO: Handle info metric samples
 		float, histogram, keep := vectorElemBinop(op, lf, rf, lh, rh)
 		// Catch cases where the scalar is the LHS in a scalar-vector comparison operation.
 		// We want to always keep the vector element value as the output value, even if it's on the RHS.
@@ -2569,6 +2590,7 @@ func scalarBinop(op parser.ItemType, lhs, rhs float64) float64 {
 }
 
 // vectorElemBinop evaluates a binary operation between two Vector elements.
+// TODO: Handle info metric samples.
 func vectorElemBinop(op parser.ItemType, lhs, rhs float64, hlhs, hrhs *histogram.FloatHistogram) (float64, *histogram.FloatHistogram, bool) {
 	switch op {
 	case parser.ADD:
@@ -2617,6 +2639,7 @@ func vectorElemBinop(op parser.ItemType, lhs, rhs float64, hlhs, hrhs *histogram
 }
 
 type groupedAggregation struct {
+	// TODO: Handle info metric samples
 	hasFloat       bool // Has at least 1 float64 sample aggregated.
 	hasHistogram   bool // Has at least 1 histogram sample aggregated.
 	labels         labels.Labels
@@ -2713,6 +2736,7 @@ func (ev *evaluator) aggregation(e *parser.AggregateExpr, grouping []string, par
 				floatMean:  s.F,
 				groupCount: 1,
 			}
+			// TODO: Handle info metric samples
 			switch {
 			case s.H == nil:
 				newAgg.hasFloat = true
@@ -2760,6 +2784,7 @@ func (ev *evaluator) aggregation(e *parser.AggregateExpr, grouping []string, par
 
 		switch op {
 		case parser.SUM:
+			// TODO: Handle info metric samples
 			if s.H != nil {
 				group.hasHistogram = true
 				if group.histogramValue != nil {
@@ -2776,6 +2801,7 @@ func (ev *evaluator) aggregation(e *parser.AggregateExpr, grouping []string, par
 		case parser.AVG:
 			group.groupCount++
 			if s.H != nil {
+				// TODO: Handle info metric samples
 				group.hasHistogram = true
 				if group.histogramMean != nil {
 					left := s.H.Copy().Div(float64(group.groupCount))
