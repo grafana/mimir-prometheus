@@ -491,6 +491,17 @@ func (a *headAppender) getOrCreate(lset labels.Labels) (*memSeries, error) {
 	return s, nil
 }
 
+func (a *headAppender) getOrCreateInfoMetric(lset labels.Labels, t int64, identifyingLabels []int) (*memSeries, error) {
+	s, err := a.getOrCreate(lset)
+	if err != nil {
+		return s, err
+	}
+
+	a.head.postings.AddInfoMetric(storage.SeriesRef(s.ref), lset, t, identifyingLabels)
+
+	return s, nil
+}
+
 // appendable checks whether the given sample is valid for appending to the series. (if we return false and no error)
 // The sample belongs to the out of order chunk if we return true and no error.
 // An error signifies the sample cannot be handled.
@@ -768,7 +779,7 @@ func (a *headAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Label
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
 	if s == nil {
 		var err error
-		s, err = a.getOrCreate(lset)
+		s, err = a.getOrCreateInfoMetric(lset, t, identifyingLabels)
 		if err != nil {
 			return 0, err
 		}

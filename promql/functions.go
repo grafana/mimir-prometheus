@@ -31,7 +31,6 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/promql/parser/posrange"
-	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/annotations"
 )
 
@@ -1512,26 +1511,6 @@ func funcInfo(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper)
 	}
 
 	ts := vector[0].T
-	hints := &storage.SelectHints{
-		Start: ts,
-		End:   ts,
-		Func:  "info",
-	}
-	selectors := []*labels.Matcher{
-		labels.MustNewMatcher(labels.MatchRegexp, "__name__", ".+_info"),
-	}
-	selectors = append(selectors, dataLabelMatchers...)
-
-	it := enh.Querier.Select(context.TODO(), false, hints, selectors...)
-	var infoSeries []storage.Series
-	for it.Next() {
-		infoSeries = append(infoSeries, it.At())
-	}
-	if it.Err() != nil {
-		var annots annotations.Annotations
-		annots.Add(fmt.Errorf("querying for info metrics: %w", it.Err()))
-		return nil, annots
-	}
 
 	for _, s := range vector {
 		// Hash of sample's label set (the label set identifies the metric)
@@ -1548,56 +1527,23 @@ func funcInfo(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper)
 
 		lb := labels.NewBuilder(s.Metric)
 
-		// Find info series with matching labels, these are identifying labels
-		addedDataLabels := map[string]struct{}{}
-		for _, series := range infoSeries {
-			infoLbls := series.Labels()
+		// Find info metrics for which all of their identifying labels are contained among the sample's labels.
+		// Pick the union of the data labels belonging to the various info metrics.
+		dataLabels, annots, err := enh.Querier.InfoMetricDataLabels(context.TODO(), s.Metric, ts, dataLabelMatchers...)
+		if err != nil {
+			annots.Add(fmt.Errorf("querying for info metric data labels: %w", err))
+			return nil, annots
+		}
 
-			identifyingLabels := map[string]string{}
-			dataLabels := map[string]string{}
-			infoLbls.Range(func(l labels.Label) {
-				if l.Name == "__name__" {
-					return
-				}
-
-				if s.Metric.Has(l.Name) {
-					identifyingLabels[l.Name] = l.Value
-					return
-				}
-
-				if len(dataLabelMatchers) > 0 {
-					// Keep only data labels among dataLabelMatchers
-					found := false
-					for _, m := range dataLabelMatchers {
-						if m.Name == l.Name {
-							found = true
-							break
-						}
-					}
-					if !found {
-						return
-					}
-				}
-				dataLabels[l.Name] = l.Value
-			})
-			if len(identifyingLabels) == 0 {
-				continue
-			}
-
-			name := infoLbls.Get("__name__")
-			fmt.Printf("Identifying labels for info metric %s: %#v, data labels: %#v\n", name, identifyingLabels, dataLabels)
-			for n, v := range dataLabels {
-				if lb.Get(n) == "" {
-					lb.Set(n, v)
-				}
-
-				addedDataLabels[n] = struct{}{}
+		for _, l := range dataLabels {
+			if lb.Get(l.Name) == "" {
+				lb.Set(l.Name, l.Value)
 			}
 		}
 
 		// If info metric data label matchers are specified, we should only include series where
 		// info metric data labels are found
-		if len(dataLabelMatchers) > 0 && len(addedDataLabels) == 0 {
+		if len(dataLabelMatchers) > 0 && len(dataLabels) == 0 {
 			continue
 		}
 

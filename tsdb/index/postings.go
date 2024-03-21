@@ -54,16 +54,18 @@ var ensureOrderBatchPool = sync.Pool{
 // EnsureOrder() must be called once before any reads are done. This allows for quick
 // unordered batch fills on startup.
 type MemPostings struct {
-	mtx     sync.RWMutex
-	m       map[string]map[string][]storage.SeriesRef
-	ordered bool
+	mtx         sync.RWMutex
+	m           map[string]map[string][]storage.SeriesRef
+	ordered     bool
+	infoMetrics map[storage.SeriesRef][]infoMetricEntry
 }
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
 func NewMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, 512),
-		ordered: true,
+		m:           make(map[string]map[string][]storage.SeriesRef, 512),
+		ordered:     true,
+		infoMetrics: make(map[storage.SeriesRef][]infoMetricEntry, 512),
 	}
 }
 
@@ -374,6 +376,49 @@ func (p *MemPostings) Add(id storage.SeriesRef, lset labels.Labels) {
 	p.mtx.Unlock()
 }
 
+// AddInfoMetric adds an info metric to the info metric index.
+func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t int64, identifyingLabels []int) {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	ils := make(labels.Labels, 0, len(identifyingLabels))
+	j := 0
+	i := 0
+	lset.Range(func(l labels.Label) {
+		if j >= len(identifyingLabels) {
+			return
+		}
+
+		if i == identifyingLabels[j] {
+			j++
+			ils = append(ils, l)
+		}
+
+		i++
+	})
+
+	entries := p.infoMetrics[id]
+	if entries == nil {
+		p.infoMetrics[id] = []infoMetricEntry{
+			{
+				MinT:              t,
+				IdentifyingLabels: ils,
+			},
+		}
+		return
+	}
+
+	if !labels.Equal(entries[len(entries)-1].IdentifyingLabels, ils) {
+		entries[len(entries)-1].MaxT = t - 1
+		entries = append(entries, infoMetricEntry{
+			MinT:              t,
+			IdentifyingLabels: ils,
+		})
+
+		p.infoMetrics[id] = entries
+	}
+}
+
 func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 	nm, ok := p.m[l.Name]
 	if !ok {
@@ -396,6 +441,82 @@ func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 		}
 		list[i], list[i-1] = list[i-1], list[i]
 	}
+}
+
+func (p *MemPostings) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) labels.Labels {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+
+	var infoMetrics map[storage.SeriesRef][]infoMetricEntry
+	if len(matchers) == 0 {
+		// Consider all info metrics.
+		infoMetrics = p.infoMetrics
+	} else {
+		// Pick only info metrics that have matching (potential data) labels.
+		infoMetrics = map[storage.SeriesRef][]infoMetricEntry{}
+		for _, m := range matchers {
+			for v, srs := range p.m[m.Name] {
+				if !m.Matches(v) {
+					continue
+				}
+
+				for _, sr := range srs {
+					entries := p.infoMetrics[sr]
+					if len(entries) > 0 {
+						infoMetrics[sr] = entries
+					}
+				}
+			}
+		}
+	}
+	if len(infoMetrics) == 0 {
+		return nil
+	}
+
+	lblMap := make(map[string]labels.Label, lbls.Len())
+	lbls.Range(func(l labels.Label) {
+		lblMap[l.Name] = l
+	})
+
+	dataLabels := map[string]string{}
+	for _, entries := range infoMetrics {
+		for _, entry := range entries {
+			if entry.MinT > t || entry.MaxT < t {
+				continue
+			}
+
+			// This entry is for a time range corresponding to t.
+			isMatch := true
+			for _, il := range entry.IdentifyingLabels {
+				l, ok := lblMap[il.Name]
+				if !ok || l.Name != il.Name || l.Value != il.Value {
+					isMatch = false
+					break
+				}
+			}
+			if !isMatch {
+				// Entry doesn't have corresponding identifying labels.
+				continue
+			}
+
+			for _, l := range entry.DataLabels {
+				dataLabels[l.Name] = l.Value
+			}
+		}
+	}
+
+	dls := make(labels.Labels, 0, len(dataLabels))
+	for n, v := range dataLabels {
+		dls = append(dls, labels.Label{Name: n, Value: v})
+	}
+	return dls
+}
+
+type infoMetricEntry struct {
+	MinT              int64
+	MaxT              int64
+	IdentifyingLabels labels.Labels
+	DataLabels        labels.Labels
 }
 
 // ExpandPostings returns the postings expanded as a slice.
