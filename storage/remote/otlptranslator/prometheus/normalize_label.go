@@ -1,7 +1,9 @@
+// DO NOT EDIT. COPIED AS-IS. SEE ../README.md
+
 // Copyright The OpenTelemetry Authors
 // SPDX-License-Identifier: Apache-2.0
 
-package prometheus // import "github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/prometheus"
+package prometheus // import "github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
 
 import (
 	"strings"
@@ -25,6 +27,7 @@ var dropSanitizationGate = featuregate.GlobalRegistry().MustRegister(
 //
 // Exception is made for double-underscores which are allowed
 func NormalizeLabel(label string) string {
+
 	// Trivial case
 	if len(label) == 0 {
 		return label

@@ -27,7 +27,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -114,10 +113,10 @@ func query(t testing.TB, q storage.Querier, matchers ...*labels.Matcher) map[str
 				ts, v := it.At()
 				samples = append(samples, sample{t: ts, f: v})
 			case chunkenc.ValHistogram:
-				ts, h := it.AtHistogram()
+				ts, h := it.AtHistogram(nil)
 				samples = append(samples, sample{t: ts, h: h})
 			case chunkenc.ValFloatHistogram:
-				ts, fh := it.AtFloatHistogram()
+				ts, fh := it.AtFloatHistogram(nil)
 				samples = append(samples, sample{t: ts, fh: fh})
 			default:
 				t.Fatalf("unknown sample type in query %s", typ.String())
@@ -687,6 +686,34 @@ func TestDB_Snapshot(t *testing.T) {
 	require.NoError(t, seriesSet.Err())
 	require.Empty(t, seriesSet.Warnings())
 	require.Equal(t, 1000.0, sum)
+}
+
+func TestDB_BeyondTimeRetention(t *testing.T) {
+	opts := DefaultOptions()
+	opts.RetentionDuration = 100
+	db := openTestDB(t, opts, nil)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	// We have 4 blocks, 3 of which are beyond the retention duration.
+	metas := []BlockMeta{
+		{MinTime: 300, MaxTime: 500},
+		{MinTime: 200, MaxTime: 300},
+		{MinTime: 100, MaxTime: 200},
+		{MinTime: 0, MaxTime: 100},
+	}
+
+	for _, m := range metas {
+		createBlock(t, db.Dir(), genSeries(1, 1, m.MinTime, m.MaxTime))
+	}
+
+	// Reloading should truncate the 3 blocks which are >= the retention period.
+	require.NoError(t, db.reloadBlocks())
+	blocks := db.Blocks()
+	require.Len(t, blocks, 1)
+	require.Equal(t, metas[0].MinTime, blocks[0].Meta().MinTime)
+	require.Equal(t, metas[0].MaxTime, blocks[0].Meta().MaxTime)
 }
 
 // TestDB_Snapshot_ChunksOutsideOfCompactedRange ensures that a snapshot removes chunks samples
@@ -2334,9 +2361,7 @@ func TestBlockRanges(t *testing.T) {
 	app := db.Appender(ctx)
 	lbl := labels.FromStrings("a", "b")
 	_, err = app.Append(0, lbl, firstBlockMaxT-1, rand.Float64())
-	if err == nil {
-		t.Fatalf("appending a sample with a timestamp covered by a previous block shouldn't be possible")
-	}
+	require.Error(t, err, "appending a sample with a timestamp covered by a previous block shouldn't be possible")
 	_, err = app.Append(0, lbl, firstBlockMaxT+1, rand.Float64())
 	require.NoError(t, err)
 	_, err = app.Append(0, lbl, firstBlockMaxT+2, rand.Float64())
@@ -2354,9 +2379,8 @@ func TestBlockRanges(t *testing.T) {
 	}
 	require.Len(t, db.Blocks(), 2, "no new block created after the set timeout")
 
-	if db.Blocks()[0].Meta().MaxTime > db.Blocks()[1].Meta().MinTime {
-		t.Fatalf("new block overlaps  old:%v,new:%v", db.Blocks()[0].Meta(), db.Blocks()[1].Meta())
-	}
+	require.LessOrEqual(t, db.Blocks()[1].Meta().MinTime, db.Blocks()[0].Meta().MaxTime,
+		"new block overlaps  old:%v,new:%v", db.Blocks()[0].Meta(), db.Blocks()[1].Meta())
 
 	// Test that wal records are skipped when an existing block covers the same time ranges
 	// and compaction doesn't create an overlapping block.
@@ -2396,9 +2420,8 @@ func TestBlockRanges(t *testing.T) {
 
 	require.Len(t, db.Blocks(), 4, "no new block created after the set timeout")
 
-	if db.Blocks()[2].Meta().MaxTime > db.Blocks()[3].Meta().MinTime {
-		t.Fatalf("new block overlaps  old:%v,new:%v", db.Blocks()[2].Meta(), db.Blocks()[3].Meta())
-	}
+	require.LessOrEqual(t, db.Blocks()[3].Meta().MinTime, db.Blocks()[2].Meta().MaxTime,
+		"new block overlaps  old:%v,new:%v", db.Blocks()[2].Meta(), db.Blocks()[3].Meta())
 }
 
 // TestDBReadOnly ensures that opening a DB in readonly mode doesn't modify any files on the disk.
@@ -3187,9 +3210,8 @@ func TestOpen_VariousBlockStates(t *testing.T) {
 
 	var loaded int
 	for _, l := range loadedBlocks {
-		if _, ok := expectedLoadedDirs[filepath.Join(tmpDir, l.meta.ULID.String())]; !ok {
-			t.Fatal("unexpected block", l.meta.ULID, "was loaded")
-		}
+		_, ok := expectedLoadedDirs[filepath.Join(tmpDir, l.meta.ULID.String())]
+		require.True(t, ok, "unexpected block", l.meta.ULID, "was loaded")
 		loaded++
 	}
 	require.Len(t, expectedLoadedDirs, loaded)
@@ -3200,9 +3222,8 @@ func TestOpen_VariousBlockStates(t *testing.T) {
 
 	var ignored int
 	for _, f := range files {
-		if _, ok := expectedRemovedDirs[filepath.Join(tmpDir, f.Name())]; ok {
-			t.Fatal("expected", filepath.Join(tmpDir, f.Name()), "to be removed, but still exists")
-		}
+		_, ok := expectedRemovedDirs[filepath.Join(tmpDir, f.Name())]
+		require.False(t, ok, "expected", filepath.Join(tmpDir, f.Name()), "to be removed, but still exists")
 		if _, ok := expectedIgnoredDirs[filepath.Join(tmpDir, f.Name())]; ok {
 			ignored++
 		}
@@ -3493,8 +3514,8 @@ func testQuerierShouldNotPanicIfHeadChunkIsTruncatedWhileReadingQueriedChunks(t 
 	// the "cannot populate chunk XXX: not found" error occurred. This error can occur
 	// when the iterator tries to fetch an head chunk which has been offloaded because
 	// of the head compaction in the meanwhile.
-	if firstErr != nil && !strings.Contains(firstErr.Error(), "cannot populate chunk") {
-		t.Fatalf("unexpected error: %s", firstErr.Error())
+	if firstErr != nil {
+		require.ErrorContains(t, firstErr, "cannot populate chunk")
 	}
 }
 
@@ -3612,7 +3633,7 @@ func testChunkQuerierShouldNotPanicIfHeadChunkIsTruncatedWhileReadingQueriedChun
 	// just to iterate through the bytes slice. We don't really care the reason why
 	// we read this data, we just need to read it to make sure the memory address
 	// of the []byte is still valid.
-	chkCRC32 := newCRC32()
+	chkCRC32 := crc32.New(crc32.MakeTable(crc32.Castagnoli))
 	for _, chunk := range chunks {
 		chkCRC32.Reset()
 		_, err := chkCRC32.Write(chunk.Bytes())
@@ -4045,7 +4066,7 @@ func TestOOOWALWrite(t *testing.T) {
 
 		var (
 			records []interface{}
-			dec     record.Decoder
+			dec     record.Decoder = record.NewDecoder(labels.NewSymbolTable())
 		)
 		for r.Next() {
 			rec := r.Record()
@@ -4072,11 +4093,11 @@ func TestOOOWALWrite(t *testing.T) {
 
 	// The normal WAL.
 	actRecs := getRecords(path.Join(dir, "wal"))
-	require.Equal(t, inOrderRecords, actRecs)
+	testutil.RequireEqual(t, inOrderRecords, actRecs)
 
 	// The WBL.
 	actRecs = getRecords(path.Join(dir, wlog.WblDirName))
-	require.Equal(t, oooRecords, actRecs)
+	testutil.RequireEqual(t, oooRecords, actRecs)
 }
 
 // Tests https://github.com/prometheus/prometheus/issues/10291#issuecomment-1044373110.
@@ -4959,7 +4980,7 @@ func Test_Querier_OOOQuery(t *testing.T) {
 			require.NotNil(t, seriesSet[series1.String()])
 			require.Len(t, seriesSet, 1)
 			require.Equal(t, expSamples, seriesSet[series1.String()])
-			require.GreaterOrEqual(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+			requireEqualOOOSamples(t, oooSamples, db)
 		})
 	}
 }
@@ -5042,7 +5063,7 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 			chks := queryChunks(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar1"))
 			require.NotNil(t, chks[series1.String()])
 			require.Len(t, chks, 1)
-			require.Equal(t, float64(oooSamples), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+			requireEqualOOOSamples(t, oooSamples, db)
 			var gotSamples []chunks.Sample
 			for _, chunk := range chks[series1.String()] {
 				it := chunk.Chunk.Iterator(nil)
@@ -5121,7 +5142,7 @@ func TestOOOAppendAndQuery(t *testing.T) {
 			}
 		}
 		require.Equal(t, expSamples, seriesSet)
-		require.Equal(t, float64(totalSamples-2), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+		requireEqualOOOSamples(t, totalSamples-2, db)
 	}
 
 	verifyOOOMinMaxTimes := func(expMin, expMax int64) {
@@ -5230,7 +5251,7 @@ func TestOOODisabled(t *testing.T) {
 
 	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar."))
 	require.Equal(t, expSamples, seriesSet)
-	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended), "number of ooo appended samples mismatch")
+	requireEqualOOOSamples(t, 0, db)
 	require.Equal(t, float64(failedSamples),
 		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat))+prom_testutil.ToFloat64(db.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat)),
 		"number of ooo/oob samples mismatch")
@@ -5404,7 +5425,7 @@ func TestWBLAndMmapReplay(t *testing.T) {
 		require.NoError(t, err)
 		sr, err := wlog.NewSegmentsReader(originalWblDir)
 		require.NoError(t, err)
-		var dec record.Decoder
+		dec := record.NewDecoder(labels.NewSymbolTable())
 		r, markers, addedRecs := wlog.NewReader(sr), 0, 0
 		for r.Next() {
 			rec := r.Record()
@@ -6671,10 +6692,10 @@ func TestQueryHistogramFromBlocksWithCompaction(t *testing.T) {
 						ts, v := it.At()
 						slice = append(slice, sample{t: ts, f: v})
 					case chunkenc.ValHistogram:
-						ts, h := it.AtHistogram()
+						ts, h := it.AtHistogram(nil)
 						slice = append(slice, sample{t: ts, h: h})
 					case chunkenc.ValFloatHistogram:
-						ts, h := it.AtFloatHistogram()
+						ts, h := it.AtFloatHistogram(nil)
 						slice = append(slice, sample{t: ts, fh: h})
 					default:
 						t.Fatalf("unexpected sample value type %d", typ)
@@ -6956,4 +6977,10 @@ Outer:
 	}
 
 	require.NoError(t, writerErr)
+}
+
+func requireEqualOOOSamples(t *testing.T, expectedSamples int, db *DB) {
+	require.Equal(t, float64(expectedSamples),
+		prom_testutil.ToFloat64(db.head.metrics.outOfOrderSamplesAppended.WithLabelValues(sampleMetricTypeFloat)),
+		"number of ooo appended samples mismatch")
 }

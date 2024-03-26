@@ -209,6 +209,22 @@ func TestCorruptedChunk(t *testing.T) {
 	}
 }
 
+func sequenceFiles(dir string) ([]string, error) {
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var res []string
+
+	for _, fi := range files {
+		if _, err := strconv.ParseUint(fi.Name(), 10, 64); err != nil {
+			continue
+		}
+		res = append(res, filepath.Join(dir, fi.Name()))
+	}
+	return res, nil
+}
+
 func TestLabelValuesWithMatchers(t *testing.T) {
 	tmpdir := t.TempDir()
 	ctx := context.Background()
@@ -220,6 +236,10 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 			"unique", fmt.Sprintf("value%d", i),
 		), []chunks.Sample{sample{100, 0, nil, nil}}))
 	}
+	// Add another series with an overlapping unique label, but leaving out the tens label
+	seriesEntries = append(seriesEntries, storage.NewListSeries(labels.FromStrings(
+		"unique", "value99",
+	), []chunks.Sample{sample{100, 0, nil, nil}}))
 
 	blockDir := createBlock(t, tmpdir, seriesEntries)
 	files, err := sequenceFiles(chunkDir(blockDir))
@@ -235,6 +255,13 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, indexReader.Close()) }()
 
+	var uniqueWithout30s []string
+	for i := 0; i < 100; i++ {
+		if i/10 != 3 {
+			uniqueWithout30s = append(uniqueWithout30s, fmt.Sprintf("value%d", i))
+		}
+	}
+	sort.Strings(uniqueWithout30s)
 	testCases := []struct {
 		name           string
 		labelName      string
@@ -257,10 +284,27 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 			matchers:       []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "unique", "value[5-7]5")},
 			expectedValues: []string{"value5", "value6", "value7"},
 		}, {
-			name:           "get tens by matching for absence of unique label",
+			name:           "get tens by matching for presence of unique label",
 			labelName:      "tens",
 			matchers:       []*labels.Matcher{labels.MustNewMatcher(labels.MatchNotEqual, "unique", "")},
 			expectedValues: []string{"value0", "value1", "value2", "value3", "value4", "value5", "value6", "value7", "value8", "value9"},
+		}, {
+			name:      "get unique IDs based on tens not being equal to a certain value, while not empty",
+			labelName: "unique",
+			matchers: []*labels.Matcher{
+				labels.MustNewMatcher(labels.MatchNotEqual, "tens", "value3"),
+				labels.MustNewMatcher(labels.MatchNotEqual, "tens", ""),
+			},
+			expectedValues: uniqueWithout30s,
+		}, {
+			// In this case, we query for the "unique" label where the "tens" label is absent.
+			// We have one series where "tens" is empty (unique="value99"), but also another with
+			// the same value for "unique" and "tens" present. Make sure that unique="value99" is
+			// still found.
+			name:           "get unique ID where tens is empty",
+			labelName:      "unique",
+			matchers:       []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "tens", "")},
+			expectedValues: []string{"value99"},
 		},
 	}
 
@@ -543,10 +587,10 @@ func createHead(tb testing.TB, w *wlog.WL, series []storage.Series, chunkDir str
 				t, v := it.At()
 				ref, err = app.Append(ref, lset, t, v)
 			case chunkenc.ValHistogram:
-				t, h := it.AtHistogram()
+				t, h := it.AtHistogram(nil)
 				ref, err = app.AppendHistogram(ref, lset, t, h, nil)
 			case chunkenc.ValFloatHistogram:
-				t, fh := it.AtFloatHistogram()
+				t, fh := it.AtFloatHistogram(nil)
 				ref, err = app.AppendHistogram(ref, lset, t, nil, fh)
 			default:
 				err = fmt.Errorf("unknown sample type %s", typ.String())

@@ -189,15 +189,22 @@ type HeadOptions struct {
 
 	IsolationDisabled bool
 
-	PostingsForMatchersCacheTTL      time.Duration
-	PostingsForMatchersCacheMaxItems int
-	PostingsForMatchersCacheMaxBytes int64
-	PostingsForMatchersCacheForce    bool
-
 	// Maximum number of CPUs that can simultaneously processes WAL replay.
 	// The default value is GOMAXPROCS.
 	// If it is set to a negative value or zero, the default value is used.
 	WALReplayConcurrency int
+
+	// EnableSharding enables ShardedPostings() support in the Head.
+	EnableSharding bool
+
+	// Timely compaction allows head compaction to happen when min block range can no longer be appended,
+	// without requiring 1.5x the chunk range worth of data in the head.
+	TimelyCompaction bool
+
+	PostingsForMatchersCacheTTL      time.Duration
+	PostingsForMatchersCacheMaxItems int
+	PostingsForMatchersCacheMaxBytes int64
+	PostingsForMatchersCacheForce    bool
 
 	// Optional hash function applied to each new series. Computed hash value is preserved for each series in the head,
 	// and values can be iterated by using Head.ForEachSecondaryHash method.
@@ -377,7 +384,7 @@ type headMetrics struct {
 	chunksRemoved             prometheus.Counter
 	gcDuration                prometheus.Summary
 	samplesAppended           *prometheus.CounterVec
-	outOfOrderSamplesAppended prometheus.Counter
+	outOfOrderSamplesAppended *prometheus.CounterVec
 	outOfBoundSamples         *prometheus.CounterVec
 	outOfOrderSamples         *prometheus.CounterVec
 	tooOldSamples             *prometheus.CounterVec
@@ -457,10 +464,10 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_head_samples_appended_total",
 			Help: "Total number of appended samples.",
 		}, []string{"type"}),
-		outOfOrderSamplesAppended: prometheus.NewCounter(prometheus.CounterOpts{
+		outOfOrderSamplesAppended: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_out_of_order_samples_appended_total",
 			Help: "Total number of appended out of order samples.",
-		}),
+		}, []string{"type"}),
 		outOfBoundSamples: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_out_of_bound_samples_total",
 			Help: "Total number of out of bound samples ingestion failed attempts with out of order support disabled.",
@@ -517,6 +524,9 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 				60 * 60 * 6,  // 6h
 				60 * 60 * 12, // 12h
 			},
+			NativeHistogramBucketFactor:     1.1,
+			NativeHistogramMaxBucketNumber:  100,
+			NativeHistogramMinResetDuration: 1 * time.Hour,
 		}),
 		mmapChunksTotal: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_mmap_chunks_total",
@@ -755,6 +765,7 @@ func (h *Head) Init(minValidTime int64) error {
 
 	h.startWALReplayStatus(startFrom, endAt)
 
+	syms := labels.NewSymbolTable() // One table for the whole WAL.
 	multiRef := map[chunks.HeadSeriesRef]chunks.HeadSeriesRef{}
 	if err == nil && startFrom >= snapIdx {
 		sr, err := wlog.NewSegmentsReader(dir)
@@ -769,7 +780,7 @@ func (h *Head) Init(minValidTime int64) error {
 
 		// A corrupted checkpoint is a hard error for now and requires user
 		// intervention. There's likely little data that can be recovered anyway.
-		if err := h.loadWAL(wlog.NewReader(sr), multiRef, mmappedChunks, oooMmappedChunks); err != nil {
+		if err := h.loadWAL(wlog.NewReader(sr), syms, multiRef, mmappedChunks, oooMmappedChunks); err != nil {
 			return fmt.Errorf("backfill checkpoint: %w", err)
 		}
 		h.updateWALReplayStatusRead(startFrom)
@@ -802,7 +813,7 @@ func (h *Head) Init(minValidTime int64) error {
 		if err != nil {
 			return fmt.Errorf("segment reader (offset=%d): %w", offset, err)
 		}
-		err = h.loadWAL(wlog.NewReader(sr), multiRef, mmappedChunks, oooMmappedChunks)
+		err = h.loadWAL(wlog.NewReader(sr), syms, multiRef, mmappedChunks, oooMmappedChunks)
 		if err := sr.Close(); err != nil {
 			level.Warn(h.logger).Log("msg", "Error while closing the wal segments reader", "err", err)
 		}
@@ -830,7 +841,7 @@ func (h *Head) Init(minValidTime int64) error {
 			}
 
 			sr := wlog.NewSegmentBufReader(s)
-			err = h.loadWBL(wlog.NewReader(sr), multiRef, lastMmapRef)
+			err = h.loadWBL(wlog.NewReader(sr), syms, multiRef, lastMmapRef)
 			if err := sr.Close(); err != nil {
 				level.Warn(h.logger).Log("msg", "Error while closing the wbl segments reader", "err", err)
 			}
@@ -1108,11 +1119,11 @@ func (h *Head) SetMinValidTime(minValidTime int64) {
 
 // Truncate removes old data before mint from the head and WAL.
 func (h *Head) Truncate(mint int64) (err error) {
-	initialize := h.MinTime() == math.MaxInt64
+	uninitialized := h.isUninitialized()
 	if err := h.truncateMemory(mint); err != nil {
 		return err
 	}
-	if initialize {
+	if uninitialized {
 		return nil
 	}
 	return h.truncateWAL(mint)
@@ -1134,9 +1145,9 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 		}
 	}()
 
-	initialize := h.MinTime() == math.MaxInt64
+	uninitialized := h.isUninitialized()
 
-	if h.MinTime() >= mint && !initialize {
+	if h.MinTime() >= mint && !uninitialized {
 		return nil
 	}
 
@@ -1147,7 +1158,7 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 	defer h.memTruncationInProcess.Store(false)
 
 	// We wait for pending queries to end that overlap with this truncation.
-	if !initialize {
+	if !uninitialized {
 		h.WaitForPendingReadersInTimeRange(h.MinTime(), mint)
 	}
 
@@ -1161,7 +1172,7 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 
 	// This was an initial call to Truncate after loading blocks on startup.
 	// We haven't read back the WAL yet, so do not attempt to truncate it.
-	if initialize {
+	if uninitialized {
 		return nil
 	}
 
@@ -1525,9 +1536,9 @@ func (h *Head) Delete(ctx context.Context, mint, maxt int64, ms ...*labels.Match
 			continue
 		}
 
-		series.RLock()
+		series.Lock()
 		t0, t1 := series.minTime(), series.maxTime()
-		series.RUnlock()
+		series.Unlock()
 		if t0 == math.MinInt64 || t1 == math.MinInt64 {
 			continue
 		}
@@ -1649,10 +1660,25 @@ func (h *Head) MaxOOOTime() int64 {
 	return h.maxOOOTime.Load()
 }
 
+// isUninitialized returns true if the head does not yet have a MinTime or MaxTime set, false otherwise.
+func (h *Head) isUninitialized() bool {
+	return h.MinTime() == math.MaxInt64 || h.MaxTime() == math.MinInt64
+}
+
 // compactable returns whether the head has a compactable range.
-// The head has a compactable range when the head time range is 1.5 times the chunk range.
+// When the TimelyCompaction option is enabled, the head is compactable when the min block end is .5 times the chunk range in the past.
+// Else the head has a compactable range when the head time range is 1.5 times the chunk range.
 // The 0.5 acts as a buffer of the appendable window.
 func (h *Head) compactable() bool {
+	if h.isUninitialized() {
+		return false
+	}
+
+	if h.opts.TimelyCompaction {
+		minBlockEnd := rangeForTimestamp(h.MinTime(), h.chunkRange.Load())
+		return minBlockEnd < h.appendableMinValidTime()
+	}
+
 	return h.MaxTime()-h.MinTime() > h.chunkRange.Load()/2*3
 }
 
@@ -1704,7 +1730,12 @@ func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool, e
 
 func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
 	s, created, err := h.series.getOrSet(hash, lset, func() *memSeries {
-		return newMemSeries(lset, id, labels.StableHash(lset), h.secondaryHashFunc(lset), h.opts.ChunkEndTimeVariance, h.opts.IsolationDisabled)
+		shardHash := uint64(0)
+		if h.opts.EnableSharding {
+			shardHash = labels.StableHash(lset)
+		}
+
+		return newMemSeries(lset, id, shardHash, h.secondaryHashFunc(lset), h.opts.ChunkEndTimeVariance, h.opts.IsolationDisabled)
 	})
 	if err != nil {
 		return nil, false, err
@@ -1792,32 +1823,31 @@ func (m *seriesHashmap) set(hash uint64, s *memSeries) {
 	m.conflicts[hash] = append(l, s)
 }
 
-func (m *seriesHashmap) del(hash uint64, lset labels.Labels) {
+func (m *seriesHashmap) del(hash uint64, ref chunks.HeadSeriesRef) {
 	var rem []*memSeries
 	unique, found := m.unique[hash]
 	switch {
-	case !found:
+	case !found: // Supplied hash is not stored.
 		return
-	case labels.Equal(unique.lset, lset):
+	case unique.ref == ref:
 		conflicts := m.conflicts[hash]
-		if len(conflicts) == 0 {
+		if len(conflicts) == 0 { // Exactly one series with this hash was stored
 			delete(m.unique, hash)
 			return
 		}
-		rem = conflicts
-	default:
-		rem = append(rem, unique)
+		m.unique[hash] = conflicts[0] // First remaining series goes in 'unique'.
+		rem = conflicts[1:]           // Keep the rest.
+	default: // The series to delete is somewhere in 'conflicts'. Keep all the ones that don't match.
 		for _, s := range m.conflicts[hash] {
-			if !labels.Equal(s.lset, lset) {
+			if s.ref != ref {
 				rem = append(rem, s)
 			}
 		}
 	}
-	m.unique[hash] = rem[0]
-	if len(rem) == 1 {
+	if len(rem) == 0 {
 		delete(m.conflicts, hash)
 	} else {
-		m.conflicts[hash] = rem[1:]
+		m.conflicts[hash] = rem
 	}
 }
 
@@ -1932,7 +1962,7 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 		}
 
 		deleted[storage.SeriesRef(series.ref)] = struct{}{}
-		s.hashes[hashShard].del(hash, series.lset)
+		s.hashes[hashShard].del(hash, series.ref)
 		delete(s.series[refShard], series.ref)
 		deletedForCallback[series.ref] = series.lset
 	}
@@ -2058,13 +2088,14 @@ func (s sample) Type() chunkenc.ValueType {
 // memSeries is the in-memory representation of a series. None of its methods
 // are goroutine safe and it is the caller's responsibility to lock it.
 type memSeries struct {
-	sync.RWMutex
+	sync.Mutex
 
 	ref  chunks.HeadSeriesRef
 	lset labels.Labels
 	meta *metadata.Metadata
 
-	// Series labels hash to use for sharding purposes.
+	// Series labels hash to use for sharding purposes. The value is always 0 when sharding has not
+	// been explicitly enabled in TSDB.
 	shardHash uint64
 
 	// Value returned by secondary hash function.
@@ -2133,7 +2164,7 @@ func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, shardHash uint64,
 		secondaryHash:        secondaryHash,
 	}
 	if !isolationDisabled {
-		s.txs = newTxRing(4)
+		s.txs = newTxRing(0)
 	}
 	return s
 }

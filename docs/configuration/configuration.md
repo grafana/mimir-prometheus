@@ -451,6 +451,46 @@ metric_relabel_configs:
 # native histogram. If this is exceeded, the entire scrape will be treated as
 # failed. 0 means no limit.
 [ native_histogram_bucket_limit: <int> | default = 0 ]
+
+# Lower limit for the growth factor of one bucket to the next in each native
+# histogram. The resolution of a histogram with a lower growth factor will be
+# reduced until it is within the limit.
+# To set an upper limit for the schema (equivalent to "scale" in OTel's
+# exponential histograms), use the following factor limits:
+# 
+# +----------------------------+----------------------------+
+# |        growth factor       | resulting schema AKA scale |
+# +----------------------------+----------------------------+
+# |          65536             |             -4             |
+# +----------------------------+----------------------------+
+# |            256             |             -3             |
+# +----------------------------+----------------------------+
+# |             16             |             -2             |
+# +----------------------------+----------------------------+
+# |              4             |             -1             |
+# +----------------------------+----------------------------+
+# |              2             |              0             |
+# +----------------------------+----------------------------+
+# |              1.4           |              1             |
+# +----------------------------+----------------------------+
+# |              1.1           |              2             |
+# +----------------------------+----------------------------+
+# |              1.09          |              3             |
+# +----------------------------+----------------------------+
+# |              1.04          |              4             |
+# +----------------------------+----------------------------+
+# |              1.02          |              5             |
+# +----------------------------+----------------------------+
+# |              1.01          |              6             |
+# +----------------------------+----------------------------+
+# |              1.005         |              7             |
+# +----------------------------+----------------------------+
+# |              1.002         |              8             |
+# +----------------------------+----------------------------+
+# 
+# 0 results in the smallest supported factor (which is currently ~1.0027 or
+# schema 8, but might change in the future).
+[ native_histogram_min_bucket_factor: <float> | default = 0 ]
 ```
 
 Where `<job_name>` must be unique across all scrape configurations.
@@ -560,8 +600,10 @@ See below for the configuration options for Azure discovery:
 # The Azure environment.
 [ environment: <string> | default = AzurePublicCloud ]
 
-# The authentication method, either OAuth or ManagedIdentity.
+# The authentication method, either OAuth, ManagedIdentity or SDK.
 # See https://docs.microsoft.com/en-us/azure/active-directory/managed-identities-azure-resources/overview
+# SDK authentication method uses environment variables by default.
+# See https://learn.microsoft.com/en-us/azure/developer/go/azure-sdk-authentication
 [ authentication_method: <string> | default = OAuth]
 # The subscription ID. Always required.
 subscription_id: <string>
@@ -3478,6 +3520,10 @@ static_configs:
 # List of Alertmanager relabel configurations.
 relabel_configs:
   [ - <relabel_config> ... ]
+
+# List of alert relabel configurations.
+alert_relabel_configs:
+  [ - <relabel_config> ... ]
 ```
 
 ### `<remote_write>`
@@ -3575,6 +3621,11 @@ azuread:
       [ client_secret: <string> ]
       [ tenant_id: <string> ] ]
 
+  # Azure SDK auth.
+  # See https://learn.microsoft.com/en-us/azure/developer/go/azure-sdk-authentication
+  [ sdk:
+      [ tenant_id: <string> ] ]
+
 # Configures the remote write request's TLS settings.
 tls_config:
   [ <tls_config> ]
@@ -3603,13 +3654,13 @@ queue_config:
   # samples from the WAL. It is recommended to have enough capacity in each
   # shard to buffer several requests to keep throughput up while processing
   # occasional slow remote requests.
-  [ capacity: <int> | default = 2500 ]
+  [ capacity: <int> | default = 10000 ]
   # Maximum number of shards, i.e. amount of concurrency.
-  [ max_shards: <int> | default = 200 ]
+  [ max_shards: <int> | default = 50 ]
   # Minimum number of shards, i.e. amount of concurrency.
   [ min_shards: <int> | default = 1 ]
   # Maximum number of samples per send.
-  [ max_samples_per_send: <int> | default = 500]
+  [ max_samples_per_send: <int> | default = 2000]
   # Maximum time a sample will wait in buffer.
   [ batch_send_deadline: <duration> | default = 5s ]
   # Initial retry delay. Gets doubled for every retry.

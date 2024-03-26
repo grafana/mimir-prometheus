@@ -587,6 +587,8 @@ label_matcher   : IDENTIFIER match_op STRING
                         { $$ = yylex.(*parser).newLabelMatcher($1, $2, $3); }
                 | string_identifier
                         { $$ = yylex.(*parser).newMetricNameMatcher($1); }
+                | string_identifier match_op error
+                        { yylex.(*parser).unexpected("label matching", "string"); $$ = nil}
                 | IDENTIFIER match_op error
                         { yylex.(*parser).unexpected("label matching", "string"); $$ = nil}
                 | IDENTIFIER error

@@ -804,7 +804,6 @@ func (p *parser) checkAST(node Node) (typ ValueType) {
 				}
 			}
 		}
-
 		// A Vector selector must contain at least one non-empty matcher to prevent
 		// implicit selection of all metrics (e.g. by a typo).
 		notEmpty := false

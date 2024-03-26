@@ -15,6 +15,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -31,7 +33,6 @@ import (
 
 	"github.com/alecthomas/units"
 	"github.com/go-kit/log"
-	"golang.org/x/exp/slices"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -667,7 +668,7 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 				it := fhchk.Iterator(nil)
 				bucketCount := 0
 				for it.Next() == chunkenc.ValFloatHistogram {
-					_, f := it.AtFloatHistogram()
+					_, f := it.AtFloatHistogram(nil)
 					bucketCount += len(f.PositiveBuckets)
 					bucketCount += len(f.NegativeBuckets)
 				}
@@ -682,7 +683,7 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 				it := hchk.Iterator(nil)
 				bucketCount := 0
 				for it.Next() == chunkenc.ValHistogram {
-					_, f := it.AtHistogram()
+					_, f := it.AtHistogram(nil)
 					bucketCount += len(f.PositiveBuckets)
 					bucketCount += len(f.NegativeBuckets)
 				}
@@ -706,7 +707,9 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 	return nil
 }
 
-func dumpSamples(ctx context.Context, path string, mint, maxt int64, match []string) (err error) {
+type SeriesSetFormatter func(series storage.SeriesSet) error
+
+func dumpSamples(ctx context.Context, path string, mint, maxt int64, match []string, formatter SeriesSetFormatter) (err error) {
 	db, err := tsdb.OpenDBReadOnly(path, nil)
 	if err != nil {
 		return err
@@ -736,25 +739,9 @@ func dumpSamples(ctx context.Context, path string, mint, maxt int64, match []str
 		ss = q.Select(ctx, false, nil, matcherSets[0]...)
 	}
 
-	for ss.Next() {
-		series := ss.At()
-		lbs := series.Labels()
-		it := series.Iterator(nil)
-		for it.Next() == chunkenc.ValFloat {
-			ts, val := it.At()
-			fmt.Printf("%s %g %d\n", lbs, val, ts)
-		}
-		for it.Next() == chunkenc.ValFloatHistogram {
-			ts, fh := it.AtFloatHistogram()
-			fmt.Printf("%s %s %d\n", lbs, fh.String(), ts)
-		}
-		for it.Next() == chunkenc.ValHistogram {
-			ts, h := it.AtHistogram()
-			fmt.Printf("%s %s %d\n", lbs, h.String(), ts)
-		}
-		if it.Err() != nil {
-			return ss.Err()
-		}
+	err = formatter(ss)
+	if err != nil {
+		return err
 	}
 
 	if ws := ss.Warnings(); len(ws) > 0 {
@@ -764,6 +751,68 @@ func dumpSamples(ctx context.Context, path string, mint, maxt int64, match []str
 	if ss.Err() != nil {
 		return ss.Err()
 	}
+	return nil
+}
+
+func formatSeriesSet(ss storage.SeriesSet) error {
+	for ss.Next() {
+		series := ss.At()
+		lbs := series.Labels()
+		it := series.Iterator(nil)
+		for it.Next() == chunkenc.ValFloat {
+			ts, val := it.At()
+			fmt.Printf("%s %g %d\n", lbs, val, ts)
+		}
+		for it.Next() == chunkenc.ValFloatHistogram {
+			ts, fh := it.AtFloatHistogram(nil)
+			fmt.Printf("%s %s %d\n", lbs, fh.String(), ts)
+		}
+		for it.Next() == chunkenc.ValHistogram {
+			ts, h := it.AtHistogram(nil)
+			fmt.Printf("%s %s %d\n", lbs, h.String(), ts)
+		}
+		if it.Err() != nil {
+			return ss.Err()
+		}
+	}
+	return nil
+}
+
+// CondensedString is labels.Labels.String() without spaces after the commas.
+func CondensedString(ls labels.Labels) string {
+	var b bytes.Buffer
+
+	b.WriteByte('{')
+	i := 0
+	ls.Range(func(l labels.Label) {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(l.Name)
+		b.WriteByte('=')
+		b.WriteString(strconv.Quote(l.Value))
+		i++
+	})
+	b.WriteByte('}')
+	return b.String()
+}
+
+func formatSeriesSetOpenMetrics(ss storage.SeriesSet) error {
+	for ss.Next() {
+		series := ss.At()
+		lbs := series.Labels()
+		metricName := lbs.Get(labels.MetricName)
+		lbs = lbs.DropMetricName()
+		it := series.Iterator(nil)
+		for it.Next() == chunkenc.ValFloat {
+			ts, val := it.At()
+			fmt.Printf("%s%s %g %.3f\n", metricName, CondensedString(lbs), val, float64(ts)/1000)
+		}
+		if it.Err() != nil {
+			return ss.Err()
+		}
+	}
+	fmt.Println("# EOF")
 	return nil
 }
 
