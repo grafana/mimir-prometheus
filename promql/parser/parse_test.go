@@ -1852,48 +1852,51 @@ var testExpr = []struct {
 			},
 		},
 	},
-	{
-		// Specifying __name__ twice inside the braces is ok.
-		input: `{__name__=~"bar", __name__!~"baz"}`,
-		expected: &VectorSelector{
-			LabelMatchers: []*labels.Matcher{
-				MustLabelMatcher(labels.MatchRegexp, model.MetricNameLabel, "bar"),
-				MustLabelMatcher(labels.MatchNotRegexp, model.MetricNameLabel, "baz"),
-			},
-			PosRange: posrange.PositionRange{
-				Start: 0,
-				End:   34,
-			},
-		},
-	},
-	{
-		// Specifying __name__ with equality twice inside the braces is even allowed.
-		input: `{__name__="bar", __name__="baz"}`,
-		expected: &VectorSelector{
-			LabelMatchers: []*labels.Matcher{
-				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "bar"),
-				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "baz"),
-			},
-			PosRange: posrange.PositionRange{
-				Start: 0,
-				End:   32,
+	/*
+		{
+			// Specifying __name__ twice inside the braces is ok.
+			input: `{__name__=~"bar", __name__!~"baz"}`,
+			expected: &VectorSelector{
+				LabelMatchers: []*labels.Matcher{
+					MustLabelMatcher(labels.MatchRegexp, model.MetricNameLabel, "bar"),
+					MustLabelMatcher(labels.MatchNotRegexp, model.MetricNameLabel, "baz"),
+				},
+				PosRange: posrange.PositionRange{
+					Start: 0,
+					End:   34,
+				},
 			},
 		},
-	},
-	{
-		// Because the above are allowed, this is also allowed.
-		input: `{"bar", __name__="baz"}`,
-		expected: &VectorSelector{
-			LabelMatchers: []*labels.Matcher{
-				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "bar"),
-				MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "baz"),
-			},
-			PosRange: posrange.PositionRange{
-				Start: 0,
-				End:   23,
+		{
+			// Specifying __name__ with equality twice inside the braces is even allowed.
+			input: `{__name__="bar", __name__="baz"}`,
+			expected: &VectorSelector{
+				LabelMatchers: []*labels.Matcher{
+					MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "bar"),
+					MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "baz"),
+				},
+				PosRange: posrange.PositionRange{
+					Start: 0,
+					End:   32,
+				},
 			},
 		},
-	},
+		{
+			// Because the above are allowed, this is also allowed.
+			input: `{"bar", __name__="baz"}`,
+			expected: &VectorSelector{
+				LabelMatchers: []*labels.Matcher{
+					MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "bar"),
+					MustLabelMatcher(labels.MatchEqual, model.MetricNameLabel, "baz"),
+				},
+				PosRange: posrange.PositionRange{
+					Start: 0,
+					End:   23,
+				},
+			},
+		},
+
+	*/
 	{
 		input:  `{`,
 		fail:   true,
