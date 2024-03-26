@@ -149,7 +149,7 @@ type flagConfig struct {
 	queryConcurrency    int
 	queryMaxSamples     int
 	RemoteFlushDeadline model.Duration
-	nameEscapingScheme string
+	nameEscapingScheme  string
 
 	featureList   []string
 	memlimitRatio float64
