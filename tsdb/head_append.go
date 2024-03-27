@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/go-kit/log/level"
 
@@ -785,6 +787,15 @@ func (a *headAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Label
 		}
 	}
 
+	var ilb strings.Builder
+	for i, idx := range identifyingLabels {
+		if i > 0 {
+			ilb.WriteRune(',')
+		}
+		ilb.WriteString(strconv.Itoa(idx))
+	}
+	level.Debug(a.head.logger).Log("msg", "trying to append info metric sample", "series_ref", ref, "t", t, "identifying_labels", ilb.String())
+
 	s.Lock()
 	// TODO(codesome): If we definitely know at this point that the sample is ooo, then optimise
 	// to skip that sample from the WAL and write only in the WBL.
@@ -813,6 +824,7 @@ func (a *headAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Label
 		a.maxt = t
 	}
 
+	level.Debug(a.head.logger).Log("msg", "appending info sample", "series_ref", s.ref, "t", t, "identifying_labels", ilb.String())
 	a.infoSamples = append(a.infoSamples, record.RefInfoSample{
 		Ref:               s.ref,
 		T:                 t,
@@ -915,6 +927,7 @@ func (a *headAppender) log() error {
 		}
 	}
 	if len(a.infoSamples) > 0 {
+		level.Debug(a.head.logger).Log("msg", "writing info samples to WAL", "count", len(a.infoSamples))
 		rec = enc.InfoSamples(a.infoSamples, buf)
 		buf = rec[:0]
 		if err := a.head.wal.Log(rec); err != nil {
@@ -1286,6 +1299,7 @@ func (a *headAppender) Commit() (err error) {
 						floatsAppended--
 				*/
 			}
+			level.Debug(a.head.logger).Log("msg", "committed info sample to WAL and added to head", "series_ref", series.ref, "chunk_created", chunkCreated)
 		}
 
 		if chunkCreated {

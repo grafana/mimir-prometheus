@@ -748,7 +748,8 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 				case len(s.Histograms) > 0:
 					vector[i] = Sample{Metric: s.Metric, H: s.Histograms[0].H, T: start}
 				case len(s.InfoSamples) > 0:
-					vector[i] = Sample{Metric: s.Metric, IdentifyingLabels: s.InfoSamples[0].IdentifyingLabels, T: start}
+					level.Debug(ng.logger).Log("msg", "adding info metric sample to vector", "index", i)
+					vector[i] = Sample{Metric: s.Metric, IdentifyingLabels: s.InfoSamples[0].IdentifyingLabels, T: start, F: 1}
 				default:
 					vector[i] = Sample{Metric: s.Metric, F: s.Floats[0].F, T: start}
 				}
@@ -1211,7 +1212,8 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 					vectors[i] = append(vectors[i], Sample{Metric: series.Metric, H: series.Histograms[0].H, T: ts})
 					matrixes[i][si].Histograms = series.Histograms[1:]
 				case len(series.InfoSamples) > 0 && series.InfoSamples[0].T == ts:
-					vectors[i] = append(vectors[i], Sample{Metric: series.Metric, IdentifyingLabels: series.InfoSamples[0].IdentifyingLabels, T: ts})
+					level.Debug(ev.logger).Log("msg", "appending info metric sample to vector/matrix", "i", i)
+					vectors[i] = append(vectors[i], Sample{Metric: series.Metric, IdentifyingLabels: series.InfoSamples[0].IdentifyingLabels, T: ts, F: 1})
 					// Move input vectors forward so we don't have to re-scan the same
 					// past points at the next step.
 					matrixes[i][si].InfoSamples = series.InfoSamples[1:]
@@ -1261,6 +1263,7 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 				case s.H != nil:
 					mat[i] = Series{Metric: s.Metric, Histograms: []HPoint{{T: ts, H: s.H}}}
 				case s.IdentifyingLabels != nil:
+					level.Debug(ev.logger).Log("msg", "appending info metric series to matrix", "i", i)
 					mat[i] = Series{Metric: s.Metric, InfoSamples: []InfoPoint{{T: ts, IdentifyingLabels: s.IdentifyingLabels}}}
 				default:
 					mat[i] = Series{Metric: s.Metric, Floats: []FPoint{{T: ts, F: s.F}}}
@@ -1293,6 +1296,7 @@ func (ev *evaluator) rangeEval(prepSeries func(labels.Labels, *EvalSeriesHelper)
 				if ss.InfoSamples == nil {
 					ss.InfoSamples = getInfoPointSlice(numSteps)
 				}
+				level.Debug(ev.logger).Log("msg", "appending info metric point to series.InfoSamples")
 				ss.InfoSamples = append(ss.InfoSamples, InfoPoint{T: ts, IdentifyingLabels: sample.IdentifyingLabels})
 			default:
 				if ss.Floats == nil {
@@ -1754,7 +1758,6 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				step++
 				_, f, h, ils, ok := ev.vectorSelectorSingle(it, e, ts)
 				if ok {
-					// TODO: Handle info metric samples
 					switch {
 					case h != nil:
 						point := HPoint{H: h, T: ts}
@@ -1777,6 +1780,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 						if ss.InfoSamples == nil {
 							ss.InfoSamples = reuseOrGetInfoPointSlices(prevSS, numSteps)
 						}
+						level.Debug(ev.logger).Log("msg", "eval: appending info metric point to ss.InfoSamples")
 						ss.InfoSamples = append(ss.InfoSamples, InfoPoint{T: ts, IdentifyingLabels: ils})
 					default:
 						ev.currentSamples++
@@ -1792,8 +1796,7 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 				}
 			}
 
-			// TODO: Handle info metric samples
-			if len(ss.Floats)+len(ss.Histograms) > 0 {
+			if len(ss.Floats)+len(ss.Histograms)+len(ss.InfoSamples) > 0 {
 				mat = append(mat, ss)
 				prevSS = &mat[len(mat)-1]
 			}
@@ -1886,24 +1889,30 @@ func (ev *evaluator) eval(expr parser.Expr) (parser.Value, annotations.Annotatio
 			panic(fmt.Errorf("unexpected result in StepInvariantExpr evaluation: %T", expr))
 		}
 		for i := range mat {
-			// TODO: Handle info metric samples
-			if len(mat[i].Floats)+len(mat[i].Histograms) != 1 {
+			if len(mat[i].Floats)+len(mat[i].Histograms)+len(mat[i].InfoSamples) != 1 {
 				panic(fmt.Errorf("unexpected number of samples"))
 			}
 			for ts := ev.startTimestamp + ev.interval; ts <= ev.endTimestamp; ts += ev.interval {
-				if len(mat[i].Floats) > 0 {
+				switch {
+				case len(mat[i].Floats) > 0:
 					mat[i].Floats = append(mat[i].Floats, FPoint{
 						T: ts,
 						F: mat[i].Floats[0].F,
 					})
 					ev.currentSamples++
-				} else {
+				case len(mat[i].Histograms) > 0:
 					point := HPoint{
 						T: ts,
 						H: mat[i].Histograms[0].H,
 					}
 					mat[i].Histograms = append(mat[i].Histograms, point)
 					ev.currentSamples += point.size()
+				case len(mat[i].InfoSamples) > 0:
+					mat[i].InfoSamples = append(mat[i].InfoSamples, InfoPoint{
+						T:                 ts,
+						IdentifyingLabels: mat[i].InfoSamples[0].IdentifyingLabels,
+					})
+					ev.currentSamples++
 				}
 				if ev.currentSamples > ev.maxSamples {
 					ev.error(ErrTooManySamples(env))
@@ -1978,6 +1987,9 @@ func (ev *evaluator) rangeEvalTimestampFunctionOverVectorSelector(vs *parser.Vec
 			it := seriesIterators[i]
 			t, f, h, ils, ok := ev.vectorSelectorSingle(it, vs, enh.Ts)
 			if ok {
+				if ils != nil {
+					f = 1
+				}
 				vec = append(vec, Sample{
 					Metric:            s.Labels(),
 					T:                 t,
@@ -2036,7 +2048,7 @@ func (ev *evaluator) vectorSelectorSingle(it *storage.MemoizedSeriesIterator, no
 	}
 	if valueType == chunkenc.ValNone || t > refTime {
 		var ok bool
-		t, v, h, _, ok = it.PeekPrev()
+		t, v, h, ils, ok = it.PeekPrev()
 		if !ok || t < refTime-durationMilliseconds(ev.lookbackDelta) {
 			return 0, 0, nil, nil, false
 		}
@@ -2326,6 +2338,7 @@ loop:
 				if infoSamples == nil {
 					infoSamples = getInfoPointSlice(16)
 				}
+				level.Debug(ev.logger).Log("msg", "matrixIterSlice: appending info metric point")
 				infoSamples = append(infoSamples, InfoPoint{T: t, IdentifyingLabels: ils})
 			}
 		}
@@ -2354,7 +2367,6 @@ loop:
 		if ev.currentSamples > ev.maxSamples {
 			ev.error(ErrTooManySamples(env))
 		}
-
 	case chunkenc.ValFloat:
 		t, f := it.At()
 		if t == maxt && !value.IsStaleNaN(f) {
@@ -2377,6 +2389,7 @@ loop:
 			if infoSamples == nil {
 				infoSamples = getInfoPointSlice(16)
 			}
+			level.Debug(ev.logger).Log("msg", "matrixIterSlice: appending info metric point")
 			infoSamples = append(infoSamples, InfoPoint{T: t, IdentifyingLabels: ils})
 		}
 	}
@@ -2529,12 +2542,14 @@ func (ev *evaluator) VectorBinop(op parser.ItemType, lhs, rhs Vector, matching *
 		// Account for potentially swapped sidedness.
 		fl, fr := ls.F, rs.F
 		hl, hr := ls.H, rs.H
+		ilsL, ilsR := ls.IdentifyingLabels, rs.IdentifyingLabels
 		if matching.Card == parser.CardOneToMany {
 			fl, fr = fr, fl
 			hl, hr = hr, hl
+			ilsL, ilsR = ilsR, ilsL
 		}
 		// TODO: Handle info metric samples
-		floatValue, histogramValue, keep := vectorElemBinop(op, fl, fr, hl, hr)
+		floatValue, histogramValue, ils, keep := vectorElemBinop(op, fl, fr, hl, hr, ilsL, ilsR)
 		switch {
 		case returnBool:
 			if keep {
@@ -2570,11 +2585,14 @@ func (ev *evaluator) VectorBinop(op parser.ItemType, lhs, rhs Vector, matching *
 			insertedSigs[insertSig] = struct{}{}
 		}
 
-		// TODO: Handle info metric samples
+		if ils != nil {
+			floatValue = 1
+		}
 		enh.Out = append(enh.Out, Sample{
-			Metric: metric,
-			F:      floatValue,
-			H:      histogramValue,
+			Metric:            metric,
+			F:                 floatValue,
+			H:                 histogramValue,
+			IdentifyingLabels: ils,
 		})
 	}
 	return enh.Out
@@ -2652,7 +2670,7 @@ func (ev *evaluator) VectorscalarBinop(op parser.ItemType, lhs Vector, rhs Scala
 			lh, rh = rh, lh
 		}
 		// TODO: Handle info metric samples
-		float, histogram, keep := vectorElemBinop(op, lf, rf, lh, rh)
+		float, histogram, _, keep := vectorElemBinop(op, lf, rf, lh, rh, nil, nil)
 		// Catch cases where the scalar is the LHS in a scalar-vector comparison operation.
 		// We want to always keep the vector element value as the output value, even if it's on the RHS.
 		if op.IsComparisonOperator() && swap {
@@ -2713,50 +2731,50 @@ func scalarBinop(op parser.ItemType, lhs, rhs float64) float64 {
 }
 
 // vectorElemBinop evaluates a binary operation between two Vector elements.
-// TODO: Handle info metric samples.
-func vectorElemBinop(op parser.ItemType, lhs, rhs float64, hlhs, hrhs *histogram.FloatHistogram) (float64, *histogram.FloatHistogram, bool) {
+func vectorElemBinop(op parser.ItemType, lhs, rhs float64, hlhs, hrhs *histogram.FloatHistogram, ilsL, ilsR []int) (float64, *histogram.FloatHistogram, []int, bool) {
+	// TODO: Implement for ilsL/ilsR
 	switch op {
 	case parser.ADD:
 		if hlhs != nil && hrhs != nil {
-			return 0, hlhs.Copy().Add(hrhs).Compact(0), true
+			return 0, hlhs.Copy().Add(hrhs).Compact(0), nil, true
 		}
-		return lhs + rhs, nil, true
+		return lhs + rhs, nil, nil, true
 	case parser.SUB:
 		if hlhs != nil && hrhs != nil {
-			return 0, hlhs.Copy().Sub(hrhs).Compact(0), true
+			return 0, hlhs.Copy().Sub(hrhs).Compact(0), nil, true
 		}
-		return lhs - rhs, nil, true
+		return lhs - rhs, nil, nil, true
 	case parser.MUL:
 		if hlhs != nil && hrhs == nil {
-			return 0, hlhs.Copy().Mul(rhs), true
+			return 0, hlhs.Copy().Mul(rhs), nil, true
 		}
 		if hlhs == nil && hrhs != nil {
-			return 0, hrhs.Copy().Mul(lhs), true
+			return 0, hrhs.Copy().Mul(lhs), nil, true
 		}
-		return lhs * rhs, nil, true
+		return lhs * rhs, nil, nil, true
 	case parser.DIV:
 		if hlhs != nil && hrhs == nil {
-			return 0, hlhs.Copy().Div(rhs), true
+			return 0, hlhs.Copy().Div(rhs), nil, true
 		}
-		return lhs / rhs, nil, true
+		return lhs / rhs, nil, nil, true
 	case parser.POW:
-		return math.Pow(lhs, rhs), nil, true
+		return math.Pow(lhs, rhs), nil, nil, true
 	case parser.MOD:
-		return math.Mod(lhs, rhs), nil, true
+		return math.Mod(lhs, rhs), nil, nil, true
 	case parser.EQLC:
-		return lhs, nil, lhs == rhs
+		return lhs, nil, nil, lhs == rhs
 	case parser.NEQ:
-		return lhs, nil, lhs != rhs
+		return lhs, nil, nil, lhs != rhs
 	case parser.GTR:
-		return lhs, nil, lhs > rhs
+		return lhs, nil, nil, lhs > rhs
 	case parser.LSS:
-		return lhs, nil, lhs < rhs
+		return lhs, nil, nil, lhs < rhs
 	case parser.GTE:
-		return lhs, nil, lhs >= rhs
+		return lhs, nil, nil, lhs >= rhs
 	case parser.LTE:
-		return lhs, nil, lhs <= rhs
+		return lhs, nil, nil, lhs <= rhs
 	case parser.ATAN2:
-		return math.Atan2(lhs, rhs), nil, true
+		return math.Atan2(lhs, rhs), nil, nil, true
 	}
 	panic(fmt.Errorf("operator %q not allowed for operations between Vectors", op))
 }

@@ -1535,7 +1535,10 @@ func funcInfo(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper)
 			return nil, annots
 		}
 
+		fmt.Printf("Found %d data labels\n", len(dataLabels))
+
 		for _, l := range dataLabels {
+			fmt.Printf("Data label %s = %s\n", l.Name, l.Value)
 			if lb.Get(l.Name) == "" {
 				lb.Set(l.Name, l.Value)
 			}

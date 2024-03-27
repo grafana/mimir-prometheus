@@ -684,6 +684,7 @@ func (w *Watcher) readSegment(r *LiveReader, segmentNum int, tail bool) error {
 				}
 			}
 			if len(infoSamplesToSend) > 0 {
+				level.Debug(w.logger).Log("msg", "read segment - appending info samples", "count", len(infoSamplesToSend))
 				w.writer.AppendInfoSamples(infoSamplesToSend)
 				infoSamplesToSend = infoSamplesToSend[:0]
 			}

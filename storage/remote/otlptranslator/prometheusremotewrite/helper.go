@@ -88,6 +88,14 @@ func addSample(tsMap map[string]*prompb.TimeSeries, sample *prompb.Sample, label
 		tsMap[sig] = newTs
 	}
 
+	if len(sample.IdentifyingLabels) > 0 {
+		ils := make([]prompb.Label, 0, len(sample.IdentifyingLabels))
+		for _, ix := range sample.IdentifyingLabels {
+			ils = append(ils, labels[ix])
+		}
+		fmt.Printf("Adding sample for OTel info metric %q, identifying labels: %#v\n", sig, ils)
+	}
+
 	return sig
 }
 
@@ -539,9 +547,11 @@ func addCreatedTimeSeriesIfNeeded(
 
 // addResourceTargetInfo converts the resource to the target info metric
 func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timestamp pcommon.Timestamp, tsMap map[string]*prompb.TimeSeries) {
+	fmt.Printf("addResourceTargetInfo\n")
 	if settings.DisableTargetInfo {
 		return
 	}
+	fmt.Printf("Adding resource target info\n")
 	// Use resource attributes (other than those used for job+instance) as the
 	// metric labels for the target info metric
 	attributes := pcommon.NewMap()
@@ -557,6 +567,7 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 	})
 	if attributes.Len() == 0 {
 		// If we only have job + instance, then target_info isn't useful, so don't add it.
+		fmt.Printf("Only have job + instance\n")
 		return
 	}
 	// create parameters for addSample
@@ -570,11 +581,13 @@ func addResourceTargetInfo(resource pcommon.Resource, settings Settings, timesta
 	identifyingLabels := make([]int32, 0, 2)
 	for i, l := range labels {
 		if l.Name == model.InstanceLabel || l.Name == model.JobLabel {
+			fmt.Printf("Have identifying label %s=%s\n", l.Name, l.Value)
 			identifyingLabels = append(identifyingLabels, int32(i))
 		}
 	}
 	if len(identifyingLabels) != 2 {
 		// target_info has to be identified by the job/instance tuple, one of them isn't enough on its own.
+		fmt.Printf("Got no identifying labels\n")
 		identifyingLabels = nil
 	}
 	sample := &prompb.Sample{

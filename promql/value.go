@@ -592,7 +592,7 @@ func (ssi *storageSeriesIterator) Next() chunkenc.ValueType {
 		ssi.currILs = p.IdentifyingLabels
 		ssi.currF = 0
 		ssi.currH = nil
-		return chunkenc.ValFloat
+		return chunkenc.ValInfoSample
 	default:
 		panic("storageSeriesIterater.Next failed to pick value type")
 	}

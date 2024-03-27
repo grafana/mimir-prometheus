@@ -227,6 +227,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 					}
 					return
 				}
+				level.Debug(h.logger).Log("msg", "decoded info metric samples from WAL", "count", len(samples))
 				decoded <- samples
 			case record.Metadata:
 				meta := metadataPool.Get()[:0]

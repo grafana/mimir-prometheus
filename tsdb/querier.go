@@ -131,6 +131,14 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		p = q.index.SortedPostings(p)
 	}
 
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+			break
+		}
+	}
+
 	if hints != nil {
 		mint = hints.Start
 		maxt = hints.End
@@ -141,6 +149,9 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		}
 	}
 
+	if isTargetInfo {
+		fmt.Printf("blockQuerier: returning block series set for target_info\n")
+	}
 	return newBlockSeriesSet(q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming)
 }
 
@@ -178,6 +189,17 @@ func (q *blockChunkQuerier) Select(ctx context.Context, sortSeries bool, hints *
 	}
 	if sortSeries {
 		p = q.index.SortedPostings(p)
+	}
+
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+			break
+		}
+	}
+	if isTargetInfo {
+		fmt.Printf("blockChunkQuerier: returning block series set for target_info\n")
 	}
 	return NewBlockChunkSeriesSet(q.blockID, q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming)
 }
@@ -234,6 +256,13 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		return +1
 	})
 
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+		}
+	}
+
 	for _, m := range ms {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -282,12 +311,21 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 				its = append(its, it)
 			default: // l="a"
 				// Non-Not matcher, use normal postingsForMatcher.
+				if isTargetInfo {
+					fmt.Printf("Matcher %s\n", m.String())
+				}
 				it, err := postingsForMatcher(ctx, ix, m)
 				if err != nil {
 					return nil, err
 				}
 				if index.IsEmptyPostingsType(it) {
+					if isTargetInfo {
+						fmt.Printf("Matcher %s returned zero postings\n", m.String())
+					}
 					return index.EmptyPostings(), nil
+				}
+				if isTargetInfo {
+					fmt.Printf("Matcher %s returned non-zero postings\n", m.String())
 				}
 				its = append(its, it)
 			}
@@ -678,6 +716,7 @@ func (b *blockBaseSeriesSet) Next() bool {
 		}
 
 		b.curr.labels = b.builder.Labels()
+		// fmt.Printf("current labels: %s\n", b.curr.labels.String())
 		b.curr.chks = chks
 		b.curr.intervals = intervals
 		return true
@@ -1052,6 +1091,7 @@ func (p *populateWithDelChunkSeriesIterator) populateCurrForSingleChunk() bool {
 			}
 			var ils []int
 			t, ils = p.currDelIter.AtInfoSample()
+			fmt.Printf("populateWithDelChunkSeriesIterator.populateCurrForSingleChunk: appending info sample; t: %d, ils: %#v\n", t, ils)
 			app.AppendInfoSample(t, ils)
 		}
 	default:
@@ -1151,6 +1191,7 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 			{
 				var ils []int
 				t, ils = p.currDelIter.AtInfoSample()
+				fmt.Printf("populateWithDelChunkSeriesIterator.populateChunksFromIterable: appending info sample; t: %d, ils: %#v\n", t, ils)
 				app.AppendInfoSample(t, ils)
 			}
 		default:

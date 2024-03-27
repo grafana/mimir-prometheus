@@ -221,7 +221,13 @@ func (p *MemPostings) Get(name, value string) Postings {
 	p.mtx.RUnlock()
 
 	if lp == nil {
+		if name == "__name__" && value == "target_info" {
+			fmt.Printf("did not find postings for label %s=%s\n", name, value)
+		}
 		return EmptyPostings()
+	}
+	if name == "__name__" && value == "target_info" {
+		fmt.Printf("found postings for label %s=%s: %#v\n", name, value, lp)
 	}
 	return newListPostings(lp...)
 }
@@ -399,6 +405,7 @@ func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t 
 
 	entries := p.infoMetrics[id]
 	if entries == nil {
+		fmt.Printf("Adding new info metric entry for series %d, t: %d, identifying labels: %#v\n", id, t, ils)
 		p.infoMetrics[id] = []infoMetricEntry{
 			{
 				MinT:              t,
@@ -409,6 +416,7 @@ func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t 
 	}
 
 	if !labels.Equal(entries[len(entries)-1].IdentifyingLabels, ils) {
+		fmt.Printf("Adding info metric entry for series %d, t: %d, identifying labels: %#v\n", id, t, ils)
 		entries[len(entries)-1].MaxT = t - 1
 		entries = append(entries, infoMetricEntry{
 			MinT:              t,
