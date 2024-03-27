@@ -25,7 +25,7 @@ jobs:
         run: sudo apt-get update && sudo apt-get -y install libsnmp-dev
         if: github.repository == 'prometheus/snmp_exporter'
       - name: Lint
-        uses: golangci/golangci-lint-action@v3.7.0
+        uses: golangci/golangci-lint-action@v4.0.0
         with:
           # # Make sure to sync this with Makefile.common.
-          version: v1.55.2
+          version: v1.56.2

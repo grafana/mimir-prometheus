@@ -3708,8 +3708,7 @@ func TestParseExpressions(t *testing.T) {
 				require.NoError(t, err)
 				expected := test.expected
 
-				// The FastRegexMatcher introduced in mimir-prometheus is not comparable with
-				// a deep equal, so only compare its String() version.
+				// The FastRegexMatcher is not comparable with a deep equal, so only compare its String() version.
 				if actualVector, ok := expr.(*VectorSelector); ok {
 					require.IsType(t, &VectorSelector{}, test.expected, "error on input '%s'", test.input)
 					expectedVector := test.expected.(*VectorSelector)
