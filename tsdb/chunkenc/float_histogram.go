@@ -44,6 +44,10 @@ func NewFloatHistogramChunk() *FloatHistogramChunk {
 	return &FloatHistogramChunk{b: bstream{stream: b, count: 0}}
 }
 
+func (c *FloatHistogramChunk) Reset(stream []byte) {
+	c.b.Reset(stream)
+}
+
 // xorValue holds all the necessary information to encode
 // and decode XOR encoded float64 values.
 type xorValue struct {
@@ -209,6 +213,12 @@ func (a *FloatHistogramAppender) NumSamples() int {
 // samples must never be appended to a histogram chunk.
 func (a *FloatHistogramAppender) Append(int64, float64) {
 	panic("appended a float sample to a histogram chunk")
+}
+
+// AppendInfoSample implements Appender. This implementation panics because info metric
+// samples must never be appended to a float histogram chunk.
+func (a *FloatHistogramAppender) AppendInfoSample(int64, []int) {
+	panic("appended an info metric sample to a histogram chunk")
 }
 
 // appendable returns whether the chunk can be appended to, and if so whether
@@ -772,6 +782,10 @@ func (it *floatHistogramIterator) AtFloatHistogram(fh *histogram.FloatHistogram)
 	copy(fh.NegativeBuckets, it.nBuckets)
 
 	return it.t, fh
+}
+
+func (it *floatHistogramIterator) AtInfoSample() (int64, []int) {
+	panic("cannot call floatHistogramIterator.AtInfoSample")
 }
 
 func (it *floatHistogramIterator) AtT() int64 {

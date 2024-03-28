@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/go-kit/log/level"
@@ -28,6 +29,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/index"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 func (h *Head) ExemplarQuerier(ctx context.Context) (storage.ExemplarQuerier, error) {
@@ -103,12 +105,29 @@ func (h *headIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Ma
 	return labelNamesWithMatchers(ctx, h, matchers...)
 }
 
+func (h *headIndexReader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	dls := h.head.postings.InfoMetricDataLabels(ctx, lbls, t, matchers...)
+	return dls, nil, nil
+}
+
 // Postings returns the postings list iterator for the label pairs.
 func (h *headIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {
 	switch len(values) {
 	case 0:
 		return index.EmptyPostings(), nil
 	case 1:
+		if name == "__name__" && values[0] == "target_info" {
+			var vb strings.Builder
+			for i, v := range values {
+				if i > 0 {
+					vb.WriteRune(',')
+				}
+				vb.WriteString(v)
+			}
+			level.Debug(h.head.logger).Log("msg", "Looking up target_info", "values", vb.String())
+		} else {
+			level.Debug(h.head.logger).Log("msg", "Looking up another metric than target_info", "name", name, "value", values[0])
+		}
 		return h.head.postings.Get(name, values[0]), nil
 	default:
 		res := make([]index.Postings, 0, len(values))

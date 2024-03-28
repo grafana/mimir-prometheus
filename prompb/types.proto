@@ -43,6 +43,8 @@ message Sample {
   // timestamp is in ms format, see model/timestamp/timestamp.go for
   // conversion from time.Time to Prometheus timestamp.
   int64 timestamp = 2;
+  // The set of identifying labels for info metrics, as array indices.
+  repeated int32 identifyingLabels        = 3;
 }
 
 message Exemplar {
@@ -123,10 +125,10 @@ message BucketSpan {
 message TimeSeries {
   // For a timeseries to be valid, and for the samples and exemplars
   // to be ingested by the remote system properly, the labels field is required.
-  repeated Label labels         = 1 [(gogoproto.nullable) = false];
-  repeated Sample samples       = 2 [(gogoproto.nullable) = false];
-  repeated Exemplar exemplars   = 3 [(gogoproto.nullable) = false];
-  repeated Histogram histograms = 4 [(gogoproto.nullable) = false];
+  repeated Label labels             = 1 [(gogoproto.nullable) = false];
+  repeated Sample samples           = 2 [(gogoproto.nullable) = false];
+  repeated Exemplar exemplars       = 3 [(gogoproto.nullable) = false];
+  repeated Histogram histograms     = 4 [(gogoproto.nullable) = false];
 }
 
 message Label {

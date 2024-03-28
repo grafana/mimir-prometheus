@@ -1377,6 +1377,10 @@ func (m *mockGenericQuerier) Select(_ context.Context, b bool, _ *SelectHints, _
 	return &mockGenericSeriesSet{resp: m.resp, warnings: m.warnings, err: m.err}
 }
 
+func (m *mockGenericQuerier) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	panic("not implemented")
+}
+
 func (m *mockGenericQuerier) LabelValues(_ context.Context, name string, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	m.mtx.Lock()
 	m.labelNamesRequested = append(m.labelNamesRequested, labelNameRequest{
@@ -1649,6 +1653,10 @@ func (e errIterator) AtHistogram(*histogram.Histogram) (int64, *histogram.Histog
 }
 
 func (e errIterator) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
+	return 0, nil
+}
+
+func (e errIterator) AtInfoSample() (int64, []int) {
 	return 0, nil
 }
 

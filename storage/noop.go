@@ -31,6 +31,10 @@ func (noopQuerier) Select(context.Context, bool, *SelectHints, ...*labels.Matche
 	return NoopSeriesSet()
 }
 
+func (noopQuerier) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	return nil, nil, nil
+}
+
 func (noopQuerier) LabelValues(context.Context, string, ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	return nil, nil, nil
 }
@@ -52,6 +56,10 @@ func NoopChunkedQuerier() ChunkQuerier {
 
 func (noopChunkQuerier) Select(context.Context, bool, *SelectHints, ...*labels.Matcher) ChunkSeriesSet {
 	return NoopChunkedSeriesSet()
+}
+
+func (noopChunkQuerier) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	return nil, nil, nil
 }
 
 func (noopChunkQuerier) LabelValues(context.Context, string, ...*labels.Matcher) ([]string, annotations.Annotations, error) {
