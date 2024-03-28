@@ -388,16 +388,20 @@ func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t 
 	defer p.mtx.Unlock()
 
 	ils := make(labels.Labels, 0, len(identifyingLabels))
+	dls := make(labels.Labels, 0, len(lset)-len(identifyingLabels))
 	j := 0
 	i := 0
 	lset.Range(func(l labels.Label) {
-		if j >= len(identifyingLabels) {
+		if j >= len(identifyingLabels) && l.Name != "__name__" {
+			dls = append(dls, l)
 			return
 		}
 
 		if i == identifyingLabels[j] {
 			j++
 			ils = append(ils, l)
+		} else if l.Name != "__name__" {
+			dls = append(dls, l)
 		}
 
 		i++
@@ -410,6 +414,7 @@ func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t 
 			{
 				MinT:              t,
 				IdentifyingLabels: ils,
+				DataLabels:        dls,
 			},
 		}
 		return
@@ -421,6 +426,7 @@ func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t 
 		entries = append(entries, infoMetricEntry{
 			MinT:              t,
 			IdentifyingLabels: ils,
+			DataLabels:        dls,
 		})
 
 		p.infoMetrics[id] = entries
@@ -459,6 +465,7 @@ func (p *MemPostings) InfoMetricDataLabels(ctx context.Context, lbls labels.Labe
 	if len(matchers) == 0 {
 		// Consider all info metrics.
 		infoMetrics = p.infoMetrics
+		fmt.Printf("MemPostings: not filtering info metrics\n")
 	} else {
 		// Pick only info metrics that have matching (potential data) labels.
 		infoMetrics = map[storage.SeriesRef][]infoMetricEntry{}
@@ -478,6 +485,7 @@ func (p *MemPostings) InfoMetricDataLabels(ctx context.Context, lbls labels.Labe
 		}
 	}
 	if len(infoMetrics) == 0 {
+		fmt.Printf("MemPostings: there are no info metrics\n")
 		return nil
 	}
 
@@ -489,16 +497,21 @@ func (p *MemPostings) InfoMetricDataLabels(ctx context.Context, lbls labels.Labe
 	dataLabels := map[string]string{}
 	for _, entries := range infoMetrics {
 		for _, entry := range entries {
-			if entry.MinT > t || entry.MaxT < t {
+			// entry.MaxT == 0 means it's current
+			if entry.MinT > t || (entry.MaxT > 0 && entry.MaxT < t) {
+				fmt.Printf("MemPostings: Entry of MinT %d and MaxT %d doesn't fit timestamp %d\n", entry.MinT, entry.MaxT, t)
 				continue
 			}
+
+			fmt.Printf("MemPostings: Entry of MinT %d and MaxT %d fits timestamp %d\n", entry.MinT, entry.MaxT, t)
 
 			// This entry is for a time range corresponding to t.
 			isMatch := true
 			for _, il := range entry.IdentifyingLabels {
 				l, ok := lblMap[il.Name]
-				if !ok || l.Name != il.Name || l.Value != il.Value {
+				if !ok || l.Value != il.Value {
 					isMatch = false
+					fmt.Printf("MemPostings: This entry doesn't have matching identifying labels: %s = %s\n", il.Name, il.Value)
 					break
 				}
 			}
@@ -507,6 +520,7 @@ func (p *MemPostings) InfoMetricDataLabels(ctx context.Context, lbls labels.Labe
 				continue
 			}
 
+			fmt.Printf("MemPostings: This entry matches: %s\n", entry.DataLabels.String())
 			for _, l := range entry.DataLabels {
 				dataLabels[l.Name] = l.Value
 			}
