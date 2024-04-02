@@ -2466,3 +2466,34 @@ func (p pairOfSlices[T1, T2]) append(t1 T1, t2 T2) pairOfSlices[T1, T2] {
 func (p pairOfSlices[T1, T2]) len() int {
 	return len(p.slice1)
 }
+
+// Go through all the series in h, build a SymbolTable with all names and values,
+// replace each series' Labels with one using that SymbolTable.
+func (h *Head) RebuildSymbolTable() *labels.SymbolTable {
+	st := labels.NewSymbolTable()
+	builder := labels.NewScratchBuilderWithSymbolTable(st, 0)
+	rebuildLabels := func(lbls labels.Labels) labels.Labels {
+		builder.Reset()
+		lbls.Range(func(l labels.Label) {
+			builder.Add(l.Name, l.Value)
+		})
+		return builder.Labels()
+	}
+
+	for i := 0; i < h.series.size; i++ {
+		h.series.locks[i].Lock()
+
+		for _, s := range h.series.hashes[i].unique {
+			s.lset = rebuildLabels(s.lset)
+		}
+
+		for _, all := range h.series.hashes[i].conflicts {
+			for _, s := range all {
+				s.lset = rebuildLabels(s.lset)
+			}
+		}
+
+		h.series.locks[i].Unlock()
+	}
+	return st
+}
