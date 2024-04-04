@@ -160,7 +160,6 @@ func (m *Manager) reloader() {
 
 func (m *Manager) reload() {
 	m.mtxScrape.Lock()
-	level.Info(m.logger).Log("msg", "ESCAPING SCHEME", "scheme", model.NameEscapingScheme.String())
 
 	var wg sync.WaitGroup
 	for setName, groups := range m.targetSets {

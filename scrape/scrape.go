@@ -716,7 +716,6 @@ func acceptHeader(sps []config.ScrapeProtocol, allowUTF8Names bool) string {
 	// Default match anything.
 	vals = append(vals, fmt.Sprintf("*/*;q=0.%d", weight))
 	ret := strings.Join(vals, ",")
-	fmt.Println("~~~~~~~~~~~~~~~~~~~accept header", ret)
 	return ret
 }
 
