@@ -2387,6 +2387,8 @@ func TestUTF8TargetScraperScrapeOK(t *testing.T) {
 		expectedTimeout = "1.5"
 	)
 
+	model.NameEscapingScheme = model.NoEscaping
+
 	server := httptest.NewServer(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			accept := r.Header.Get("Accept")

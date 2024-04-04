@@ -707,7 +707,7 @@ func acceptHeader(sps []config.ScrapeProtocol, allowUTF8Names bool) string {
 	for _, sp := range sps {
 		val := config.ScrapeProtocolsHeaders[sp]
 		if allowUTF8Names {
-			val += ";" + config.UTF8NamesHeader
+			val += ";" + config.UTF8NamesHeader + model.NameEscapingScheme.String()
 		}
 		val += fmt.Sprintf(";q=0.%d", weight)
 		vals = append(vals, val)
