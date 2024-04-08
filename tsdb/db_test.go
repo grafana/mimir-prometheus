@@ -7008,6 +7008,10 @@ func (c *mockCompactorFn) Compact(_ string, _ []string, _ []*Block) (ulid.ULID, 
 	return c.compactFn()
 }
 
+func (c *mockCompactorFn) CompactOOO(_ string, _ *OOOCompactionHead) (result []ulid.ULID, err error) {
+	panic("implement me")
+}
+
 func (c *mockCompactorFn) Write(_ string, _ BlockReader, _, _ int64, _ *BlockMeta) (ulid.ULID, error) {
 	return c.writeFn()
 }
