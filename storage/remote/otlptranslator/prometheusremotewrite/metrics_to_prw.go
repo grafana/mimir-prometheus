@@ -6,7 +6,8 @@
 package prometheusremotewrite // import "github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheusremotewrite"
 
 import (
-	"sort"
+	"cmp"
+	"slices"
 	"strconv"
 
 	"github.com/prometheus/prometheus/prompb"
@@ -54,7 +55,7 @@ func NewPrometheusConverter() *PrometheusConverter {
 
 // FromMetrics converts pmetric.Metrics to Prometheus remote write format.
 func (c *PrometheusConverter) FromMetrics(md pmetric.Metrics, settings Settings) error {
-	return ConvertMetrics(md, settings, c)
+	return ConvertMetrics[*prompb.TimeSeries](md, settings, c)
 }
 
 // TimeSeries returns a slice of the prompb.TimeSeries that were converted from OTel format.
@@ -76,7 +77,7 @@ func (c *PrometheusConverter) TimeSeries() []prompb.TimeSeries {
 	return allTS
 }
 
-func isSameMetric(ts *prompb.TimeSeries, lbls []prompb.Label) bool {
+func isSameMetric(ts *prompb.TimeSeries, lbls labelsAdapter) bool {
 	if len(ts.Labels) != len(lbls) {
 		return false
 	}
@@ -88,40 +89,48 @@ func isSameMetric(ts *prompb.TimeSeries, lbls []prompb.Label) bool {
 	return true
 }
 
-// AddExemplars adds exemplars for the dataPoint. For each exemplar, if it can find a bucket bound corresponding to its value,
+// AddHistogramExemplars adds exemplars for the dataPoint. For each exemplar, if it can find a bucket bound corresponding to its value,
 // the exemplar is added to the bucket bound's time series, provided that the time series' has samples.
-func (c *PrometheusConverter) AddExemplars(dataPoint pmetric.HistogramDataPoint, bucketBounds []bucketBoundsData) {
+func (c *PrometheusConverter) AddHistogramExemplars(exemplars ExemplarSet, bucketBounds []BucketBoundsData[*prompb.TimeSeries]) {
 	if len(bucketBounds) == 0 {
 		return
 	}
 
-	exemplars := getPromExemplars(dataPoint)
-	if len(exemplars) == 0 {
+	if len(exemplars.(promExemplars)) == 0 {
 		return
 	}
 
-	sort.Sort(byBucketBoundsData(bucketBounds))
-	for _, exemplar := range exemplars {
+	slices.SortFunc(bucketBounds, func(a, b BucketBoundsData[*prompb.TimeSeries]) int {
+		return cmp.Compare(a.Bound, b.Bound)
+	})
+	for _, exemplar := range exemplars.(promExemplars) {
 		for _, bound := range bucketBounds {
-			if len(bound.ts.Samples) > 0 && exemplar.Value <= bound.bound {
-				bound.ts.Exemplars = append(bound.ts.Exemplars, exemplar)
+			if len(bound.TS.Samples) > 0 && exemplar.Value <= bound.Bound {
+				bound.TS.Exemplars = append(bound.TS.Exemplars, exemplar)
 				break
 			}
 		}
 	}
 }
 
-// AddSample finds a TimeSeries that corresponds to lbls, and adds sample to it.
+func (c *PrometheusConverter) AddExemplars(exemplars ExemplarSet, ts *prompb.TimeSeries) {
+	ts.Exemplars = append(ts.Exemplars, exemplars.(promExemplars)...)
+}
+
+// AddSample finds a TimeSeries that corresponds to lbls, and adds a sample with timestamp and value to it.
 // If there is no corresponding TimeSeries already, it's created.
 // The corresponding TimeSeries is returned.
 // If either lbls is nil/empty or sample is nil, nothing is done.
-func (c *PrometheusConverter) AddSample(sample *prompb.Sample, lbls []prompb.Label) *prompb.TimeSeries {
-	if sample == nil || len(lbls) == 0 {
+func (c *PrometheusConverter) AddSample(timestamp int64, value float64, lbls LabelSet) *prompb.TimeSeries {
+	if len(lbls.(labelsAdapter)) == 0 {
 		// This shouldn't happen
 		return nil
 	}
 
-	ts, _ := c.getOrCreateTimeSeries(lbls)
-	ts.Samples = append(ts.Samples, *sample)
+	ts, _ := c.GetOrCreateTimeSeries(lbls)
+	ts.Samples = append(ts.Samples, prompb.Sample{
+		Timestamp: timestamp,
+		Value:     value,
+	})
 	return ts
 }

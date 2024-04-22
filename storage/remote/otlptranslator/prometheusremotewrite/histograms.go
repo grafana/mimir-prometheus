@@ -16,13 +16,14 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
-const defaultZeroThreshold = 1e-128
+const DefaultZeroThreshold = 1e-128
 
-func (c *PrometheusConverter) AddExponentialHistogramDataPoints(dataPoints pmetric.ExponentialHistogramDataPointSlice,
+func addExponentialHistogramDataPoints[TS any](converter MetricsConverter[TS], dataPoints pmetric.ExponentialHistogramDataPointSlice,
 	resource pcommon.Resource, settings Settings, baseName string) error {
 	for x := 0; x < dataPoints.Len(); x++ {
 		pt := dataPoints.At(x)
-		lbls := createAttributes(
+		lbls := createLabels(
+			converter,
 			resource,
 			pt.Attributes(),
 			settings.ExternalLabels,
@@ -31,29 +32,24 @@ func (c *PrometheusConverter) AddExponentialHistogramDataPoints(dataPoints pmetr
 			model.MetricNameLabel,
 			baseName,
 		)
-		ts, _ := c.getOrCreateTimeSeries(lbls)
-
-		histogram, err := exponentialToNativeHistogram(pt)
-		if err != nil {
+		ts, _ := converter.GetOrCreateTimeSeries(lbls)
+		if err := convertExponentialHistogram(pt, ts, converter); err != nil {
 			return err
 		}
-		ts.Histograms = append(ts.Histograms, histogram)
 
-		exemplars := getPromExemplars[pmetric.ExponentialHistogramDataPoint](pt)
-		ts.Exemplars = append(ts.Exemplars, exemplars...)
+		converter.AddExemplars(ConvertExemplars(pt, converter), ts)
 	}
 
 	return nil
 }
 
-// exponentialToNativeHistogram  translates OTel Exponential Histogram data point
-// to Prometheus Native Histogram.
-func exponentialToNativeHistogram(p pmetric.ExponentialHistogramDataPoint) (prompb.Histogram, error) {
+// convertExponentialHistogram translates an OTel Exponential Histogram data point
+// to a native histogram and adds it to ts.
+func convertExponentialHistogram[TS any](p pmetric.ExponentialHistogramDataPoint, ts TS, converter MetricsConverter[TS]) error {
 	scale := p.Scale()
 	if scale < -4 {
-		return prompb.Histogram{},
-			fmt.Errorf("cannot convert exponential to native histogram."+
-				" Scale must be >= -4, was %d", scale)
+		return fmt.Errorf("cannot convert exponential to native histogram."+
+			" Scale must be >= -4, was %d", scale)
 	}
 
 	var scaleDown int32
@@ -62,45 +58,23 @@ func exponentialToNativeHistogram(p pmetric.ExponentialHistogramDataPoint) (prom
 		scale = 8
 	}
 
-	pSpans, pDeltas := convertBucketsLayout(p.Positive(), scaleDown)
-	nSpans, nDeltas := convertBucketsLayout(p.Negative(), scaleDown)
+	pSpans, pDeltas := convertBucketsLayout(converter, p.Positive(), scaleDown)
+	nSpans, nDeltas := convertBucketsLayout(converter, p.Negative(), scaleDown)
 
-	h := prompb.Histogram{
-		// The counter reset detection must be compatible with Prometheus to
-		// safely set ResetHint to NO. This is not ensured currently.
-		// Sending a sample that triggers counter reset but with ResetHint==NO
-		// would lead to Prometheus panic as it does not double check the hint.
-		// Thus we're explicitly saying UNKNOWN here, which is always safe.
-		// TODO: using created time stamp should be accurate, but we
-		// need to know here if it was used for the detection.
-		// Ref: https://github.com/open-telemetry/opentelemetry-collector-contrib/pull/28663#issuecomment-1810577303
-		// Counter reset detection in Prometheus: https://github.com/prometheus/prometheus/blob/f997c72f294c0f18ca13fa06d51889af04135195/tsdb/chunkenc/histogram.go#L232
-		ResetHint: prompb.Histogram_UNKNOWN,
-		Schema:    scale,
-
-		ZeroCount: &prompb.Histogram_ZeroCountInt{ZeroCountInt: p.ZeroCount()},
-		// TODO use zero_threshold, if set, see
-		// https://github.com/open-telemetry/opentelemetry-proto/pull/441
-		ZeroThreshold: defaultZeroThreshold,
-
-		PositiveSpans:  pSpans,
-		PositiveDeltas: pDeltas,
-		NegativeSpans:  nSpans,
-		NegativeDeltas: nDeltas,
-
-		Timestamp: convertTimeStamp(p.Timestamp()),
-	}
-
+	var sum float64
+	var count uint64
 	if p.Flags().NoRecordedValue() {
-		h.Sum = math.Float64frombits(value.StaleNaN)
-		h.Count = &prompb.Histogram_CountInt{CountInt: value.StaleNaN}
+		sum = math.Float64frombits(value.StaleNaN)
+		count = value.StaleNaN
 	} else {
 		if p.HasSum() {
-			h.Sum = p.Sum()
+			sum = p.Sum()
 		}
-		h.Count = &prompb.Histogram_CountInt{CountInt: p.Count()}
+		count = p.Count()
 	}
-	return h, nil
+
+	converter.AddHistogram(ts, p, scale, sum, count, pSpans, pDeltas, nSpans, nDeltas)
+	return nil
 }
 
 // convertBucketsLayout translates OTel Exponential Histogram dense buckets
@@ -113,21 +87,21 @@ func exponentialToNativeHistogram(p pmetric.ExponentialHistogramDataPoint) (prom
 // to the range (base 1].
 //
 // scaleDown is the factor by which the buckets are scaled down. In other words 2^scaleDown buckets will be merged into one.
-func convertBucketsLayout(buckets pmetric.ExponentialHistogramDataPointBuckets, scaleDown int32) ([]prompb.BucketSpan, []int64) {
+func convertBucketsLayout[TS any](converter MetricsConverter[TS], buckets pmetric.ExponentialHistogramDataPointBuckets, scaleDown int32) (BucketSpans, []int64) {
 	bucketCounts := buckets.BucketCounts()
 	if bucketCounts.Len() == 0 {
 		return nil, nil
 	}
 
 	var (
-		spans     []prompb.BucketSpan
+		spans     BucketSpans
 		deltas    []int64
 		count     int64
 		prevCount int64
 	)
 
 	appendDelta := func(count int64) {
-		spans[len(spans)-1].Length++
+		spans.IncrementLastLength()
 		deltas = append(deltas, count-prevCount)
 		prevCount = count
 	}
@@ -138,10 +112,7 @@ func convertBucketsLayout(buckets pmetric.ExponentialHistogramDataPointBuckets, 
 
 	// The offset is scaled and adjusted by 1 as described above.
 	bucketIdx := buckets.Offset()>>scaleDown + 1
-	spans = append(spans, prompb.BucketSpan{
-		Offset: bucketIdx,
-		Length: 0,
-	})
+	spans = spans.Append(bucketIdx)
 
 	for i := 0; i < numBuckets; i++ {
 		// The offset is scaled and adjusted by 1 as described above.
@@ -160,10 +131,7 @@ func convertBucketsLayout(buckets pmetric.ExponentialHistogramDataPointBuckets, 
 			// We have to create a new span, because we have found a gap
 			// of more than two buckets. The constant 2 is copied from the logic in
 			// https://github.com/prometheus/client_golang/blob/27f0506d6ebbb117b6b697d0552ee5be2502c5f2/prometheus/histogram.go#L1296
-			spans = append(spans, prompb.BucketSpan{
-				Offset: gap,
-				Length: 0,
-			})
+			spans = spans.Append(gap)
 		} else {
 			// We have found a small gap (or no gap at all).
 			// Insert empty buckets as needed.
@@ -181,10 +149,7 @@ func convertBucketsLayout(buckets pmetric.ExponentialHistogramDataPointBuckets, 
 		// We have to create a new span, because we have found a gap
 		// of more than two buckets. The constant 2 is copied from the logic in
 		// https://github.com/prometheus/client_golang/blob/27f0506d6ebbb117b6b697d0552ee5be2502c5f2/prometheus/histogram.go#L1296
-		spans = append(spans, prompb.BucketSpan{
-			Offset: gap,
-			Length: 0,
-		})
+		spans = spans.Append(gap)
 	} else {
 		// We have found a small gap (or no gap at all).
 		// Insert empty buckets as needed.
@@ -195,4 +160,44 @@ func convertBucketsLayout(buckets pmetric.ExponentialHistogramDataPointBuckets, 
 	appendDelta(count)
 
 	return spans, deltas
+}
+
+func (c *PrometheusConverter) AddHistogram(ts *prompb.TimeSeries, p pmetric.ExponentialHistogramDataPoint, scale int32, sum float64, count uint64, pSpans BucketSpans, pDeltas []int64, nSpans BucketSpans, nDeltas []int64) {
+	ts.Histograms = append(ts.Histograms, prompb.Histogram{
+		// The counter reset detection must be compatible with Prometheus to
+		// safely set ResetHint to NO. This is not ensured currently.
+		// Sending a sample that triggers counter reset but with ResetHint==NO
+		// would lead to Prometheus panic as it does not double check the hint.
+		// Thus we're explicitly saying UNKNOWN here, which is always safe.
+		// TODO: using created time stamp should be accurate, but we
+		// need to know here if it was used for the detection.
+		// Ref: https://github.com/open-telemetry/opentelemetry-collector-contrib/pull/28663#issuecomment-1810577303
+		// Counter reset detection in Prometheus: https://github.com/prometheus/prometheus/blob/f997c72f294c0f18ca13fa06d51889af04135195/tsdb/chunkenc/histogram.go#L232
+		ResetHint: prompb.Histogram_UNKNOWN,
+		Schema:    scale,
+
+		ZeroCount: &prompb.Histogram_ZeroCountInt{ZeroCountInt: p.ZeroCount()},
+		// TODO use zero_threshold, if set, see
+		// https://github.com/open-telemetry/opentelemetry-proto/pull/441
+		ZeroThreshold: DefaultZeroThreshold,
+
+		PositiveSpans:  pSpans.(promBucketSpans),
+		PositiveDeltas: pDeltas,
+		NegativeSpans:  nSpans.(promBucketSpans),
+		NegativeDeltas: nDeltas,
+
+		Timestamp: ConvertTimestamp(p.Timestamp()),
+	})
+}
+
+type promBucketSpans []prompb.BucketSpan
+
+func (bs promBucketSpans) Append(offset int32) BucketSpans {
+	return append(bs, prompb.BucketSpan{
+		Offset: offset,
+	})
+}
+
+func (bs promBucketSpans) IncrementLastLength() {
+	bs[len(bs)-1].Length++
 }

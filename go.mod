@@ -54,7 +54,7 @@ require (
 	github.com/prometheus/alertmanager v0.27.0
 	github.com/prometheus/client_golang v1.19.0
 	github.com/prometheus/client_model v0.6.1
-	github.com/prometheus/common v0.52.3
+	github.com/prometheus/common v0.49.1-0.20240306132007-4199f18c3e92
 	github.com/prometheus/common/assets v0.2.0
 	github.com/prometheus/common/sigv4 v0.1.0
 	github.com/prometheus/exporter-toolkit v0.11.0
@@ -64,7 +64,7 @@ require (
 	github.com/vultr/govultr/v2 v2.17.2
 	go.opentelemetry.io/collector/featuregate v1.6.0
 	go.opentelemetry.io/collector/pdata v1.6.0
-	go.opentelemetry.io/collector/semconv v0.99.0
+	go.opentelemetry.io/collector/semconv v0.98.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0
 	go.opentelemetry.io/otel v1.25.0
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.24.0
@@ -98,8 +98,7 @@ require (
 require (
 	github.com/DmitriyVTitov/size v1.5.0
 	github.com/dgraph-io/ristretto v0.1.1
-	github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.99.0
-	github.com/open-telemetry/opentelemetry-collector-contrib/pkg/translator/prometheus v0.99.0
+	github.com/open-telemetry/opentelemetry-collector-contrib/internal/coreinternal v0.98.0
 )
 
 require (
