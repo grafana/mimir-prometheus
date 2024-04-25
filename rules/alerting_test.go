@@ -122,7 +122,7 @@ func TestAlertingRuleTemplateWithHistogram(t *testing.T) {
 	)
 
 	evalTime := time.Now()
-	res, err := rule.Eval(context.TODO(), evalTime, q, nil, 0)
+	res, err := rule.Eval(context.TODO(), 0, evalTime, q, nil, 0)
 	require.NoError(t, err)
 
 	require.Len(t, res, 2)

@@ -29,6 +29,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/model"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
+	"gopkg.in/yaml.v2"
+
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/rulefmt"
 	"github.com/prometheus/prometheus/model/timestamp"
@@ -40,8 +44,6 @@ import (
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/util/teststorage"
 	promtestutil "github.com/prometheus/prometheus/util/testutil"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/atomic"
 )
 
 func TestMain(m *testing.M) {
