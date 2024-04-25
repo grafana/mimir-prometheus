@@ -3,6 +3,13 @@
 ## unreleased
 
 * [CHANGE] TSDB: Fix the predicate checking for blocks which are beyond the retention period to include the ones right at the retention boundary. #9633
+* [ENHANCEMENT] Rules: Add `rule_group_last_restore_duration_seconds` to measure the time it takes to restore a rule group. #13974
+
+## 2.51.2 / 2024-04-09
+
+Bugfix release.
+
+[BUGFIX] Notifier: could hang when using relabeling on alerts #13861
 
 ## 2.51.1 / 2024-03-27
 
