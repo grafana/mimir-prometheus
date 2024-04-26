@@ -1527,6 +1527,10 @@ func (n notReadyAppender) Append(ref storage.SeriesRef, l labels.Labels, t int64
 	return 0, tsdb.ErrNotReady
 }
 
+func (n notReadyAppender) AppendInfoSample(storage.SeriesRef, labels.Labels, int64, []int) (storage.SeriesRef, error) {
+	return 0, tsdb.ErrNotReady
+}
+
 func (n notReadyAppender) AppendExemplar(ref storage.SeriesRef, l labels.Labels, e exemplar.Exemplar) (storage.SeriesRef, error) {
 	return 0, tsdb.ErrNotReady
 }

@@ -174,7 +174,7 @@ func TestCorruptedChunk(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			tmpdir := t.TempDir()
 
-			series := storage.NewListSeries(labels.FromStrings("a", "b"), []chunks.Sample{sample{1, 1, nil, nil}})
+			series := storage.NewListSeries(labels.FromStrings("a", "b"), []chunks.Sample{sample{1, 1, nil, nil, nil}})
 			blockDir := createBlock(t, tmpdir, []storage.Series{series})
 			files, err := sequenceFiles(chunkDir(blockDir))
 			require.NoError(t, err)
@@ -234,12 +234,12 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 		seriesEntries = append(seriesEntries, storage.NewListSeries(labels.FromStrings(
 			"tens", fmt.Sprintf("value%d", i/10),
 			"unique", fmt.Sprintf("value%d", i),
-		), []chunks.Sample{sample{100, 0, nil, nil}}))
+		), []chunks.Sample{sample{100, 0, nil, nil, nil}}))
 	}
 	// Add another series with an overlapping unique label, but leaving out the tens label
 	seriesEntries = append(seriesEntries, storage.NewListSeries(labels.FromStrings(
 		"unique", "value99",
-	), []chunks.Sample{sample{100, 0, nil, nil}}))
+	), []chunks.Sample{sample{100, 0, nil, nil, nil}}))
 
 	blockDir := createBlock(t, tmpdir, seriesEntries)
 	files, err := sequenceFiles(chunkDir(blockDir))
@@ -422,7 +422,7 @@ func BenchmarkLabelValuesWithMatchers(b *testing.B) {
 			"a_unique", fmt.Sprintf("value%d", i),
 			"b_tens", fmt.Sprintf("value%d", i/(metricCount/10)),
 			"c_ninety", fmt.Sprintf("value%d", i/(metricCount/10)/9), // "0" for the first 90%, then "1"
-		), []chunks.Sample{sample{100, 0, nil, nil}}))
+		), []chunks.Sample{sample{100, 0, nil, nil, nil}}))
 	}
 
 	blockDir := createBlock(b, tmpdir, seriesEntries)
@@ -459,13 +459,13 @@ func TestLabelNamesWithMatchers(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		seriesEntries = append(seriesEntries, storage.NewListSeries(labels.FromStrings(
 			"unique", fmt.Sprintf("value%d", i),
-		), []chunks.Sample{sample{100, 0, nil, nil}}))
+		), []chunks.Sample{sample{100, 0, nil, nil, nil}}))
 
 		if i%10 == 0 {
 			seriesEntries = append(seriesEntries, storage.NewListSeries(labels.FromStrings(
 				"tens", fmt.Sprintf("value%d", i/10),
 				"unique", fmt.Sprintf("value%d", i),
-			), []chunks.Sample{sample{100, 0, nil, nil}}))
+			), []chunks.Sample{sample{100, 0, nil, nil, nil}}))
 		}
 
 		if i%20 == 0 {
@@ -473,7 +473,7 @@ func TestLabelNamesWithMatchers(t *testing.T) {
 				"tens", fmt.Sprintf("value%d", i/10),
 				"twenties", fmt.Sprintf("value%d", i/20),
 				"unique", fmt.Sprintf("value%d", i),
-			), []chunks.Sample{sample{100, 0, nil, nil}}))
+			), []chunks.Sample{sample{100, 0, nil, nil, nil}}))
 		}
 	}
 

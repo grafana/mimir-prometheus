@@ -763,6 +763,7 @@ type appender struct {
 
 	pendingSeries          []record.RefSeries
 	pendingSamples         []record.RefSample
+	pendingInfoSamples     []record.RefInfoSample
 	pendingHistograms      []record.RefHistogramSample
 	pendingFloatHistograms []record.RefFloatHistogramSample
 	pendingExamplars       []record.RefExemplar
@@ -770,6 +771,10 @@ type appender struct {
 	// Pointers to the series referenced by each element of pendingSamples.
 	// Series lock is not held on elements.
 	sampleSeries []*memSeries
+
+	// Pointers to the series referenced by each element of pendingInfoSamples.
+	// Series lock is not held on elements.
+	infoSampleSeries []*memSeries
 
 	// Pointers to the series referenced by each element of pendingHistograms.
 	// Series lock is not held on elements.
@@ -821,6 +826,50 @@ func (a *appender) Append(ref storage.SeriesRef, l labels.Labels, t int64, v flo
 	a.sampleSeries = append(a.sampleSeries, series)
 
 	a.metrics.totalAppendedSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
+	return storage.SeriesRef(series.ref), nil
+}
+
+func (a *appender) AppendInfoSample(ref storage.SeriesRef, l labels.Labels, t int64, identifyingLabels []int) (storage.SeriesRef, error) {
+	// series references and chunk references are identical for agent mode.
+	headRef := chunks.HeadSeriesRef(ref)
+
+	series := a.series.GetByID(headRef)
+	if series == nil {
+		// Ensure no empty or duplicate labels have gotten through. This mirrors the
+		// equivalent validation code in the TSDB's headAppender.
+		l = l.WithoutEmpty()
+		if l.IsEmpty() {
+			return 0, fmt.Errorf("empty labelset: %w", tsdb.ErrInvalidSample)
+		}
+
+		if lbl, dup := l.HasDuplicateLabelNames(); dup {
+			return 0, fmt.Errorf(`label name "%s" is not unique: %w`, lbl, tsdb.ErrInvalidSample)
+		}
+
+		var created bool
+		series, created = a.getOrCreate(l)
+		if created {
+			a.pendingSeries = append(a.pendingSeries, record.RefSeries{
+				Ref:    series.ref,
+				Labels: l,
+			})
+
+			a.metrics.numActiveSeries.Inc()
+		}
+	}
+
+	series.Lock()
+	defer series.Unlock()
+
+	// NOTE: always modify pendingInfoSamples and infoSampleSeries together.
+	a.pendingInfoSamples = append(a.pendingInfoSamples, record.RefInfoSample{
+		Ref:               series.ref,
+		T:                 t,
+		IdentifyingLabels: identifyingLabels,
+	})
+	a.infoSampleSeries = append(a.infoSampleSeries, series)
+
+	// a.metrics.totalAppendedSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
 	return storage.SeriesRef(series.ref), nil
 }
 

@@ -619,24 +619,24 @@ func TestBuilder(t *testing.T) {
 			want: FromStrings("aaa", "111", "ccc", "333"),
 		},
 		{
-			set:  []Label{{"aaa", "111"}, {"bbb", "222"}, {"ccc", "333"}},
+			set:  []Label{{Name: "aaa", Value: "111"}, {Name: "bbb", Value: "222"}, {Name: "ccc", Value: "333"}},
 			del:  []string{"bbb"},
 			want: FromStrings("aaa", "111", "ccc", "333"),
 		},
 		{
 			base: FromStrings("aaa", "111"),
-			set:  []Label{{"bbb", "222"}},
+			set:  []Label{{Name: "bbb", Value: "222"}},
 			want: FromStrings("aaa", "111", "bbb", "222"),
 		},
 		{
 			base: FromStrings("aaa", "111"),
-			set:  []Label{{"bbb", "222"}, {"bbb", "333"}},
+			set:  []Label{{Name: "bbb", Value: "222"}, {Name: "bbb", Value: "333"}},
 			want: FromStrings("aaa", "111", "bbb", "333"),
 		},
 		{
 			base: FromStrings("aaa", "111", "bbb", "222", "ccc", "333"),
 			del:  []string{"bbb"},
-			set:  []Label{{"ddd", "444"}},
+			set:  []Label{{Name: "ddd", Value: "444"}},
 			want: FromStrings("aaa", "111", "ccc", "333", "ddd", "444"),
 		},
 		{ // Blank value is interpreted as delete.
@@ -645,7 +645,7 @@ func TestBuilder(t *testing.T) {
 		},
 		{
 			base: FromStrings("aaa", "111", "bbb", "222", "ccc", "333"),
-			set:  []Label{{"bbb", ""}},
+			set:  []Label{{Name: "bbb", Value: ""}},
 			want: FromStrings("aaa", "111", "ccc", "333"),
 		},
 		{
@@ -661,7 +661,7 @@ func TestBuilder(t *testing.T) {
 		{
 			base: FromStrings("aaa", "111", "bbb", "222", "ccc", "333"),
 			del:  []string{"bbb"},
-			set:  []Label{{"ddd", "444"}},
+			set:  []Label{{Name: "ddd", Value: "444"}},
 			keep: []string{"aaa", "ddd"},
 			want: FromStrings("aaa", "111", "ddd", "444"),
 		},
@@ -716,19 +716,19 @@ func TestScratchBuilder(t *testing.T) {
 			want: EmptyLabels(),
 		},
 		{
-			add:  []Label{{"aaa", "111"}},
+			add:  []Label{{Name: "aaa", Value: "111"}},
 			want: FromStrings("aaa", "111"),
 		},
 		{
-			add:  []Label{{"aaa", "111"}, {"bbb", "222"}, {"ccc", "333"}},
+			add:  []Label{{Name: "aaa", Value: "111"}, {Name: "bbb", Value: "222"}, {Name: "ccc", Value: "333"}},
 			want: FromStrings("aaa", "111", "bbb", "222", "ccc", "333"),
 		},
 		{
-			add:  []Label{{"bbb", "222"}, {"aaa", "111"}, {"ccc", "333"}},
+			add:  []Label{{Name: "bbb", Value: "222"}, {Name: "aaa", Value: "111"}, {Name: "ccc", Value: "333"}},
 			want: FromStrings("aaa", "111", "bbb", "222", "ccc", "333"),
 		},
 		{
-			add:  []Label{{"ddd", "444"}},
+			add:  []Label{{Name: "ddd", Value: "444"}},
 			want: FromStrings("ddd", "444"),
 		},
 	} {
@@ -808,15 +808,15 @@ func BenchmarkLabels_Hash(b *testing.B) {
 }
 
 var benchmarkLabels = []Label{
-	{"job", "node"},
-	{"instance", "123.123.1.211:9090"},
-	{"path", "/api/v1/namespaces/<namespace>/deployments/<name>"},
-	{"method", http.MethodGet},
-	{"namespace", "system"},
-	{"status", "500"},
-	{"prometheus", "prometheus-core-1"},
-	{"datacenter", "eu-west-1"},
-	{"pod_name", "abcdef-99999-defee"},
+	{Name: "job", Value: "node"},
+	{Name: "instance", Value: "123.123.1.211:9090"},
+	{Name: "path", Value: "/api/v1/namespaces/<namespace>/deployments/<name>"},
+	{Name: "method", Value: http.MethodGet},
+	{Name: "namespace", Value: "system"},
+	{Name: "status", Value: "500"},
+	{Name: "prometheus", Value: "prometheus-core-1"},
+	{Name: "datacenter", Value: "eu-west-1"},
+	{Name: "pod_name", Value: "abcdef-99999-defee"},
 }
 
 func BenchmarkBuilder(b *testing.B) {

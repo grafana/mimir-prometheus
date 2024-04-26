@@ -162,6 +162,20 @@ func (f *fanoutAppender) Append(ref SeriesRef, l labels.Labels, t int64, v float
 	return ref, nil
 }
 
+func (f *fanoutAppender) AppendInfoSample(ref SeriesRef, l labels.Labels, t int64, identifyingLabels []int) (SeriesRef, error) {
+	ref, err := f.primary.AppendInfoSample(ref, l, t, identifyingLabels)
+	if err != nil {
+		return ref, err
+	}
+
+	for _, appender := range f.secondaries {
+		if _, err := appender.AppendInfoSample(ref, l, t, identifyingLabels); err != nil {
+			return 0, err
+		}
+	}
+	return ref, nil
+}
+
 func (f *fanoutAppender) AppendExemplar(ref SeriesRef, l labels.Labels, e exemplar.Exemplar) (SeriesRef, error) {
 	ref, err := f.primary.AppendExemplar(ref, l, e)
 	if err != nil {

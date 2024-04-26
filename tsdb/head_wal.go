@@ -58,6 +58,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 	var unknownRefs atomic.Uint64
 	var unknownExemplarRefs atomic.Uint64
 	var unknownHistogramRefs atomic.Uint64
+	var unknownInfoRefs atomic.Uint64
 	var unknownMetadataRefs atomic.Uint64
 	// Track number of series records that had overlapping m-map chunks.
 	var mmapOverlappingChunks atomic.Uint64
@@ -70,6 +71,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 		exemplarsInput chan record.RefExemplar
 
 		shards          = make([][]record.RefSample, concurrency)
+		infoShards      = make([][]record.RefInfoSample, concurrency)
 		histogramShards = make([][]histogramRecord, concurrency)
 
 		decoded                      = make(chan interface{}, 10)
@@ -81,6 +83,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 		exemplarsPool       zeropool.Pool[[]record.RefExemplar]
 		histogramsPool      zeropool.Pool[[]record.RefHistogramSample]
 		floatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]
+		infoSamplesPool     zeropool.Pool[[]record.RefInfoSample]
 		metadataPool        zeropool.Pool[[]record.RefMetadata]
 	)
 
@@ -101,10 +104,11 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 		processors[i].setup()
 
 		go func(wp *walSubsetProcessor) {
-			unknown, unknownHistograms, overlapping := wp.processWALSamples(h, mmappedChunks, oooMmappedChunks)
+			unknown, unknownHistograms, unknownInfoSamples, overlapping := wp.processWALSamples(h, mmappedChunks, oooMmappedChunks)
 			unknownRefs.Add(unknown)
 			mmapOverlappingChunks.Add(overlapping)
 			unknownHistogramRefs.Add(unknownHistograms)
+			unknownInfoRefs.Add(unknownInfoSamples)
 			wg.Done()
 		}(&processors[i])
 	}
@@ -212,6 +216,19 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 					return
 				}
 				decoded <- hists
+			case record.InfoSamples:
+				samples := infoSamplesPool.Get()[:0]
+				samples, err = dec.InfoSamples(rec, samples)
+				if err != nil {
+					decodeErr = &wlog.CorruptionErr{
+						Err:     fmt.Errorf("decode info samples: %w", err),
+						Segment: r.Segment(),
+						Offset:  r.Offset(),
+					}
+					return
+				}
+				level.Debug(h.logger).Log("msg", "decoded info metric samples from WAL", "count", len(samples))
+				decoded <- samples
 			case record.Metadata:
 				meta := metadataPool.Get()[:0]
 				meta, err := dec.Metadata(rec, meta)
@@ -380,6 +397,42 @@ Outer:
 				samples = samples[m:]
 			}
 			floatHistogramsPool.Put(v)
+		case []record.RefInfoSample:
+			samples := v
+			minValidTime := h.minValidTime.Load()
+			// We split up the samples into chunks of 5000 samples or less.
+			// With O(300 * #cores) in-flight sample batches, large scrapes could otherwise
+			// cause thousands of very large in flight buffers occupying large amounts
+			// of unused memory.
+			for len(samples) > 0 {
+				m := 5000
+				if len(samples) < m {
+					m = len(samples)
+				}
+				for i := 0; i < concurrency; i++ {
+					if infoShards[i] == nil {
+						infoShards[i] = processors[i].reuseInfoBuf()
+					}
+				}
+				for _, sam := range samples[:m] {
+					if sam.T < minValidTime {
+						continue // Before minValidTime: discard.
+					}
+					if r, ok := multiRef[sam.Ref]; ok {
+						sam.Ref = r
+					}
+					mod := uint64(sam.Ref) % uint64(concurrency)
+					infoShards[mod] = append(infoShards[mod], sam)
+				}
+				for i := 0; i < concurrency; i++ {
+					if len(infoShards[i]) > 0 {
+						processors[i].input <- walSubsetProcessorInputItem{infoSamples: infoShards[i]}
+						infoShards[i] = nil
+					}
+				}
+				samples = samples[m:]
+			}
+			infoSamplesPool.Put(v)
 		case []record.RefMetadata:
 			for _, m := range v {
 				s := h.series.getByID(m.Ref)
@@ -420,12 +473,13 @@ Outer:
 		return fmt.Errorf("read records: %w", err)
 	}
 
-	if unknownRefs.Load()+unknownExemplarRefs.Load()+unknownHistogramRefs.Load()+unknownMetadataRefs.Load() > 0 {
+	if unknownRefs.Load()+unknownExemplarRefs.Load()+unknownHistogramRefs.Load()+unknownInfoRefs.Load()+unknownMetadataRefs.Load() > 0 {
 		level.Warn(h.logger).Log(
 			"msg", "Unknown series references",
 			"samples", unknownRefs.Load(),
 			"exemplars", unknownExemplarRefs.Load(),
 			"histograms", unknownHistogramRefs.Load(),
+			"info_samples", unknownInfoRefs.Load(),
 			"metadata", unknownMetadataRefs.Load(),
 		)
 	}
@@ -513,11 +567,13 @@ type walSubsetProcessor struct {
 	input            chan walSubsetProcessorInputItem
 	output           chan []record.RefSample
 	histogramsOutput chan []histogramRecord
+	infoOutput       chan []record.RefInfoSample
 }
 
 type walSubsetProcessorInputItem struct {
 	samples          []record.RefSample
 	histogramSamples []histogramRecord
+	infoSamples      []record.RefInfoSample
 	existingSeries   *memSeries
 	walSeriesRef     chunks.HeadSeriesRef
 }
@@ -526,6 +582,7 @@ func (wp *walSubsetProcessor) setup() {
 	wp.input = make(chan walSubsetProcessorInputItem, 300)
 	wp.output = make(chan []record.RefSample, 300)
 	wp.histogramsOutput = make(chan []histogramRecord, 300)
+	wp.infoOutput = make(chan []record.RefInfoSample, 300)
 }
 
 func (wp *walSubsetProcessor) closeAndDrain() {
@@ -533,6 +590,8 @@ func (wp *walSubsetProcessor) closeAndDrain() {
 	for range wp.output {
 	}
 	for range wp.histogramsOutput {
+	}
+	for range wp.infoOutput {
 	}
 }
 
@@ -546,7 +605,7 @@ func (wp *walSubsetProcessor) reuseBuf() []record.RefSample {
 	return nil
 }
 
-// If there is a buffer in the output chan, return it for reuse, otherwise return nil.
+// If there is a buffer in the histogramsOutput chan, return it for reuse, otherwise return nil.
 func (wp *walSubsetProcessor) reuseHistogramBuf() []histogramRecord {
 	select {
 	case buf := <-wp.histogramsOutput:
@@ -556,12 +615,23 @@ func (wp *walSubsetProcessor) reuseHistogramBuf() []histogramRecord {
 	return nil
 }
 
+// If there is a buffer in the infoOutput chan, return it for reuse, otherwise return nil.
+func (wp *walSubsetProcessor) reuseInfoBuf() []record.RefInfoSample {
+	select {
+	case buf := <-wp.infoOutput:
+		return buf[:0]
+	default:
+	}
+	return nil
+}
+
 // processWALSamples adds the samples it receives to the head and passes
 // the buffer received to an output channel for reuse.
 // Samples before the minValidTime timestamp are discarded.
-func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmappedChunks map[chunks.HeadSeriesRef][]*mmappedChunk) (unknownRefs, unknownHistogramRefs, mmapOverlappingChunks uint64) {
+func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmappedChunks map[chunks.HeadSeriesRef][]*mmappedChunk) (unknownRefs, unknownHistogramRefs, unknownInfoRefs, mmapOverlappingChunks uint64) {
 	defer close(wp.output)
 	defer close(wp.histogramsOutput)
+	defer close(wp.infoOutput)
 
 	minValidTime := h.minValidTime.Load()
 	mint, maxt := int64(math.MaxInt64), int64(math.MinInt64)
@@ -637,14 +707,48 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmapp
 			}
 		}
 
+		for _, s := range in.infoSamples {
+			if s.T < minValidTime {
+				continue
+			}
+			ms := h.series.getByID(s.Ref)
+			if ms == nil {
+				unknownInfoRefs++
+				continue
+			}
+			if s.T <= ms.mmMaxTime {
+				continue
+			}
+			if _, chunkCreated := ms.appendInfoSample(s.T, s.IdentifyingLabels, 0, appendChunkOpts); chunkCreated {
+				h.metrics.chunksCreated.Inc()
+				h.metrics.chunks.Inc()
+				_ = ms.mmapChunks(h.chunkDiskMapper)
+			}
+			if s.T > maxt {
+				maxt = s.T
+			}
+			if s.T < mint {
+				mint = s.T
+			}
+		}
+		select {
+		case wp.output <- in.samples:
+		default:
+		}
+
 		select {
 		case wp.histogramsOutput <- in.histogramSamples:
+		default:
+		}
+
+		select {
+		case wp.infoOutput <- in.infoSamples:
 		default:
 		}
 	}
 	h.updateMinMaxTime(mint, maxt)
 
-	return unknownRefs, unknownHistogramRefs, mmapOverlappingChunks
+	return unknownRefs, unknownHistogramRefs, unknownInfoRefs, mmapOverlappingChunks
 }
 
 func (h *Head) loadWBL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[chunks.HeadSeriesRef]chunks.HeadSeriesRef, lastMmapRef chunks.ChunkDiskMapperRef) (err error) {
@@ -927,6 +1031,7 @@ type chunkSnapshotRecord struct {
 	lastValue               float64
 	lastHistogramValue      *histogram.Histogram
 	lastFloatHistogramValue *histogram.FloatHistogram
+	lastIdentifyingLabels   []int
 }
 
 func (s *memSeries) encodeToSnapshotRecord(b []byte) []byte {
@@ -959,8 +1064,12 @@ func (s *memSeries) encodeToSnapshotRecord(b []byte) []byte {
 			buf.PutBEFloat64(s.lastValue)
 		case chunkenc.EncHistogram:
 			record.EncodeHistogram(&buf, s.lastHistogramValue)
-		default: // chunkenc.FloatHistogram.
+		case chunkenc.EncFloatHistogram:
 			record.EncodeFloatHistogram(&buf, s.lastFloatHistogramValue)
+		case chunkenc.EncInfoMetric:
+			record.EncodeInfoSample(&buf, s.lastIdentifyingLabels)
+		default:
+			panic(fmt.Sprintf("unrecognized encoding: %s", enc.String()))
 		}
 	}
 	s.Unlock()
@@ -1013,9 +1122,13 @@ func decodeSeriesFromChunkSnapshot(d *record.Decoder, b []byte) (csr chunkSnapsh
 	case chunkenc.EncHistogram:
 		csr.lastHistogramValue = &histogram.Histogram{}
 		record.DecodeHistogram(&dec, csr.lastHistogramValue)
-	default: // chunkenc.FloatHistogram.
+	case chunkenc.EncFloatHistogram:
 		csr.lastFloatHistogramValue = &histogram.FloatHistogram{}
 		record.DecodeFloatHistogram(&dec, csr.lastFloatHistogramValue)
+	case chunkenc.EncInfoMetric:
+		csr.lastIdentifyingLabels = record.DecodeInfoSample(&dec)
+	default:
+		panic(fmt.Sprintf("unrecognized encoding: %s", enc.String()))
 	}
 
 	err = dec.Err()
@@ -1402,6 +1515,7 @@ func (h *Head) loadChunkSnapshot() (int, int, map[chunks.HeadSeriesRef]*memSerie
 				series.lastValue = csr.lastValue
 				series.lastHistogramValue = csr.lastHistogramValue
 				series.lastFloatHistogramValue = csr.lastFloatHistogramValue
+				series.lastIdentifyingLabels = csr.lastIdentifyingLabels
 
 				app, err := series.headChunks.chunk.Appender()
 				if err != nil {
@@ -1498,7 +1612,7 @@ Outer:
 			}
 
 		default:
-			// This is a record type we don't understand. It is either and old format from earlier versions,
+			// This is a record type we don't understand. It is either an old format from earlier versions,
 			// or a new format and the code was rolled back to old version.
 			loopErr = fmt.Errorf("unsupported snapshot record type 0b%b", rec[0])
 			break Outer

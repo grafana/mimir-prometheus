@@ -66,6 +66,10 @@ func NewXORChunk() *XORChunk {
 	return &XORChunk{b: bstream{stream: b, count: 0}}
 }
 
+func (c *XORChunk) Reset(stream []byte) {
+	c.b.Reset(stream)
+}
+
 // Encoding returns the encoding type.
 func (c *XORChunk) Encoding() Encoding {
 	return EncXOR
@@ -171,7 +175,6 @@ func (a *xorAppender) Append(t int64, v float64) {
 		}
 
 		a.writeVDelta(v)
-
 	default:
 		tDelta = uint64(t - a.t)
 		dod := int64(tDelta - a.tDelta)
@@ -220,6 +223,10 @@ func (a *xorAppender) writeVDelta(v float64) {
 	xorWrite(a.b, v, a.v, &a.leading, &a.trailing)
 }
 
+func (a *xorAppender) AppendInfoSample(int64, []int) {
+	panic("appended an info metric sample to a float chunk")
+}
+
 func (a *xorAppender) AppendHistogram(*HistogramAppender, int64, *histogram.Histogram, bool) (Chunk, bool, Appender, error) {
 	panic("appended a histogram sample to a float chunk")
 }
@@ -266,6 +273,10 @@ func (it *xorIterator) AtHistogram(*histogram.Histogram) (int64, *histogram.Hist
 
 func (it *xorIterator) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	panic("cannot call xorIterator.AtFloatHistogram")
+}
+
+func (it *xorIterator) AtInfoSample() (int64, []int) {
+	panic("cannot call xorIterator.AtInfoSample")
 }
 
 func (it *xorIterator) AtT() int64 {

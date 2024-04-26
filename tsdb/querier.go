@@ -127,6 +127,14 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		p = q.index.SortedPostings(p)
 	}
 
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+			break
+		}
+	}
+
 	if hints != nil {
 		mint = hints.Start
 		maxt = hints.End
@@ -137,6 +145,9 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		}
 	}
 
+	if isTargetInfo {
+		fmt.Printf("blockQuerier: returning block series set for target_info\n")
+	}
 	return newBlockSeriesSet(q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming)
 }
 
@@ -174,6 +185,17 @@ func (q *blockChunkQuerier) Select(ctx context.Context, sortSeries bool, hints *
 	}
 	if sortSeries {
 		p = q.index.SortedPostings(p)
+	}
+
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+			break
+		}
+	}
+	if isTargetInfo {
+		fmt.Printf("blockChunkQuerier: returning block series set for target_info\n")
 	}
 	return NewBlockChunkSeriesSet(q.blockID, q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming)
 }
@@ -230,6 +252,13 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		return +1
 	})
 
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+		}
+	}
+
 	for _, m := range ms {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -278,12 +307,21 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 				its = append(its, it)
 			default: // l="a"
 				// Non-Not matcher, use normal postingsForMatcher.
+				if isTargetInfo {
+					fmt.Printf("Matcher %s\n", m.String())
+				}
 				it, err := postingsForMatcher(ctx, ix, m)
 				if err != nil {
 					return nil, err
 				}
 				if index.IsEmptyPostingsType(it) {
+					if isTargetInfo {
+						fmt.Printf("Matcher %s returned zero postings\n", m.String())
+					}
 					return index.EmptyPostings(), nil
+				}
+				if isTargetInfo {
+					fmt.Printf("Matcher %s returned non-zero postings\n", m.String())
 				}
 				its = append(its, it)
 			}
@@ -674,6 +712,7 @@ func (b *blockBaseSeriesSet) Next() bool {
 		}
 
 		b.curr.labels = b.builder.Labels()
+		// fmt.Printf("current labels: %s\n", b.curr.labels.String())
 		b.curr.chks = chks
 		b.curr.intervals = intervals
 		return true
@@ -886,6 +925,10 @@ func (p *populateWithDelSeriesIterator) AtFloatHistogram(fh *histogram.FloatHist
 	return p.curr.AtFloatHistogram(fh)
 }
 
+func (p *populateWithDelSeriesIterator) AtInfoSample() (int64, []int) {
+	return p.curr.AtInfoSample()
+}
+
 func (p *populateWithDelSeriesIterator) AtT() int64 {
 	return p.curr.AtT()
 }
@@ -1031,6 +1074,21 @@ func (p *populateWithDelChunkSeriesIterator) populateCurrForSingleChunk() bool {
 				break
 			}
 		}
+	case chunkenc.ValInfoSample:
+		newChunk = chunkenc.NewInfoSampleChunk()
+		if app, err = newChunk.Appender(); err != nil {
+			break
+		}
+		for vt := valueType; vt != chunkenc.ValNone; vt = p.currDelIter.Next() {
+			if vt != chunkenc.ValInfoSample {
+				err = fmt.Errorf("found value type %v in info metric chunk", vt)
+				break
+			}
+			var ils []int
+			t, ils = p.currDelIter.AtInfoSample()
+			fmt.Printf("populateWithDelChunkSeriesIterator.populateCurrForSingleChunk: appending info sample; t: %d, ils: %#v\n", t, ils)
+			app.AppendInfoSample(t, ils)
+		}
 	default:
 		err = fmt.Errorf("populateCurrForSingleChunk: value type %v unsupported", valueType)
 	}
@@ -1087,7 +1145,7 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 		// Check if the encoding has changed (i.e. we need to create a new
 		// chunk as chunks can't have multiple encoding types).
 		// For the first sample, the following condition will always be true as
-		// ValNoneNone != ValFloat | ValHistogram | ValFloatHistogram.
+		// ValNoneNone != ValFloat | ValHistogram | ValFloatHistogram | ValInfoSample.
 		if currentValueType != prevValueType {
 			if prevValueType != chunkenc.ValNone {
 				p.chunksFromIterable = append(p.chunksFromIterable, chunks.Meta{Chunk: currentChunk, MinTime: cmint, MaxTime: cmaxt})
@@ -1124,6 +1182,15 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 				// counter reset header for the appender that's returned.
 				newChunk, recoded, app, err = app.AppendFloatHistogram(nil, t, v, false)
 			}
+		case chunkenc.ValInfoSample:
+			{
+				var ils []int
+				t, ils = p.currDelIter.AtInfoSample()
+				fmt.Printf("populateWithDelChunkSeriesIterator.populateChunksFromIterable: appending info sample; t: %d, ils: %#v\n", t, ils)
+				app.AppendInfoSample(t, ils)
+			}
+		default:
+			err = fmt.Errorf("unrecognized chunk encoding %s", currentValueType)
 		}
 
 		if err != nil {
@@ -1298,6 +1365,10 @@ func (it *DeletedIterator) AtHistogram(h *histogram.Histogram) (int64, *histogra
 func (it *DeletedIterator) AtFloatHistogram(fh *histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	t, h := it.Iter.AtFloatHistogram(fh)
 	return t, h
+}
+
+func (it *DeletedIterator) AtInfoSample() (int64, []int) {
+	return it.Iter.AtInfoSample()
 }
 
 func (it *DeletedIterator) AtT() int64 {

@@ -1651,6 +1651,10 @@ func (e errIterator) AtFloatHistogram(*histogram.FloatHistogram) (int64, *histog
 	return 0, nil
 }
 
+func (e errIterator) AtInfoSample() (int64, []int) {
+	return 0, nil
+}
+
 func (e errIterator) AtT() int64 {
 	return 0
 }
