@@ -400,6 +400,9 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		exp     StringMatcher
 	}{
 		{".*", anyStringWithoutNewlineMatcher{}},
+		{"().*", anyStringWithoutNewlineMatcher{}},
+		{".*()", anyStringWithoutNewlineMatcher{}},
+		{"().*()", anyStringWithoutNewlineMatcher{}},
 		{".*?", anyStringWithoutNewlineMatcher{}},
 		{"(?s:.*)", trueMatcher{}},
 		{"(.*)", anyStringWithoutNewlineMatcher{}},
@@ -411,6 +414,8 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		{"", emptyStringMatcher{}},
 		{"^$", emptyStringMatcher{}},
 		{"^foo$", &equalStringMatcher{s: "foo", caseSensitive: true}},
+		{"^foo()$", &equalStringMatcher{s: "foo", caseSensitive: true}},
+		{"^()foo$", &equalStringMatcher{s: "foo", caseSensitive: true}},
 		{"^(?i:foo)$", &equalStringMatcher{s: "FOO", caseSensitive: false}},
 		{"^((?i:foo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
 		{`(?i:((foo|bar)))`, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "BAR", caseSensitive: false}})},
