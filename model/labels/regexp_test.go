@@ -412,6 +412,7 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		{"^.+$", &anyNonEmptyStringMatcher{matchNL: false}},
 		{"(.+)", &anyNonEmptyStringMatcher{matchNL: false}},
 		{"", emptyStringMatcher{}},
+		{"()", emptyStringMatcher{}},
 		{"^$", emptyStringMatcher{}},
 		{"^foo$", &equalStringMatcher{s: "foo", caseSensitive: true}},
 		{"^foo()$", &equalStringMatcher{s: "foo", caseSensitive: true}},
