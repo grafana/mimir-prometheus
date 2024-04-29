@@ -34,7 +34,9 @@ var (
 	asciiRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 	regexes    = []string{
 		"",
+		"()",
 		"foo",
+		"foo()",
 		"^foo",
 		"(foo|bar)",
 		"foo.*",
@@ -42,7 +44,11 @@ var (
 		"^.*foo$",
 		"^.+foo$",
 		".*",
+		"().*",
+		".*()",
+		"().*()",
 		".+",
+		".+()",
 		"foo.+",
 		".+foo",
 		"foo\n.+",

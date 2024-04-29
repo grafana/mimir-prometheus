@@ -291,18 +291,12 @@ func clearCapture(regs ...*syntax.Regexp) {
 	}
 }
 
-// clearCapture removes capture operation as they are not used for matching.
+// removeEmptyMatches returns the slice with syntax.OpEmptyMatch regexps removed.
+// Note: it modifies the input slice (the returned slice is a sub-slice of the input).
 func removeEmptyMatches(regs []*syntax.Regexp) []*syntax.Regexp {
-	for i := 0; i < len(regs); i++ {
-		if regs[i].Op == syntax.OpEmptyMatch {
-			regs = slices.Delete(regs, i, i+1)
-		}
-		// Don't remove the last one.
-		if len(regs) == 1 {
-			return regs
-		}
-	}
-	return regs
+	return slices.DeleteFunc(regs, func(r *syntax.Regexp) bool {
+		return r.Op == syntax.OpEmptyMatch
+	})
 }
 
 // clearBeginEndText removes the begin and end text from the regexp. Prometheus regexp are anchored to the beginning and end of the string.
