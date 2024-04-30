@@ -9,7 +9,7 @@ jobs:
     strategy:
       matrix:
         buildtags:
-          - ""
+          - slicelabels # there's no such tag when this is being written, but it makes the CI job name more obvious.
           - stringlabels
           - dedupelabels
     runs-on: ubuntu-20.04
