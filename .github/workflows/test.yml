@@ -27,4 +27,4 @@ jobs:
         run: mkdir web/ui/static/react && touch web/ui/static/react/index.html
 
       - name: Run Tests
-        run: GO=/usr/local/go/bin/go GOOPTS=-tags=${{ matrix.buildtags }} make common-test
+        run: GOOPTS=-tags=${{ matrix.buildtags }} make common-test
