@@ -2419,10 +2419,10 @@ type pairOfSlices[T1, T2 any] struct {
 	slice2 []T2
 }
 
-func newPairOfSlices[T1, T2 any](lenght int) pairOfSlices[T1, T2] {
+func newPairOfSlices[T1, T2 any](length int) pairOfSlices[T1, T2] {
 	return pairOfSlices[T1, T2]{
-		slice1: make([]T1, lenght),
-		slice2: make([]T2, lenght),
+		slice1: make([]T1, length),
+		slice2: make([]T2, length),
 	}
 }
 
