@@ -2383,7 +2383,7 @@ func (h *Head) updateWALReplayStatusRead(current int) {
 
 // ForEachSecondaryHash iterates over all series in the Head, and passes references and secondary hashes of the series
 // to the function. Function is called with batch of refs and hashes, in no specific order. The order of the refs
-// in the same as the order of the hashes. Each seriesin the head is included exactly once.
+// in the same as the order of the hashes. Each series in the head is included exactly once.
 // Series may be deleted while the function is running, and series inserted while this function runs may be reported or ignored.
 //
 // No locks are held when function is called.
