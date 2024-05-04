@@ -25,6 +25,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"sort"
 	"unsafe"
@@ -1132,6 +1133,15 @@ type Reader struct {
 	cacheProvider ReaderCacheProvider
 }
 
+// PostingsReader provides reading of postings.
+type PostingsReader interface {
+	// Postings returns the postings list iterator for the label pairs.
+	// The Postings here contain the offsets to the series inside the index.
+	// Found IDs are not strictly required to point to a valid Series, e.g.
+	// during background garbage collections. Input values must be sorted.
+	Postings(ctx context.Context, name string, values ...string) (Postings, error)
+}
+
 type postingOffset struct {
 	value string
 	off   int
@@ -1291,6 +1301,10 @@ func newReader(b ByteSlice, c io.Closer, cacheProvider ReaderCacheProvider) (*Re
 	r.dec = &Decoder{LookupSymbol: r.lookupSymbol}
 
 	return r, nil
+}
+
+func (r *Reader) Labels(ref storage.SeriesRef, builder *labels.ScratchBuilder) error {
+	return r.Series(ref, builder, nil)
 }
 
 // Version returns the file format version of the underlying index.
@@ -1587,6 +1601,22 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 	return values, ctx.Err()
 }
 
+func (r *Reader) LabelValuesStream(_ context.Context, name string, matchers ...*labels.Matcher) storage.LabelValues {
+	if r.version == FormatV1 {
+		p := r.postingsV1[name]
+		if len(p) == 0 {
+			return storage.EmptyLabelValues()
+		}
+		return &labelValuesV1{
+			matchers: matchers,
+			it:       reflect.ValueOf(p).MapRange(),
+			name:     name,
+		}
+	}
+
+	return r.newLabelValuesV2(name, matchers)
+}
+
 // LabelNamesFor returns all the label names for the series referred to by IDs.
 // The names returned are sorted.
 func (r *Reader) LabelNamesFor(ctx context.Context, ids ...storage.SeriesRef) ([]string, error) {
@@ -1785,6 +1815,85 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 	return Merge(ctx, res...), nil
 }
 
+func (r *Reader) PostingsForMatcher(ctx context.Context, m *labels.Matcher) Postings {
+	if p, ok := fastPostingsForMatcher(ctx, r, m); ok {
+		return p
+	}
+
+	if r.version == FormatV1 {
+		return r.postingsForMatcherV1(ctx, m)
+	}
+
+	e := r.postings[m.Name]
+	if len(e) == 0 {
+		return EmptyPostings()
+	}
+
+	d := encoding.NewDecbufAt(r.b, int(r.toc.PostingsTable), nil)
+	d.Skip(e[0].off)
+	lastVal := e[len(e)-1].value
+
+	var its []Postings
+	skip := 0
+	for d.Err() == nil && ctx.Err() == nil {
+		if skip == 0 {
+			// These are always the same number of bytes,
+			// and it's faster to skip than to parse.
+			skip = d.Len()
+			d.Uvarint()      // Keycount.
+			d.UvarintBytes() // Label name.
+			skip -= d.Len()
+		} else {
+			d.Skip(skip)
+		}
+		s := yoloString(d.UvarintBytes()) // Label value.
+		postingsOff := d.Uvarint64()      // Offset.
+		if m.Matches(s) {
+			// We want this postings iterator since the value is a match
+			postingsDec := encoding.NewDecbufAt(r.b, int(postingsOff), castagnoliTable)
+			_, p, err := r.dec.PostingsFromDecbuf(postingsDec)
+			if err != nil {
+				return ErrPostings(fmt.Errorf("decode postings: %w", err))
+			}
+			its = append(its, p)
+		}
+
+		if s == lastVal {
+			break
+		}
+	}
+	if d.Err() != nil {
+		return ErrPostings(fmt.Errorf("get postings offset entry: %w", d.Err()))
+	}
+
+	return Merge(ctx, its...)
+}
+
+func (r *Reader) postingsForMatcherV1(ctx context.Context, m *labels.Matcher) Postings {
+	e := r.postingsV1[m.Name]
+	if len(e) == 0 {
+		return EmptyPostings()
+	}
+
+	var its []Postings
+	for val, offset := range e {
+		if !m.Matches(val) {
+			continue
+		}
+
+		// Read from the postings table.
+		d := encoding.NewDecbufAt(r.b, int(offset), castagnoliTable)
+		_, p, err := r.dec.PostingsFromDecbuf(d)
+		if err != nil {
+			return ErrPostings(fmt.Errorf("decode postings: %w", err))
+		}
+
+		its = append(its, p)
+	}
+
+	return Merge(ctx, its...)
+}
+
 // SortedPostings returns the given postings list reordered so that the backing series
 // are sorted.
 func (r *Reader) SortedPostings(p Postings) Postings {
@@ -1899,6 +2008,11 @@ type Decoder struct {
 // Postings returns a postings list for b and its number of elements.
 func (dec *Decoder) Postings(b []byte) (int, Postings, error) {
 	d := encoding.Decbuf{B: b}
+	return dec.PostingsFromDecbuf(d)
+}
+
+// PostingsFromDecbuf returns a postings list for d and its number of elements.
+func (dec *Decoder) PostingsFromDecbuf(d encoding.Decbuf) (int, Postings, error) {
 	n := d.Be32int()
 	l := d.Get()
 	if d.Err() != nil {

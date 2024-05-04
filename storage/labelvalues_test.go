@@ -10,7 +10,7 @@ import (
 func TestListLabelValues(t *testing.T) {
 	t.Run("lets you traverse a slice of label values", func(t *testing.T) {
 		input := []string{"a", "b", "c", "d"}
-		it := NewListLabelValues(input)
+		it := NewListLabelValues(input, nil)
 		t.Cleanup(func() {
 			require.NoError(t, it.Close())
 		})
@@ -25,7 +25,7 @@ func TestListLabelValues(t *testing.T) {
 	})
 
 	t.Run("can be initialized with an empty slice", func(t *testing.T) {
-		it := NewListLabelValues([]string{})
+		it := NewListLabelValues([]string{}, nil)
 		t.Cleanup(func() {
 			require.NoError(t, it.Close())
 		})
@@ -36,7 +36,7 @@ func TestListLabelValues(t *testing.T) {
 	})
 
 	t.Run("can be initialized with a nil slice", func(t *testing.T) {
-		it := NewListLabelValues(nil)
+		it := NewListLabelValues(nil, nil)
 		t.Cleanup(func() {
 			require.NoError(t, it.Close())
 		})
