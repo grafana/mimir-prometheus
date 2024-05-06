@@ -5778,8 +5778,9 @@ func TestStripeSeries_gc(t *testing.T) {
 func TestSecondaryHashFunction(t *testing.T) {
 	checkSecondaryHashes := func(t *testing.T, h *Head, labelsCount, expected int) {
 		reportedHashes := 0
-		h.ForEachSecondaryHash(func(secondaryHashes []uint32) {
+		h.ForEachSecondaryHash(func(refs []chunks.HeadSeriesRef, secondaryHashes []uint32) {
 			reportedHashes += len(secondaryHashes)
+			require.Equal(t, len(refs), len(secondaryHashes))
 
 			for _, h := range secondaryHashes {
 				require.Equal(t, labelsCount, int(h))
