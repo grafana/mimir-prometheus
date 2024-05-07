@@ -46,5 +46,15 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
+      - name: Set -fuzztime=10m for 'main' branch
+        id: fuzztime
+        if: github.ref == 'refs/heads/main'
+        run: echo "::set-output name=fuzztime::10m"
+
+      - name: Set -fuzztime=1m for non-'main' branches
+        id: fuzztime
+        if: github.ref != 'refs/heads/main'
+        run: echo "::set-output name=fuzztime::1m"
+
       - name: Fuzz
-        run: go test -run=NOTHING -fuzz=${{ matrix.fuzz }} -fuzztime=1m ${{ matrix.package }}
+        run: go test -run=NOTHING -fuzz=${{ matrix.fuzz }} -fuzztime=${{ jobs.fuzztime.outputs.fuzztime }}  ${{ matrix.package }}
