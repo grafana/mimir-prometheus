@@ -491,6 +491,7 @@ func (ng *Engine) NewRangeQuery(ctx context.Context, q storage.Queryable, opts Q
 }
 
 func (ng *Engine) newQuery(q storage.Queryable, qs string, opts QueryOpts, start, end time.Time, interval time.Duration) (*parser.Expr, *query) {
+	// Default to empty QueryOpts if not provided.
 	if opts == nil {
 		opts = NewPrometheusQueryOpts(false, 0)
 	}

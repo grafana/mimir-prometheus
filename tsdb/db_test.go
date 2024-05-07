@@ -62,7 +62,14 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	defaultIsolationDisabled = !isolationEnabled
 
-	goleak.VerifyTestMain(m, goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func1"), goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func2"))
+	goleak.VerifyTestMain(m,
+		goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func1"),
+		goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func2"),
+		// Ignore "ristretto" and its dependency "glog".
+		goleak.IgnoreTopFunction("github.com/dgraph-io/ristretto.(*defaultPolicy).processItems"),
+		goleak.IgnoreTopFunction("github.com/dgraph-io/ristretto.(*Cache).processItems"),
+		goleak.IgnoreTopFunction("github.com/golang/glog.(*fileSink).flushDaemon"),
+	)
 }
 
 func openTestDB(t testing.TB, opts *Options, rngs []int64) (db *DB) {
@@ -5779,13 +5786,13 @@ func TestOOOMmapCorruption(t *testing.T) {
 	addSamples(120, 120, false)
 
 	// Second m-map file. We will corrupt this file. Sample 120 goes into this new file.
-	db.head.chunkDiskMapper.CutNewFile()
+	require.NoError(t, db.head.chunkDiskMapper.CutNewFile())
 
 	// More OOO samples.
 	addSamples(200, 230, false)
 	addSamples(240, 255, false)
 
-	db.head.chunkDiskMapper.CutNewFile()
+	require.NoError(t, db.head.chunkDiskMapper.CutNewFile())
 	addSamples(260, 290, false)
 
 	verifySamples := func(expSamples []chunks.Sample) {
@@ -6999,6 +7006,10 @@ func (c *mockCompactorFn) Plan(_ string) ([]string, error) {
 
 func (c *mockCompactorFn) Compact(_ string, _ []string, _ []*Block) (ulid.ULID, error) {
 	return c.compactFn()
+}
+
+func (c *mockCompactorFn) CompactOOO(_ string, _ *OOOCompactionHead) (result []ulid.ULID, err error) {
+	panic("implement me")
 }
 
 func (c *mockCompactorFn) Write(_ string, _ BlockReader, _, _ int64, _ *BlockMeta) (ulid.ULID, error) {

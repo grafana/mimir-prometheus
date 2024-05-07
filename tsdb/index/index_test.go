@@ -24,18 +24,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/goleak"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/encoding"
+	"github.com/prometheus/prometheus/tsdb/hashcache"
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	testutil.TolerantVerifyLeak(m)
 }
 
 type series struct {
@@ -165,7 +165,7 @@ func TestIndexRW_Postings(t *testing.T) {
 
 	fn := filepath.Join(dir, indexFilename)
 
-	iw, err := NewWriter(context.Background(), fn)
+	iw, err := NewWriter(ctx, fn)
 	require.NoError(t, err)
 
 	series := []labels.Labels{
@@ -240,59 +240,64 @@ func TestIndexRW_Postings(t *testing.T) {
 		"b": {"1", "2", "3", "4"},
 	}, labelIndices)
 
-	require.NoError(t, ir.Close())
+	// Test ShardedPostings() with and without series hash cache.
+	for _, cacheEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ShardedPostings() cache enabled: %v", cacheEnabled), func(t *testing.T) {
+			var cache ReaderCacheProvider
+			if cacheEnabled {
+				cache = hashcache.NewSeriesHashCache(1024 * 1024 * 1024).GetBlockCacheProvider("test")
+			}
 
-	t.Run("ShardedPostings()", func(t *testing.T) {
-		ir, err := NewFileReader(fn)
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			require.NoError(t, ir.Close())
-		})
+			ir, err := NewFileReaderWithOptions(fn, cache)
+			require.NoError(t, err)
 
-		// List all postings for a given label value. This is what we expect to get
-		// in output from all shards.
-		p, err = ir.Postings(ctx, "a", "1")
-		require.NoError(t, err)
-
-		var expected []storage.SeriesRef
-		for p.Next() {
-			expected = append(expected, p.At())
-		}
-		require.NoError(t, p.Err())
-		require.NotEmpty(t, expected)
-
-		// Query the same postings for each shard.
-		const shardCount = uint64(4)
-		actualShards := make(map[uint64][]storage.SeriesRef)
-		actualPostings := make([]storage.SeriesRef, 0, len(expected))
-
-		for shardIndex := uint64(0); shardIndex < shardCount; shardIndex++ {
+			// List all postings for a given label value. This is what we expect to get
+			// in output from all shards.
 			p, err = ir.Postings(ctx, "a", "1")
 			require.NoError(t, err)
 
-			p = ir.ShardedPostings(p, shardIndex, shardCount)
+			var expected []storage.SeriesRef
 			for p.Next() {
-				ref := p.At()
-
-				actualShards[shardIndex] = append(actualShards[shardIndex], ref)
-				actualPostings = append(actualPostings, ref)
+				expected = append(expected, p.At())
 			}
 			require.NoError(t, p.Err())
-		}
+			require.NotEmpty(t, expected)
 
-		// We expect the postings merged out of shards is the exact same of the non sharded ones.
-		require.ElementsMatch(t, expected, actualPostings)
+			// Query the same postings for each shard.
+			const shardCount = uint64(4)
+			actualShards := make(map[uint64][]storage.SeriesRef)
+			actualPostings := make([]storage.SeriesRef, 0, len(expected))
 
-		// We expect the series in each shard are the expected ones.
-		for shardIndex, ids := range actualShards {
-			for _, id := range ids {
-				var lbls labels.ScratchBuilder
+			for shardIndex := uint64(0); shardIndex < shardCount; shardIndex++ {
+				p, err = ir.Postings(ctx, "a", "1")
+				require.NoError(t, err)
 
-				require.NoError(t, ir.Series(id, &lbls, nil))
-				require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount)
+				p = ir.ShardedPostings(p, shardIndex, shardCount)
+				for p.Next() {
+					ref := p.At()
+
+					actualShards[shardIndex] = append(actualShards[shardIndex], ref)
+					actualPostings = append(actualPostings, ref)
+				}
+				require.NoError(t, p.Err())
 			}
-		}
-	})
+
+			// We expect the postings merged out of shards is the exact same of the non sharded ones.
+			require.ElementsMatch(t, expected, actualPostings)
+
+			// We expect the series in each shard are the expected ones.
+			for shardIndex, ids := range actualShards {
+				for _, id := range ids {
+					var lbls labels.ScratchBuilder
+
+					require.NoError(t, ir.Series(id, &lbls, nil))
+					require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount)
+				}
+			}
+		})
+	}
+
+	require.NoError(t, ir.Close())
 }
 
 func TestPostingsMany(t *testing.T) {
@@ -301,7 +306,7 @@ func TestPostingsMany(t *testing.T) {
 
 	fn := filepath.Join(dir, indexFilename)
 
-	iw, err := NewWriter(context.Background(), fn)
+	iw, err := NewWriter(ctx, fn)
 	require.NoError(t, err)
 
 	// Create a label in the index which has 999 values.
@@ -426,7 +431,7 @@ func TestPersistence_index_e2e(t *testing.T) {
 		})
 	}
 
-	iw, err := NewWriter(context.Background(), filepath.Join(dir, indexFilename))
+	iw, err := NewWriter(ctx, filepath.Join(dir, indexFilename))
 	require.NoError(t, err)
 
 	syms := []string{}
@@ -651,19 +656,26 @@ func BenchmarkReader_ShardedPostings(b *testing.B) {
 
 	require.NoError(b, iw.Close())
 
-	b.ResetTimer()
+	for _, cacheEnabled := range []bool{true, false} {
+		b.Run(fmt.Sprintf("cached enabled: %v", cacheEnabled), func(b *testing.B) {
+			var cache ReaderCacheProvider
+			if cacheEnabled {
+				cache = hashcache.NewSeriesHashCache(1024 * 1024 * 1024).GetBlockCacheProvider("test")
+			}
 
-	// Create a reader to read back all postings from the index.
-	ir, err := NewFileReader(fn)
-	require.NoError(b, err)
+			// Create a reader to read back all postings from the index.
+			ir, err := NewFileReaderWithOptions(fn, cache)
+			require.NoError(b, err)
 
-	b.ResetTimer()
+			b.ResetTimer()
 
-	for n := 0; n < b.N; n++ {
-		allPostings, err := ir.Postings(ctx, "const", fmt.Sprintf("%10d", 1))
-		require.NoError(b, err)
+			for n := 0; n < b.N; n++ {
+				allPostings, err := ir.Postings(ctx, "const", fmt.Sprintf("%10d", 1))
+				require.NoError(b, err)
 
-		ir.ShardedPostings(allPostings, uint64(n%numShards), numShards)
+				ir.ShardedPostings(allPostings, uint64(n%numShards), numShards)
+			}
+		})
 	}
 }
 

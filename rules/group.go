@@ -18,6 +18,7 @@ import (
 	"errors"
 	"math"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +50,7 @@ type Group struct {
 	interval             time.Duration
 	limit                int
 	rules                []Rule
+	sourceTenants        []string
 	seriesInPreviousEval []map[string]labels.Labels // One per Rule.
 	staleSeries          []labels.Labels
 	opts                 *ManagerOptions
@@ -74,6 +76,9 @@ type Group struct {
 
 	// concurrencyController controls the rules evaluation concurrency.
 	concurrencyController RuleConcurrencyController
+
+	evaluationDelay               *time.Duration
+	alignEvaluationTimeOnInterval bool
 }
 
 // GroupEvalIterationFunc is used to implement and extend rule group
@@ -84,14 +89,17 @@ type Group struct {
 type GroupEvalIterationFunc func(ctx context.Context, g *Group, evalTimestamp time.Time)
 
 type GroupOptions struct {
-	Name, File        string
-	Interval          time.Duration
-	Limit             int
-	Rules             []Rule
-	ShouldRestore     bool
-	Opts              *ManagerOptions
-	done              chan struct{}
-	EvalIterationFunc GroupEvalIterationFunc
+	Name, File                    string
+	Interval                      time.Duration
+	Limit                         int
+	Rules                         []Rule
+	SourceTenants                 []string
+	ShouldRestore                 bool
+	Opts                          *ManagerOptions
+	EvaluationDelay               *time.Duration
+	done                          chan struct{}
+	EvalIterationFunc             GroupEvalIterationFunc
+	AlignEvaluationTimeOnInterval bool
 }
 
 // NewGroup makes a new Group with the given name, options, and rules.
@@ -130,6 +138,7 @@ func NewGroup(o GroupOptions) *Group {
 		rules:                 o.Rules,
 		shouldRestore:         o.ShouldRestore,
 		opts:                  o.Opts,
+		sourceTenants:         o.SourceTenants,
 		seriesInPreviousEval:  make([]map[string]labels.Labels, len(o.Rules)),
 		done:                  make(chan struct{}),
 		managerDone:           o.done,
@@ -138,6 +147,9 @@ func NewGroup(o GroupOptions) *Group {
 		metrics:               metrics,
 		evalIterationFunc:     evalIterationFunc,
 		concurrencyController: concurrencyController,
+
+		evaluationDelay:               o.EvaluationDelay,
+		alignEvaluationTimeOnInterval: o.AlignEvaluationTimeOnInterval,
 	}
 }
 
@@ -161,6 +173,10 @@ func (g *Group) Interval() time.Duration { return g.interval }
 
 // Limit returns the group's limit.
 func (g *Group) Limit() int { return g.limit }
+
+// SourceTenants returns the source tenants for the group.
+// If it's empty or nil, then the owning user/tenant is considered to be the source tenant.
+func (g *Group) SourceTenants() []string { return g.sourceTenants }
 
 func (g *Group) Logger() log.Logger { return g.logger }
 
@@ -354,9 +370,11 @@ func (g *Group) setLastEvalTimestamp(ts time.Time) {
 
 // EvalTimestamp returns the immediately preceding consistently slotted evaluation time.
 func (g *Group) EvalTimestamp(startTime int64) time.Time {
-	var (
+	var offset int64
+	if !g.alignEvaluationTimeOnInterval {
 		offset = int64(g.hash() % uint64(g.interval))
-
+	}
+	var (
 		// This group's evaluation times differ from the perfect time intervals by `offset` nanoseconds.
 		// But we can only use `% interval` to align with the interval. And `% interval` will always
 		// align with the perfect time intervals, instead of this group's. Because of this we add
@@ -441,6 +459,8 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 	var (
 		samplesTotal atomic.Float64
 		wg           sync.WaitGroup
+
+		evaluationDelay = g.EvaluationDelay()
 	)
 
 	for i, rule := range g.rules {
@@ -473,7 +493,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 
 			g.metrics.EvalTotal.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 
-			vector, err := rule.Eval(ctx, ts, g.opts.QueryFunc, g.opts.ExternalURL, g.Limit())
+			vector, err := rule.Eval(ctx, evaluationDelay, ts, g.opts.QueryFunc, g.opts.ExternalURL, g.Limit())
 			if err != nil {
 				rule.SetHealth(HealthBad)
 				rule.SetLastError(err)
@@ -534,13 +554,13 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 					switch {
 					case errors.Is(unwrappedErr, storage.ErrOutOfOrderSample):
 						numOutOfOrder++
-						level.Debug(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
+						level.Warn(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
 					case errors.Is(unwrappedErr, storage.ErrTooOldSample):
 						numTooOld++
-						level.Debug(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
+						level.Warn(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
 					case errors.Is(unwrappedErr, storage.ErrDuplicateSampleForTimestamp):
 						numDuplicates++
-						level.Debug(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
+						level.Warn(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
 					default:
 						level.Warn(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
 					}
@@ -562,7 +582,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 			for metric, lset := range g.seriesInPreviousEval[i] {
 				if _, ok := seriesReturned[metric]; !ok {
 					// Series no longer exposed, mark it stale.
-					_, err = app.Append(0, lset, timestamp.FromTime(ts), math.Float64frombits(value.StaleNaN))
+					_, err = app.Append(0, lset, timestamp.FromTime(ts.Add(-evaluationDelay)), math.Float64frombits(value.StaleNaN))
 					unwrappedErr := errors.Unwrap(err)
 					if unwrappedErr == nil {
 						unwrappedErr = err
@@ -601,14 +621,25 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 	g.cleanupStaleSeries(ctx, ts)
 }
 
+func (g *Group) EvaluationDelay() time.Duration {
+	if g.evaluationDelay != nil {
+		return *g.evaluationDelay
+	}
+	if g.opts.DefaultEvaluationDelay != nil {
+		return g.opts.DefaultEvaluationDelay()
+	}
+	return time.Duration(0)
+}
+
 func (g *Group) cleanupStaleSeries(ctx context.Context, ts time.Time) {
 	if len(g.staleSeries) == 0 {
 		return
 	}
 	app := g.opts.Appendable.Appender(ctx)
+	evaluationDelay := g.EvaluationDelay()
 	for _, s := range g.staleSeries {
 		// Rule that produced series no longer configured, mark it stale.
-		_, err := app.Append(0, s, timestamp.FromTime(ts), math.Float64frombits(value.StaleNaN))
+		_, err := app.Append(0, s, timestamp.FromTime(ts.Add(-evaluationDelay)), math.Float64frombits(value.StaleNaN))
 		unwrappedErr := errors.Unwrap(err)
 		if unwrappedErr == nil {
 			unwrappedErr = err
@@ -779,9 +810,35 @@ func (g *Group) Equals(ng *Group) bool {
 		return false
 	}
 
+	if g.alignEvaluationTimeOnInterval != ng.alignEvaluationTimeOnInterval {
+		return false
+	}
+
 	for i, gr := range g.rules {
 		if gr.String() != ng.rules[i].String() {
 			return false
+		}
+	}
+	{
+		// compare source tenants
+		if len(g.sourceTenants) != len(ng.sourceTenants) {
+			return false
+		}
+
+		copyAndSort := func(x []string) []string {
+			copied := make([]string, len(x))
+			copy(copied, x)
+			sort.Strings(copied)
+			return copied
+		}
+
+		ngSourceTenantsCopy := copyAndSort(ng.sourceTenants)
+		gSourceTenantsCopy := copyAndSort(g.sourceTenants)
+
+		for i := range ngSourceTenantsCopy {
+			if gSourceTenantsCopy[i] != ngSourceTenantsCopy[i] {
+				return false
+			}
 		}
 	}
 
