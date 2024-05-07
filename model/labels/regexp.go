@@ -17,6 +17,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/DmitriyVTitov/size"
 	"github.com/dgraph-io/ristretto"
@@ -874,7 +875,7 @@ type zeroOrOneCharacterStringMatcher struct {
 
 func (m *zeroOrOneCharacterStringMatcher) Matches(s string) bool {
 	// Zero or one.
-	if len(s) > 1 {
+	if utf8.RuneCountInString(s) > 1 {
 		return false
 	}
 
