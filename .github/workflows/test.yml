@@ -49,12 +49,12 @@ jobs:
       - name: Set -fuzztime=10m for 'main' branch
         id: fuzztime
         if: github.ref == 'refs/heads/main'
-        run: echo "::set-output name=fuzztime::10m"
+        run: echo "fuzztime=10m" >> $GITHUB_OUTPUT
 
       - name: Set -fuzztime=1m for non-'main' branches
         id: fuzztime
         if: github.ref != 'refs/heads/main'
-        run: echo "::set-output name=fuzztime::1m"
+        run: echo "fuzztime=1m" >> $GITHUB_OUTPUT
 
       - name: Fuzz
-        run: go test -run=NOTHING -fuzz=${{ matrix.fuzz }} -fuzztime=${{ jobs.fuzztime.outputs.fuzztime }}  ${{ matrix.package }}
+        run: go test -run=NOTHING -fuzz=${{ matrix.fuzz }} -fuzztime=$fuzztime  ${{ matrix.package }}
