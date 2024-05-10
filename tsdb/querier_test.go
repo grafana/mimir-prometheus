@@ -2366,6 +2366,16 @@ func (m mockIndex) SortedPostings(p index.Postings) index.Postings {
 	return index.NewListPostings(ep)
 }
 
+func (m mockIndex) PostingsForLabelMatching(ctx context.Context, name string, match func(string) bool) index.Postings {
+	var res []index.Postings
+	for l, srs := range m.postings {
+		if l.Name == name && match(l.Value) {
+			res = append(res, index.NewListPostings(srs))
+		}
+	}
+	return index.Merge(ctx, res...)
+}
+
 func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {
@@ -3309,6 +3319,10 @@ func (m mockMatcherIndex) Series(ref storage.SeriesRef, builder *labels.ScratchB
 
 func (m mockMatcherIndex) LabelNames(context.Context, ...*labels.Matcher) ([]string, error) {
 	return []string{}, nil
+}
+
+func (m mockMatcherIndex) PostingsForLabelMatching(context.Context, string, func(string) bool) index.Postings {
+	return index.ErrPostings(fmt.Errorf("PostingsForLabelMatching called"))
 }
 
 func TestPostingsForMatcher(t *testing.T) {
