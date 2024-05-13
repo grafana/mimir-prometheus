@@ -416,7 +416,12 @@ func (p *MemPostings) PostingsForLabelMatching(ctx context.Context, name string,
 	}
 
 	var its []Postings
+	count := 1
 	for _, v := range vals {
+		if count%1000 == 0 && ctx.Err() != nil {
+			return ErrPostings(ctx.Err())
+		}
+		count++
 		if match(v) {
 			its = append(its, NewListPostings(e[v]))
 		}

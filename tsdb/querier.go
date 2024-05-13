@@ -357,7 +357,12 @@ func inversePostingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *l
 	if m.Type == labels.MatchEqual && m.Value == "" {
 		res = vals
 	} else {
+		count := 1
 		for _, val := range vals {
+			if count%1000 == 0 && ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			count++
 			if !m.Matches(val) {
 				res = append(res, val)
 			}
