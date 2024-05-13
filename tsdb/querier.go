@@ -359,7 +359,7 @@ func inversePostingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *l
 	} else {
 		count := 1
 		for _, val := range vals {
-			if count%1000 == 0 && ctx.Err() != nil {
+			if count%100 == 0 && ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
 			count++
@@ -393,7 +393,14 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 		// re-use the allValues slice to avoid allocations
 		// this is safe because the iteration is always ahead of the append
 		filteredValues := allValues[:0]
+		count := 1
+
 		for _, v := range allValues {
+			if count%100 == 0 && ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			count++
+
 			if m.Matches(v) {
 				filteredValues = append(filteredValues, v)
 			}

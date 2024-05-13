@@ -1818,7 +1818,7 @@ func (r *Reader) postingsForLabelMatchingV1(ctx context.Context, name string, ma
 	var its []Postings
 	count := 1
 	for val, offset := range e {
-		if count%1000 == 0 && ctx.Err() != nil {
+		if count%100 == 0 && ctx.Err() != nil {
 			return ErrPostings(ctx.Err())
 		}
 		count++
