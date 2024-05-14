@@ -1248,6 +1248,66 @@ func TestPostingsWithIndexHeap(t *testing.T) {
 	})
 }
 
+func TestPostings_AddInfoMetrics(t *testing.T) {
+	p := NewMemPostings()
+
+	tcs := []struct {
+		name               string
+		lset               labels.Labels
+		timestamp          int64
+		identifyingLabels  []int
+		expectedInfoMetric infoMetricEntries
+	}{
+		{
+			name:              "Adding a new info metric entry",
+			lset:              labels.FromStrings("__name__", "test_metric", "instance", "test_instance", "job", "test_job"),
+			timestamp:         int64(1234567890),
+			identifyingLabels: []int{1},
+			expectedInfoMetric: infoMetricEntries{
+				IdentifyingLabels: labels.FromStrings("instance", "test_instance"),
+				entries: []infoMetricEntry{
+					{
+						MinT:       int64(1234567890),
+						DataLabels: labels.FromStrings("job", "test_job"),
+						ref:        1,
+					},
+				},
+			},
+		},
+		{
+			name:              "Update info metric entry with new data labels",
+			lset:              labels.FromStrings("__name__", "test_metric", "instance", "test_instance", "env", "prd"),
+			timestamp:         int64(1234567891),
+			identifyingLabels: []int{2},
+			expectedInfoMetric: infoMetricEntries{
+				IdentifyingLabels: labels.FromStrings("instance", "test_instance"),
+				entries: []infoMetricEntry{
+					{
+						MinT:       int64(1234567890),
+						MaxT:       int64(1234567890),
+						DataLabels: labels.FromStrings("job", "test_job"),
+						ref:        1,
+					}, {
+						MinT:       int64(1234567891),
+						DataLabels: labels.FromStrings("env", "prd"),
+						ref:        1,
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tcs {
+		t.Run(tc.name, func(t *testing.T) {
+			id := storage.SeriesRef(1)
+			p.AddInfoMetric(id, tc.lset, tc.timestamp, tc.identifyingLabels)
+			infoMetric, exist := p.infoMetrics[tc.expectedInfoMetric.IdentifyingLabels.Hash()]
+			require.True(t, exist, "info metric entry should exist")
+			require.Equal(t, tc.expectedInfoMetric, infoMetric, "info metric entry does not match expected")
+		})
+	}
+}
+
 func TestListPostings(t *testing.T) {
 	t.Run("empty list", func(t *testing.T) {
 		p := NewListPostings(nil)

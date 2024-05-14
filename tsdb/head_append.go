@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strconv"
+	"strings"
 
 	"github.com/go-kit/log/level"
 
@@ -478,13 +480,14 @@ func (a *headAppender) getOrCreate(lset labels.Labels) (*memSeries, error) {
 }
 
 func (a *headAppender) getOrCreateInfoMetric(lset labels.Labels, t int64, identifyingLabels []int) (*memSeries, error) {
+	// if lable set already exist return info metrics directly
 	s, err := a.getOrCreate(lset)
 	if err != nil {
 		return s, err
 	}
-
+	// Here we need to stare the old info metrics if the new one has the same identifier labe but different data labels.
+	// It should be just if any metrics has the same identifying labels since the previous step already checked the entire labels are not the same.
 	a.head.postings.AddInfoMetric(storage.SeriesRef(s.ref), lset, t, identifyingLabels)
-
 	return s, nil
 }
 

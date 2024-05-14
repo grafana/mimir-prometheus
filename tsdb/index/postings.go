@@ -57,7 +57,7 @@ type MemPostings struct {
 	mtx         sync.RWMutex
 	m           map[string]map[string][]storage.SeriesRef
 	ordered     bool
-	infoMetrics map[storage.SeriesRef][]infoMetricEntry
+	infoMetrics map[uint64]infoMetricEntries
 }
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
@@ -65,7 +65,7 @@ func NewMemPostings() *MemPostings {
 	return &MemPostings{
 		m:           make(map[string]map[string][]storage.SeriesRef, 512),
 		ordered:     true,
-		infoMetrics: make(map[storage.SeriesRef][]infoMetricEntry, 512),
+		infoMetrics: make(map[uint64]infoMetricEntries, 512),
 	}
 }
 
@@ -75,7 +75,7 @@ func NewUnorderedMemPostings() *MemPostings {
 	return &MemPostings{
 		m:           make(map[string]map[string][]storage.SeriesRef, 512),
 		ordered:     false,
-		infoMetrics: make(map[storage.SeriesRef][]infoMetricEntry, 512),
+		infoMetrics: make(map[uint64]infoMetricEntries, 512),
 	}
 }
 
@@ -392,6 +392,7 @@ func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t 
 	j := 0
 	i := 0
 	lset.Range(func(l labels.Label) {
+		fmt.Println(l.Name)
 		if j >= len(identifyingLabels) && l.Name != "__name__" {
 			dls = append(dls, l)
 			return
@@ -403,33 +404,35 @@ func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t 
 		} else if l.Name != "__name__" {
 			dls = append(dls, l)
 		}
-
 		i++
 	})
 
-	entries := p.infoMetrics[id]
-	if entries == nil {
-		fmt.Printf("Adding new info metric entry for series %d, t: %d, identifying labels: %#v\n", id, t, ils)
-		p.infoMetrics[id] = []infoMetricEntry{
-			{
-				MinT:              t,
-				IdentifyingLabels: ils,
-				DataLabels:        dls,
+	infoMetric, exist := p.infoMetrics[ils.Hash()]
+	if !exist {
+		fmt.Printf("Adding new info metric entry for identifier labels %d, t: %d, identifying labels: %#v\n", id, t, ils)
+		p.infoMetrics[ils.Hash()] = infoMetricEntries{
+			IdentifyingLabels: ils,
+			entries: []infoMetricEntry{
+				{
+					MinT:       t,
+					DataLabels: dls,
+					ref:        id,
+				},
 			},
 		}
 		return
 	}
 
-	if !labels.Equal(entries[len(entries)-1].IdentifyingLabels, ils) {
+	if !labels.Equal(infoMetric.entries[len(infoMetric.entries)-1].DataLabels, dls) {
+		// Data label changed, add new entry, stale the old series.
 		fmt.Printf("Adding info metric entry for series %d, t: %d, identifying labels: %#v\n", id, t, ils)
-		entries[len(entries)-1].MaxT = t - 1
-		entries = append(entries, infoMetricEntry{
-			MinT:              t,
-			IdentifyingLabels: ils,
-			DataLabels:        dls,
+		infoMetric.entries[len(infoMetric.entries)-1].MaxT = t - 1
+		infoMetric.entries = append(infoMetric.entries, infoMetricEntry{
+			MinT:       t,
+			DataLabels: dls,
+			ref:        id,
 		})
-
-		p.infoMetrics[id] = entries
+		p.infoMetrics[ils.Hash()] = infoMetric
 	}
 }
 
@@ -458,10 +461,16 @@ func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 }
 
 type infoMetricEntry struct {
-	MinT              int64
-	MaxT              int64
+	MinT int64
+	MaxT int64
+	ref  storage.SeriesRef
+	// IdentifyingLabels labels.Labels
+	DataLabels labels.Labels
+}
+
+type infoMetricEntries struct {
+	entries           []infoMetricEntry
 	IdentifyingLabels labels.Labels
-	DataLabels        labels.Labels
 }
 
 // ExpandPostings returns the postings expanded as a slice.
