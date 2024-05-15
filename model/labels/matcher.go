@@ -14,8 +14,8 @@
 package labels
 
 import (
-	"bytes"
 	"strconv"
+	"unsafe"
 )
 
 // MatchType is an enum for label matching types.
@@ -79,19 +79,20 @@ func MustNewMatcher(mt MatchType, name, val string) *Matcher {
 }
 
 func (m *Matcher) String() string {
-	// Start a buffer with a pre-allocated size on stack to cover most needs.
-	var bytea [1024]byte
-	b := bytes.NewBuffer(bytea[:0])
-
+	const quote = 1
+	const matcher = 2
+	// As we're not on go1.22 yet and we don't have the new fancy AvailableBuffer method on strings.Builder,
+	// we'll use a plain byte slice and then do the unsafe conversion to string just like strings.Builder does.
+	// We pre-allocate pessimistically for quoting the label name, and optimistically for not having to escape any quotes.
+	b := make([]byte, 0, quote+len(m.Name)+quote+matcher+quote+len(m.Value)+quote)
 	if m.shouldQuoteName() {
-		b.Write(strconv.AppendQuote(b.AvailableBuffer(), m.Name))
+		b = strconv.AppendQuote(b, m.Name)
 	} else {
-		b.WriteString(m.Name)
+		b = append(b, m.Name...)
 	}
-	b.WriteString(m.Type.String())
-	b.Write(strconv.AppendQuote(b.AvailableBuffer(), m.Value))
-
-	return b.String()
+	b = append(b, m.Type.String()...)
+	b = strconv.AppendQuote(b, m.Value)
+	return *((*string)(unsafe.Pointer(&b)))
 }
 
 func (m *Matcher) shouldQuoteName() bool {
