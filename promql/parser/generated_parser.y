@@ -90,6 +90,7 @@ ZERO_BUCKET_WIDTH_DESC
 %token	operatorsStart
 %token <item>
 ADD
+ADDKEEPNAME
 DIV
 EQLC
 EQL_REGEX
@@ -102,6 +103,7 @@ LTE
 LUNLESS
 MOD
 MUL
+MULKEEPNAME
 NEQ
 NEQ_REGEX
 POW
@@ -279,6 +281,8 @@ binary_expr     : expr ADD     bin_modifier expr { $$ = yylex.(*parser).newBinar
                 | expr NEQ     bin_modifier expr { $$ = yylex.(*parser).newBinaryExpression($1, $2, $3, $4) }
                 | expr POW     bin_modifier expr { $$ = yylex.(*parser).newBinaryExpression($1, $2, $3, $4) }
                 | expr SUB     bin_modifier expr { $$ = yylex.(*parser).newBinaryExpression($1, $2, $3, $4) }
+                | expr ADDKEEPNAME bin_modifier expr { $$ = yylex.(*parser).newBinaryExpression($1, $2, $3, $4) }
+                | expr MULKEEPNAME bin_modifier expr { $$ = yylex.(*parser).newBinaryExpression($1, $2, $3, $4) }
                 ;
 
 // Using left recursion for the modifier rules, helps to keep the parser stack small and

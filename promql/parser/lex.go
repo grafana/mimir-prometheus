@@ -179,6 +179,9 @@ var ItemTypeStr = map[ItemType]string{
 	EQL_REGEX: "=~",
 	NEQ_REGEX: "!~",
 	POW:       "^",
+
+	ADDKEEPNAME: "+~",
+	MULKEEPNAME: "*~",
 }
 
 func init() {
@@ -385,13 +388,23 @@ func lexStatements(l *Lexer) stateFn {
 	case isSpace(r):
 		return lexSpace
 	case r == '*':
-		l.emit(MUL)
+		if t := l.peek(); t == '~' {
+			l.next()
+			l.emit(MULKEEPNAME)
+		} else {
+			l.emit(MUL)
+		}
 	case r == '/':
 		l.emit(DIV)
 	case r == '%':
 		l.emit(MOD)
 	case r == '+':
-		l.emit(ADD)
+		if t := l.peek(); t == '~' {
+			l.next()
+			l.emit(ADDKEEPNAME)
+		} else {
+			l.emit(ADD)
+		}
 	case r == '-':
 		l.emit(SUB)
 	case r == '^':

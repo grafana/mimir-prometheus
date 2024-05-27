@@ -2648,11 +2648,11 @@ func (ev *evaluator) VectorscalarBinop(op parser.ItemType, lhs Vector, rhs Scala
 // scalarBinop evaluates a binary operation between two Scalars.
 func scalarBinop(op parser.ItemType, lhs, rhs float64) float64 {
 	switch op {
-	case parser.ADD:
+	case parser.ADD, parser.ADDKEEPNAME:
 		return lhs + rhs
 	case parser.SUB:
 		return lhs - rhs
-	case parser.MUL:
+	case parser.MUL, parser.MULKEEPNAME:
 		return lhs * rhs
 	case parser.DIV:
 		return lhs / rhs
@@ -2681,7 +2681,7 @@ func scalarBinop(op parser.ItemType, lhs, rhs float64) float64 {
 // vectorElemBinop evaluates a binary operation between two Vector elements.
 func vectorElemBinop(op parser.ItemType, lhs, rhs float64, hlhs, hrhs *histogram.FloatHistogram) (float64, *histogram.FloatHistogram, bool) {
 	switch op {
-	case parser.ADD:
+	case parser.ADD, parser.ADDKEEPNAME:
 		if hlhs != nil && hrhs != nil {
 			return 0, hlhs.Copy().Add(hrhs).Compact(0), true
 		}
@@ -2691,7 +2691,7 @@ func vectorElemBinop(op parser.ItemType, lhs, rhs float64, hlhs, hrhs *histogram
 			return 0, hlhs.Copy().Sub(hrhs).Compact(0), true
 		}
 		return lhs - rhs, nil, true
-	case parser.MUL:
+	case parser.MUL, parser.MULKEEPNAME:
 		if hlhs != nil && hrhs == nil {
 			return 0, hlhs.Copy().Mul(rhs), true
 		}
