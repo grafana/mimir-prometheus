@@ -120,14 +120,15 @@ var key = map[string]ItemType{
 	"quantile":     QUANTILE,
 
 	// Keywords.
-	"offset":      OFFSET,
-	"by":          BY,
-	"without":     WITHOUT,
-	"on":          ON,
-	"ignoring":    IGNORING,
-	"group_left":  GROUP_LEFT,
-	"group_right": GROUP_RIGHT,
-	"bool":        BOOL,
+	"offset":       OFFSET,
+	"by":           BY,
+	"without":      WITHOUT,
+	"on":           ON,
+	"ignoring":     IGNORING,
+	"group_left":   GROUP_LEFT,
+	"group_right":  GROUP_RIGHT,
+	"bool":         BOOL,
+	"keeping_name": KEEPING_NAME,
 
 	// Preprocessors.
 	"start": START,

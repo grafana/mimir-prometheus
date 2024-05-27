@@ -346,6 +346,10 @@ var tests = []struct {
 				expected: []Item{{GROUP_RIGHT, 0, "group_right"}},
 			},
 			{
+				input:    "keeping_name",
+				expected: []Item{{KEEPING_NAME, 0, "keeping_name"}},
+			},
+			{
 				input:    "bool",
 				expected: []Item{{BOOL, 0, "bool"}},
 			},

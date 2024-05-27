@@ -83,6 +83,13 @@ func TestExprString(t *testing.T) {
 			out: `a - c`,
 		},
 		{
+			in: `a + keeping_name b`,
+		},
+		{
+			in:  `a - on(b) group_left(x) keeping_name c`,
+			out: `a - on (b) group_left (x) keeping_name c`,
+		},
+		{
 			in: `up > bool 0`,
 		},
 		{

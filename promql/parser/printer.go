@@ -90,9 +90,13 @@ func (node *BinaryExpr) String() string {
 	if node.ReturnBool {
 		returnBool = " bool"
 	}
+	keepingName := ""
+	if node.KeepingName {
+		keepingName = " keeping_name"
+	}
 
 	matching := node.getMatchingStr()
-	return fmt.Sprintf("%s %s%s%s %s", node.LHS, node.Op, returnBool, matching, node.RHS)
+	return fmt.Sprintf("%s %s%s%s%s %s", node.LHS, node.Op, returnBool, matching, keepingName, node.RHS)
 }
 
 func (node *BinaryExpr) getMatchingStr() string {

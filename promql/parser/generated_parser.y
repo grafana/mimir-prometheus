@@ -138,6 +138,7 @@ IGNORING
 OFFSET
 ON
 WITHOUT
+KEEPING_NAME
 %token keywordsEnd
 
 // Preprocessors.
@@ -173,7 +174,7 @@ START_METRIC_SELECTOR
 %type <int> int
 %type <uint> uint
 %type <float> number series_value signed_number signed_or_unsigned_number
-%type <node> step_invariant_expr aggregate_expr aggregate_modifier bin_modifier binary_expr bool_modifier expr function_call function_call_args function_call_body group_modifiers label_matchers matrix_selector number_literal offset_expr on_or_ignoring paren_expr string_literal subquery_expr unary_expr vector_selector
+%type <node> step_invariant_expr aggregate_expr aggregate_modifier bin_modifier binary_expr bool_modifier expr function_call function_call_args function_call_body group_modifiers keeping_name_modifier label_matchers matrix_selector number_literal offset_expr on_or_ignoring paren_expr string_literal subquery_expr unary_expr vector_selector
 %type <duration> duration maybe_duration
 
 %start start
@@ -283,7 +284,7 @@ binary_expr     : expr ADD     bin_modifier expr { $$ = yylex.(*parser).newBinar
 
 // Using left recursion for the modifier rules, helps to keep the parser stack small and
 // reduces allocations.
-bin_modifier    : group_modifiers;
+bin_modifier    : keeping_name_modifier;
 
 bool_modifier   : /* empty */
                         { $$ = &BinaryExpr{
@@ -327,6 +328,13 @@ group_modifiers: bool_modifier /* empty */
                         }
                 ;
 
+keeping_name_modifier: group_modifiers /* empty */
+                | group_modifiers KEEPING_NAME
+                        {
+                        $$ = $1
+                        $$.(*BinaryExpr).KeepingName = true
+                        }
+                ;
 
 grouping_labels : LEFT_PAREN grouping_label_list RIGHT_PAREN
                         { $$ = $2 }

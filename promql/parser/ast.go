@@ -107,6 +107,9 @@ type BinaryExpr struct {
 	// If they are not this field is nil.
 	VectorMatching *VectorMatching
 
+	// KeepingName prevents __name__ label from being dropped.
+	KeepingName bool
+
 	// If a comparison operator, return 0/1 rather than filtering.
 	ReturnBool bool
 }
