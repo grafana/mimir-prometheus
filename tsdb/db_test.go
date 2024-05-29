@@ -7057,3 +7057,59 @@ func TestAbortBlockCompactions(t *testing.T) {
 	require.True(t, db.head.compactable(), "head should be compactable")
 	require.Equal(t, 4, compactions, "expected 4 compactions to be completed")
 }
+
+func TestCompactHeadWithoutTruncation(t *testing.T) {
+	setupDB := func() *DB {
+		db := openTestDB(t, nil, nil)
+		t.Cleanup(func() {
+			require.NoError(t, db.Close())
+		})
+		db.DisableCompactions()
+
+		// Add samples to the head.
+		lbls := labels.FromStrings("foo", "bar")
+		app := db.Appender(context.Background())
+		_, err := app.Append(0, lbls, 0, 0)
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, DefaultBlockDuration/2, float64(DefaultBlockDuration/2))
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, DefaultBlockDuration-1, float64(DefaultBlockDuration-1))
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, 2*DefaultBlockDuration, float64(2*DefaultBlockDuration))
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		return db
+	}
+
+	testQuery := func(db *DB, expSamples []chunks.Sample) {
+		rh := NewRangeHead(db.Head(), math.MinInt64, math.MaxInt64)
+		q, err := NewBlockQuerier(rh, math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+		ss := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
+		require.Equal(t, map[string][]chunks.Sample{`{foo="bar"}`: expSamples}, ss)
+	}
+
+	{ // Compact the head without truncation.
+		db := setupDB()
+		rh := NewRangeHead(db.Head(), 0, DefaultBlockDuration-1)
+		require.NoError(t, db.CompactHead(rh))
+		// Samples got truncated from the head.
+		testQuery(db, []chunks.Sample{
+			sample{t: 2 * DefaultBlockDuration, f: float64(2 * DefaultBlockDuration)},
+		})
+	}
+
+	{ // Compact the head with truncation.
+		db := setupDB()
+		rh := NewRangeHead(db.Head(), 0, DefaultBlockDuration-1)
+		require.NoError(t, db.CompactHeadWithoutTruncation(rh))
+		// All samples still exist in the head.
+		testQuery(db, []chunks.Sample{
+			sample{t: 0, f: 0},
+			sample{t: DefaultBlockDuration / 2, f: float64(DefaultBlockDuration / 2)},
+			sample{t: DefaultBlockDuration - 1, f: float64(DefaultBlockDuration - 1)},
+			sample{t: 2 * DefaultBlockDuration, f: float64(2 * DefaultBlockDuration)},
+		})
+	}
+}
