@@ -118,12 +118,11 @@ type ManagerOptions struct {
 	ForGracePeriod            time.Duration
 	ResendDelay               time.Duration
 	GroupLoader               GroupLoader
+	DefaultRuleQueryOffset    func() time.Duration
 	MaxConcurrentEvals        int64
 	ConcurrentEvalsEnabled    bool
 	RuleConcurrencyController RuleConcurrencyController
 	RuleDependencyController  RuleDependencyController
-
-	DefaultEvaluationDelay func() time.Duration
 
 	// GroupEvaluationContextFunc will be called to wrap Context based on the group being evaluated.
 	// Will be skipped if nil.
@@ -354,7 +353,7 @@ func (m *Manager) LoadGroups(
 				SourceTenants:                 rg.SourceTenants,
 				ShouldRestore:                 shouldRestore,
 				Opts:                          m.opts,
-				EvaluationDelay:               (*time.Duration)(rg.EvaluationDelay),
+				QueryOffset:                   (*time.Duration)(rg.QueryOffset),
 				done:                          m.done,
 				EvalIterationFunc:             groupEvalIterationFunc,
 				AlignEvaluationTimeOnInterval: rg.AlignEvaluationTimeOnInterval,
