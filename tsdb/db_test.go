@@ -7090,7 +7090,7 @@ func TestCompactHeadWithoutTruncation(t *testing.T) {
 		require.Equal(t, map[string][]chunks.Sample{`{foo="bar"}`: expSamples}, ss)
 	}
 
-	{ // Compact the head without truncation.
+	{ // Compact the head with truncation.
 		db := setupDB()
 		rh := NewRangeHead(db.Head(), 0, DefaultBlockDuration-1)
 		require.NoError(t, db.CompactHead(rh))
@@ -7100,7 +7100,7 @@ func TestCompactHeadWithoutTruncation(t *testing.T) {
 		})
 	}
 
-	{ // Compact the head with truncation.
+	{ // Compact the head without truncation.
 		db := setupDB()
 		rh := NewRangeHead(db.Head(), 0, DefaultBlockDuration-1)
 		require.NoError(t, db.CompactHeadWithoutTruncation(rh))
