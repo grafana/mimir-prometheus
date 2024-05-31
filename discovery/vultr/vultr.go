@@ -134,7 +134,7 @@ func NewDiscovery(conf *SDConfig, logger log.Logger, metrics discovery.Discovere
 		Timeout:   time.Duration(conf.RefreshInterval),
 	})
 
-	d.client.SetUserAgent(fmt.Sprintf("Prometheus/%s", version.Version))
+	d.client.SetUserAgent("Prometheus/" + version.Version)
 
 	if err != nil {
 		return nil, fmt.Errorf("error setting up vultr agent: %w", err)

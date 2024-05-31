@@ -146,7 +146,7 @@ func TestNewFastRegexMatcher_CacheSizeLimit(t *testing.T) {
 
 	// Utility function to get a unique expensive regexp.
 	getExpensiveRegexp := func(id int) string {
-		return expensiveRegexp + fmt.Sprintf("%d", id)
+		return expensiveRegexp + strconv.Itoa(id)
 	}
 
 	// Estimate the size of the matcher with the expensive regexp.

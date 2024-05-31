@@ -5041,7 +5041,7 @@ func Test_Querier_OOOQuery(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+		t.Run("name="+tc.name, func(t *testing.T) {
 			db := openTestDB(t, opts, nil)
 			db.DisableCompactions()
 			defer func() {
@@ -5125,7 +5125,7 @@ func Test_ChunkQuerier_OOOQuery(t *testing.T) {
 		},
 	}
 	for _, tc := range tests {
-		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
+		t.Run("name="+tc.name, func(t *testing.T) {
 			db := openTestDB(t, opts, nil)
 			db.DisableCompactions()
 			defer func() {
