@@ -104,7 +104,7 @@ func (e ErrQueryTimeout) Error() string {
 }
 
 func (e ErrQueryCanceled) Error() string {
-	return "query was canceled in %s" + string(e)
+	return "query was canceled in " + string(e)
 }
 
 func (e ErrTooManySamples) Error() string {
