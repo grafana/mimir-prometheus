@@ -219,3 +219,8 @@ exclude (
 	github.com/grpc-ecosystem/grpc-gateway v1.14.7
 	google.golang.org/api v0.30.0
 )
+
+// gopkg.in/yaml.v3
+// + https://github.com/go-yaml/yaml/pull/691
+// + https://github.com/go-yaml/yaml/pull/876
+replace gopkg.in/yaml.v3 => github.com/colega/go-yaml-yaml v0.0.0-20220720105220-255a8d16d094

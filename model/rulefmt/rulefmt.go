@@ -152,7 +152,7 @@ type RuleGroup struct {
 func (g *RuleGroup) UnmarshalYAML(value *yaml.Node) error {
 	type plain RuleGroup
 	aux := &plain{}
-	if err := value.Decode(aux); err != nil {
+	if err := value.DecodeWithOptions(aux, yaml.DecodeOptions{KnownFields: true}); err != nil {
 		return err
 	}
 
