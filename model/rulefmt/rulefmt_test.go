@@ -408,3 +408,64 @@ groups:
 		})
 	}
 }
+
+func TestRuleGroup_MmarshalYaml(t *testing.T) {
+	dur5m := model.Duration(5 * time.Minute)
+	dur2m := model.Duration(2 * time.Minute)
+
+	tc := []struct {
+		name       string
+		input      RuleGroup
+		ruleString string
+	}{
+		{
+			name: "with evaluation delay",
+			input: RuleGroup{
+				Name:            "example",
+				Interval:        model.Duration(1 * time.Minute),
+				EvaluationDelay: &dur5m,
+			},
+			ruleString: `name: example
+interval: 1m
+query_offset: 5m
+rules: []
+`,
+		},
+		{
+			name: "with query offset",
+			input: RuleGroup{
+				Name:        "example",
+				Interval:    model.Duration(1 * time.Minute),
+				QueryOffset: &dur2m,
+			},
+			ruleString: `name: example
+interval: 1m
+query_offset: 2m
+rules: []
+`,
+		},
+		{
+			name: "with query offset and evaluation delay",
+			input: RuleGroup{
+				Name:            "example",
+				Interval:        model.Duration(1 * time.Minute),
+				EvaluationDelay: &dur5m,
+				QueryOffset:     &dur2m,
+			},
+			ruleString: `name: example
+interval: 1m
+query_offset: 2m
+rules: []
+`,
+		},
+	}
+
+	for _, tt := range tc {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := yaml.Marshal(&tt.input)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.ruleString, string(out))
+		})
+	}
+}

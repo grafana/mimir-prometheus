@@ -167,18 +167,15 @@ func (g *RuleGroup) UnmarshalYAML(value *yaml.Node) error {
 	return nil
 }
 
-func (g RuleGroup) MarshalYAML() (interface{}, error) {
-	type Alias RuleGroup
-	aux := &struct {
-		EvaluationDelay *model.Duration `yaml:"evaluation_delay,omitempty"`
-		*Alias
-	}{
-		Alias: (*Alias)(&g),
-	}
+func (g *RuleGroup) MarshalYAML() (interface{}, error) {
+	type Plain RuleGroup
+	aux := Plain(*g)
 
-	if g.EvaluationDelay != nil && g.QueryOffset == nil {
+	if aux.EvaluationDelay != nil && g.QueryOffset == nil {
 		aux.QueryOffset = g.EvaluationDelay
 	}
+
+	aux.EvaluationDelay = nil
 
 	return aux, nil
 }
