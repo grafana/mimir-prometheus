@@ -341,7 +341,6 @@ func TestErrorUnwrap(t *testing.T) {
 }
 
 func TestRuleGroup_UnmarshalYaml(t *testing.T) {
-
 	ruleStringWithEvalDelay := `
 groups:
 - name: example
@@ -403,7 +402,7 @@ groups:
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
 			rgs, errs := Parse([]byte(tt.ruleString))
-			require.Len(t, errs, 0)
+			require.Empty(t, errs)
 
 			require.Equal(t, tt.output, rgs.Groups[0])
 		})
