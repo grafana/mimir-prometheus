@@ -271,8 +271,6 @@ func TestIndexRW_Postings(t *testing.T) {
 			}
 		})
 	}
-
-	require.NoError(t, ir.Close())
 }
 
 func TestPostingsMany(t *testing.T) {
