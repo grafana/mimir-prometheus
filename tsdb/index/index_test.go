@@ -220,11 +220,7 @@ func TestIndexRW_Postings(t *testing.T) {
 	// Test ShardedPostings() with and without series hash cache.
 	for _, cacheEnabled := range []bool{false, true} {
 		t.Run(fmt.Sprintf("ShardedPostings() cache enabled: %v", cacheEnabled), func(t *testing.T) {
-			if cacheEnabled {
-				ir, _, _ = createFileReaderWithCache(ctx, t, input)
-			} else {
-				ir, _, _ = createFileReader(ctx, t, input)
-			}
+			ir, _, _ = createFileReaderWithOptions(ctx, t, input, cacheEnabled)
 
 			// List all postings for a given label value. This is what we expect to get
 			// in output from all shards.
@@ -554,12 +550,7 @@ func BenchmarkReader_ShardedPostings(b *testing.B) {
 	}
 	for _, cacheEnabled := range []bool{true, false} {
 		b.Run(fmt.Sprintf("cached enabled: %v", cacheEnabled), func(b *testing.B) {
-			var ir *Reader
-			if cacheEnabled {
-				ir, _, _ = createFileReaderWithCache(ctx, b, input)
-			} else {
-				ir, _, _ = createFileReader(ctx, b, input)
-			}
+			ir, _, _ := createFileReaderWithOptions(ctx, b, input, cacheEnabled)
 			b.ResetTimer()
 
 			for n := 0; n < b.N; n++ {
@@ -650,43 +641,10 @@ func TestReader_PostingsForLabelMatchingHonorsContextCancel(t *testing.T) {
 // createFileReader creates a temporary index file. It writes the provided input to this file.
 // It returns a Reader for this file, the file's name, and the symbol map.
 func createFileReader(ctx context.Context, tb testing.TB, input indexWriterSeriesSlice) (*Reader, string, map[string]struct{}) {
-	tb.Helper()
-
-	fn := filepath.Join(tb.TempDir(), indexFilename)
-
-	iw, err := NewWriter(ctx, fn)
-	require.NoError(tb, err)
-
-	symbols := map[string]struct{}{}
-	for _, s := range input {
-		s.labels.Range(func(l labels.Label) {
-			symbols[l.Name] = struct{}{}
-			symbols[l.Value] = struct{}{}
-		})
-	}
-
-	syms := []string{}
-	for s := range symbols {
-		syms = append(syms, s)
-	}
-	slices.Sort(syms)
-	for _, s := range syms {
-		require.NoError(tb, iw.AddSymbol(s))
-	}
-	for i, s := range input {
-		require.NoError(tb, iw.AddSeries(storage.SeriesRef(i), s.labels, s.chunks...))
-	}
-	require.NoError(tb, iw.Close())
-
-	ir, err := NewFileReader(fn)
-	require.NoError(tb, err)
-	tb.Cleanup(func() {
-		require.NoError(tb, ir.Close())
-	})
-	return ir, fn, symbols
+	return createFileReaderWithOptions(ctx, tb, input, false)
 }
 
-func createFileReaderWithCache(ctx context.Context, tb testing.TB, input indexWriterSeriesSlice) (*Reader, string, map[string]struct{}) {
+func createFileReaderWithOptions(ctx context.Context, tb testing.TB, input indexWriterSeriesSlice, withCache bool) (*Reader, string, map[string]struct{}) {
 	tb.Helper()
 
 	fn := filepath.Join(tb.TempDir(), indexFilename)
@@ -715,7 +673,13 @@ func createFileReaderWithCache(ctx context.Context, tb testing.TB, input indexWr
 	}
 	require.NoError(tb, iw.Close())
 
-	ir, err := NewFileReaderWithOptions(fn, hashcache.NewSeriesHashCache(1024*1024*1024).GetBlockCacheProvider("test"))
+	var ir *Reader
+	if withCache {
+		ir, err = NewFileReaderWithOptions(fn, hashcache.NewSeriesHashCache(1024*1024*1024).GetBlockCacheProvider("test"))
+	} else {
+		ir, err = NewFileReader(fn)
+	}
+
 	require.NoError(tb, err)
 	tb.Cleanup(func() {
 		require.NoError(tb, ir.Close())
