@@ -114,7 +114,10 @@ func decodeVarint(data string, index int) (int, int) {
 	if b < 0x8000 {
 		return b, index
 	}
+	return decodeVarintRest(b, data, index)
+}
 
+func decodeVarintRest(b int, data string, index int) (int, int) {
 	value := int(b & 0x7FFF)
 	b = int(data[index])
 	index++
@@ -129,8 +132,12 @@ func decodeVarint(data string, index int) (int, int) {
 }
 
 func decodeString(t *nameTable, data string, index int) (string, int) {
-	var num int
-	num, index = decodeVarint(data, index)
+	// Copy decodeVarint here, because the Go compiler says it's too big to inline.
+	num := int(data[index]) + int(data[index+1])<<8
+	index += 2
+	if num >= 0x8000 {
+		num, index = decodeVarintRest(num, data, index)
+	}
 	return t.ToName(num), index
 }
 
