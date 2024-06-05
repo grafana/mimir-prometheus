@@ -192,7 +192,7 @@ func ChunkFromSamplesGeneric(s Samples) (Meta, error) {
 				return emptyChunk, fmt.Errorf("did not expect to start a second chunk")
 			}
 		default:
-			panic("unknown sample type " + sampleType.String())
+			panic(fmt.Sprintf("unknown sample type %s", sampleType.String()))
 		}
 	}
 	return Meta{

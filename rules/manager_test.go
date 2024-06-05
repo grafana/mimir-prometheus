@@ -15,6 +15,7 @@ package rules
 
 import (
 	"context"
+	"fmt"
 	"io/fs"
 	"math"
 	"os"
@@ -193,7 +194,7 @@ func TestAlertingRule(t *testing.T) {
 
 func TestForStateAddSamples(t *testing.T) {
 	for _, queryOffset := range []time.Duration{0, time.Minute} {
-		t.Run("queryOffset "+queryOffset.String(), func(t *testing.T) {
+		t.Run(fmt.Sprintf("queryOffset %s", queryOffset.String()), func(t *testing.T) {
 			storage := promqltest.LoadedStorage(t, `
 		load 5m
 			http_requests{job="app-server", instance="0", group="canary", severity="overwrite-me"}	75 85  95 105 105  95  85
@@ -354,7 +355,7 @@ func sortAlerts(items []*Alert) {
 
 func TestForStateRestore(t *testing.T) {
 	for _, queryOffset := range []time.Duration{0, time.Minute} {
-		t.Run("queryOffset "+queryOffset.String(), func(t *testing.T) {
+		t.Run(fmt.Sprintf("queryOffset %s", queryOffset.String()), func(t *testing.T) {
 			storage := promqltest.LoadedStorage(t, `
 		load 5m
 		http_requests{job="app-server", instance="0", group="canary", severity="overwrite-me"}	75  85 50 0 0 25 0 0 40 0 120
@@ -838,7 +839,7 @@ func TestUpdate(t *testing.T) {
 	// Change group rules and reload.
 	for i, g := range rgs.Groups {
 		for j, r := range g.Rules {
-			rgs.Groups[i].Rules[j].Expr.SetString(r.Expr.Value + " * 0")
+			rgs.Groups[i].Rules[j].Expr.SetString(fmt.Sprintf("%s * 0", r.Expr.Value))
 		}
 	}
 	reloadAndValidate(rgs, t, tmpFile, ruleManager, ogs)

@@ -15,6 +15,7 @@ package kubernetes
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/prometheus/common/model"
@@ -54,7 +55,7 @@ func makeMultiPortService() *v1.Service {
 func makeSuffixedService(suffix string) *v1.Service {
 	return &v1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "testservice" + suffix,
+			Name:      fmt.Sprintf("testservice%s", suffix),
 			Namespace: "default",
 		},
 		Spec: v1.ServiceSpec{

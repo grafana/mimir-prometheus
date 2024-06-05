@@ -165,7 +165,7 @@ func NewDiscovery(conf *SDConfig, logger log.Logger, metrics discovery.Discovere
 			Timeout:   time.Duration(conf.RefreshInterval),
 		},
 	)
-	client.SetUserAgent("Prometheus/" + version.Version)
+	client.SetUserAgent(fmt.Sprintf("Prometheus/%s", version.Version))
 	d.client = &client
 
 	d.Discovery = refresh.NewDiscovery(

@@ -39,7 +39,7 @@ const (
 	hetznerLabelRobotCancelled = hetznerRobotLabelPrefix + "cancelled"
 )
 
-var userAgent = "Prometheus/" + version.Version
+var userAgent = fmt.Sprintf("Prometheus/%s", version.Version)
 
 // Discovery periodically performs Hetzner Robot requests. It implements
 // the Discoverer interface.

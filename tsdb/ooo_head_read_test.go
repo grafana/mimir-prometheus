@@ -828,7 +828,7 @@ func TestOOOHeadChunkReader_Chunk(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run("name="+tc.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			db := newTestDBWithOpts(t, opts)
 
 			app := db.Appender(context.Background())
@@ -993,7 +993,7 @@ func TestOOOHeadChunkReader_Chunk_ConsistentQueryResponseDespiteOfHeadExpanding(
 	}
 
 	for _, tc := range tests {
-		t.Run("name="+tc.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			db := newTestDBWithOpts(t, opts)
 
 			app := db.Appender(context.Background())
@@ -1124,7 +1124,7 @@ func TestSortByMinTimeAndMinRef(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run("name="+tc.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			slices.SortFunc(tc.input, refLessByMinTimeAndMinRef)
 			require.Equal(t, tc.exp, tc.input)
 		})
@@ -1188,7 +1188,7 @@ func TestSortMetaByMinTimeAndMinRef(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		t.Run("name="+tc.name, func(t *testing.T) {
+		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			slices.SortFunc(tc.inputMetas, lessByMinTimeAndMinRef)
 			require.Equal(t, tc.expMetas, tc.inputMetas)
 		})

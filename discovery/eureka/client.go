@@ -23,7 +23,7 @@ import (
 	"github.com/prometheus/common/version"
 )
 
-var userAgent = "Prometheus/" + version.Version
+var userAgent = fmt.Sprintf("Prometheus/%s", version.Version)
 
 type Applications struct {
 	VersionsDelta int           `xml:"versions__delta"`

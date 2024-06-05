@@ -94,7 +94,7 @@ func writeFlagTable(writer io.Writer, level int, fgm *kingpin.FlagGroupModel) er
 		}
 	}
 
-	return writeTable(writer, rows, strings.Repeat("#", level+2)+" Flags")
+	return writeTable(writer, rows, fmt.Sprintf("%s Flags", strings.Repeat("#", level+2)))
 }
 
 func createArgRow(arg *kingpin.ArgModel) []string {
@@ -125,7 +125,7 @@ func writeArgTable(writer io.Writer, level int, agm *kingpin.ArgGroupModel) erro
 		rows = append(rows, row)
 	}
 
-	return writeTable(writer, rows, strings.Repeat("#", level+2)+" Arguments")
+	return writeTable(writer, rows, fmt.Sprintf("%s Arguments", strings.Repeat("#", level+2)))
 }
 
 func createCmdRow(cmd *kingpin.CmdModel) []string {

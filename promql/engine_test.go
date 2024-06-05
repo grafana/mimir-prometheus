@@ -3498,7 +3498,7 @@ func TestNativeHistogram_Sum_Count_Add_AvgOperator(t *testing.T) {
 				queryAndCheckAnnotations(queryString, ts, annos)
 
 				// + operator.
-				queryString = seriesName + `{idx="0"}`
+				queryString = fmt.Sprintf(`%s{idx="0"}`, seriesName)
 				for idx := 1; idx < len(c.histograms); idx++ {
 					queryString += fmt.Sprintf(` + ignoring(idx) %s{idx="%d"}`, seriesName, idx)
 				}
@@ -3752,7 +3752,7 @@ func TestNativeHistogram_SubOperator(t *testing.T) {
 				}
 
 				// - operator.
-				queryString := seriesName + `{idx="0"}`
+				queryString := fmt.Sprintf(`%s{idx="0"}`, seriesName)
 				for idx := 1; idx < len(c.histograms); idx++ {
 					queryString += fmt.Sprintf(` - ignoring(idx) %s{idx="%d"}`, seriesName, idx)
 				}
