@@ -48,3 +48,18 @@ func TestVarint(t *testing.T) {
 	}
 	require.Panics(t, func() { encodeVarint(buf[:], len(buf), 1<<29) })
 }
+
+func BenchmarkScratchBuilder_Equal(b *testing.B) {
+	for _, scenario := range comparisonBenchmarkScenarios {
+		builder := NewScratchBuilder(scenario.base.Len())
+		scenario.base.Range(func(l Label) {
+			builder.Add(l.Name, l.Value)
+		})
+		b.Run(scenario.desc, func(b *testing.B) {
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				_ = builder.Equal(scenario.other)
+			}
+		})
+	}
+}
