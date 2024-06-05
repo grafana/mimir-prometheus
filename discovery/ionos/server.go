@@ -76,7 +76,7 @@ func newServerDiscovery(conf *SDConfig, _ log.Logger) (*serverDiscovery, error) 
 		Transport: rt,
 		Timeout:   time.Duration(conf.RefreshInterval),
 	}
-	cfg.UserAgent = "Prometheus/" + version.Version
+	cfg.UserAgent = "Prometheus/%s" + version.Version
 
 	d.client = ionoscloud.NewAPIClient(cfg)
 
