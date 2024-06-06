@@ -411,7 +411,7 @@ groups:
 	}
 }
 
-func TestRuleGroup_MmarshalYaml(t *testing.T) {
+func TestRuleGroup_MarshalYaml(t *testing.T) {
 	dur5m := model.Duration(5 * time.Minute)
 	dur2m := model.Duration(2 * time.Minute)
 
