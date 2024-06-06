@@ -3,6 +3,7 @@ package tsdb
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -222,7 +223,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		timeNow := &timeNowMock{}
 		calls := make([][]*labels.Matcher, maxItems)
 		for i := range calls {
-			calls[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", fmt.Sprintf("%d", i))}
+			calls[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", strconv.Itoa(i))}
 		}
 
 		callsPerMatchers := map[string]int{}
@@ -274,7 +275,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		// Generate some matchers.
 		matchersLists := make([][]*labels.Matcher, numMatchers)
 		for i := range matchersLists {
-			matchersLists[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", fmt.Sprintf("%d", i))}
+			matchersLists[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", strconv.Itoa(i))}
 		}
 
 		// Generate some postings lists.
@@ -375,7 +376,7 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 	// Create some matchers.
 	matchersLists := make([][]*labels.Matcher, numMatchers)
 	for i := range matchersLists {
-		matchersLists[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", fmt.Sprintf("%d", i))}
+		matchersLists[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", strconv.Itoa(i))}
 	}
 
 	// Create a postings list.
