@@ -149,37 +149,6 @@ type RuleGroup struct {
 	AlignEvaluationTimeOnInterval bool       `yaml:"align_evaluation_time_on_interval,omitempty"`
 }
 
-func (g *RuleGroup) UnmarshalYAML(value *yaml.Node) error {
-	type plain RuleGroup
-	aux := &plain{}
-	if err := value.DecodeWithOptions(aux, yaml.DecodeOptions{KnownFields: true}); err != nil {
-		return err
-	}
-
-	*g = RuleGroup(*aux)
-
-	if g.EvaluationDelay != nil && g.QueryOffset == nil {
-		g.QueryOffset = g.EvaluationDelay
-	}
-
-	return nil
-}
-
-func (g *RuleGroup) MarshalYAML() (interface{}, error) {
-	type Plain RuleGroup
-	aux := Plain(*g)
-
-	if aux.EvaluationDelay == nil {
-		aux.EvaluationDelay = g.QueryOffset
-	}
-
-	if aux.QueryOffset == nil {
-		aux.QueryOffset = g.EvaluationDelay
-	}
-
-	return aux, nil
-}
-
 // Rule describes an alerting or recording rule.
 type Rule struct {
 	Record        string            `yaml:"record,omitempty"`

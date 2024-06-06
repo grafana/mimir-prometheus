@@ -378,7 +378,6 @@ groups:
 				Name:            "example",
 				Interval:        model.Duration(1 * time.Minute),
 				EvaluationDelay: &dur5m,
-				QueryOffset:     &dur5m,
 			},
 		},
 		{
@@ -430,7 +429,6 @@ func TestRuleGroup_MarshalYaml(t *testing.T) {
 			ruleString: `name: example
 interval: 1m
 evaluation_delay: 5m
-query_offset: 5m
 rules: []
 `,
 		},
@@ -443,7 +441,6 @@ rules: []
 			},
 			ruleString: `name: example
 interval: 1m
-evaluation_delay: 2m
 query_offset: 2m
 rules: []
 `,

@@ -345,15 +345,26 @@ func (m *Manager) LoadGroups(
 			m.opts.RuleDependencyController.AnalyseRules(rules)
 
 			groups[GroupKey(fn, rg.Name)] = NewGroup(GroupOptions{
-				Name:                          rg.Name,
-				File:                          fn,
-				Interval:                      itv,
-				Limit:                         rg.Limit,
-				Rules:                         rules,
-				SourceTenants:                 rg.SourceTenants,
-				ShouldRestore:                 shouldRestore,
-				Opts:                          m.opts,
-				QueryOffset:                   (*time.Duration)(rg.QueryOffset),
+				Name:          rg.Name,
+				File:          fn,
+				Interval:      itv,
+				Limit:         rg.Limit,
+				Rules:         rules,
+				SourceTenants: rg.SourceTenants,
+				ShouldRestore: shouldRestore,
+				Opts:          m.opts,
+				QueryOffset: func() *time.Duration {
+					// Give preference to QueryOffset, falling back to the deprecated EvaluationDelay.
+					if rg.QueryOffset != nil {
+						return (*time.Duration)(rg.QueryOffset)
+					}
+
+					if rg.EvaluationDelay != nil {
+						return (*time.Duration)(rg.EvaluationDelay)
+					}
+
+					return nil
+				}(),
 				done:                          m.done,
 				EvalIterationFunc:             groupEvalIterationFunc,
 				AlignEvaluationTimeOnInterval: rg.AlignEvaluationTimeOnInterval,
