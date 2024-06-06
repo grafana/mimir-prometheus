@@ -162,8 +162,6 @@ func (g *RuleGroup) UnmarshalYAML(value *yaml.Node) error {
 		g.QueryOffset = g.EvaluationDelay
 	}
 
-	g.EvaluationDelay = nil
-
 	return nil
 }
 
@@ -171,11 +169,13 @@ func (g *RuleGroup) MarshalYAML() (interface{}, error) {
 	type Plain RuleGroup
 	aux := Plain(*g)
 
-	if aux.EvaluationDelay != nil && g.QueryOffset == nil {
-		aux.QueryOffset = g.EvaluationDelay
+	if aux.EvaluationDelay == nil {
+		aux.EvaluationDelay = g.QueryOffset
 	}
 
-	aux.EvaluationDelay = nil
+	if aux.QueryOffset == nil {
+		aux.QueryOffset = g.EvaluationDelay
+	}
 
 	return aux, nil
 }

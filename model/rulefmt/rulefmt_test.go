@@ -375,9 +375,10 @@ groups:
 			name:       "with evaluation delay",
 			ruleString: ruleStringWithEvalDelay,
 			output: RuleGroup{
-				Name:        "example",
-				Interval:    model.Duration(1 * time.Minute),
-				QueryOffset: &dur5m,
+				Name:            "example",
+				Interval:        model.Duration(1 * time.Minute),
+				EvaluationDelay: &dur5m,
+				QueryOffset:     &dur5m,
 			},
 		},
 		{
@@ -393,9 +394,10 @@ groups:
 			name:       "with query offset and evaluation delay",
 			ruleString: ruleStringwithBoth,
 			output: RuleGroup{
-				Name:        "example",
-				Interval:    model.Duration(1 * time.Minute),
-				QueryOffset: &dur2m,
+				Name:            "example",
+				Interval:        model.Duration(1 * time.Minute),
+				EvaluationDelay: &dur5m,
+				QueryOffset:     &dur2m,
 			},
 		},
 	}
@@ -427,6 +429,7 @@ func TestRuleGroup_MmarshalYaml(t *testing.T) {
 			},
 			ruleString: `name: example
 interval: 1m
+evaluation_delay: 5m
 query_offset: 5m
 rules: []
 `,
@@ -440,6 +443,7 @@ rules: []
 			},
 			ruleString: `name: example
 interval: 1m
+evaluation_delay: 2m
 query_offset: 2m
 rules: []
 `,
@@ -454,6 +458,7 @@ rules: []
 			},
 			ruleString: `name: example
 interval: 1m
+evaluation_delay: 5m
 query_offset: 2m
 rules: []
 `,
