@@ -1111,6 +1111,8 @@ func TestPostingsCloner(t *testing.T) {
 	})
 }
 
+// BenchmarkMemPostings_Delete is quite heavy, so consider running it with
+// -benchtime=10x or similar to get more stable and comparable results.
 func BenchmarkMemPostings_Delete(b *testing.B) {
 	internedItoa := map[int]string{}
 	var mtx sync.RWMutex
