@@ -63,7 +63,14 @@ func TestMain(m *testing.M) {
 	flag.Parse()
 	defaultIsolationDisabled = !isolationEnabled
 
-	goleak.VerifyTestMain(m, goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func1"), goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func2"))
+	goleak.VerifyTestMain(m,
+		goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func1"),
+		goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func2"),
+		// Ignore "ristretto" and its dependency "glog".
+		goleak.IgnoreTopFunction("github.com/dgraph-io/ristretto.(*defaultPolicy).processItems"),
+		goleak.IgnoreTopFunction("github.com/dgraph-io/ristretto.(*Cache).processItems"),
+		goleak.IgnoreTopFunction("github.com/golang/glog.(*fileSink).flushDaemon"),
+	)
 }
 
 func openTestDB(t testing.TB, opts *Options, rngs []int64) (db *DB) {
@@ -5858,13 +5865,13 @@ func TestOOOMmapCorruption(t *testing.T) {
 	addSamples(120, 120, false)
 
 	// Second m-map file. We will corrupt this file. Sample 120 goes into this new file.
-	db.head.chunkDiskMapper.CutNewFile()
+	require.NoError(t, db.head.chunkDiskMapper.CutNewFile())
 
 	// More OOO samples.
 	addSamples(200, 230, false)
 	addSamples(240, 255, false)
 
-	db.head.chunkDiskMapper.CutNewFile()
+	require.NoError(t, db.head.chunkDiskMapper.CutNewFile())
 	addSamples(260, 290, false)
 
 	verifySamples := func(expSamples []chunks.Sample) {
@@ -7080,6 +7087,10 @@ func (c *mockCompactorFn) Compact(_ string, _ []string, _ []*Block) (ulid.ULID, 
 	return c.compactFn()
 }
 
+func (c *mockCompactorFn) CompactOOO(_ string, _ *OOOCompactionHead) (result []ulid.ULID, err error) {
+	panic("implement me")
+}
+
 func (c *mockCompactorFn) Write(_ string, _ BlockReader, _, _ int64, _ *BlockMeta) (ulid.ULID, error) {
 	return c.writeFn()
 }
@@ -7156,4 +7167,60 @@ func TestNewCompactorFunc(t *testing.T) {
 	ulid, err = db.compactor.Write("", nil, 0, 1, nil)
 	require.NoError(t, err)
 	require.Equal(t, block2, ulid)
+}
+
+func TestCompactHeadWithoutTruncation(t *testing.T) {
+	setupDB := func() *DB {
+		db := openTestDB(t, nil, nil)
+		t.Cleanup(func() {
+			require.NoError(t, db.Close())
+		})
+		db.DisableCompactions()
+
+		// Add samples to the head.
+		lbls := labels.FromStrings("foo", "bar")
+		app := db.Appender(context.Background())
+		_, err := app.Append(0, lbls, 0, 0)
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, DefaultBlockDuration/2, float64(DefaultBlockDuration/2))
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, DefaultBlockDuration-1, float64(DefaultBlockDuration-1))
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, 2*DefaultBlockDuration, float64(2*DefaultBlockDuration))
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		return db
+	}
+
+	testQuery := func(db *DB, expSamples []chunks.Sample) {
+		rh := NewRangeHead(db.Head(), math.MinInt64, math.MaxInt64)
+		q, err := NewBlockQuerier(rh, math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+		ss := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
+		require.Equal(t, map[string][]chunks.Sample{`{foo="bar"}`: expSamples}, ss)
+	}
+
+	{ // Compact the head with truncation.
+		db := setupDB()
+		rh := NewRangeHead(db.Head(), 0, DefaultBlockDuration-1)
+		require.NoError(t, db.CompactHead(rh))
+		// Samples got truncated from the head.
+		testQuery(db, []chunks.Sample{
+			sample{t: 2 * DefaultBlockDuration, f: float64(2 * DefaultBlockDuration)},
+		})
+	}
+
+	{ // Compact the head without truncation.
+		db := setupDB()
+		rh := NewRangeHead(db.Head(), 0, DefaultBlockDuration-1)
+		require.NoError(t, db.CompactHeadWithoutTruncation(rh))
+		// All samples still exist in the head.
+		testQuery(db, []chunks.Sample{
+			sample{t: 0, f: 0},
+			sample{t: DefaultBlockDuration / 2, f: float64(DefaultBlockDuration / 2)},
+			sample{t: DefaultBlockDuration - 1, f: float64(DefaultBlockDuration - 1)},
+			sample{t: 2 * DefaultBlockDuration, f: float64(2 * DefaultBlockDuration)},
+		})
+	}
 }

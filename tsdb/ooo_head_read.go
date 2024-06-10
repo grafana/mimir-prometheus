@@ -169,6 +169,12 @@ func (oh *OOOHeadIndexReader) series(ref storage.SeriesRef, builder *labels.Scra
 	return nil
 }
 
+// PostingsForMatchers needs to be overridden so that the right IndexReader
+// implementation gets passed down to the PostingsForMatchers call.
+func (oh *OOOHeadIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return oh.head.pfmc.PostingsForMatchers(ctx, oh, concurrent, ms...)
+}
+
 // LabelValues needs to be overridden from the headIndexReader implementation due
 // to the check that happens at the beginning where we make sure that the query
 // interval overlaps with the head minooot and maxooot.
@@ -457,6 +463,14 @@ func (ir *OOOCompactionHeadIndexReader) SortedPostings(p index.Postings) index.P
 
 func (ir *OOOCompactionHeadIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
 	return ir.ch.oooIR.ShardedPostings(p, shardIndex, shardCount)
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
+	return ir.ch.oooIR.LabelValuesFor(postings, name)
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelValuesExcluding(postings index.Postings, name string) storage.LabelValues {
+	return ir.ch.oooIR.LabelValuesExcluding(postings, name)
 }
 
 func (ir *OOOCompactionHeadIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
