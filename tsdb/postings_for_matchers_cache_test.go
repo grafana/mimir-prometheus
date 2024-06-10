@@ -592,7 +592,128 @@ func TestContextsTracker(t *testing.T) {
 	})
 }
 
-// TODO add concurrency test
+func TestContextsTracker_Concurrency(t *testing.T) {
+	const numContexts = 100
+
+	t.Run("concurrently add and then cancel tracked contexts except 1", func(t *testing.T) {
+		tracker, execCtx := newContextsTracker()
+		t.Cleanup(tracker.close)
+
+		cancels := make([]context.CancelFunc, 0, numContexts)
+
+		// Concurrently add() concurrently.
+		addWg := sync.WaitGroup{}
+		addWg.Add(numContexts)
+
+		for i := 0; i < numContexts; i++ {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancels = append(cancels, cancel)
+
+			go func(ctx context.Context) {
+				defer addWg.Done()
+				tracker.add(ctx)
+			}(ctx)
+		}
+
+		// Wait until all add() functions have done.
+		addWg.Wait()
+
+		// Concurrently cancel all contexts minus 1.
+		cancelWg := sync.WaitGroup{}
+		cancelWg.Add(numContexts - 1)
+
+		for i := 0; i < numContexts-1; i++ {
+			go func(i int) {
+				defer cancelWg.Done()
+				cancels[i]()
+			}(i)
+		}
+
+		// Wait until contexts have been canceled.
+		cancelWg.Wait()
+
+		// Since we canceled all contexts minus 1, we expect the execution context hasn't been canceled yet.
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		// Cancel the last context.
+		cancels[numContexts-1]()
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
+
+	t.Run("concurrently add and then cancel tracked contexts", func(t *testing.T) {
+		tracker, execCtx := newContextsTracker()
+		t.Cleanup(tracker.close)
+
+		cancels := make([]context.CancelFunc, 0, numContexts)
+
+		// Concurrently add() concurrently.
+		addWg := sync.WaitGroup{}
+		addWg.Add(numContexts)
+
+		for i := 0; i < numContexts; i++ {
+			ctx, cancel := context.WithCancel(context.Background())
+			cancels = append(cancels, cancel)
+
+			go func(ctx context.Context) {
+				defer addWg.Done()
+				tracker.add(ctx)
+			}(ctx)
+		}
+
+		// Wait until all add() functions have done.
+		addWg.Wait()
+
+		// Since we haven't canceled any tracked context, we don't expect the execution context has been canceled neither.
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		// Concurrently cancel all contexts.
+		cancelWg := sync.WaitGroup{}
+		cancelWg.Add(numContexts)
+
+		for i := 0; i < numContexts; i++ {
+			go func(i int) {
+				defer cancelWg.Done()
+				cancels[i]()
+			}(i)
+		}
+
+		// Wait until contexts have been canceled.
+		cancelWg.Wait()
+
+		// Since we canceled all contexts, we expect the execution context has been canceled too.
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
+
+	t.Run("concurrently close tracker", func(t *testing.T) {
+		tracker, execCtx := newContextsTracker()
+
+		for i := 0; i < numContexts; i++ {
+			tracker.add(context.Background())
+		}
+
+		// Concurrently close tracker.
+		fire := make(chan struct{})
+
+		closeWg := sync.WaitGroup{}
+		for i := 0; i < 100; i++ {
+			closeWg.Add(1)
+
+			go func() {
+				defer closeWg.Done()
+
+				<-fire
+				tracker.close()
+			}()
+		}
+
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+		close(fire)
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+
+		// Wait until all gouroutines have done.
+		closeWg.Wait()
+	})
+}
 
 func requireContextsTrackerExecutionContextDone(t *testing.T, ctx context.Context, expected bool) {
 	t.Helper()
