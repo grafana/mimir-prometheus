@@ -292,7 +292,6 @@ func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, k
 
 	// Do not cache if the promise execution was canceled (it gets cancelled once all the callers contexts have
 	// been canceled).
-	// TODO unit test.
 	if errors.Is(err, context.Canceled) {
 		span.AddEvent("not caching promise result because execution has been canceled")
 		c.calls.Delete(key)
