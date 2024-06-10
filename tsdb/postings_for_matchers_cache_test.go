@@ -2,6 +2,7 @@ package tsdb
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -338,27 +340,181 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.Equal(t, 1, callsPerMatchers[matchersKey(matchersLists[3])])
 	})
 
-	t.Run("initial request context is cancelled, second request is not cancelled", func(t *testing.T) {
+	t.Run("initial request context is canceled, no other in-flight requests", func(t *testing.T) {
 		matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
-		expectedPostings := index.NewListPostings(nil)
+		expectedPostings := index.NewPostingsCloner(index.NewListPostings([]storage.SeriesRef{1, 2, 3}))
+
+		var reqCtx context.Context
+		var cancelReqCtx context.CancelFunc
+		callsCount := atomic.NewInt32(0)
 
 		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
-			if ctx.Err() != nil {
-				return nil, ctx.Err()
+			callsCount.Inc()
+
+			// We want the request context to be canceled while running PostingsForMatchers()
+			// so we call it here. The request context is not the same we're getting in input
+			// in this function!
+			if cancelReqCtx != nil {
+				cancelReqCtx()
 			}
 
-			return expectedPostings, nil
+			// Wait a short time to see if the context will be canceled. If not, we proceed
+			// returning the postings.
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+
+			case <-time.After(time.Second):
+				return expectedPostings.Clone(), nil
+			}
 		}, &timeNowMock{}, false)
 
-		ctx1, cancel := context.WithCancel(context.Background())
-		cancel()
-		_, err := c.PostingsForMatchers(ctx1, indexForPostingsMock{}, true, matchers...)
+		// Run PostingsForMatchers() a first time, cancelling the context while it's executing.
+		reqCtx, cancelReqCtx = context.WithCancel(context.Background())
+		_, err := c.PostingsForMatchers(reqCtx, indexForPostingsMock{}, true, matchers...)
 		require.ErrorIs(t, err, context.Canceled)
+		require.Equal(t, int32(1), callsCount.Load())
 
-		ctx2 := context.Background()
-		actualPostings, err := c.PostingsForMatchers(ctx2, indexForPostingsMock{}, true, matchers...)
+		// We expect the promise has not been cached.
+		require.Equal(t, 0, c.cached.Len())
+
+		// Run PostingsForMatchers() a second time, not cancelling the context. Since the previous
+		// canceled execution was not cached, we expect to run it again and get the actual result.
+		reqCtx, cancelReqCtx = context.Background(), nil
+		actualPostings, err := c.PostingsForMatchers(reqCtx, indexForPostingsMock{}, true, matchers...)
 		require.NoError(t, err)
-		require.Equal(t, expectedPostings, actualPostings)
+		require.Equal(t, expectedPostings.Clone(), actualPostings)
+		require.Equal(t, int32(2), callsCount.Load())
+	})
+
+	t.Run("initial request context is cancelled, second request is not cancelled", func(t *testing.T) {
+		matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
+		expectedPostings := index.NewPostingsCloner(index.NewListPostings([]storage.SeriesRef{1, 2, 3}))
+
+		reqCtx1, cancelReqCtx1 := context.WithCancel(context.Background())
+		waitBeforeCancelReqCtx1 := make(chan struct{})
+		callsCount := atomic.NewInt32(0)
+
+		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+			callsCount.Inc()
+
+			// Cancel the initial request once the test sends the signal. The requests context is not the same
+			// we're getting in input in this function!
+			select {
+			case <-waitBeforeCancelReqCtx1:
+				cancelReqCtx1()
+
+			case <-time.After(time.Second):
+				return nil, errors.New("expected to receive signal to cancel requests but wasn't received")
+			}
+
+			// Wait a short time to see if the context will be canceled. If not, we proceed
+			// returning the postings.
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+
+			case <-time.After(time.Second):
+				return expectedPostings.Clone(), nil
+			}
+		}, &timeNowMock{}, false)
+
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+
+			_, err := c.PostingsForMatchers(reqCtx1, indexForPostingsMock{}, true, matchers...)
+			require.ErrorIs(t, err, context.Canceled)
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			actualPostings, err := c.PostingsForMatchers(context.Background(), indexForPostingsMock{}, true, matchers...)
+			require.NoError(t, err)
+			require.Equal(t, expectedPostings.Clone(), actualPostings)
+		}()
+
+		// Give some time to let the 2nd request attach to the 1st one (we have no better way in tests to detect it).
+		time.Sleep(100 * time.Millisecond)
+
+		close(waitBeforeCancelReqCtx1)
+		wg.Wait()
+
+		// We expect the PostingsForMatchers has been called only once.
+		require.Equal(t, int32(1), callsCount.Load())
+
+		// We expect the promise has been cached.
+		require.Equal(t, 1, c.cached.Len())
+
+		// Send another request. Since the result was cached, we expect the result is getting picked up
+		// from the cache.
+		actualPostings, err := c.PostingsForMatchers(context.Background(), indexForPostingsMock{}, true, matchers...)
+		require.NoError(t, err)
+		require.Equal(t, expectedPostings.Clone(), actualPostings)
+		require.Equal(t, int32(1), callsCount.Load())
+	})
+
+	t.Run("initial and subsequent requests are canceled during execution", func(t *testing.T) {
+		matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
+		postings := index.NewPostingsCloner(index.NewListPostings([]storage.SeriesRef{1, 2, 3}))
+
+		reqCtx1, cancelReqCtx1 := context.WithCancel(context.Background())
+		reqCtx2, cancelReqCtx2 := context.WithCancel(context.Background())
+		cancelRequests := make(chan struct{})
+		callsCount := atomic.NewInt32(0)
+
+		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+			callsCount.Inc()
+
+			// Cancel the requests once the test sends the signal. The requests context is not the same
+			// we're getting in input in this function!
+			select {
+			case <-cancelRequests:
+				cancelReqCtx1()
+				cancelReqCtx2()
+
+			case <-time.After(time.Second):
+				return nil, errors.New("expected to receive signal to cancel requests but wasn't received")
+			}
+
+			// Wait a short time to see if the context will be canceled. If not, we proceed
+			// returning the postings.
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+
+			case <-time.After(time.Second):
+				return postings.Clone(), nil
+			}
+		}, &timeNowMock{}, false)
+
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		go func() {
+			defer wg.Done()
+
+			_, err := c.PostingsForMatchers(reqCtx1, indexForPostingsMock{}, true, matchers...)
+			require.ErrorIs(t, err, context.Canceled)
+		}()
+
+		go func() {
+			defer wg.Done()
+
+			_, err := c.PostingsForMatchers(reqCtx2, indexForPostingsMock{}, true, matchers...)
+			require.ErrorIs(t, err, context.Canceled)
+		}()
+
+		close(cancelRequests)
+		wg.Wait()
+
+		// We expect the promise has not been cached.
+		require.Equal(t, 0, c.cached.Len())
+
+		require.Equal(t, int32(1), callsCount.Load())
 	})
 }
 
