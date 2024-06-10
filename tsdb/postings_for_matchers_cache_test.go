@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DmitriyVTitov/size"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
@@ -521,6 +522,69 @@ func TestPostingsForMatchersCache(t *testing.T) {
 	})
 }
 
+func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellationAndNewRequest(t *testing.T) {
+	matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
+	expectedPostings := index.NewPostingsCloner(index.NewListPostings([]storage.SeriesRef{1, 2, 3}))
+
+	reqCtx1, cancelReqCtx1 := context.WithCancel(context.Background())
+	callsCount := atomic.NewInt32(0)
+
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	c := NewPostingsForMatchersCache(time.Hour, 5, 1000, true)
+
+	c.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+		callsCount.Inc()
+
+		// We want the request context to be canceled while running PostingsForMatchers()
+		// so we call it here. The request context is not the same we're getting in input
+		// in this function!
+		cancelReqCtx1()
+
+		// Wait a short time to see if the context will be canceled. If not, we proceed
+		// returning the postings.
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+
+		case <-time.After(time.Second):
+			return expectedPostings.Clone(), nil
+		}
+	}
+
+	c.onPromiseExecutionDoneBeforeHook = func() {
+		// When the 1st request has been canceled, but before the promise is removed from the calls map,
+		// we do issue a 2nd request. The 2nd request is expected to succeed, because its context has
+		// not been canceled.
+		go func() {
+			defer wg.Done()
+
+			actualPostings, err := c.PostingsForMatchers(context.Background(), indexForPostingsMock{}, true, matchers...)
+			require.NoError(t, err)
+			require.Equal(t, expectedPostings.Clone(), actualPostings)
+		}()
+
+		// Wait a (more than) reasonable amount of time to let the 2nd request to kick off.
+		time.Sleep(time.Second)
+	}
+
+	// Issue the 1st request. The request context will be canceled while running the PostingsForMatchers().
+	// At the time of the cancellation there's no other in-flight request, so we expect that the execution
+	// is canceled and context.Canceled returned.
+	_, err := c.PostingsForMatchers(reqCtx1, indexForPostingsMock{}, true, matchers...)
+	require.ErrorIs(t, err, context.Canceled)
+
+	wg.Wait()
+
+	// The PostingsForMatchers() should have been called twice: the first time by the 1st request which is
+	// canceled, and then again by the 2nd request that will run successfully.
+	require.Equal(t, int32(2), callsCount.Load())
+
+	// When the race condition is detected, we bypass the cache, and so we don't expect the result to be cached.
+	require.Equal(t, 0, c.cached.Len())
+}
+
 func BenchmarkPostingsForMatchersCache(b *testing.B) {
 	const (
 		numMatchers = 100
@@ -643,7 +707,7 @@ func TestContextsTracker(t *testing.T) {
 		tracker, execCtx := newContextsTracker()
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
-		require.True(t, tracker.add(context.Background()))
+		require.NoError(t, tracker.add(context.Background()))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		tracker.close()
@@ -659,7 +723,7 @@ func TestContextsTracker(t *testing.T) {
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		ctx1, cancelCtx1 := context.WithCancel(context.Background())
-		require.True(t, tracker.add(ctx1))
+		require.NoError(t, tracker.add(ctx1))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		cancelCtx1()
@@ -673,10 +737,10 @@ func TestContextsTracker(t *testing.T) {
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		ctx1, cancelCtx1 := context.WithCancel(context.Background())
-		require.True(t, tracker.add(ctx1))
+		require.NoError(t, tracker.add(ctx1))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
-		require.True(t, tracker.add(context.Background()))
+		require.NoError(t, tracker.add(context.Background()))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		cancelCtx1()
@@ -695,11 +759,11 @@ func TestContextsTracker(t *testing.T) {
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		ctx1, cancelCtx1 := context.WithCancel(context.Background())
-		require.True(t, tracker.add(ctx1))
+		require.NoError(t, tracker.add(ctx1))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		ctx2, cancelCtx2 := context.WithCancel(context.Background())
-		require.True(t, tracker.add(ctx2))
+		require.NoError(t, tracker.add(ctx2))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		cancelCtx1()
@@ -718,12 +782,12 @@ func TestContextsTracker(t *testing.T) {
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		ctx1, cancelCtx1 := context.WithCancel(context.Background())
-		require.True(t, tracker.add(ctx1))
+		require.NoError(t, tracker.add(ctx1))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		ctx2, cancelCtx2 := context.WithDeadline(context.Background(), time.Now())
 		t.Cleanup(cancelCtx2)
-		require.True(t, tracker.add(ctx2))
+		require.NoError(t, tracker.add(ctx2))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		cancelCtx1()
@@ -732,7 +796,7 @@ func TestContextsTracker(t *testing.T) {
 		requireContextsTrackerExecutionContextDone(t, execCtx, true)
 	})
 
-	t.Run("add() context to tracker but the tracker is already closed", func(t *testing.T) {
+	t.Run("add() context to tracker but the tracker has been explicitly closed", func(t *testing.T) {
 		t.Parallel()
 
 		tracker, execCtx := newContextsTracker()
@@ -740,13 +804,32 @@ func TestContextsTracker(t *testing.T) {
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
-		require.True(t, tracker.add(context.Background()))
+		require.NoError(t, tracker.add(context.Background()))
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		tracker.close()
 		requireContextsTrackerExecutionContextDone(t, execCtx, true)
 
-		require.False(t, tracker.add(context.Background()))
+		require.Equal(t, errContextsTrackerClosed{}, tracker.add(context.Background()))
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
+
+	t.Run("add() context to tracker but the tracker has been implicitly closed because all tracked contexts have been canceled", func(t *testing.T) {
+		t.Parallel()
+
+		tracker, execCtx := newContextsTracker()
+		t.Cleanup(tracker.close)
+
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		ctx, cancelCtx := context.WithCancel(context.Background())
+		require.NoError(t, tracker.add(ctx))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		cancelCtx()
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+
+		require.Equal(t, errContextsTrackerCanceled{}, tracker.add(context.Background()))
 		requireContextsTrackerExecutionContextDone(t, execCtx, true)
 	})
 }
@@ -890,4 +973,18 @@ func requireContextsTrackerExecutionContextDone(t *testing.T, ctx context.Contex
 			t.Fatal("expected contextsTracker execution context to be not done")
 		}
 	}
+}
+
+func TestErrContextsTrackerClosed(t *testing.T) {
+	err := errContextsTrackerClosed{}
+	require.ErrorIs(t, err, errContextsTrackerClosed{})
+	require.NotErrorIs(t, context.Canceled, errContextsTrackerClosed{})
+	require.Equal(t, 0, size.Of(err))
+}
+
+func TestErrContextsTrackerCanceled(t *testing.T) {
+	err := errContextsTrackerCanceled{}
+	require.ErrorIs(t, err, errContextsTrackerCanceled{})
+	require.NotErrorIs(t, context.Canceled, errContextsTrackerCanceled{})
+	require.Equal(t, 0, size.Of(err))
 }

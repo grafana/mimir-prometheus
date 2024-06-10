@@ -83,8 +83,13 @@ type PostingsForMatchersCache struct {
 
 	// timeNow is the time.Now that can be replaced for testing purposes
 	timeNow func() time.Time
+
 	// postingsForMatchers can be replaced for testing purposes
 	postingsForMatchers func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error)
+
+	// onPromiseExecutionDoneBeforeHook is used for testing purposes. It allows to hook at the
+	// beginning of onPromiseExecutionDone() execution.
+	onPromiseExecutionDoneBeforeHook func()
 
 	tracer trace.Tracer
 	// Preallocated for performance
@@ -159,40 +164,46 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		callersCtxTracker: promiseCallersCtxTracker,
 	}
 
-	// Add the caller context to the ones tracked by the new promise. It's important to do it here
-	// so that if the promise will be stored, then the caller's context is already tracked. Otherwise,
-	// if the promise will not be stored (because there's another in-flight promise for the same label
-	// matchers) then it's not a problem, and resources will be released.
-	promise.callersCtxTracker.add(ctx)
+	// Add the caller context to the ones tracked by the new promise.
+	//
+	// It's important to do it here so that if the promise will be stored, then the caller's context is already
+	// tracked. Otherwise, if the promise will not be stored (because there's another in-flight promise for the
+	// same label matchers) then it's not a problem, and resources will be released.
+	//
+	// Skipping the error checking because it can't happen here.
+	_ = promise.callersCtxTracker.add(ctx)
 
 	key := matchersKey(ms)
 
 	if oldPromiseValue, loaded := c.calls.LoadOrStore(key, promise); loaded {
 		// The new promise hasn't been stored because there's already an in-flight promise
 		// for the same label matchers. We should just wait for it.
-		span.AddEvent("using cached postingsForMatchers promise", trace.WithAttributes(
-			attribute.String("cache_key", key),
-		))
-
-		oldPromise := oldPromiseValue.(*postingsForMatcherPromise)
-
-		// Add the caller context to the ones tracked by the old promise (currently in-flight).
-		// It will be a no-op if the tracker is already closed because the promise isn't in-flight,
-		// and it has been loaded from the cache.
-		//
-		// However, there's a race condition here happening when the "loaded" promise
-		// execution was just canceled. It could happen that "loaded" promise execution was just
-		// canceled, its result not cached (because we don't cache results for canceled executions),
-		// but we didn't remove the promise from c.calls yet, so it was loaded anyway.
-		//
-		// In this scenario, this caller will get context.Canceled error, which is bad because it
-		// should have triggered a new execution instead. We believe this race condition to be
-		// rare enough to not worry about it.
-		oldPromise.callersCtxTracker.add(ctx)
 
 		// Release the resources created by the new promise, that will not be used.
 		close(promise.done)
 		promise.callersCtxTracker.close()
+
+		oldPromise := oldPromiseValue.(*postingsForMatcherPromise)
+
+		// Add the caller context to the ones tracked by the old promise (currently in-flight).
+		if err := oldPromise.callersCtxTracker.add(ctx); err != nil && errors.Is(err, errContextsTrackerCanceled{}) {
+			// We've hit a race condition happening when the "loaded" promise execution was just canceled,
+			// but it hasn't been removed from map of calls yet, so the old promise was loaded anyway.
+			//
+			// We expect this race condition to be infrequent. In this case we simply skip the cache and
+			// pass through the execution to the underlying postingsForMatchers().
+			span.AddEvent("looked up in-flight postingsForMatchers promise, but the promise was just canceled due to a race condition: skipping the cache", trace.WithAttributes(
+				attribute.String("cache_key", key),
+			))
+
+			return func(ctx context.Context) (index.Postings, error) {
+				return c.postingsForMatchers(ctx, ix, ms...)
+			}
+		}
+
+		span.AddEvent("using cached postingsForMatchers promise", trace.WithAttributes(
+			attribute.String("cache_key", key),
+		))
 
 		return oldPromise.result
 	}
@@ -283,6 +294,11 @@ func (c *PostingsForMatchersCache) evictHead() {
 func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, key string, ts time.Time, sizeBytes int64, err error) {
 	span := trace.SpanFromContext(ctx)
 
+	// Call the registered hook, if any. It's used only for testing purposes.
+	if c.onPromiseExecutionDoneBeforeHook != nil {
+		c.onPromiseExecutionDoneBeforeHook()
+	}
+
 	// Do not cache if cache is disabled.
 	if c.ttl <= 0 {
 		span.AddEvent("not caching promise result because configured TTL is <= 0")
@@ -350,13 +366,34 @@ func (ir indexReaderWithPostingsForMatchers) PostingsForMatchers(ctx context.Con
 
 var _ IndexReader = indexReaderWithPostingsForMatchers{}
 
+// errContextsTrackerClosed is the reason to identify contextsTracker has been explicitly closed by calling close().
+//
+// This error is a struct instead of a globally generic error so that postingsForMatcherPromise computed size is smaller
+// (this error is referenced by contextsTracker, which is referenced by postingsForMatcherPromise).
+type errContextsTrackerClosed struct{}
+
+func (e errContextsTrackerClosed) Error() string {
+	return "contexts tracker is closed"
+}
+
+// errContextsTrackerCanceled is the reason to identify contextsTracker has been automatically closed because
+// all tracked contexts have been canceled.
+//
+// This error is a struct instead of a globally generic error so that postingsForMatcherPromise computed size is smaller
+// (this error is referenced by contextsTracker, which is referenced by postingsForMatcherPromise).
+type errContextsTrackerCanceled struct{}
+
+func (e errContextsTrackerCanceled) Error() string {
+	return "contexts tracker has been canceled"
+}
+
 // contextsTracker is responsible to monitor multiple context.Context and provides an execution
 // that gets canceled once all monitored context.Context have done.
 type contextsTracker struct {
 	cancelExecCtx context.CancelFunc
 
 	mx               sync.Mutex
-	closed           bool          // Track whether the tracker is closed and the execution context has been canceled.
+	closedWithReason error         // Track whether the tracker is closed and why. The tracker is not closed if this is nil.
 	trackedCount     int           // Number of tracked contexts.
 	trackedStopFuncs []func() bool // The stop watching functions for all tracked contexts.
 }
@@ -373,20 +410,20 @@ func newContextsTracker() (*contextsTracker, context.Context) {
 
 // add the input ctx to the group of monitored context.Context.
 // Returns false if the input context couldn't be added to the tracker because the tracker is already closed.
-func (t *contextsTracker) add(ctx context.Context) bool {
+func (t *contextsTracker) add(ctx context.Context) error {
 	t.mx.Lock()
 	defer t.mx.Unlock()
 
 	// Check if we've already done.
-	if t.closed {
-		return false
+	if t.closedWithReason != nil {
+		return t.closedWithReason
 	}
 
 	// Register a function that will be called once the tracked context has done.
 	t.trackedCount++
 	t.trackedStopFuncs = append(t.trackedStopFuncs, context.AfterFunc(ctx, t.onTrackedContextDone))
 
-	return true
+	return nil
 }
 
 // close the tracker. When the tracker is closed, the execution context is canceled
@@ -397,12 +434,12 @@ func (t *contextsTracker) close() {
 	t.mx.Lock()
 	defer t.mx.Unlock()
 
-	t.unsafeClose()
+	t.unsafeClose(errContextsTrackerClosed{})
 }
 
 // unsafeClose must be called with the t.mx lock hold.
-func (t *contextsTracker) unsafeClose() {
-	if t.closed {
+func (t *contextsTracker) unsafeClose(reason error) {
+	if t.closedWithReason != nil {
 		return
 	}
 
@@ -416,7 +453,7 @@ func (t *contextsTracker) unsafeClose() {
 
 	t.trackedCount = 0
 	t.trackedStopFuncs = nil
-	t.closed = true
+	t.closedWithReason = reason
 }
 
 func (t *contextsTracker) onTrackedContextDone() {
@@ -427,6 +464,6 @@ func (t *contextsTracker) onTrackedContextDone() {
 
 	// If this was the last context to be tracked, we can close the tracker and cancel the execution context.
 	if t.trackedCount == 0 {
-		t.unsafeClose()
+		t.unsafeClose(errContextsTrackerCanceled{})
 	}
 }
