@@ -289,41 +289,61 @@ func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
 
 // Delete removes all ids in the given map from the postings lists.
 func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}) {
-	var keys, vals []string
+	// Take the optimistic read lock for the entire method,
+	// and only lock for writing when we actually find something to delete.
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
 
 	// Collect all keys relevant for deletion once. New keys added afterwards
 	// can by definition not be affected by any of the given deletes.
-	p.mtx.RLock()
+	keys := make([]string, 0, len(p.m))
+	maxVals := 0
 	for n := range p.m {
 		keys = append(keys, n)
+		if len(p.m[n]) > maxVals {
+			maxVals = len(p.m[n])
+		}
 	}
-	p.mtx.RUnlock()
 
+	vals := make([]string, 0, maxVals)
 	for _, n := range keys {
-		p.mtx.RLock()
+		// Copy the values and iterate the copy: if we unlock in the loop below,
+		// another goroutine might modify the map while we are part-way through it.
 		vals = vals[:0]
 		for v := range p.m[n] {
 			vals = append(vals, v)
 		}
-		p.mtx.RUnlock()
 
 		// For each posting we first analyse whether the postings list is affected by the deletes.
-		// If yes, we actually reallocate a new postings list.
-		for _, l := range vals {
-			// Only lock for processing one postings list so we don't block reads for too long.
-			p.mtx.Lock()
-
+		// If no, we remove the label value from the vals list.
+		// This way we only need to Lock once later.
+		for i := 0; i < len(vals); {
 			found := false
-			for _, id := range p.m[n][l] {
+			for _, id := range p.m[n][vals[i]] {
 				if _, ok := deleted[id]; ok {
+					i++
 					found = true
 					break
 				}
 			}
+
 			if !found {
-				p.mtx.Unlock()
-				continue
+				// This label value doesn't contain deleted ids, so no need to process it later.
+				// We we continue with the next one, which is the last one in the list.
+				vals[i], vals = vals[len(vals)-1], vals[:len(vals)-1]
 			}
+		}
+
+		// If no label values have deleted ids, just continue.
+		if len(vals) == 0 {
+			continue
+		}
+
+		// The only vals left here are the ones that contain deleted ids.
+		// Now we take the write lock and remove the ids.
+		p.mtx.RUnlock()
+		p.mtx.Lock()
+		for _, l := range vals {
 			repl := make([]storage.SeriesRef, 0, len(p.m[n][l]))
 
 			for _, id := range p.m[n][l] {
@@ -336,13 +356,14 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}) {
 			} else {
 				delete(p.m[n], l)
 			}
-			p.mtx.Unlock()
 		}
-		p.mtx.Lock()
+
+		// Delete the key if we removed all values.
 		if len(p.m[n]) == 0 {
 			delete(p.m, n)
 		}
 		p.mtx.Unlock()
+		p.mtx.RLock()
 	}
 }
 
