@@ -481,7 +481,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("1 tracked context, tracked context doesn't get canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newPromiseExecutionContext()
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		require.True(t, tracker.add(context.Background()))
@@ -494,7 +494,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("1 tracked context, tracked context gets canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newPromiseExecutionContext()
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -510,7 +510,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("2 tracked contexts, only 1 tracked context gets canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newPromiseExecutionContext()
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		ctx1, cancelCtx1 := context.WithCancel(context.Background())
@@ -530,7 +530,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("2 tracked contexts, both contexts get canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newPromiseExecutionContext()
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -553,7 +553,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("2 tracked contexts, 1 context gets canceled, the other context has deadline exceeded", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newPromiseExecutionContext()
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -576,7 +576,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("add() context to tracker but the tracker is already closed", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newPromiseExecutionContext()
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -597,17 +597,17 @@ func TestContextsTracker(t *testing.T) {
 func requireContextsTrackerExecutionContextDone(t *testing.T, ctx context.Context, expected bool) {
 	t.Helper()
 
-	// The contextsTracker execution context is NOT cancelled synchronously once the tracked
+	// The promiseExecutionContext execution context is NOT cancelled synchronously once the tracked
 	// contexts have done, so we allow for a short delay.
 	select {
 	case <-time.After(100 * time.Millisecond):
 		if expected {
-			t.Fatal("expected contextsTracker execution context to be done")
+			t.Fatal("expected promiseExecutionContext execution context to be done")
 		}
 
 	case <-ctx.Done():
 		if !expected {
-			t.Fatal("expected contextsTracker execution context to be not done")
+			t.Fatal("expected promiseExecutionContext execution context to be not done")
 		}
 	}
 }

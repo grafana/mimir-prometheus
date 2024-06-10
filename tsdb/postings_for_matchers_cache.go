@@ -122,9 +122,9 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 }
 
 type postingsForMatcherPromise struct {
-	// Keep track of all callers contexts in order to cancel the execution context if all
+	// Keep track of all callers contexts in order to cancelExecutionContext the execution context if all
 	// callers contexts get canceled.
-	callersCtxTracker *contextsTracker
+	ctx *promiseExecutionContext
 
 	// The result of the promise is stored either in cloner or err (only of the two is valued).
 	// Do not access these fields until the done channel is closed.
@@ -153,17 +153,16 @@ func (p *postingsForMatcherPromise) result(ctx context.Context) (index.Postings,
 func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Context, ix IndexPostingsReader, ms []*labels.Matcher) func(context.Context) (index.Postings, error) {
 	span := trace.SpanFromContext(ctx)
 
-	promiseCallersCtxTracker, promiseExecCtx := newContextsTracker()
 	promise := &postingsForMatcherPromise{
-		done:              make(chan struct{}),
-		callersCtxTracker: promiseCallersCtxTracker,
+		done: make(chan struct{}),
+		ctx:  newPromiseExecutionContext(),
 	}
 
 	// Add the caller context to the ones tracked by the new promise. It's important to do it here
 	// so that if the promise will be stored, then the caller's context is already tracked. Otherwise,
 	// if the promise will not be stored (because there's another in-flight promise for the same label
 	// matchers) then it's not a problem, and resources will be released.
-	promise.callersCtxTracker.add(ctx)
+	promise.ctx.add(ctx)
 
 	key := matchersKey(ms)
 
@@ -179,15 +178,15 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		// Add the caller context to the ones tracked by the old promise (currently in-flight).
 		//
 		// There's an infrequent race condition here. We may try to add the caller's context
-		// on a contextsTracker which has already been closed. In that case, if the stored promise
+		// on a promiseExecutionContext which has already been closed. In that case, if the stored promise
 		// execution successfully completed, then we're good, but if it was canceled than this
 		// caller will get context.Canceled error. We believe the race condition to be so infrequent
 		// to not worry about it.
-		oldPromise.callersCtxTracker.add(ctx)
+		oldPromise.ctx.add(ctx)
 
 		// Release the resources created by the new promise, that will not be used.
 		close(promise.done)
-		promise.callersCtxTracker.close()
+		promise.ctx.cancel()
 
 		return oldPromise.result
 	}
@@ -198,12 +197,12 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 	defer close(promise.done)
 
 	// The execution context will be canceled only once all callers contexts will be canceled. This way we:
-	// 1. Do not cancel postingsForMatchers() the input ctx is cancelled, but another goroutine is waiting
+	// 1. Do not cancelExecutionContext postingsForMatchers() the input ctx is cancelled, but another goroutine is waiting
 	//    for the promise result.
 	// 2. Cancel postingsForMatchers() once all callers contexts have been canceled, so that we don't waist
 	//    resources computing postingsForMatchers() is all requests have been canceled (this is particularly
 	//    important if the postingsForMatchers() is very slow due to expensive regexp matchers).
-	if postings, err := c.postingsForMatchers(promiseExecCtx, ix, ms...); err != nil {
+	if postings, err := c.postingsForMatchers(promise.ctx, ix, ms...); err != nil {
 		promise.err = err
 	} else {
 		promise.cloner = index.NewPostingsCloner(postings)
@@ -211,7 +210,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 
 	// The execution terminated (or has been canceled). We have to close the tracker to release resources.
 	// It's important to close it before computing the promise size, so that the actual size is smaller.
-	promise.callersCtxTracker.close()
+	promise.ctx.cancel()
 
 	sizeBytes := int64(len(key) + size.Of(promise))
 
@@ -346,10 +345,11 @@ func (ir indexReaderWithPostingsForMatchers) PostingsForMatchers(ctx context.Con
 
 var _ IndexReader = indexReaderWithPostingsForMatchers{}
 
-// contextsTracker is responsible to monitor multiple context.Context and provides an execution
-// that gets canceled once all monitored context.Context have done.
-type contextsTracker struct {
-	cancelExecCtx context.CancelFunc
+// promiseExecutionContext is a context that is alive while any of the tracked context.Context is alive.
+// It is canceled when all tracked contexts are canceled or cancelExecutionContext() is called.
+type promiseExecutionContext struct {
+	context.Context
+	cancelExecutionContext context.CancelFunc
 
 	mx               sync.Mutex
 	closed           bool          // Track whether the tracker is closed and the execution context has been canceled.
@@ -357,19 +357,16 @@ type contextsTracker struct {
 	trackedStopFuncs []func() bool // The stop watching functions for all tracked contexts.
 }
 
-func newContextsTracker() (*contextsTracker, context.Context) {
-	t := &contextsTracker{}
-
+func newPromiseExecutionContext() *promiseExecutionContext {
 	// Create a new execution context that will be canceled only once all tracked contexts have done.
-	var execCtx context.Context
-	execCtx, t.cancelExecCtx = context.WithCancel(context.Background())
-
-	return t, execCtx
+	ctx := &promiseExecutionContext{}
+	ctx.Context, ctx.cancelExecutionContext = context.WithCancel(context.Background())
+	return ctx
 }
 
 // add the input ctx to the group of monitored context.Context.
-// Returns false if the input context couldn't be added to the tracker because the tracker is already closed.
-func (t *contextsTracker) add(ctx context.Context) bool {
+// Returns false if the input context couldn't be added to the execution context because the tracker is already closed.
+func (t *promiseExecutionContext) add(ctx context.Context) bool {
 	t.mx.Lock()
 	defer t.mx.Unlock()
 
@@ -385,24 +382,21 @@ func (t *contextsTracker) add(ctx context.Context) bool {
 	return true
 }
 
-// close the tracker. When the tracker is closed, the execution context is canceled
-// and resources releases.
-//
-// This function must be called once done to not leak resources.
-func (t *contextsTracker) close() {
+// cancel the context and stop watching the tracked contexts.
+func (t *promiseExecutionContext) cancel() {
 	t.mx.Lock()
 	defer t.mx.Unlock()
 
-	t.unsafeClose()
+	t.unsafeCancel()
 }
 
-// unsafeClose must be called with the t.mx lock hold.
-func (t *contextsTracker) unsafeClose() {
+// unsafeCancel must be called with the t.mx lock hold.
+func (t *promiseExecutionContext) unsafeCancel() {
 	if t.closed {
 		return
 	}
 
-	t.cancelExecCtx()
+	t.cancelExecutionContext()
 
 	// Stop watching the tracked contexts. It's safe to call the stop function on a context
 	// for which was already done.
@@ -415,14 +409,14 @@ func (t *contextsTracker) unsafeClose() {
 	t.closed = true
 }
 
-func (t *contextsTracker) onTrackedContextDone() {
+func (t *promiseExecutionContext) onTrackedContextDone() {
 	t.mx.Lock()
 	defer t.mx.Unlock()
 
 	t.trackedCount--
 
-	// If this was the last context to be tracked, we can close the tracker and cancel the execution context.
+	// If this was the last context to be tracked, we can close the tracker and cancelExecutionContext the execution context.
 	if t.trackedCount == 0 {
-		t.unsafeClose()
+		t.unsafeCancel()
 	}
 }
