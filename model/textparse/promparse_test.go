@@ -18,6 +18,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/klauspost/compress/gzip"
@@ -236,8 +237,10 @@ func checkParseResults(t *testing.T, p Parser, exp []expectedParse) {
 
 		case EntryComment:
 			require.Equal(t, exp[i].comment, string(p.Comment()))
+		case EntryIdent:
+			idens := p.Identifiers()
+			require.Equal(t, exp[i].m, strings.Join(idens, ","))
 		}
-
 		i++
 	}
 	require.Len(t, exp, i)
