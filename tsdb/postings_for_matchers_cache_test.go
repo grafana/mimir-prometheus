@@ -267,7 +267,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 	t.Run("cached value is evicted because cache exceeds max bytes", func(t *testing.T) {
 		const (
 			maxItems         = 100 // Never hit it.
-			maxBytes         = 1100
+			maxBytes         = 1250
 			numMatchers      = 5
 			postingsListSize = 30 // 8 bytes per posting ref, so 30 x 8 = 240 bytes.
 		)
@@ -474,5 +474,122 @@ func BenchmarkMatchersKey(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = matchersKey(sets[i%matcherSets])
+	}
+}
+
+func TestContextsTracker(t *testing.T) {
+	t.Run("1 tracked context, tracked context doesn't get canceled", func(t *testing.T) {
+		t.Parallel()
+
+		tracker, execCtx := newContextsTracker()
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		require.True(t, tracker.add(context.Background()))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		tracker.close()
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
+
+	t.Run("1 tracked context, tracked context gets canceled", func(t *testing.T) {
+		t.Parallel()
+
+		tracker, execCtx := newContextsTracker()
+		t.Cleanup(tracker.close)
+
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		ctx1, cancelCtx1 := context.WithCancel(context.Background())
+		require.True(t, tracker.add(ctx1))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		cancelCtx1()
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
+
+	t.Run("2 tracked contexts, only 1 tracked context gets canceled", func(t *testing.T) {
+		t.Parallel()
+
+		tracker, execCtx := newContextsTracker()
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		ctx1, cancelCtx1 := context.WithCancel(context.Background())
+		require.True(t, tracker.add(ctx1))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		require.True(t, tracker.add(context.Background()))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		cancelCtx1()
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		tracker.close()
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
+
+	t.Run("2 tracked contexts, both contexts get canceled", func(t *testing.T) {
+		t.Parallel()
+
+		tracker, execCtx := newContextsTracker()
+		t.Cleanup(tracker.close)
+
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		ctx1, cancelCtx1 := context.WithCancel(context.Background())
+		require.True(t, tracker.add(ctx1))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		ctx2, cancelCtx2 := context.WithCancel(context.Background())
+		require.True(t, tracker.add(ctx2))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		cancelCtx1()
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		cancelCtx2()
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
+
+	t.Run("2 tracked contexts, 1 context gets canceled, the other context has deadline exceeded", func(t *testing.T) {
+		t.Parallel()
+
+		tracker, execCtx := newContextsTracker()
+		t.Cleanup(tracker.close)
+
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		ctx1, cancelCtx1 := context.WithCancel(context.Background())
+		require.True(t, tracker.add(ctx1))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		ctx2, cancelCtx2 := context.WithDeadline(context.Background(), time.Now())
+		t.Cleanup(cancelCtx2)
+		require.True(t, tracker.add(ctx2))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		cancelCtx1()
+
+		// We expect the 2nd context deadline to expire immediately.
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
+}
+
+// TODO add concurrency test
+
+func requireContextsTrackerExecutionContextDone(t *testing.T, ctx context.Context, expected bool) {
+	t.Helper()
+
+	// The contextsTracker execution context is NOT cancelled synchronously once the tracked
+	// contexts have done, so we allow for a short delay.
+	select {
+	case <-time.After(100 * time.Millisecond):
+		if expected {
+			t.Fatal("expected contextsTracker execution context to be done")
+		}
+
+	case <-ctx.Done():
+		if !expected {
+			t.Fatal("expected contextsTracker execution context to be not done")
+		}
 	}
 }
