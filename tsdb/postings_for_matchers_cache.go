@@ -124,7 +124,8 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 type postingsForMatcherPromise struct {
 	done chan struct{}
 
-	// TODO comment
+	// Keep track of all callers contexts in order to cancel the execution context if all
+	// callers contexts get canceled.
 	callersCtxTracker *contextsTracker
 
 	// The result of the promise is stored either in cloner or err (only of the two is valued).
@@ -159,6 +160,12 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		callersCtxTracker: promiseCallersCtxTracker,
 	}
 
+	// Add the caller context to the ones tracked by the new promise. It's important to do it here
+	// so that if the promise will be stored, then the caller's context is already tracked. Otherwise,
+	// if the promise will not be stored (because there's another in-flight promise for the same label
+	// matchers) then it's not a problem, and resources will be released.
+	promise.callersCtxTracker.add(ctx)
+
 	key := matchersKey(ms)
 
 	if oldPromiseValue, loaded := c.calls.LoadOrStore(key, promise); loaded {
@@ -171,7 +178,12 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		oldPromise := oldPromiseValue.(*postingsForMatcherPromise)
 
 		// Add the caller context to the ones tracked by the old promise (currently in-flight).
-		// TODO what if it returns false?
+		//
+		// There's an infrequent race condition here. We may try to add the caller's context
+		// on a contextsTracker which has already been closed. In that case, if the stored promise
+		// execution successfully completed, then we're good, but if it was canceled than this
+		// caller will get context.Canceled error. We believe the race condition to be so infrequent
+		// to not worry about it.
 		oldPromise.callersCtxTracker.add(ctx)
 
 		// Release the resources created by the new promise, that will not be used.
@@ -185,10 +197,6 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 
 	// promise was stored, close its channel after fulfilment
 	defer close(promise.done)
-
-	// Add the caller context to the ones tracked by the promise.
-	// TODO better to do before the call to LoadOrStore ?
-	promise.callersCtxTracker.add(ctx)
 
 	// The execution context will be canceled only once all callers contexts will be canceled. This way we:
 	// 1. Do not cancel postingsForMatchers() the input ctx is cancelled, but another goroutine is waiting
@@ -280,7 +288,7 @@ func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, k
 
 	// Do not cache if the promise execution was canceled (it gets cancelled once all the callers contexts have
 	// been canceled).
-	// TODO unit test
+	// TODO unit test.
 	if errors.Is(err, context.Canceled) {
 		span.AddEvent("not caching promise result because execution has been canceled")
 		c.calls.Delete(key)
@@ -361,7 +369,7 @@ func newContextsTracker() (*contextsTracker, context.Context) {
 }
 
 // add the input ctx to the group of monitored context.Context.
-// TODO comment the return value
+// Returns false if the input context couldn't be added to the tracker because the tracker is already closed.
 func (t *contextsTracker) add(ctx context.Context) bool {
 	t.mx.Lock()
 	defer t.mx.Unlock()

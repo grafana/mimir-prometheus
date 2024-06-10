@@ -572,6 +572,24 @@ func TestContextsTracker(t *testing.T) {
 		// We expect the 2nd context deadline to expire immediately.
 		requireContextsTrackerExecutionContextDone(t, execCtx, true)
 	})
+
+	t.Run("add() context to tracker but the tracker is already closed", func(t *testing.T) {
+		t.Parallel()
+
+		tracker, execCtx := newContextsTracker()
+		t.Cleanup(tracker.close)
+
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		require.True(t, tracker.add(context.Background()))
+		requireContextsTrackerExecutionContextDone(t, execCtx, false)
+
+		tracker.close()
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+
+		require.False(t, tracker.add(context.Background()))
+		requireContextsTrackerExecutionContextDone(t, execCtx, true)
+	})
 }
 
 // TODO add concurrency test
