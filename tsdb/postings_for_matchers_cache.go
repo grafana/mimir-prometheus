@@ -177,12 +177,17 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		oldPromise := oldPromiseValue.(*postingsForMatcherPromise)
 
 		// Add the caller context to the ones tracked by the old promise (currently in-flight).
+		// It will be a no-op if the tracker is already closed because the promise isn't in-flight,
+		// and it has been loaded from the cache.
 		//
-		// There's an infrequent race condition here. We may try to add the caller's context
-		// on a contextsTracker which has already been closed. In that case, if the stored promise
-		// execution successfully completed, then we're good, but if it was canceled than this
-		// caller will get context.Canceled error. We believe the race condition to be so infrequent
-		// to not worry about it.
+		// However, there's a race condition here happening when the "loaded" promise
+		// execution was just canceled. It could happen that "loaded" promise execution was just
+		// canceled, its result not cached (because we don't cache results for canceled executions),
+		// but we didn't remove the promise from c.calls yet, so it was loaded anyway.
+		//
+		// In this scenario, this caller will get context.Canceled error, which is bad because it
+		// should have triggered a new execution instead. We believe this race condition to be
+		// rare enough to not worry about it.
 		oldPromise.callersCtxTracker.add(ctx)
 
 		// Release the resources created by the new promise, that will not be used.
