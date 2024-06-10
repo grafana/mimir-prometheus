@@ -22,8 +22,10 @@ import (
 	"math/rand"
 	"sort"
 	"strconv"
+	"strings"
 	"testing"
 
+	"github.com/grafana/regexp"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/labels"
@@ -50,7 +52,7 @@ func TestMemPostings_ensureOrder(t *testing.T) {
 		for j := range l {
 			l[j] = storage.SeriesRef(rand.Uint64())
 		}
-		v := fmt.Sprintf("%d", i)
+		v := strconv.Itoa(i)
 
 		p.m["a"][v] = l
 	}
@@ -391,7 +393,7 @@ func BenchmarkMerge(t *testing.B) {
 
 	its := make([]Postings, len(refs))
 	for _, nSeries := range []int{1, 10, 100, 1000, 10000, 100000} {
-		t.Run(fmt.Sprint(nSeries), func(bench *testing.B) {
+		t.Run(strconv.Itoa(nSeries), func(bench *testing.B) {
 			ctx := context.Background()
 			for i := 0; i < bench.N; i++ {
 				// Reset the ListPostings to their original values each time round the loop.
@@ -1391,6 +1393,58 @@ func BenchmarkListPostings(b *testing.B) {
 				}
 				require.NotZero(b, sum)
 			}
+		})
+	}
+}
+
+func slowRegexpString() string {
+	nums := map[int]struct{}{}
+	for i := 10_000; i < 20_000; i++ {
+		if i%3 == 0 {
+			nums[i] = struct{}{}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(".*(9999")
+	for i := range nums {
+		sb.WriteString("|")
+		sb.WriteString(strconv.Itoa(i))
+	}
+	sb.WriteString(").*")
+	return sb.String()
+}
+
+func BenchmarkMemPostings_PostingsForLabelMatching(b *testing.B) {
+	fast := regexp.MustCompile("^(100|200)$")
+	slowRegexp := "^" + slowRegexpString() + "$"
+	b.Logf("Slow regexp length = %d", len(slowRegexp))
+	slow := regexp.MustCompile(slowRegexp)
+
+	for _, labelValueCount := range []int{1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprintf("labels=%d", labelValueCount), func(b *testing.B) {
+			mp := NewMemPostings()
+			for i := 0; i < labelValueCount; i++ {
+				mp.Add(storage.SeriesRef(i), labels.FromStrings("label", strconv.Itoa(i)))
+			}
+
+			fp, err := ExpandPostings(mp.PostingsForLabelMatching(context.Background(), "label", fast.MatchString))
+			require.NoError(b, err)
+			b.Logf("Fast matcher matches %d series", len(fp))
+			b.Run("matcher=fast", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					mp.PostingsForLabelMatching(context.Background(), "label", fast.MatchString).Next()
+				}
+			})
+
+			sp, err := ExpandPostings(mp.PostingsForLabelMatching(context.Background(), "label", slow.MatchString))
+			require.NoError(b, err)
+			b.Logf("Slow matcher matches %d series", len(sp))
+			b.Run("matcher=slow", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					mp.PostingsForLabelMatching(context.Background(), "label", slow.MatchString).Next()
+				}
+			})
 		})
 	}
 }
