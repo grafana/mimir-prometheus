@@ -22,9 +22,11 @@ import (
 	"math/rand"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 
+	"github.com/grafana/regexp"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/labels"
@@ -1490,6 +1492,80 @@ func BenchmarkListPostings(b *testing.B) {
 			}
 		})
 	}
+}
+
+func slowRegexpString() string {
+	nums := map[int]struct{}{}
+	for i := 10_000; i < 20_000; i++ {
+		if i%3 == 0 {
+			nums[i] = struct{}{}
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(".*(9999")
+	for i := range nums {
+		sb.WriteString("|")
+		sb.WriteString(strconv.Itoa(i))
+	}
+	sb.WriteString(").*")
+	return sb.String()
+}
+
+func BenchmarkMemPostings_PostingsForLabelMatching(b *testing.B) {
+	fast := regexp.MustCompile("^(100|200)$")
+	slowRegexp := "^" + slowRegexpString() + "$"
+	b.Logf("Slow regexp length = %d", len(slowRegexp))
+	slow := regexp.MustCompile(slowRegexp)
+
+	for _, labelValueCount := range []int{1_000, 10_000, 100_000} {
+		b.Run(fmt.Sprintf("labels=%d", labelValueCount), func(b *testing.B) {
+			mp := NewMemPostings()
+			for i := 0; i < labelValueCount; i++ {
+				mp.Add(storage.SeriesRef(i), labels.FromStrings("label", strconv.Itoa(i)))
+			}
+
+			fp, err := ExpandPostings(mp.PostingsForLabelMatching(context.Background(), "label", fast.MatchString))
+			require.NoError(b, err)
+			b.Logf("Fast matcher matches %d series", len(fp))
+			b.Run("matcher=fast", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					mp.PostingsForLabelMatching(context.Background(), "label", fast.MatchString).Next()
+				}
+			})
+
+			sp, err := ExpandPostings(mp.PostingsForLabelMatching(context.Background(), "label", slow.MatchString))
+			require.NoError(b, err)
+			b.Logf("Slow matcher matches %d series", len(sp))
+			b.Run("matcher=slow", func(b *testing.B) {
+				for i := 0; i < b.N; i++ {
+					mp.PostingsForLabelMatching(context.Background(), "label", slow.MatchString).Next()
+				}
+			})
+		})
+	}
+}
+
+func TestMemPostings_PostingsForLabelMatching(t *testing.T) {
+	mp := NewMemPostings()
+	mp.Add(1, labels.FromStrings("foo", "1"))
+	mp.Add(2, labels.FromStrings("foo", "2"))
+	mp.Add(3, labels.FromStrings("foo", "3"))
+	mp.Add(4, labels.FromStrings("foo", "4"))
+
+	isEven := func(v string) bool {
+		iv, err := strconv.Atoi(v)
+		if err != nil {
+			panic(err)
+		}
+		return iv%2 == 0
+	}
+
+	p := mp.PostingsForLabelMatching(context.Background(), "foo", isEven)
+	require.NoError(t, p.Err())
+	refs, err := ExpandPostings(p)
+	require.NoError(t, err)
+	require.Equal(t, []storage.SeriesRef{2, 4}, refs)
 }
 
 func TestMemPostings_PostingsForLabelMatchingHonorsContextCancel(t *testing.T) {
