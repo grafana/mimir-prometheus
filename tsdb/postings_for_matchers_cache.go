@@ -122,14 +122,13 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 }
 
 type postingsForMatcherPromise struct {
-	done chan struct{}
-
 	// Keep track of all callers contexts in order to cancel the execution context if all
 	// callers contexts get canceled.
 	callersCtxTracker *contextsTracker
 
 	// The result of the promise is stored either in cloner or err (only of the two is valued).
 	// Do not access these fields until the done channel is closed.
+	done   chan struct{}
 	cloner *index.PostingsCloner
 	err    error
 }
