@@ -508,6 +508,9 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			require.ErrorIs(t, err, context.Canceled)
 		}()
 
+		// Give some time to let the 2nd request attach to the 1st one (we have no better way in tests to detect it).
+		time.Sleep(100 * time.Millisecond)
+
 		close(cancelRequests)
 		wg.Wait()
 
