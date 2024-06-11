@@ -438,8 +438,8 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			require.Equal(t, expectedPostings.Clone(), actualPostings)
 		}()
 
-		// Give some time to let the 2nd request attach to the 1st one (we have no better way in tests to detect it).
-		time.Sleep(100 * time.Millisecond)
+		// Wait until the 2nd request attaches to the 1st one.
+		requirePostingsForMatchesCachePromiseTrackedContexts(t, c, matchersKey(matchers), 2)
 
 		close(waitBeforeCancelReqCtx1)
 		wg.Wait()
@@ -509,8 +509,8 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			require.ErrorIs(t, err, context.Canceled)
 		}()
 
-		// Give some time to let the 2nd request attach to the 1st one (we have no better way in tests to detect it).
-		time.Sleep(100 * time.Millisecond)
+		// Wait until the 2nd request attaches to the 1st one.
+		requirePostingsForMatchesCachePromiseTrackedContexts(t, c, matchersKey(matchers), 2)
 
 		close(cancelRequests)
 		wg.Wait()
@@ -973,6 +973,20 @@ func requireContextsTrackerExecutionContextDone(t *testing.T, ctx context.Contex
 			t.Fatal("expected contextsTracker execution context to be not done")
 		}
 	}
+}
+
+func requirePostingsForMatchesCachePromiseTrackedContexts(t *testing.T, cache *PostingsForMatchersCache, cacheKey string, expected int) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		promise, ok := cache.calls.Load(cacheKey)
+		if !ok {
+			return false
+		}
+
+		tracker := promise.(*postingsForMatcherPromise).callersCtxTracker
+		return tracker.trackedContextsCount() == expected
+	}, time.Second, 10*time.Millisecond)
 }
 
 func TestErrContextsTrackerClosed(t *testing.T) {

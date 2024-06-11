@@ -467,3 +467,10 @@ func (t *contextsTracker) onTrackedContextDone() {
 		t.unsafeClose(errContextsTrackerCanceled{})
 	}
 }
+
+func (t *contextsTracker) trackedContextsCount() int {
+	t.mx.Lock()
+	defer t.mx.Unlock()
+
+	return t.trackedCount
+}
