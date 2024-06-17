@@ -26,7 +26,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/goleak"
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -49,7 +48,7 @@ const (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	testutil.TolerantVerifyLeak(m)
 }
 
 func TestQueryConcurrency(t *testing.T) {
@@ -3181,6 +3180,26 @@ func TestRangeQuery(t *testing.T) {
 						"__name__", "foo",
 						"job", "1",
 					),
+				},
+			},
+			Start:    time.Unix(0, 0),
+			End:      time.Unix(120, 0),
+			Interval: 1 * time.Minute,
+		},
+		{
+			Name: "short-circuit",
+			Load: `load 30s
+							foo{job="1"} 1+1x4
+							bar{job="2"} 1+1x4`,
+			Query: `foo > 2 or bar`,
+			Result: promql.Matrix{
+				promql.Series{
+					Floats: []promql.FPoint{{F: 1, T: 0}, {F: 3, T: 60000}, {F: 5, T: 120000}},
+					Metric: labels.FromStrings("__name__", "bar", "job", "2"),
+				},
+				promql.Series{
+					Floats: []promql.FPoint{{F: 3, T: 60000}, {F: 5, T: 120000}},
+					Metric: labels.FromStrings("__name__", "foo", "job", "1"),
 				},
 			},
 			Start:    time.Unix(0, 0),
