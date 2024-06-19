@@ -111,6 +111,32 @@ func TestCreateAttributes(t *testing.T) {
 				},
 			},
 		},
+		{
+			name:                      "Successful conversion with resource attribute promotion, attributes are only promoted once",
+			promoteResourceAttributes: []string{"existent-attr", "existent-attr"},
+			expectedLabels: []prompb.Label{
+				{
+					Name:  "__name__",
+					Value: "test_metric",
+				},
+				{
+					Name:  "instance",
+					Value: "service ID",
+				},
+				{
+					Name:  "job",
+					Value: "service name",
+				},
+				{
+					Name:  "existent_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "metric_attr",
+					Value: "metric value",
+				},
+			},
+		},
 	}
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
