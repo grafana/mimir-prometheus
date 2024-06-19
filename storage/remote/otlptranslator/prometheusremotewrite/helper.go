@@ -124,12 +124,11 @@ func createAttributes(resource pcommon.Resource, attributes pcommon.Map, setting
 	instance, haveInstanceID := resourceAttrs.Get(conventions.AttributeServiceInstanceID)
 
 	promotedAttrs := make([]prompb.Label, 0, len(settings.PromoteResourceAttributes))
-	resourceAttrs.Range(func(key string, value pcommon.Value) bool {
-		if slices.Contains(settings.PromoteResourceAttributes, key) {
-			promotedAttrs = append(promotedAttrs, prompb.Label{Name: key, Value: value.AsString()})
+	for _, name := range settings.PromoteResourceAttributes {
+		if value, ok := resourceAttrs.Get(name); ok {
+			promotedAttrs = append(promotedAttrs, prompb.Label{Name: name, Value: value.AsString()})
 		}
-		return true
-	})
+	}
 	sort.Stable(ByLabelName(promotedAttrs))
 
 	// Calculate the maximum possible number of labels we could return so we can preallocate l
