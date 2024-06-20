@@ -1540,6 +1540,10 @@ func visitStringMatcher(matcher StringMatcher, callback func(matcher StringMatch
 func TestToNormalisedLower(t *testing.T) {
 	testCases := map[string]string{
 		"foo":                      "foo",
+		"FOO":                      "foo",
+		"Foo":                      "foo",
+		"foO":                      "foo",
+		"fOo":                      "foo",
 		"AAAAAAAAAAAAAAAAAAAAAAAA": "aaaaaaaaaaaaaaaaaaaaaaaa",
 		"cccccccccccccccccccccccC": "cccccccccccccccccccccccc",
 		"ſſſſſſſſſſſſſſſſſſſſſſſſS": "sssssssssssssssssssssssss",
