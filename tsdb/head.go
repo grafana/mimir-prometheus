@@ -1976,17 +1976,20 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef, c
 		deleted[storage.SeriesRef(series.ref)] = struct{}{}
 		series.lset.Range(func(l labels.Label) { affected[l] = struct{}{} })
 		s.hashes[hashShard].del(hash, series.ref)
-		delete(s.series[refShard], series.ref)
 		deletedForCallback[series.ref] = series.lset
+
+		delete(s.series[refShard], series.ref)
 	}
 
-	s.iterForDeletion(checkSeriesFromStripe)
+	s.iterSripesForGC(checkSeriesFromStripe)
 
 	// For survivors series, truncate old chunks and check if any chunks left.
 	// If survivors, move it to survivors.
 	// If not, we need to remove it from the hashes.
-	deletedCompactedSeriesSet := make(map[chunks.HeadSeriesRef]labels.Labels)
-	checkCompactedSeries := func(series *memSeries) {
+	deletedSurvivorsForCallback := make(map[chunks.HeadSeriesRef]labels.Labels)
+
+	// Check survivors.
+	prevSurvivors.Iter(func(_ chunks.HeadSeriesRef, series *memSeries) (stop bool) {
 		series.Lock()
 		defer series.Unlock()
 
@@ -1995,7 +1998,7 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef, c
 		actualMint, minOOOTime, minMmapFile, keep = shouldKeepMemSeries(series, actualMint, minOOOTime, minMmapFile)
 		if keep {
 			survivors.Put(series.ref, series)
-			return
+			return false
 		}
 
 		hash := series.lset.Hash()
@@ -2003,16 +2006,13 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef, c
 
 		s.locks[hashShard].Lock()
 		defer s.locks[hashShard].Unlock()
-
+		deleted[storage.SeriesRef(series.ref)] = struct{}{}
+		series.lset.Range(func(l labels.Label) { affected[l] = struct{}{} })
 		s.hashes[hashShard].del(hash, series.ref)
-		deletedCompactedSeriesSet[series.ref] = series.lset
-	}
-
-	// Check survivors.
-	prevSurvivors.Iter(func(_ chunks.HeadSeriesRef, v *memSeries) (stop bool) {
-		checkCompactedSeries(v)
+		deletedSurvivorsForCallback[series.ref] = series.lset
 		return false
 	})
+
 	// Update survivors.
 	s.survivors.Store(survivors)
 
@@ -2040,7 +2040,7 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef, c
 		s.locks[i].Unlock()
 	}
 
-	s.seriesLifecycleCallback.PostDeletion(deletedCompactedSeriesSet)
+	s.seriesLifecycleCallback.PostDeletion(deletedSurvivorsForCallback)
 
 	if actualMint == math.MaxInt64 {
 		actualMint = mint
@@ -2049,10 +2049,10 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef, c
 	return deleted, affected, rmChunks, actualMint, minOOOTime, minMmapFile
 }
 
-// The iterForDeletion function iterates through all series, invoking the checkDeletedFunc for each.
+// The iterSripesForGC function iterates through all series from the stripes, invoking the checkDeletedFunc for each.
 // The checkDeletedFunc takes a map as input and should add to it all series that were deleted and should be included
 // when invoking the PostDeletion hook.
-func (s *stripeSeries) iterForDeletion(checkDeletedFunc func(int, uint64, *memSeries, map[chunks.HeadSeriesRef]labels.Labels)) {
+func (s *stripeSeries) iterSripesForGC(checkDeletedFunc func(int, uint64, *memSeries, map[chunks.HeadSeriesRef]labels.Labels)) {
 	seriesSetFromPrevStripe := 0
 	// Run through all series shard by shard
 	for i := 0; i < s.size; i++ {
