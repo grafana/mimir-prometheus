@@ -128,16 +128,7 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 	sampledInterval := float64(lastT-firstT) / 1000
 	averageDurationBetweenSamples := sampledInterval / float64(numSamplesMinusOne)
 
-	// If the first/last samples are close to the boundaries of the range,
-	// extrapolate the result. This is as we expect that another sample
-	// will exist given the spacing between samples we've seen thus far,
-	// with an allowance for noise.
-	extrapolationThreshold := averageDurationBetweenSamples * 1.1
-	extrapolateToInterval := sampledInterval
-
-	if durationToStart >= extrapolationThreshold {
-		durationToStart = averageDurationBetweenSamples / 2
-	}
+	// TODO(beorn7): Do this for histograms, too.
 	if isCounter && resultFloat > 0 && len(samples.Floats) > 0 && samples.Floats[0].F >= 0 {
 		// Counters cannot be negative. If we have any slope at all
 		// (i.e. resultFloat went up), we can extrapolate the zero point
@@ -145,19 +136,29 @@ func extrapolatedRate(vals []parser.Value, args parser.Expressions, enh *EvalNod
 		// than the durationToStart, we take the zero point as the start
 		// of the series, thereby avoiding extrapolation to negative
 		// counter values.
-		// TODO(beorn7): Do this for histograms, too.
 		durationToZero := sampledInterval * (samples.Floats[0].F / resultFloat)
 		if durationToZero < durationToStart {
 			durationToStart = durationToZero
 		}
 	}
-	extrapolateToInterval += durationToStart
 
-	if durationToEnd >= extrapolationThreshold {
-		durationToEnd = averageDurationBetweenSamples / 2
+	// If the first/last samples are close to the boundaries of the range,
+	// extrapolate the result. This is as we expect that another sample
+	// will exist given the spacing between samples we've seen thus far,
+	// with an allowance for noise.
+	extrapolationThreshold := averageDurationBetweenSamples * 1.1
+	extrapolateToInterval := sampledInterval
+
+	if durationToStart < extrapolationThreshold {
+		extrapolateToInterval += durationToStart
+	} else {
+		extrapolateToInterval += averageDurationBetweenSamples / 2
 	}
-	extrapolateToInterval += durationToEnd
-
+	if durationToEnd < extrapolationThreshold {
+		extrapolateToInterval += durationToEnd
+	} else {
+		extrapolateToInterval += averageDurationBetweenSamples / 2
+	}
 	factor := extrapolateToInterval / sampledInterval
 	if isRate {
 		factor /= ms.Range.Seconds()
