@@ -17,6 +17,7 @@
 package prometheusremotewrite
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -49,7 +50,7 @@ func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
 
 											for i := 0; i < b.N; i++ {
 												converter := NewPrometheusConverter()
-												require.NoError(b, converter.FromMetrics(payload.Metrics(), Settings{}))
+												require.NoError(b, converter.FromMetrics(context.Background(), payload.Metrics(), Settings{}))
 												require.NotNil(b, converter.TimeSeries())
 											}
 										})
