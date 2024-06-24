@@ -25,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dolthub/swiss"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"github.com/oklog/ulid"
@@ -1594,7 +1595,7 @@ func (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {
 
 	// Drop old chunks and remember series IDs and hashes if they can be
 	// deleted entirely.
-	deleted, affected, chunksRemoved, actualInOrderMint, minOOOTime, minMmapFile := h.series.gc(mint, minOOOMmapRef)
+	deleted, affected, chunksRemoved, actualInOrderMint, minOOOTime, minMmapFile := h.series.gc(mint, minOOOMmapRef, h.NumSeries())
 	seriesRemoved := len(deleted)
 
 	h.metrics.seriesRemoved.Add(float64(seriesRemoved))
@@ -1791,12 +1792,13 @@ func (h *Head) mmapHeadChunks() {
 		}
 		h.series.locks[i].RUnlock()
 	}
-	survivors := h.series.survivors.Load().(map[chunks.HeadSeriesRef]*memSeries)
-	for _, series := range survivors {
+	survivors := h.series.survivors.Load().(*swiss.Map[chunks.HeadSeriesRef, *memSeries])
+	survivors.Iter(func(ref chunks.HeadSeriesRef, series *memSeries) bool {
 		series.Lock()
 		count += series.mmapChunks(h.chunkDiskMapper)
 		series.Unlock()
-	}
+		return false
+	})
 	h.metrics.mmapChunksTotal.Add(float64(count))
 }
 
@@ -1907,7 +1909,7 @@ func newStripeSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *st
 		locks:                   make([]stripeLock, stripeSize),
 		seriesLifecycleCallback: seriesCallback,
 	}
-	s.survivors.Store(map[chunks.HeadSeriesRef]*memSeries{})
+	s.survivors.Store(swiss.NewMap[chunks.HeadSeriesRef, *memSeries](0))
 
 	for i := 0; i < stripeSize; i++ {
 		s.series[i] = map[chunks.HeadSeriesRef]*memSeries{}
@@ -1926,7 +1928,7 @@ func newStripeSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *st
 // but the returned map goes into postings.Delete() which expects a map[storage.SeriesRef]struct
 // and there's no easy way to cast maps.
 // minMmapFile is the min mmap file number seen in the series (in-order and out-of-order) after gc'ing the series.
-func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _ int, _, _ int64, minMmapFile int) {
+func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef, currentSeries uint64) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _ int, _, _ int64, minMmapFile int) {
 	var (
 		deleted          = map[storage.SeriesRef]struct{}{}
 		affected         = map[labels.Label]struct{}{}
@@ -1935,8 +1937,14 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 		minOOOTime int64 = math.MaxInt64
 	)
 	minMmapFile = math.MaxInt32
-	prevSurvivors := s.survivors.Load().(map[chunks.HeadSeriesRef]*memSeries)
-	survivors := make(map[chunks.HeadSeriesRef]*memSeries, len(prevSurvivors))
+	prevSurvivors := s.survivors.Load().(*swiss.Map[chunks.HeadSeriesRef, *memSeries])
+	// All current series will end up in survivors or deleted.
+	// If previous survivors were empty, let's assume all series will end up in survivors.
+	survivorsEstimate := uint32(currentSeries)
+	if prevSurvivors.Count() > 0 {
+		survivorsEstimate = uint32(prevSurvivors.Count())
+	}
+	survivors := swiss.NewMap[chunks.HeadSeriesRef, *memSeries](survivorsEstimate)
 
 	// For one series, truncate old chunks and check if any chunks left.
 	// If kept, move it to survivors.
@@ -1949,7 +1957,7 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 		var keep bool
 		actualMint, minOOOTime, minMmapFile, keep = shouldKeepMemSeries(series, actualMint, minOOOTime, minMmapFile)
 		if keep {
-			survivors[series.ref] = series
+			survivors.Put(series.ref, series)
 			// We'll delete it from series map once we've replaced the survivors.
 			return
 		}
@@ -1986,7 +1994,7 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 		var keep bool
 		actualMint, minOOOTime, minMmapFile, keep = shouldKeepMemSeries(series, actualMint, minOOOTime, minMmapFile)
 		if keep {
-			survivors[series.ref] = series
+			survivors.Put(series.ref, series)
 			return
 		}
 
@@ -2001,9 +2009,10 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 	}
 
 	// Check survivors.
-	for _, series := range prevSurvivors {
-		checkCompactedSeries(series)
-	}
+	prevSurvivors.Iter(func(_ chunks.HeadSeriesRef, v *memSeries) (stop bool) {
+		checkCompactedSeries(v)
+		return false
+	})
 	// Update survivors.
 	s.survivors.Store(survivors)
 
@@ -2019,7 +2028,7 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 		// So we'll create the new maps with half size.
 		series := make(map[chunks.HeadSeriesRef]*memSeries, len(s.series[i])/2)
 		for ref := range s.series[i] {
-			if _, ok := survivors[ref]; !ok {
+			if !survivors.Has(ref) {
 				series[ref] = s.series[i][ref]
 				if int64(ref) < minRef {
 					minRef = int64(ref)
@@ -2116,20 +2125,22 @@ func (s *stripeSeries) callPostDeletionBeforeReset() int {
 		s.seriesLifecycleCallback.PostDeletion(seriesSet)
 		total += len(seriesSet)
 	}
-	survivors := s.survivors.Load().(map[chunks.HeadSeriesRef]*memSeries)
-	seriesSet := make(map[chunks.HeadSeriesRef]labels.Labels, len(survivors))
-	for ref, series := range survivors {
+	survivors := s.survivors.Load().(*swiss.Map[chunks.HeadSeriesRef, *memSeries])
+	seriesSet := make(map[chunks.HeadSeriesRef]labels.Labels, survivors.Count())
+	survivors.Iter(func(ref chunks.HeadSeriesRef, series *memSeries) bool {
 		seriesSet[ref] = series.lset
-	}
+		return false
+	})
 	s.seriesLifecycleCallback.PostDeletion(seriesSet)
-	total += len(survivors)
+	total += survivors.Count()
 	return total
 }
 
 func (s *stripeSeries) getByID(id chunks.HeadSeriesRef) *memSeries {
 	i := uint64(id) & uint64(s.size-1)
 	if minRef := chunks.HeadSeriesRef(s.minSeriesRef[i].Load()); minRef != math.MaxInt64 && id < minRef {
-		return s.survivors.Load().(map[chunks.HeadSeriesRef]*memSeries)[id]
+		series, _ := s.survivors.Load().(*swiss.Map[chunks.HeadSeriesRef, *memSeries]).Get(id)
+		return series
 	}
 
 	s.locks[i].RLock()
@@ -2138,7 +2149,8 @@ func (s *stripeSeries) getByID(id chunks.HeadSeriesRef) *memSeries {
 
 	if series == nil {
 		// Maybe series was compacted, but then someone wrote a lower id into series[] again.
-		return s.survivors.Load().(map[chunks.HeadSeriesRef]*memSeries)[id]
+		series, _ = s.survivors.Load().(*swiss.Map[chunks.HeadSeriesRef, *memSeries]).Get(id)
+		return series
 	}
 
 	return series

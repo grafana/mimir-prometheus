@@ -24,6 +24,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/dolthub/swiss"
 	"github.com/go-kit/log/level"
 	"go.uber.org/atomic"
 
@@ -1141,23 +1142,29 @@ func (h *Head) ChunkSnapshot() (*ChunkSnapshotStats, error) {
 		h.series.locks[i].RUnlock()
 	}
 
-	survivors := h.series.survivors.Load().(map[chunks.HeadSeriesRef]*memSeries)
-	for _, s := range survivors {
+	survivors := h.series.survivors.Load().(*swiss.Map[chunks.HeadSeriesRef, *memSeries])
+	survivors.Iter(func(k chunks.HeadSeriesRef, s *memSeries) (stop bool) {
 		start := len(buf)
 		buf = s.encodeToSnapshotRecord(buf)
 		if len(buf[start:]) == 0 {
-			continue // All contents discarded.
+			return false
 		}
 		recs = append(recs, buf[start:])
 		// Flush records in 10 MB increments.
 		if len(buf) > 10*1024*1024 {
-			if err := cp.Log(recs...); err != nil {
-				return stats, fmt.Errorf("flush records: %w", err)
+			if err = cp.Log(recs...); err != nil {
+				err = fmt.Errorf("flush records: %w", err)
+				return true
 			}
 			buf, recs = buf[:0], recs[:0]
 		}
+		return false
+	})
+	if err != nil {
+		return stats, err
 	}
-	stats.TotalSeries += len(survivors)
+
+	stats.TotalSeries += survivors.Count()
 
 	// Add tombstones to the snapshot.
 	tombstonesReader, err := h.Tombstones()

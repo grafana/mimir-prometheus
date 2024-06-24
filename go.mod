@@ -96,6 +96,7 @@ require (
 require (
 	github.com/DmitriyVTitov/size v1.5.0
 	github.com/dgraph-io/ristretto v0.1.1
+	github.com/dolthub/swiss v0.2.1
 )
 
 require (
@@ -118,6 +119,7 @@ require (
 	github.com/distribution/reference v0.5.0 // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
+	github.com/dolthub/maphash v0.1.0 // indirect
 	github.com/dustin/go-humanize v1.0.0 // indirect
 	github.com/emicklei/go-restful/v3 v3.11.0 // indirect
 	github.com/evanphx/json-patch v5.6.0+incompatible // indirect
