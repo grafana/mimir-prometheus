@@ -28,7 +28,7 @@ func (e *everyNTimes) checkContext(ctx context.Context) error {
 	}
 
 	e.i++
-	if e.i%e.n == 0 {
+	if e.i >= e.n {
 		e.i = 0
 		e.err = ctx.Err()
 	}
