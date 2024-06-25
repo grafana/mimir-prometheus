@@ -28,6 +28,30 @@ import (
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 )
 
+func TestFromMetrics(t *testing.T) {
+	t.Run("context cancellation", func(t *testing.T) {
+		converter := NewPrometheusConverter()
+		ctx, cancel := context.WithCancel(context.Background())
+		// Verify that converter.FromMetrics respects cancellation.
+		cancel()
+		payload := createExportRequest(5, 128, 128, 2, 0)
+
+		err := converter.FromMetrics(ctx, payload.Metrics(), Settings{})
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("context timeout", func(t *testing.T) {
+		converter := NewPrometheusConverter()
+		// Verify that converter.FromMetrics respects timeout.
+		ctx, cancel := context.WithTimeout(context.Background(), 0)
+		t.Cleanup(cancel)
+		payload := createExportRequest(5, 128, 128, 2, 0)
+
+		err := converter.FromMetrics(ctx, payload.Metrics(), Settings{})
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+	})
+}
+
 func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
 	for _, resourceAttributeCount := range []int{0, 5, 50} {
 		b.Run(fmt.Sprintf("resource attribute count: %v", resourceAttributeCount), func(b *testing.B) {
