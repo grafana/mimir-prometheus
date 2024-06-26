@@ -1569,13 +1569,25 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 	return values, err
 }
 
+// InfoMetricSampleQuerier supports getting an info metric's data labels.
+type InfoMetricSampleQuerier interface {
+	// DataLabels gets the data labels for info metric sr at t, if its identifying labels are a subset of matchLabels,
+	// and also eventually the corresponding info metric name and sample timestamp.
+	DataLabels(sr storage.SeriesRef, t int64, matchLabels labels.Labels) (labels.Labels, string, int64, error)
+}
+
 func (r *Reader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
 	d := encoding.NewDecbufUvarintAt(r.b, int(r.toc.Series), castagnoliTable)
 	if d.Err() != nil {
 		return labels.Labels{}, nil, d.Err()
 	}
-	lbls, err := r.dec.InfoMetricDataLabels(ctx, d.Get(), lbls, t, matchers...)
+	lbls, err := r.dec.InfoMetricDataLabels(ctx, d.Get(), lbls, t, r, matchers...)
 	return lbls, nil, err
+}
+
+func (r *Reader) DataLabels(storage.SeriesRef, int64, labels.Labels) (labels.Labels, string, int64, error) {
+	// TODO.
+	return labels.Labels{}, "", 0, nil
 }
 
 // LabelNamesFor returns all the label names for the series referred to by IDs.
@@ -2114,7 +2126,7 @@ func (dec *Decoder) Series(b []byte, builder *labels.ScratchBuilder, chks *[]chu
 	return d.Err()
 }
 
-func (dec *Decoder) InfoMetricDataLabels(ctx context.Context, b []byte, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, error) {
+func (dec *Decoder) InfoMetricDataLabels(ctx context.Context, b []byte, lbls labels.Labels, t int64, q InfoMetricSampleQuerier, matchers ...*labels.Matcher) (labels.Labels, error) {
 	d := encoding.Decbuf{B: b}
 
 	// Skip past labels

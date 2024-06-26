@@ -191,7 +191,7 @@ func (oh *OOOHeadIndexReader) LabelValues(ctx context.Context, name string, matc
 	return labelValuesWithMatchers(ctx, oh, name, matchers...)
 }
 
-func (oh *OOOHeadIndexReader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+func (oh *OOOHeadIndexReader) InfoMetricDataLabels(context.Context, labels.Labels, int64, ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
 	// TODO
 	panic("not implemented")
 }
@@ -499,7 +499,7 @@ func (ir *OOOCompactionHeadIndexReader) LabelNames(context.Context, ...*labels.M
 	return nil, errors.New("not implemented")
 }
 
-func (ir *OOOCompactionHeadIndexReader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+func (ir *OOOCompactionHeadIndexReader) InfoMetricDataLabels(context.Context, labels.Labels, int64, ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
 	return labels.Labels{}, nil, errors.New("not implemented")
 }
 

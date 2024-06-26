@@ -106,8 +106,90 @@ func (h *headIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Ma
 }
 
 func (h *headIndexReader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
-	dls := h.head.postings.InfoMetricDataLabels(ctx, lbls, t, matchers...)
-	return dls, nil, nil
+	dls, err := h.head.postings.InfoMetricDataLabels(ctx, lbls, t, h, matchers...)
+	return dls, nil, err
+}
+
+func (h *headIndexReader) DataLabels(sr storage.SeriesRef, t int64, matchLabels labels.Labels) (labels.Labels, string, int64, error) {
+	lb := labels.NewScratchBuilder(0)
+	var chks []chunks.Meta
+	if err := h.Series(sr, &lb, &chks); err != nil {
+		return labels.Labels{}, "", 0, err
+	}
+	isoState := h.head.iso.State(math.MinInt64, t)
+	cr, err := h.head.chunksRange(math.MinInt64, t, isoState)
+	if err != nil {
+		return labels.Labels{}, "", 0, err
+	}
+
+	// Find the info metric's identifying label set at t among the chunks.
+	st := int64(math.MinInt64)
+	var ils []int
+	for _, meta := range chks {
+		chk, _, err := cr.ChunkOrIterable(meta)
+		if err != nil {
+			return labels.Labels{}, "", 0, err
+		}
+
+		it := chk.Iterator(nil)
+		if vt := it.Seek(t); vt != chunkenc.ValInfoSample {
+			continue
+		}
+
+		curST, curILs := it.AtInfoSample()
+		if curST > t {
+			panic(fmt.Sprintf("chunk range should be max %d", t))
+		}
+		if curST > st {
+			st = curST
+			ils = curILs
+			fmt.Printf("Found identifying labels at timestamp %d: %#v\n", st, ils)
+		}
+	}
+
+	ilsMap := make(map[int]struct{}, len(ils))
+	for _, idx := range ils {
+		ilsMap[idx] = struct{}{}
+	}
+
+	matchMap := matchLabels.Map()
+	lbls := lb.Labels()
+	dlb := labels.NewScratchBuilder(lbls.Len() - len(ils))
+	i := 0
+	isMatch := true
+	var name string
+	lbls.Range(func(l labels.Label) {
+		if !isMatch {
+			return
+		}
+
+		// TODO: Use constant.
+		if l.Name == "__name__" {
+			name = l.Value
+		}
+
+		if _, exists := ilsMap[i]; exists {
+			// An identifying label, see if it's a match.
+			matchValue, exists := matchMap[l.Name]
+			if !exists || l.Value != matchValue {
+				// Info metric is not a match, since this identifying label isn't in matchLabels.
+				isMatch = false
+			}
+
+			i++
+			return
+		}
+
+		// This is a data label.
+		dlb.Add(l.Name, l.Value)
+		i++
+	})
+	if !isMatch {
+		// This info metric didn't have matching identifying labels.
+		return labels.Labels{}, "", 0, nil
+	}
+
+	return dlb.Labels(), name, st, nil
 }
 
 // Postings returns the postings list iterator for the label pairs.
