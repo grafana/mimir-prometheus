@@ -36,7 +36,7 @@ M     [a-zA-Z_:]
 C     [^\n]
 S     [ ]
 
-%x sComment sMeta1 sMeta2 sLabels sLValue sValue sTimestamp sExemplar sEValue sETimestamp
+%x sComment sMeta1 sMeta2 sLabels sLValue sValue sTimestamp sExemplar sEValue sETimestamp sMeta3
 
 %yyc c
 %yyn c = l.next()
@@ -50,9 +50,13 @@ S     [ ]
 <sComment>TYPE{S}                     l.state = sMeta1; return tType
 <sComment>UNIT{S}                     l.state = sMeta1; return tUnit
 <sComment>"EOF"\n?                    l.state = sInit; return tEOFWord
+<sComment>ID{S}                       l.state = sMeta3; return tIdens
 <sMeta1>\"(\\.|[^\\"])*\"             l.state = sMeta2; return tMName
 <sMeta1>{M}({M}|{D})*                 l.state = sMeta2; return tMName
 <sMeta2>{S}{C}*\n                     l.state = sInit; return tText
+<sMeta3>{L}*                          return tLName
+<sMeta3>,                             return tComma
+<sMeta3>\n                            l.state = sInit; return tLinebreak
 
 {M}({M}|{D})*                         l.state = sValue; return tMName
 <sValue>\{                            l.state = sLabels; return tBraceOpen

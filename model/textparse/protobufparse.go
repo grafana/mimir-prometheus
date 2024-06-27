@@ -91,6 +91,10 @@ func NewProtobufParser(b []byte, parseClassicHistograms bool, st *labels.SymbolT
 	}
 }
 
+func (p *ProtobufParser) Identifiers() []string {
+	return nil
+}
+
 // Series returns the bytes of a series with a simple float64 as a
 // value, the timestamp if set, and the value of the current sample.
 func (p *ProtobufParser) Series() ([]byte, *int64, float64) {

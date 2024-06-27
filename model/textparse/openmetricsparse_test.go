@@ -68,6 +68,9 @@ foo_total 17.0 1520879607.789 # {id="counter-test"} 5`
 
 	input += "\n# HELP metric foo\x00bar"
 	input += "\nnull_byte_metric{a=\"abc\x00\"} 1"
+	input += "\n# TYPE ii info"
+	input += "\n# ID aa,bb"
+	input += "\nii{aa=\"foo\",cc=\"bar\"} 1"
 	input += "\n# EOF\n"
 
 	int64p := func(x int64) *int64 { return &x }
@@ -76,162 +79,215 @@ foo_total 17.0 1520879607.789 # {id="counter-test"} 5`
 		{
 			m:    "go_gc_duration_seconds",
 			help: "A summary of the GC invocation durations.",
-		}, {
+		},
+		{
 			m:   "go_gc_duration_seconds",
 			typ: model.MetricTypeSummary,
-		}, {
+		},
+		{
 			m:    "go_gc_duration_seconds",
 			unit: "seconds",
-		}, {
+		},
+		{
 			m:    `go_gc_duration_seconds{quantile="0"}`,
 			v:    4.9351e-05,
 			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0"),
-		}, {
+		},
+		{
 			m:    `go_gc_duration_seconds{quantile="0.25"}`,
 			v:    7.424100000000001e-05,
 			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.25"),
-		}, {
+		},
+		{
 			m:    `go_gc_duration_seconds{quantile="0.5",a="b"}`,
 			v:    8.3835e-05,
 			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "0.5", "a", "b"),
-		}, {
+		},
+		{
 			m:    "nohelp1",
 			help: "",
-		}, {
+		},
+		{
 			m:    "help2",
 			help: "escape \\ \n \\ \" \\x chars",
-		}, {
+		},
+		{
 			m:    "nounit",
 			unit: "",
-		}, {
+		},
+		{
 			m:    `go_gc_duration_seconds{quantile="1.0",a="b"}`,
 			v:    8.3835e-05,
 			lset: labels.FromStrings("__name__", "go_gc_duration_seconds", "quantile", "1.0", "a", "b"),
-		}, {
+		},
+		{
 			m:    `go_gc_duration_seconds_count`,
 			v:    99,
 			lset: labels.FromStrings("__name__", "go_gc_duration_seconds_count"),
-		}, {
+		},
+		{
 			m:    `some:aggregate:rate5m{a_b="c"}`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "some:aggregate:rate5m", "a_b", "c"),
-		}, {
+		},
+		{
 			m:    "go_goroutines",
 			help: "Number of goroutines that currently exist.",
-		}, {
+		},
+		{
 			m:   "go_goroutines",
 			typ: model.MetricTypeGauge,
-		}, {
+		},
+		{
 			m:    `go_goroutines`,
 			v:    33,
 			t:    int64p(123123),
 			lset: labels.FromStrings("__name__", "go_goroutines"),
-		}, {
+		},
+		{
 			m:   "hh",
 			typ: model.MetricTypeHistogram,
-		}, {
+		},
+		{
 			m:    `hh_bucket{le="+Inf"}`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "hh_bucket", "le", "+Inf"),
-		}, {
+		},
+		{
 			m:   "gh",
 			typ: model.MetricTypeGaugeHistogram,
-		}, {
+		},
+		{
 			m:    `gh_bucket{le="+Inf"}`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "gh_bucket", "le", "+Inf"),
-		}, {
+		},
+		{
 			m:   "hhh",
 			typ: model.MetricTypeHistogram,
-		}, {
+		},
+		{
 			m:    `hhh_bucket{le="+Inf"}`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "hhh_bucket", "le", "+Inf"),
 			e:    &exemplar.Exemplar{Labels: labels.FromStrings("id", "histogram-bucket-test"), Value: 4},
-		}, {
+		},
+		{
 			m:    `hhh_count`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "hhh_count"),
 			e:    &exemplar.Exemplar{Labels: labels.FromStrings("id", "histogram-count-test"), Value: 4},
-		}, {
+		},
+		{
 			m:   "ggh",
 			typ: model.MetricTypeGaugeHistogram,
-		}, {
+		},
+		{
 			m:    `ggh_bucket{le="+Inf"}`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "ggh_bucket", "le", "+Inf"),
 			e:    &exemplar.Exemplar{Labels: labels.FromStrings("id", "gaugehistogram-bucket-test", "xx", "yy"), Value: 4, HasTs: true, Ts: 123123},
-		}, {
+		},
+		{
 			m:    `ggh_count`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "ggh_count"),
 			e:    &exemplar.Exemplar{Labels: labels.FromStrings("id", "gaugehistogram-count-test", "xx", "yy"), Value: 4, HasTs: true, Ts: 123123},
-		}, {
+		},
+		{
 			m:   "smr_seconds",
 			typ: model.MetricTypeSummary,
-		}, {
+		},
+		{
 			m:    `smr_seconds_count`,
 			v:    2,
 			lset: labels.FromStrings("__name__", "smr_seconds_count"),
 			e:    &exemplar.Exemplar{Labels: labels.FromStrings("id", "summary-count-test"), Value: 1, HasTs: true, Ts: 123321},
-		}, {
+		},
+		{
 			m:    `smr_seconds_sum`,
 			v:    42,
 			lset: labels.FromStrings("__name__", "smr_seconds_sum"),
 			e:    &exemplar.Exemplar{Labels: labels.FromStrings("id", "summary-sum-test"), Value: 1, HasTs: true, Ts: 123321},
-		}, {
+		},
+		{
 			m:   "ii",
 			typ: model.MetricTypeInfo,
-		}, {
+		},
+		{
 			m:    `ii{foo="bar"}`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "ii", "foo", "bar"),
-		}, {
+		},
+		{
 			m:   "ss",
 			typ: model.MetricTypeStateset,
-		}, {
+		},
+		{
 			m:    `ss{ss="foo"}`,
 			v:    1,
 			lset: labels.FromStrings("__name__", "ss", "ss", "foo"),
-		}, {
+		},
+		{
 			m:    `ss{ss="bar"}`,
 			v:    0,
 			lset: labels.FromStrings("__name__", "ss", "ss", "bar"),
-		}, {
+		},
+		{
 			m:    `ss{A="a"}`,
 			v:    0,
 			lset: labels.FromStrings("A", "a", "__name__", "ss"),
-		}, {
+		},
+		{
 			m:   "un",
 			typ: model.MetricTypeUnknown,
-		}, {
+		},
+		{
 			m:    "_metric_starting_with_underscore",
 			v:    1,
 			lset: labels.FromStrings("__name__", "_metric_starting_with_underscore"),
-		}, {
+		},
+		{
 			m:    "testmetric{_label_starting_with_underscore=\"foo\"}",
 			v:    1,
 			lset: labels.FromStrings("__name__", "testmetric", "_label_starting_with_underscore", "foo"),
-		}, {
+		},
+		{
 			m:    "testmetric{label=\"\\\"bar\\\"\"}",
 			v:    1,
 			lset: labels.FromStrings("__name__", "testmetric", "label", `"bar"`),
-		}, {
+		},
+		{
 			m:   "foo",
 			typ: model.MetricTypeCounter,
-		}, {
+		},
+		{
 			m:    "foo_total",
 			v:    17,
 			lset: labels.FromStrings("__name__", "foo_total"),
 			t:    int64p(1520879607789),
 			e:    &exemplar.Exemplar{Labels: labels.FromStrings("id", "counter-test"), Value: 5},
-		}, {
+		},
+		{
 			m:    "metric",
 			help: "foo\x00bar",
-		}, {
+		},
+		{
 			m:    "null_byte_metric{a=\"abc\x00\"}",
 			v:    1,
 			lset: labels.FromStrings("__name__", "null_byte_metric", "a", "abc\x00"),
+		},
+		{
+			m:   "ii",
+			typ: model.MetricTypeInfo,
+		},
+		{
+			m: "aa,bb",
+		},
+		{
+			m:    "ii{aa=\"foo\",cc=\"bar\"}",
+			v:    1,
+			lset: labels.FromStrings("__name__", "ii", "aa", "foo", "cc", "bar"),
 		},
 	}
 

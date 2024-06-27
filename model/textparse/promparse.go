@@ -66,6 +66,7 @@ const (
 	tEqual
 	tTimestamp
 	tValue
+	tIdens
 )
 
 func (t token) String() string {
@@ -84,6 +85,8 @@ func (t token) String() string {
 		return "TYPE"
 	case tUnit:
 		return "UNIT"
+	case tIdens:
+		return "ID"
 	case tEOFWord:
 		return "EOFWORD"
 	case tText:
@@ -171,6 +174,10 @@ func NewPromParser(b []byte, st *labels.SymbolTable) Parser {
 		l:       &promlexer{b: append(b, '\n')},
 		builder: labels.NewScratchBuilderWithSymbolTable(st, 16),
 	}
+}
+
+func (p *PromParser) Identifiers() []string {
+	return nil
 }
 
 // Series returns the bytes of the series, the timestamp if set, and the value
