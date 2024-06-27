@@ -695,6 +695,7 @@ func TestCompaction_populateBlock(t *testing.T) {
 		inputSeriesSamples [][]seriesSamples
 		compactMinTime     int64
 		compactMaxTime     int64 // When not defined the test runner sets a default of math.MaxInt64.
+		irPostingsFunc     IndexReaderPostingsFunc
 		expSeriesSamples   []seriesSamples
 		expErr             error
 	}{
@@ -1163,6 +1164,60 @@ func TestCompaction_populateBlock(t *testing.T) {
 				},
 			},
 		},
+		{
+			title: "Populate from single block with index reader postings function selecting different series. Expect empty block.",
+			inputSeriesSamples: [][]seriesSamples{
+				{
+					{
+						lset:   map[string]string{"a": "b"},
+						chunks: [][]sample{{{t: 0}, {t: 10}}, {{t: 11}, {t: 20}}},
+					},
+				},
+			},
+			irPostingsFunc: func(ctx context.Context, reader IndexReader) index.Postings {
+				p, err := reader.Postings(ctx, "a", "c")
+				if err != nil {
+					return index.EmptyPostings()
+				}
+				return reader.SortedPostings(p)
+			},
+		},
+		{
+			title: "Populate from single block with index reader postings function selecting one series. Expect partial block.",
+			inputSeriesSamples: [][]seriesSamples{
+				{
+					{
+						lset:   map[string]string{"a": "b"},
+						chunks: [][]sample{{{t: 0}, {t: 10}}, {{t: 11}, {t: 20}}},
+					},
+					{
+						lset:   map[string]string{"a": "c"},
+						chunks: [][]sample{{{t: 0}, {t: 10}}, {{t: 11}, {t: 20}}},
+					},
+					{
+						lset:   map[string]string{"a": "d"},
+						chunks: [][]sample{{{t: 0}, {t: 10}}, {{t: 11}, {t: 20}}},
+					},
+				},
+			},
+			irPostingsFunc: func(ctx context.Context, reader IndexReader) index.Postings {
+				p, err := reader.Postings(ctx, "a", "c", "d")
+				if err != nil {
+					return index.EmptyPostings()
+				}
+				return reader.SortedPostings(p)
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "c"},
+					chunks: [][]sample{{{t: 0}, {t: 10}}, {{t: 11}, {t: 20}}},
+				},
+				{
+					lset:   map[string]string{"a": "d"},
+					chunks: [][]sample{{{t: 0}, {t: 10}}, {{t: 11}, {t: 20}}},
+				},
+			},
+		},
 	} {
 		t.Run(tc.title, func(t *testing.T) {
 			blocks := make([]BlockReader, 0, len(tc.inputSeriesSamples))
@@ -1185,8 +1240,11 @@ func TestCompaction_populateBlock(t *testing.T) {
 			iw := &mockIndexWriter{}
 			ob := shardedBlock{meta: meta, indexw: iw, chunkw: nopChunkWriter{}}
 			blockPopulator := DefaultBlockPopulator{}
-			err = blockPopulator.PopulateBlock(c.ctx, c.metrics, c.logger, c.chunkPool, c.mergeFunc, c.concurrencyOpts, blocks, meta.MinTime, meta.MaxTime, []shardedBlock{ob})
-
+			irPostingsFunc := AllSortedPostings
+			if tc.irPostingsFunc != nil {
+				irPostingsFunc = tc.irPostingsFunc
+			}
+			err = blockPopulator.PopulateBlock(c.ctx, c.metrics, c.logger, c.chunkPool, c.mergeFunc, c.concurrencyOpts, blocks, meta.MinTime, meta.MaxTime, []shardedBlock{ob}, irPostingsFunc)
 			if tc.expErr != nil {
 				require.Error(t, err)
 				require.Equal(t, tc.expErr.Error(), err.Error())
