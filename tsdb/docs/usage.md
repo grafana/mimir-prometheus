@@ -18,7 +18,7 @@ A `DB` has the following main components:
 * [`Head`](https://pkg.go.dev/github.com/prometheus/prometheus/tsdb#DB.Head)
 * [Blocks (persistent blocks)](https://pkg.go.dev/github.com/prometheus/prometheus/tsdb#DB.Blocks)
 
-The `Head` is responsible for a lot. Here are its main components:
+The `Head` is responsible for a lot.  Here are its main components:
 
 * [WAL](https://pkg.go.dev/github.com/prometheus/prometheus/tsdb/wal#WAL) (Write Ahead Log).
 * [`stripeSeries`](https://github.com/prometheus/prometheus/blob/411021ada9ab41095923b8d2df9365b632fd40c3/tsdb/head.go#L1292):

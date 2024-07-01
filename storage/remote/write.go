@@ -52,6 +52,12 @@ var (
 		Name:      "histograms_in_total",
 		Help:      "HistogramSamples in to remote storage, compare to histograms out for queue managers.",
 	})
+	infoSamplesIn = promauto.NewCounter(prometheus.CounterOpts{
+		Namespace: namespace,
+		Subsystem: subsystem,
+		Name:      "info_metric_samples_in_total",
+		Help:      "Info metric samples in to remote storage, compare to info metric samples out for queue managers.",
+	})
 )
 
 // WriteStorage represents all the remote write storage.
@@ -269,6 +275,7 @@ func (rws *WriteStorage) Close() error {
 type timestampTracker struct {
 	writeStorage         *WriteStorage
 	samples              int64
+	infoSamples          int64
 	exemplars            int64
 	histograms           int64
 	highestTimestamp     int64
@@ -278,6 +285,15 @@ type timestampTracker struct {
 // Append implements storage.Appender.
 func (t *timestampTracker) Append(_ storage.SeriesRef, _ labels.Labels, ts int64, _ float64) (storage.SeriesRef, error) {
 	t.samples++
+	if ts > t.highestTimestamp {
+		t.highestTimestamp = ts
+	}
+	return 0, nil
+}
+
+// AppendInfoSample implements storage.Appender.
+func (t *timestampTracker) AppendInfoSample(_ storage.SeriesRef, _ labels.Labels, ts int64, _ []int) (storage.SeriesRef, error) {
+	t.infoSamples++
 	if ts > t.highestTimestamp {
 		t.highestTimestamp = ts
 	}
@@ -315,6 +331,7 @@ func (t *timestampTracker) Commit() error {
 	samplesIn.Add(float64(t.samples))
 	exemplarsIn.Add(float64(t.exemplars))
 	histogramsIn.Add(float64(t.histograms))
+	infoSamplesIn.Add(float64(t.infoSamples))
 	t.highestRecvTimestamp.Set(float64(t.highestTimestamp / 1000))
 	return nil
 }

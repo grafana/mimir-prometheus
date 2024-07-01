@@ -36,6 +36,7 @@ import (
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/hashcache"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 const (
@@ -162,7 +163,7 @@ type Writer struct {
 	postingsEncoder PostingsEncoder
 }
 
-// TOC represents the index Table Of Contents that states where each section of the index starts.
+// TOC represents index Table Of Content that states where each section of index starts.
 type TOC struct {
 	Symbols           uint64
 	Series            uint64
@@ -1568,6 +1569,27 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 	return values, err
 }
 
+// InfoMetricSampleQuerier supports getting an info metric's data labels.
+type InfoMetricSampleQuerier interface {
+	// DataLabels gets the data labels for info metric sr at t, if its identifying labels are a subset of matchLabels,
+	// and also eventually the corresponding info metric name and sample timestamp.
+	DataLabels(sr storage.SeriesRef, t int64, matchLabels labels.Labels) (labels.Labels, string, int64, error)
+}
+
+func (r *Reader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	d := encoding.NewDecbufUvarintAt(r.b, int(r.toc.Series), castagnoliTable)
+	if d.Err() != nil {
+		return labels.Labels{}, nil, d.Err()
+	}
+	lbls, err := r.dec.InfoMetricDataLabels(ctx, d.Get(), lbls, t, r, matchers...)
+	return lbls, nil, err
+}
+
+func (r *Reader) DataLabels(storage.SeriesRef, int64, labels.Labels) (labels.Labels, string, int64, error) {
+	// TODO.
+	return labels.Labels{}, "", 0, nil
+}
+
 // LabelNamesFor returns all the label names for the series referred to by IDs.
 // The names returned are sorted.
 func (r *Reader) LabelNamesFor(ctx context.Context, postings Postings) ([]string, error) {
@@ -2102,6 +2124,70 @@ func (dec *Decoder) Series(b []byte, builder *labels.ScratchBuilder, chks *[]chu
 		})
 	}
 	return d.Err()
+}
+
+func (dec *Decoder) InfoMetricDataLabels(ctx context.Context, b []byte, lbls labels.Labels, t int64, q InfoMetricSampleQuerier, matchers ...*labels.Matcher) (labels.Labels, error) {
+	d := encoding.Decbuf{B: b}
+
+	// Skip past labels
+	k := d.Uvarint()
+	if d.Err() != nil {
+		return labels.Labels{}, fmt.Errorf("read series label count: %w", d.Err())
+	}
+	for i := 0; i < k; i++ {
+		// Read label name and value offsets
+		d.Uvarint()
+		d.Uvarint()
+		if d.Err() != nil {
+			return labels.Labels{}, fmt.Errorf("read series label offsets: %w", d.Err())
+		}
+	}
+
+	// Read the chunks metadata.
+	k = d.Uvarint()
+	if d.Err() != nil {
+		return labels.Labels{}, fmt.Errorf("read series chunks count: %w", d.Err())
+	}
+	if k == 0 {
+		return labels.Labels{}, nil
+	}
+
+	t0 := d.Varint64()
+	maxt := int64(d.Uvarint64()) + t0
+	ref0 := int64(d.Uvarint64())
+	if d.Err() != nil {
+		return labels.Labels{}, fmt.Errorf("read series chunk base times: %w", d.Err())
+	}
+
+	/*
+		if t0 <= t && maxt >= t {
+			// TODO: Figure out whether this first chunk has info metric samples and whether
+			// there's a sample matching t, that has identifying labels contained in lbls.
+		}
+	*/
+
+	t0 = maxt
+
+	for i := 1; i < k; i++ {
+		mint := int64(d.Uvarint64()) + t0
+		maxt := int64(d.Uvarint64()) + mint
+
+		ref0 += d.Varint64()
+		t0 = maxt
+
+		if d.Err() != nil {
+			return labels.Labels{}, fmt.Errorf("read meta for chunk %d: %w", i, d.Err())
+		}
+
+		/*
+			if mint <= t && maxt >= t {
+				// TODO: Figure out whether this chunk has info metric samples and whether
+				// there's a sample matching t, that has identifying labels contained in lbls.
+			}
+		*/
+	}
+
+	return labels.Labels{}, d.Err()
 }
 
 func yoloString(b []byte) string {

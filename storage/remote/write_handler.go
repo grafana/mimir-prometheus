@@ -18,6 +18,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-kit/log"
@@ -134,7 +136,22 @@ func (h *writeHandler) write(ctx context.Context, req *prompb.WriteRequest) (err
 		}
 		var ref storage.SeriesRef
 		for _, s := range ts.Samples {
-			ref, err = timeLimitApp.Append(ref, labels, s.Timestamp, s.Value)
+			if len(s.IdentifyingLabels) == 0 {
+				ref, err = timeLimitApp.Append(ref, labels, s.Timestamp, s.Value)
+			} else {
+				// This is an info metric sample
+				ils := make([]int, 0, len(s.IdentifyingLabels))
+				var ilb strings.Builder
+				for i, idx := range s.IdentifyingLabels {
+					ils = append(ils, int(idx))
+					if i > 0 {
+						ilb.WriteRune(',')
+					}
+					ilb.WriteString(strconv.Itoa(int(idx)))
+				}
+				level.Debug(h.logger).Log("msg", "appending info metric sample", "identifying_labels", ilb.String())
+				ref, err = app.AppendInfoSample(ref, labels, s.Timestamp, ils)
+			}
 			if err != nil {
 				unwrappedErr := errors.Unwrap(err)
 				if unwrappedErr == nil {

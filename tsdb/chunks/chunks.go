@@ -191,6 +191,8 @@ func ChunkFromSamplesGeneric(s Samples) (Meta, error) {
 			if newChunk != nil {
 				return emptyChunk, fmt.Errorf("did not expect to start a second chunk")
 			}
+		case chunkenc.ValInfoSample:
+			ca.AppendInfoSample(s.Get(i).T(), s.Get(i).IdentifyingLabels())
 		default:
 			panic(fmt.Sprintf("unknown sample type %s", sampleType.String()))
 		}
@@ -222,6 +224,9 @@ func ChunkMetasToSamples(chunks []Meta) (result []Sample) {
 			case chunkenc.ValFloatHistogram:
 				t, fh := it.AtFloatHistogram(nil)
 				result = append(result, sample{t: t, fh: fh})
+			case chunkenc.ValInfoSample:
+				t, ils := it.AtInfoSample()
+				result = append(result, sample{t: t, ils: ils})
 			default:
 				panic("unexpected value type")
 			}
@@ -717,7 +722,7 @@ func nextSequenceFile(dir string) (string, int, error) {
 		}
 		// It is not necessary that we find the files in number order,
 		// for example with '1000000' and '200000', '1000000' would come first.
-		// Though this is a very very rare case, we check anyway for the max id.
+		// Though this is a very very race case, we check anyway for the max id.
 		if j > i {
 			i = j
 		}

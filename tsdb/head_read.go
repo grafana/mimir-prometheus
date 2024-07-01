@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/go-kit/log/level"
@@ -28,6 +29,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/index"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 func (h *Head) ExemplarQuerier(ctx context.Context) (storage.ExemplarQuerier, error) {
@@ -103,12 +105,111 @@ func (h *headIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Ma
 	return labelNamesWithMatchers(ctx, h, matchers...)
 }
 
+func (h *headIndexReader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	dls, err := h.head.postings.InfoMetricDataLabels(ctx, lbls, t, h, matchers...)
+	return dls, nil, err
+}
+
+func (h *headIndexReader) DataLabels(sr storage.SeriesRef, t int64, matchLabels labels.Labels) (labels.Labels, string, int64, error) {
+	lb := labels.NewScratchBuilder(0)
+	var chks []chunks.Meta
+	if err := h.Series(sr, &lb, &chks); err != nil {
+		return labels.Labels{}, "", 0, err
+	}
+	isoState := h.head.iso.State(math.MinInt64, t)
+	cr, err := h.head.chunksRange(math.MinInt64, t, isoState)
+	if err != nil {
+		return labels.Labels{}, "", 0, err
+	}
+
+	// Find the info metric's identifying label set at t among the chunks.
+	st := int64(math.MinInt64)
+	var ils []int
+	for _, meta := range chks {
+		chk, _, err := cr.ChunkOrIterable(meta)
+		if err != nil {
+			return labels.Labels{}, "", 0, err
+		}
+
+		it := chk.Iterator(nil)
+		if vt := it.Seek(t); vt != chunkenc.ValInfoSample {
+			continue
+		}
+
+		curST, curILs := it.AtInfoSample()
+		if curST > t {
+			panic(fmt.Sprintf("chunk range should be max %d", t))
+		}
+		if curST > st {
+			st = curST
+			ils = curILs
+			fmt.Printf("Found identifying labels at timestamp %d: %#v\n", st, ils)
+		}
+	}
+
+	ilsMap := make(map[int]struct{}, len(ils))
+	for _, idx := range ils {
+		ilsMap[idx] = struct{}{}
+	}
+
+	matchMap := matchLabels.Map()
+	lbls := lb.Labels()
+	dlb := labels.NewScratchBuilder(lbls.Len() - len(ils))
+	i := 0
+	isMatch := true
+	var name string
+	lbls.Range(func(l labels.Label) {
+		if !isMatch {
+			return
+		}
+
+		// TODO: Use constant.
+		if l.Name == "__name__" {
+			name = l.Value
+		}
+
+		if _, exists := ilsMap[i]; exists {
+			// An identifying label, see if it's a match.
+			matchValue, exists := matchMap[l.Name]
+			if !exists || l.Value != matchValue {
+				// Info metric is not a match, since this identifying label isn't in matchLabels.
+				isMatch = false
+			}
+
+			i++
+			return
+		}
+
+		// This is a data label.
+		dlb.Add(l.Name, l.Value)
+		i++
+	})
+	if !isMatch {
+		// This info metric didn't have matching identifying labels.
+		return labels.Labels{}, "", 0, nil
+	}
+
+	return dlb.Labels(), name, st, nil
+}
+
 // Postings returns the postings list iterator for the label pairs.
 func (h *headIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {
 	switch len(values) {
 	case 0:
 		return index.EmptyPostings(), nil
 	case 1:
+		if name == "__name__" && values[0] == "target_info" {
+			var vb strings.Builder
+			for i, v := range values {
+				if i > 0 {
+					vb.WriteRune(',')
+				}
+				vb.WriteString(v)
+			}
+			level.Debug(h.head.logger).Log("msg", "Looking up target_info", "values", vb.String())
+		} else {
+			level.Debug(h.head.logger).Log("msg", "Looking up another metric than target_info", "name", name, "value", values[0])
+		}
 		return h.head.postings.Get(name, values[0]), nil
 	default:
 		res := make([]index.Postings, 0, len(values))
@@ -369,9 +470,11 @@ func (h *headChunkReader) chunk(meta chunks.Meta, copyLastChunk bool) (chunkenc.
 	s := h.head.series.getByID(sid)
 	// This means that the series has been garbage collected.
 	if s == nil {
+		fmt.Printf("headChunkReader.chunk: unable to get series by ID %d\n", sid)
 		return nil, 0, storage.ErrNotFound
 	}
 
+	fmt.Printf("headChunkReader.chunk: got series %#v\n", s)
 	s.Lock()
 	c, headChunk, isOpen, err := s.chunk(cid, h.head.chunkDiskMapper, &h.head.memChunkPool)
 	if err != nil {
@@ -390,6 +493,7 @@ func (h *headChunkReader) chunk(meta chunks.Meta, copyLastChunk bool) (chunkenc.
 	// This means that the chunk is outside the specified range.
 	if !c.OverlapsClosedInterval(h.mint, h.maxt) {
 		s.Unlock()
+		fmt.Printf("headChunkReader.chunk: Chunk is outside of specified range\n")
 		return nil, 0, storage.ErrNotFound
 	}
 
@@ -408,6 +512,7 @@ func (h *headChunkReader) chunk(meta chunks.Meta, copyLastChunk bool) (chunkenc.
 	}
 	s.Unlock()
 
+	fmt.Printf("headChunkReader.chunk: Successfully got chunk: %#s\n", chk.Encoding())
 	return &safeHeadChunk{
 		Chunk:    chk,
 		s:        s,
@@ -697,6 +802,9 @@ func (s *memSeries) iterator(id chunks.HeadChunkID, c chunkenc.Chunk, isoState *
 	ix := int(id) - int(s.firstChunkID)
 
 	numSamples := c.NumSamples()
+	if numSamples == 0 {
+		fmt.Printf("memSeries.iterator: numSamples is 0, c: %T\n", c)
+	}
 	stopAfter := numSamples
 
 	if isoState != nil && !isoState.IsolationDisabled() {
@@ -744,6 +852,8 @@ func (s *memSeries) iterator(id chunks.HeadChunkID, c chunkenc.Chunk, isoState *
 			}
 			stopAfter = numSamples - (appendIDsToConsider - index)
 			if stopAfter < 0 {
+				fmt.Printf("Stopped in a previous chunk, numSamples: %d, appendIDsToConsider: %d, index: %d\n",
+					numSamples, appendIDsToConsider, index)
 				stopAfter = 0 // Stopped in a previous chunk.
 			}
 			break
@@ -751,11 +861,14 @@ func (s *memSeries) iterator(id chunks.HeadChunkID, c chunkenc.Chunk, isoState *
 	}
 
 	if stopAfter == 0 {
+		fmt.Printf("memSeries.iterator, creating nopIterator due to stopAfter == 0: numSamples: %d, c: %T\n", numSamples, c)
 		return chunkenc.NewNopIterator()
 	}
 	if stopAfter == numSamples {
+		fmt.Printf("memSeries.iterator, creating iterator since stopAfter == numSamples: %T\n", c)
 		return c.Iterator(it)
 	}
+	fmt.Printf("memSeries.iterator, making stop iterator since stopAfter != numSamples, stopAfter: %d\n", stopAfter)
 	return makeStopIterator(c, it, stopAfter)
 }
 
