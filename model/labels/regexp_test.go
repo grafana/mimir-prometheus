@@ -82,6 +82,8 @@ var (
 		// A long case insensitive alternation.
 		"(?i:(zQPbMkNO|NNSPdvMi|iWuuSoAl|qbvKMimS|IecrXtPa|seTckYqt|NxnyHkgB|fIDlOgKb|UhlWIygH|OtNoJxHG|cUTkFVIV|mTgFIHjr|jQkoIDtE|PPMKxRXl|AwMfwVkQ|CQyMrTQJ|BzrqxVSi|nTpcWuhF|PertdywG|ZZDgCtXN|WWdDPyyE|uVtNQsKk|BdeCHvPZ|wshRnFlH|aOUIitIp|RxZeCdXT|CFZMslCj|AVBZRDxl|IzIGCnhw|ythYuWiz|oztXVXhl|VbLkwqQx|qvaUgyVC|VawUjPWC|ecloYJuj|boCLTdSU|uPrKeAZx|hrMWLWBq|JOnUNHRM|rYnujkPq|dDEdZhIj|DRrfvugG|yEGfDxVV|YMYdJWuP|PHUQZNWM|AmKNrLis|zTxndVfn|FPsHoJnc|EIulZTua|KlAPhdzg|ScHJJCLt|NtTfMzME|eMCwuFdo|SEpJVJbR|cdhXZeCx|sAVtBwRh|kVFEVcMI|jzJrxraA|tGLHTell|NNWoeSaw|DcOKSetX|UXZAJyka|THpMphDP|rizheevl|kDCBRidd|pCZZRqyu|pSygkitl|SwZGkAaW|wILOrfNX|QkwVOerj|kHOMxPDr|EwOVycJv|AJvtzQFS|yEOjKYYB|LizIINLL|JBRSsfcG|YPiUqqNl|IsdEbvee|MjEpGcBm|OxXZVgEQ|xClXGuxa|UzRCGFEb|buJbvfvA|IPZQxRet|oFYShsMc|oBHffuHO|bzzKrcBR|KAjzrGCl|IPUsAVls|OGMUMbIU|gyDccHuR|bjlalnDd|ZLWjeMna|fdsuIlxQ|dVXtiomV|XxedTjNg|XWMHlNoA|nnyqArQX|opfkWGhb|wYtnhdYb))",
 		"(?i:(AAAAAAAAAAAAAAAAAAAAAAAA|BBBBBBBBBBBBBBBBBBBBBBBB|cccccccccccccccccccccccC|ſſſſſſſſſſſſſſſſſſſſſſſſS|SSSSSSSSSSSSSSSSSSSSSSSSſ))",
+		// A short case insensitive alternation where each entry ends with ".*".
+		"(?i:(zQPbMkNO.*|NNSPdvMi.*|iWuuSoAl.*))",
 		// A long case insensitive alternation where each entry ends with ".*".
 		"(?i:(zQPbMkNO.*|NNSPdvMi.*|iWuuSoAl.*|qbvKMimS.*|IecrXtPa.*|seTckYqt.*|NxnyHkgB.*|fIDlOgKb.*|UhlWIygH.*|OtNoJxHG.*|cUTkFVIV.*|mTgFIHjr.*|jQkoIDtE.*|PPMKxRXl.*|AwMfwVkQ.*|CQyMrTQJ.*|BzrqxVSi.*|nTpcWuhF.*|PertdywG.*|ZZDgCtXN.*|WWdDPyyE.*|uVtNQsKk.*|BdeCHvPZ.*|wshRnFlH.*|aOUIitIp.*|RxZeCdXT.*|CFZMslCj.*|AVBZRDxl.*|IzIGCnhw.*|ythYuWiz.*|oztXVXhl.*|VbLkwqQx.*|qvaUgyVC.*|VawUjPWC.*|ecloYJuj.*|boCLTdSU.*|uPrKeAZx.*|hrMWLWBq.*|JOnUNHRM.*|rYnujkPq.*|dDEdZhIj.*|DRrfvugG.*|yEGfDxVV.*|YMYdJWuP.*|PHUQZNWM.*|AmKNrLis.*|zTxndVfn.*|FPsHoJnc.*|EIulZTua.*|KlAPhdzg.*|ScHJJCLt.*|NtTfMzME.*|eMCwuFdo.*|SEpJVJbR.*|cdhXZeCx.*|sAVtBwRh.*|kVFEVcMI.*|jzJrxraA.*|tGLHTell.*|NNWoeSaw.*|DcOKSetX.*|UXZAJyka.*|THpMphDP.*|rizheevl.*|kDCBRidd.*|pCZZRqyu.*|pSygkitl.*|SwZGkAaW.*|wILOrfNX.*|QkwVOerj.*|kHOMxPDr.*|EwOVycJv.*|AJvtzQFS.*|yEOjKYYB.*|LizIINLL.*|JBRSsfcG.*|YPiUqqNl.*|IsdEbvee.*|MjEpGcBm.*|OxXZVgEQ.*|xClXGuxa.*|UzRCGFEb.*|buJbvfvA.*|IPZQxRet.*|oFYShsMc.*|oBHffuHO.*|bzzKrcBR.*|KAjzrGCl.*|IPUsAVls.*|OGMUMbIU.*|gyDccHuR.*|bjlalnDd.*|ZLWjeMna.*|fdsuIlxQ.*|dVXtiomV.*|XxedTjNg.*|XWMHlNoA.*|nnyqArQX.*|opfkWGhb.*|wYtnhdYb.*))",
 		// A long case insensitive alternation where each entry starts with ".*".
@@ -1017,7 +1019,15 @@ func TestAnalyzeRealQueries(t *testing.T) {
 	}
 }
 
-func TestOptimizeEqualStringMatchers(t *testing.T) {
+func randStringsWithSuffix(randGenerator *rand.Rand, many, length int, suffix string) []string {
+	out := randStrings(randGenerator, many, length)
+	for i := range out {
+		out[i] += suffix
+	}
+	return out
+}
+
+func TestOptimizeEqualOrPrefixStringMatchers(t *testing.T) {
 	tests := map[string]struct {
 		input                 StringMatcher
 		expectedValues        []string
@@ -1098,7 +1108,7 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 
 	for testName, testData := range tests {
 		t.Run(testName, func(t *testing.T) {
-			actualMatcher := optimizeEqualStringMatchers(testData.input, 0)
+			actualMatcher := optimizeEqualOrPrefixStringMatchers(testData.input, 0)
 
 			if testData.expectedValues == nil {
 				require.IsType(t, testData.input, actualMatcher)
@@ -1113,10 +1123,12 @@ func TestOptimizeEqualStringMatchers(t *testing.T) {
 
 func TestNewEqualMultiStringMatcher(t *testing.T) {
 	tests := map[string]struct {
-		values             []string
-		caseSensitive      bool
-		expectedValuesMap  map[string]struct{}
-		expectedValuesList []string
+		values                []string
+		caseSensitivePrefixes []*literalPrefixSensitiveStringMatcher
+		caseSensitive         bool
+		expectedValuesMap     map[string]struct{}
+		expectedPrefixesMap   map[string][]StringMatcher
+		expectedValuesList    []string
 	}{
 		"few case sensitive values": {
 			values:             []string{"a", "B"},
@@ -1128,27 +1140,47 @@ func TestNewEqualMultiStringMatcher(t *testing.T) {
 			caseSensitive:      false,
 			expectedValuesList: []string{"a", "B"},
 		},
+		"few case sensitive values and prefixes": {
+			values:                []string{"a"},
+			caseSensitivePrefixes: []*literalPrefixSensitiveStringMatcher{{prefix: "B", right: anyStringWithoutNewlineMatcher{}}},
+			caseSensitive:         true,
+			expectedValuesMap:     map[string]struct{}{"a": {}},
+			expectedPrefixesMap:   map[string][]StringMatcher{"B": {&literalPrefixSensitiveStringMatcher{prefix: "B", right: anyStringWithoutNewlineMatcher{}}}},
+		},
 		"many case sensitive values": {
-			values:            []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
-			caseSensitive:     true,
-			expectedValuesMap: map[string]struct{}{"a": {}, "B": {}, "c": {}, "D": {}, "e": {}, "F": {}, "g": {}, "H": {}, "i": {}, "L": {}, "m": {}, "N": {}, "o": {}, "P": {}, "q": {}, "r": {}},
+			values:              []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
+			caseSensitive:       true,
+			expectedValuesMap:   map[string]struct{}{"a": {}, "B": {}, "c": {}, "D": {}, "e": {}, "F": {}, "g": {}, "H": {}, "i": {}, "L": {}, "m": {}, "N": {}, "o": {}, "P": {}, "q": {}, "r": {}},
+			expectedPrefixesMap: map[string][]StringMatcher{},
 		},
 		"many case insensitive values": {
-			values:            []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
-			caseSensitive:     false,
-			expectedValuesMap: map[string]struct{}{"a": {}, "b": {}, "c": {}, "d": {}, "e": {}, "f": {}, "g": {}, "h": {}, "i": {}, "l": {}, "m": {}, "n": {}, "o": {}, "p": {}, "q": {}, "r": {}},
+			values:              []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
+			caseSensitive:       false,
+			expectedValuesMap:   map[string]struct{}{"a": {}, "b": {}, "c": {}, "d": {}, "e": {}, "f": {}, "g": {}, "h": {}, "i": {}, "l": {}, "m": {}, "n": {}, "o": {}, "p": {}, "q": {}, "r": {}},
+			expectedPrefixesMap: map[string][]StringMatcher{},
 		},
 	}
 
 	for testName, testData := range tests {
 		t.Run(testName, func(t *testing.T) {
-			matcher := newEqualMultiStringMatcher(testData.caseSensitive, len(testData.values))
+			// To keep this test simple, we always assume a min prefix length of 1.
+			minPrefixLength := 0
+			if len(testData.caseSensitivePrefixes) > 0 {
+				minPrefixLength = 1
+			}
+
+			matcher := newEqualMultiStringMatcher(testData.caseSensitive, len(testData.values), len(testData.caseSensitivePrefixes), minPrefixLength)
 			for _, v := range testData.values {
 				matcher.add(v)
 			}
-			if testData.expectedValuesMap != nil {
+			for _, p := range testData.caseSensitivePrefixes {
+				matcher.addPrefix(p.prefix, true, p)
+			}
+
+			if testData.expectedValuesMap != nil || testData.expectedPrefixesMap != nil {
 				require.IsType(t, &equalMultiStringMapMatcher{}, matcher)
 				require.Equal(t, testData.expectedValuesMap, matcher.(*equalMultiStringMapMatcher).values)
+				require.Equal(t, testData.expectedPrefixesMap, matcher.(*equalMultiStringMapMatcher).prefixes)
 				require.Equal(t, testData.caseSensitive, matcher.(*equalMultiStringMapMatcher).caseSensitive)
 			}
 			if testData.expectedValuesList != nil {
@@ -1160,9 +1192,32 @@ func TestNewEqualMultiStringMatcher(t *testing.T) {
 	}
 }
 
+func TestEqualMultiStringMapMatcher_addPrefix(t *testing.T) {
+	t.Run("should panic if the matcher is case sensitive but the prefix is not case sensitive", func(t *testing.T) {
+		matcher := newEqualMultiStringMatcher(true, 0, 1, 1)
+
+		require.Panics(t, func() {
+			matcher.addPrefix("a", false, &literalPrefixInsensitiveStringMatcher{
+				prefix: "a",
+			})
+		})
+	})
+
+	t.Run("should panic if the matcher is not case sensitive but the prefix is case sensitive", func(t *testing.T) {
+		matcher := newEqualMultiStringMatcher(false, 0, 1, 1)
+
+		require.Panics(t, func() {
+			matcher.addPrefix("a", true, &literalPrefixSensitiveStringMatcher{
+				prefix: "a",
+			})
+		})
+	})
+}
+
 func TestEqualMultiStringMatcher_Matches(t *testing.T) {
 	tests := map[string]struct {
 		values             []string
+		prefixes           []StringMatcher
 		caseSensitive      bool
 		expectedMatches    []string
 		expectedNotMatches []string
@@ -1179,6 +1234,24 @@ func TestEqualMultiStringMatcher_Matches(t *testing.T) {
 			expectedMatches:    []string{"a", "A", "b", "B"},
 			expectedNotMatches: []string{"c", "C"},
 		},
+		"few case sensitive prefixes": {
+			prefixes: []StringMatcher{
+				&literalPrefixSensitiveStringMatcher{prefix: "a", right: anyStringWithoutNewlineMatcher{}},
+				&literalPrefixSensitiveStringMatcher{prefix: "B", right: anyStringWithoutNewlineMatcher{}},
+			},
+			caseSensitive:      true,
+			expectedMatches:    []string{"a", "aX", "B", "BX"},
+			expectedNotMatches: []string{"A", "b"},
+		},
+		"few case insensitive prefixes": {
+			prefixes: []StringMatcher{
+				&literalPrefixInsensitiveStringMatcher{prefix: "a", right: anyStringWithoutNewlineMatcher{}},
+				&literalPrefixInsensitiveStringMatcher{prefix: "B", right: anyStringWithoutNewlineMatcher{}},
+			},
+			caseSensitive:      false,
+			expectedMatches:    []string{"a", "aX", "A", "AX", "b", "bX", "B", "BX"},
+			expectedNotMatches: []string{"c", "cX", "C", "CX"},
+		},
 		"many case sensitive values": {
 			values:             []string{"a", "B", "c", "D", "e", "F", "g", "H", "i", "L", "m", "N", "o", "P", "q", "r"},
 			caseSensitive:      true,
@@ -1191,13 +1264,36 @@ func TestEqualMultiStringMatcher_Matches(t *testing.T) {
 			expectedMatches:    []string{"a", "A", "b", "B"},
 			expectedNotMatches: []string{"x", "X"},
 		},
+		"mixed values and prefixes": {
+			values:             []string{"a"},
+			prefixes:           []StringMatcher{&literalPrefixSensitiveStringMatcher{prefix: "B", right: anyStringWithoutNewlineMatcher{}}},
+			caseSensitive:      true,
+			expectedMatches:    []string{"a", "B", "BX"},
+			expectedNotMatches: []string{"aX", "A", "b", "bX"},
+		},
 	}
 
 	for testName, testData := range tests {
 		t.Run(testName, func(t *testing.T) {
-			matcher := newEqualMultiStringMatcher(testData.caseSensitive, len(testData.values))
+			// To keep this test simple, we always assume a min prefix length of 1.
+			minPrefixLength := 0
+			if len(testData.prefixes) > 0 {
+				minPrefixLength = 1
+			}
+
+			matcher := newEqualMultiStringMatcher(testData.caseSensitive, len(testData.values), len(testData.prefixes), minPrefixLength)
 			for _, v := range testData.values {
 				matcher.add(v)
+			}
+			for _, p := range testData.prefixes {
+				switch m := p.(type) {
+				case *literalPrefixSensitiveStringMatcher:
+					matcher.addPrefix(m.prefix, true, p)
+				case *literalPrefixInsensitiveStringMatcher:
+					matcher.addPrefix(m.prefix, false, p)
+				default:
+					panic("Unexpected type in test case")
+				}
 			}
 
 			for _, v := range testData.expectedMatches {
@@ -1210,29 +1306,33 @@ func TestEqualMultiStringMatcher_Matches(t *testing.T) {
 	}
 }
 
-func TestFindEqualStringMatchers(t *testing.T) {
+func TestFindEqualOrPrefixStringMatchers(t *testing.T) {
 	type match struct {
 		s             string
 		caseSensitive bool
 	}
 
-	// Utility to call findEqualStringMatchers() and collect all callback invocations.
-	findEqualStringMatchersAndCollectMatches := func(input StringMatcher) (matches []match, ok bool) {
-		ok = findEqualStringMatchers(input, func(matcher *equalStringMatcher) bool {
+	// Utility to call findEqualOrPrefixStringMatchers() and collect all callback invocations.
+	findEqualOrPrefixStringMatchersAndCollectMatches := func(input StringMatcher) (matches []match, ok bool) {
+		ok = findEqualOrPrefixStringMatchers(input, func(matcher *equalStringMatcher) bool {
 			matches = append(matches, match{matcher.s, matcher.caseSensitive})
 			return true
+		}, func(prefix string, prefixCaseSensitive bool, right StringMatcher) bool {
+			matches = append(matches, match{prefix, prefixCaseSensitive})
+			return true
 		})
+
 		return
 	}
 
 	t.Run("empty matcher", func(t *testing.T) {
-		actualMatches, actualOk := findEqualStringMatchersAndCollectMatches(emptyStringMatcher{})
+		actualMatches, actualOk := findEqualOrPrefixStringMatchersAndCollectMatches(emptyStringMatcher{})
 		require.False(t, actualOk)
 		require.Empty(t, actualMatches)
 	})
 
 	t.Run("concat of literal matchers (case sensitive)", func(t *testing.T) {
-		actualMatches, actualOk := findEqualStringMatchersAndCollectMatches(
+		actualMatches, actualOk := findEqualOrPrefixStringMatchersAndCollectMatches(
 			orStringMatcher{
 				&equalStringMatcher{s: "test-1", caseSensitive: true},
 				&equalStringMatcher{s: "test-2", caseSensitive: true},
@@ -1244,7 +1344,7 @@ func TestFindEqualStringMatchers(t *testing.T) {
 	})
 
 	t.Run("concat of literal matchers (case insensitive)", func(t *testing.T) {
-		actualMatches, actualOk := findEqualStringMatchersAndCollectMatches(
+		actualMatches, actualOk := findEqualOrPrefixStringMatchersAndCollectMatches(
 			orStringMatcher{
 				&equalStringMatcher{s: "test-1", caseSensitive: false},
 				&equalStringMatcher{s: "test-2", caseSensitive: false},
@@ -1256,7 +1356,7 @@ func TestFindEqualStringMatchers(t *testing.T) {
 	})
 
 	t.Run("concat of literal matchers (mixed case)", func(t *testing.T) {
-		actualMatches, actualOk := findEqualStringMatchersAndCollectMatches(
+		actualMatches, actualOk := findEqualOrPrefixStringMatchersAndCollectMatches(
 			orStringMatcher{
 				&equalStringMatcher{s: "test-1", caseSensitive: false},
 				&equalStringMatcher{s: "test-2", caseSensitive: true},
@@ -1266,11 +1366,59 @@ func TestFindEqualStringMatchers(t *testing.T) {
 		require.True(t, actualOk)
 		require.Equal(t, []match{{"test-1", false}, {"test-2", true}}, actualMatches)
 	})
+
+	t.Run("concat of literal prefix matchers (case sensitive)", func(t *testing.T) {
+		actualMatches, actualOk := findEqualOrPrefixStringMatchersAndCollectMatches(
+			orStringMatcher{
+				&literalPrefixSensitiveStringMatcher{prefix: "test-1"},
+				&literalPrefixSensitiveStringMatcher{prefix: "test-2"},
+			},
+		)
+
+		require.True(t, actualOk)
+		require.Equal(t, []match{{"test-1", true}, {"test-2", true}}, actualMatches)
+	})
+
+	t.Run("concat of literal prefix matchers (case insensitive)", func(t *testing.T) {
+		actualMatches, actualOk := findEqualOrPrefixStringMatchersAndCollectMatches(
+			orStringMatcher{
+				&literalPrefixInsensitiveStringMatcher{prefix: "test-1"},
+				&literalPrefixInsensitiveStringMatcher{prefix: "test-2"},
+			},
+		)
+
+		require.True(t, actualOk)
+		require.Equal(t, []match{{"test-1", false}, {"test-2", false}}, actualMatches)
+	})
+
+	t.Run("concat of literal prefix matchers (mixed case)", func(t *testing.T) {
+		actualMatches, actualOk := findEqualOrPrefixStringMatchersAndCollectMatches(
+			orStringMatcher{
+				&literalPrefixInsensitiveStringMatcher{prefix: "test-1"},
+				&literalPrefixSensitiveStringMatcher{prefix: "test-2"},
+			},
+		)
+
+		require.True(t, actualOk)
+		require.Equal(t, []match{{"test-1", false}, {"test-2", true}}, actualMatches)
+	})
+
+	t.Run("concat of literal string and prefix matchers (case sensitive)", func(t *testing.T) {
+		actualMatches, actualOk := findEqualOrPrefixStringMatchersAndCollectMatches(
+			orStringMatcher{
+				&equalStringMatcher{s: "test-1", caseSensitive: true},
+				&literalPrefixSensitiveStringMatcher{prefix: "test-2"},
+			},
+		)
+
+		require.True(t, actualOk)
+		require.Equal(t, []match{{"test-1", true}, {"test-2", true}}, actualMatches)
+	})
 }
 
 // This benchmark is used to find a good threshold to use to apply the optimization
-// done by optimizeEqualStringMatchers().
-func BenchmarkOptimizeEqualStringMatchers(b *testing.B) {
+// done by optimizeEqualOrPrefixStringMatchers().
+func BenchmarkOptimizeEqualOrPrefixStringMatchers(b *testing.B) {
 	randGenerator := rand.New(rand.NewSource(time.Now().UnixNano()))
 
 	// Generate variable lengths random texts to match against.
@@ -1280,42 +1428,51 @@ func BenchmarkOptimizeEqualStringMatchers(b *testing.B) {
 
 	for numAlternations := 2; numAlternations <= 256; numAlternations *= 2 {
 		for _, caseSensitive := range []bool{true, false} {
-			b.Run(fmt.Sprintf("alternations: %d case sensitive: %t", numAlternations, caseSensitive), func(b *testing.B) {
-				// Generate a regex with the expected number of alternations.
-				re := strings.Join(randStrings(randGenerator, numAlternations, 10), "|")
-				if !caseSensitive {
-					re = "(?i:(" + re + "))"
-				}
-
-				parsed, err := syntax.Parse(re, syntax.Perl)
-				require.NoError(b, err)
-
-				unoptimized := stringMatcherFromRegexpInternal(parsed)
-				require.IsType(b, orStringMatcher{}, unoptimized)
-
-				optimized := optimizeEqualStringMatchers(unoptimized, 0)
-				if numAlternations < minEqualMultiStringMatcherMapThreshold {
-					require.IsType(b, &equalMultiStringSliceMatcher{}, optimized)
-				} else {
-					require.IsType(b, &equalMultiStringMapMatcher{}, optimized)
-				}
-
-				b.Run("without optimizeEqualStringMatchers()", func(b *testing.B) {
-					for n := 0; n < b.N; n++ {
-						for _, t := range texts {
-							unoptimized.Matches(t)
-						}
+			for _, prefixMatcher := range []bool{true, false} {
+				b.Run(fmt.Sprintf("alternations: %d case sensitive: %t prefix matcher: %t", numAlternations, caseSensitive, prefixMatcher), func(b *testing.B) {
+					// If the test should run on prefix matchers, we add a wildcard matcher as suffix (prefix will be a literal).
+					suffix := ""
+					if prefixMatcher {
+						suffix = ".*"
 					}
-				})
 
-				b.Run("with optimizeEqualStringMatchers()", func(b *testing.B) {
-					for n := 0; n < b.N; n++ {
-						for _, t := range texts {
-							optimized.Matches(t)
-						}
+					// Generate a regex with the expected number of alternations.
+					re := strings.Join(randStringsWithSuffix(randGenerator, numAlternations, 10, suffix), "|")
+					if !caseSensitive {
+						re = "(?i:(" + re + "))"
 					}
+					b.Logf("regexp: %s", re)
+
+					parsed, err := syntax.Parse(re, syntax.Perl)
+					require.NoError(b, err)
+
+					unoptimized := stringMatcherFromRegexpInternal(parsed)
+					require.IsType(b, orStringMatcher{}, unoptimized)
+
+					optimized := optimizeEqualOrPrefixStringMatchers(unoptimized, 0)
+					if numAlternations < minEqualMultiStringMatcherMapThreshold && !prefixMatcher {
+						require.IsType(b, &equalMultiStringSliceMatcher{}, optimized)
+					} else {
+						require.IsType(b, &equalMultiStringMapMatcher{}, optimized)
+					}
+
+					b.Run("without optimizeEqualOrPrefixStringMatchers()", func(b *testing.B) {
+						for n := 0; n < b.N; n++ {
+							for _, t := range texts {
+								unoptimized.Matches(t)
+							}
+						}
+					})
+
+					b.Run("with optimizeEqualOrPrefixStringMatchers()", func(b *testing.B) {
+						for n := 0; n < b.N; n++ {
+							for _, t := range texts {
+								optimized.Matches(t)
+							}
+						}
+					})
 				})
-			})
+			}
 		}
 	}
 }
@@ -1535,10 +1692,16 @@ func visitStringMatcher(matcher StringMatcher, callback func(matcher StringMatch
 		}
 
 	// No nested matchers for the following ones.
+	case *equalMultiStringMapMatcher:
+		for _, prefixes := range casted.prefixes {
+			for _, matcher := range prefixes {
+				visitStringMatcher(matcher, callback)
+			}
+		}
+
 	case emptyStringMatcher:
 	case *equalStringMatcher:
 	case *equalMultiStringSliceMatcher:
-	case *equalMultiStringMapMatcher:
 	case anyStringWithoutNewlineMatcher:
 	case *anyNonEmptyStringMatcher:
 	case trueMatcher:
