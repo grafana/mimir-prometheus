@@ -48,6 +48,8 @@ const (
 )
 
 func TestMain(m *testing.M) {
+	// Enable experimental functions testing
+	parser.EnableExperimentalFunctions = true
 	testutil.TolerantVerifyLeak(m)
 }
 
