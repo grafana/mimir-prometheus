@@ -29,6 +29,8 @@ import (
 	"sort"
 	"unsafe"
 
+	"golang.org/x/exp/maps"
+
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunks"
@@ -36,6 +38,7 @@ import (
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/hashcache"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 const (
@@ -1566,6 +1569,132 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 		return val != lastVal, nil
 	})
 	return values, err
+}
+
+// InfoMetricSampleQuerier supports getting an info metric's latest timestamp.
+type InfoMetricSampleQuerier interface {
+	// LatestTimestamp returns the latest timestamp <= t, given chks.
+	LatestTimestamp(t int64, chks []chunks.Meta) (int64, error)
+}
+
+func (r *Reader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, sq InfoMetricSampleQuerier, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	// For this prototype, we support only the target_info metric.
+	// Find corresponding series.
+
+	// Search for target_info postings.
+	p, err := r.Postings(ctx, labels.MetricName, "target_info")
+	if err != nil {
+		return labels.Labels{}, nil, err
+	}
+	infoSrs := map[storage.SeriesRef]int{}
+	for p.Next() {
+		infoSrs[p.At()] = 0
+	}
+	if p.Err() != nil {
+		return labels.Labels{}, nil, err
+	}
+	if len(infoSrs) == 0 {
+		// There are no target_info series.
+		return labels.Labels{}, nil, err
+	}
+
+	lblMap := lbls.Map()
+	// Given that we have target_info's series refs, first find those series with identifying labels matching lblMap.
+	// When we have filtered it down to those series, we can pick their (matching) data labels.
+	instanceVal := lblMap["instance"]
+	p, err = r.Postings(ctx, "instance", instanceVal)
+	if err != nil {
+		return labels.Labels{}, nil, err
+	}
+	for p.Next() {
+		sr := p.At()
+		if _, exists := infoSrs[sr]; !exists {
+			continue
+		}
+		// This series' instance label matches.
+		infoSrs[sr]++
+	}
+	if p.Err() != nil {
+		return labels.Labels{}, nil, err
+	}
+	jobVal := lblMap["job"]
+	p, err = r.Postings(ctx, "job", jobVal)
+	if err != nil {
+		return labels.Labels{}, nil, err
+	}
+	for p.Next() {
+		sr := p.At()
+		if _, exists := infoSrs[sr]; !exists {
+			continue
+		}
+		// This series' job label matches.
+		infoSrs[sr]++
+	}
+	if p.Err() != nil {
+		return labels.Labels{}, nil, err
+	}
+
+	// Keep info series where both identifying labels match corresponding labels in lbls.
+	for sr, count := range infoSrs {
+		if count != 2 {
+			// This candidate didn't match both identifying labels.
+			delete(infoSrs, sr)
+		}
+	}
+	if len(infoSrs) == 0 {
+		return labels.Labels{}, nil, err
+	}
+
+	// Pick the most up to date matching info series.
+	lb := labels.NewScratchBuilder(0)
+	var infoLbls labels.Labels
+	if len(infoSrs) > 1 {
+		// Resolve conflict by picking the series with the newest sample <= t.
+		maxT := int64(0)
+
+		var chks []chunks.Meta
+		for sr := range infoSrs {
+			lb.Reset()
+			if err := r.Series(sr, &lb, &chks); err != nil {
+				return labels.Labels{}, nil, err
+			}
+			srT, err := sq.LatestTimestamp(t, chks)
+			if err != nil {
+				return labels.Labels{}, nil, err
+			}
+
+			if srT > maxT {
+				maxT = srT
+				infoLbls = lb.Labels()
+			}
+		}
+	} else {
+		infoSr := maps.Keys(infoSrs)[0]
+		if err := r.Series(infoSr, &lb, nil); err != nil {
+			return labels.Labels{}, nil, err
+		}
+		infoLbls = lb.Labels()
+	}
+
+	// Pick info metric data labels.
+	dataLabels := infoLbls.DropMetricName()
+	dlb := labels.NewScratchBuilder(0)
+	dataLabels.Range(func(l labels.Label) {
+		if l.Name == "instance" || l.Name == "job" {
+			return
+		}
+
+		isMatch := true
+		for _, m := range matchers {
+			if m.Name == l.Name {
+				isMatch = isMatch && m.Matches(m.Value)
+			}
+		}
+		if isMatch {
+			dlb.Add(l.Name, l.Value)
+		}
+	})
+	return dlb.Labels(), nil, nil
 }
 
 // LabelNamesFor returns all the label names for the series referred to by IDs.
