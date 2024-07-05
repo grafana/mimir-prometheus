@@ -833,6 +833,11 @@ func (a *appender) Append(ref storage.SeriesRef, l labels.Labels, t int64, v flo
 	return storage.SeriesRef(series.ref), nil
 }
 
+func (a *appender) AppendInfoSample(ref storage.SeriesRef, l labels.Labels, t int64, _ []int) (storage.SeriesRef, error) {
+	// TODO: Implement.
+	return a.Append(ref, l, t, 1)
+}
+
 func (a *appender) getOrCreate(l labels.Labels) (series *memSeries, created bool) {
 	hash := l.Hash()
 

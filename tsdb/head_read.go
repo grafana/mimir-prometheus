@@ -28,6 +28,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/index"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 func (h *Head) ExemplarQuerier(ctx context.Context) (storage.ExemplarQuerier, error) {
@@ -101,6 +102,30 @@ func (h *headIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Ma
 	}
 
 	return labelNamesWithMatchers(ctx, h, matchers...)
+}
+
+func (h *headIndexReader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, sq index.InfoMetricSampleQuerier, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	lb := labels.NewScratchBuilder(0)
+	latestTimestamp := func(sr storage.SeriesRef) (int64, labels.Labels, error) {
+		lb.Reset()
+		var chks []chunks.Meta
+		if err := h.Series(sr, &lb, &chks); err != nil {
+			fmt.Printf("LatestTimestamp hit an error calling h.Series: %s\n", err)
+			return 0, labels.Labels{}, err
+		}
+
+		st, err := sq.LatestTimestamp(t, chks)
+		if err != nil {
+			return 0, labels.Labels{}, err
+		}
+		return st, lb.Labels(), nil
+	}
+
+	dls, err := h.head.postings.InfoMetricDataLabels(ctx, lbls, t, latestTimestamp, matchers...)
+	if err != nil {
+		fmt.Printf("headIndexReader.InfoMetricDataLabels: error %s\n", err)
+	}
+	return dls, nil, err
 }
 
 // Postings returns the postings list iterator for the label pairs.

@@ -36,6 +36,7 @@ import (
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/hashcache"
+	"github.com/prometheus/prometheus/util/annotations"
 )
 
 const (
@@ -1566,6 +1567,17 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 		return val != lastVal, nil
 	})
 	return values, err
+}
+
+// InfoMetricSampleQuerier supports getting an info metric's latest timestamp.
+type InfoMetricSampleQuerier interface {
+	// LatestTimestamp returns the latest timestamp <= t, given chks.
+	LatestTimestamp(t int64, chks []chunks.Meta) (int64, error)
+}
+
+func (r *Reader) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, sq InfoMetricSampleQuerier, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	// TODO: Implement.
+	return labels.Labels{}, nil, nil
 }
 
 // LabelNamesFor returns all the label names for the series referred to by IDs.

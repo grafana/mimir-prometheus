@@ -30,6 +30,7 @@ const (
 	EncXOR
 	EncHistogram
 	EncFloatHistogram
+	EncInfoMetric
 )
 
 func (e Encoding) String() string {
@@ -42,13 +43,15 @@ func (e Encoding) String() string {
 		return "histogram"
 	case EncFloatHistogram:
 		return "floathistogram"
+	case EncInfoMetric:
+		return "infometric"
 	}
 	return "<unknown>"
 }
 
 // IsValidEncoding returns true for supported encodings.
 func IsValidEncoding(e Encoding) bool {
-	return e == EncXOR || e == EncHistogram || e == EncFloatHistogram
+	return e == EncXOR || e == EncHistogram || e == EncFloatHistogram || e == EncInfoMetric
 }
 
 const (
@@ -116,6 +119,9 @@ type Appender interface {
 	// The Appender app that can be used for the next append is always returned.
 	AppendHistogram(prev *HistogramAppender, t int64, h *histogram.Histogram, appendOnly bool) (c Chunk, isRecoded bool, app Appender, err error)
 	AppendFloatHistogram(prev *FloatHistogramAppender, t int64, h *histogram.FloatHistogram, appendOnly bool) (c Chunk, isRecoded bool, app Appender, err error)
+
+	// AppendInfoSample appends an info metric sample with its identifying label set indices.
+	AppendInfoSample(int64, []int)
 }
 
 // Iterator is a simple iterator that can only get the next value.
@@ -165,6 +171,7 @@ const (
 	ValFloat                           // A simple float, retrieved with At.
 	ValHistogram                       // A histogram, retrieve with AtHistogram, but AtFloatHistogram works, too.
 	ValFloatHistogram                  // A floating-point histogram, retrieve with AtFloatHistogram.
+	ValInfoSample                      // ValInfoSample is an info metric sample.
 )
 
 func (v ValueType) String() string {
@@ -177,6 +184,8 @@ func (v ValueType) String() string {
 		return "histogram"
 	case ValFloatHistogram:
 		return "floathistogram"
+	case ValInfoSample:
+		return "infometric"
 	default:
 		return "unknown"
 	}
@@ -190,6 +199,8 @@ func (v ValueType) ChunkEncoding() Encoding {
 		return EncHistogram
 	case ValFloatHistogram:
 		return EncFloatHistogram
+	case ValInfoSample:
+		return EncInfoMetric
 	default:
 		return EncNone
 	}
@@ -203,6 +214,8 @@ func (v ValueType) NewChunk() (Chunk, error) {
 		return NewHistogramChunk(), nil
 	case ValFloatHistogram:
 		return NewFloatHistogramChunk(), nil
+	case ValInfoSample:
+		return NewInfoSampleChunk(), nil
 	default:
 		return nil, fmt.Errorf("value type %v unsupported", v)
 	}

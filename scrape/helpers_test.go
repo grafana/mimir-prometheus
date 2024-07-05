@@ -47,6 +47,10 @@ func (a nopAppender) Append(storage.SeriesRef, labels.Labels, int64, float64) (s
 	return 0, nil
 }
 
+func (a nopAppender) AppendInfoSample(storage.SeriesRef, labels.Labels, int64, []int) (storage.SeriesRef, error) {
+	return 0, nil
+}
+
 func (a nopAppender) AppendExemplar(storage.SeriesRef, labels.Labels, exemplar.Exemplar) (storage.SeriesRef, error) {
 	return 0, nil
 }
@@ -130,6 +134,10 @@ func (a *collectResultAppender) Append(ref storage.SeriesRef, lset labels.Labels
 		return 0, err
 	}
 	return ref, err
+}
+
+func (a *collectResultAppender) AppendInfoSample(ref storage.SeriesRef, lset labels.Labels, t int64, identifyingLabels []int) (storage.SeriesRef, error) {
+	return a.Append(ref, lset, t, 1)
 }
 
 func (a *collectResultAppender) AppendExemplar(ref storage.SeriesRef, l labels.Labels, e exemplar.Exemplar) (storage.SeriesRef, error) {

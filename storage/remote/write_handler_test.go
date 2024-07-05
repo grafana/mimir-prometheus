@@ -841,6 +841,10 @@ func (m *mockAppendable) Append(_ storage.SeriesRef, l labels.Labels, t int64, v
 	return 0, nil
 }
 
+func (m *mockAppendable) AppendInfoSample(sr storage.SeriesRef, l labels.Labels, t int64, _ []int) (storage.SeriesRef, error) {
+	return m.Append(sr, l, t, 1)
+}
+
 func (m *mockAppendable) Commit() error {
 	if m.commitErr != nil {
 		_ = m.Rollback() // As per Commit method contract.

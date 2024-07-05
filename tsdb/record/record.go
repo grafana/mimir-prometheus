@@ -52,6 +52,8 @@ const (
 	HistogramSamples Type = 7
 	// FloatHistogramSamples is used to match WAL records of type Float Histograms.
 	FloatHistogramSamples Type = 8
+	// InfoSamples is used to match WAL records of type Info Samples.
+	InfoSamples Type = 9
 )
 
 func (rt Type) String() string {
@@ -68,6 +70,8 @@ func (rt Type) String() string {
 		return "histogram_samples"
 	case FloatHistogramSamples:
 		return "float_histogram_samples"
+	case InfoSamples:
+		return "info_metric_samples"
 	case MmapMarkers:
 		return "mmapmarkers"
 	case Metadata:
@@ -185,6 +189,13 @@ type RefFloatHistogramSample struct {
 	FH  *histogram.FloatHistogram
 }
 
+// RefInfoSample is an info metric sample.
+type RefInfoSample struct {
+	Ref chunks.HeadSeriesRef
+	T   int64
+	ILs []int
+}
+
 // RefMmapMarker marks that the all the samples of the given series until now have been m-mapped to disk.
 type RefMmapMarker struct {
 	Ref     chunks.HeadSeriesRef
@@ -207,7 +218,7 @@ func (d *Decoder) Type(rec []byte) Type {
 		return Unknown
 	}
 	switch t := Type(rec[0]); t {
-	case Series, Samples, Tombstones, Exemplars, MmapMarkers, Metadata, HistogramSamples, FloatHistogramSamples:
+	case Series, Samples, Tombstones, Exemplars, MmapMarkers, Metadata, HistogramSamples, FloatHistogramSamples, InfoSamples:
 		return t
 	}
 	return Unknown
@@ -543,7 +554,7 @@ func (d *Decoder) FloatHistogramSamples(rec []byte, histograms []RefFloatHistogr
 	return histograms, nil
 }
 
-// DecodeFloatHistogram decodes a Histogram from a byte slice.
+// DecodeFloatHistogram decodes a FloatHistogram from a byte slice.
 func DecodeFloatHistogram(buf *encoding.Decbuf, fh *histogram.FloatHistogram) {
 	fh.CounterResetHint = histogram.CounterResetHint(buf.Byte())
 

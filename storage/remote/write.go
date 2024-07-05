@@ -292,6 +292,12 @@ func (t *timestampTracker) Append(_ storage.SeriesRef, _ labels.Labels, ts int64
 	return 0, nil
 }
 
+// AppendInfoSample implements storage.Appender.
+func (t *timestampTracker) AppendInfoSample(sr storage.SeriesRef, lbls labels.Labels, ts int64, _ []int) (storage.SeriesRef, error) {
+	// TODO: Implement.
+	return t.Append(sr, lbls, ts, 1)
+}
+
 func (t *timestampTracker) AppendExemplar(_ storage.SeriesRef, _ labels.Labels, _ exemplar.Exemplar) (storage.SeriesRef, error) {
 	t.exemplars++
 	return 0, nil
