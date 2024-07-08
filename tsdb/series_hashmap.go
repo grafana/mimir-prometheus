@@ -74,7 +74,7 @@ func (m *seriesHashmap) get(hash uint64, lset labels.Labels) *memSeries {
 				continue
 			}
 
-			if labels.Equal(lset, m.series[g][s].labels()) {
+			if labels.Equal(lset, m.series[g][s].lset) {
 				return m.series[g][s]
 			}
 		}
@@ -101,9 +101,7 @@ func (m *seriesHashmap) set(hash uint64, series *memSeries) {
 		matches := metaMatchH2(&m.meta[g], lo)
 		for matches != 0 {
 			s := nextMatch(&matches)
-			// We only read series.labels() if we actually have the same hash,
-			// because the implementation of series.labels() is expensive with dedupelabels.
-			if hash == m.hashes[g][s] && labels.Equal(series.labels(), m.series[g][s].labels()) { // update (do we expect updates here? this is just inherited from swiss map)
+			if hash == m.hashes[g][s] && labels.Equal(series.lset, m.series[g][s].lset) { // update (do we expect updates here? this is just inherited from swiss map)
 				m.hashes[g][s] = hash
 				m.series[g][s] = series
 				return
