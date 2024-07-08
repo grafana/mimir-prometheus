@@ -23,7 +23,7 @@ import (
 	"math/bits"
 	_ "unsafe"
 
-	"github.com/dolthub/swiss/simd"
+	"github.com/prometheus/prometheus/tsdb/simd"
 )
 
 const (
