@@ -18,9 +18,6 @@
 package tsdb
 
 import (
-	"math/bits"
-	"unsafe"
-
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 )
@@ -253,37 +250,4 @@ func probeStart(hi h1, groups int) uint32 {
 // lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/.
 func fastModN(x, n uint32) uint32 {
 	return uint32((uint64(x) * uint64(n)) >> 32)
-}
-
-const (
-	groupSize                    = 8
-	maxAvgSeriesHashmapGroupLoad = 7
-
-	loBits uint64 = 0x0101010101010101
-	hiBits uint64 = 0x8080808080808080
-)
-
-type bitset uint64
-
-func metaMatchH2(m *hashMeta, h h2) bitset {
-	// https://graphics.stanford.edu/~seander/bithacks.html##ValueInWord
-	return hasZeroByte(castUint64(m) ^ (loBits * uint64(h)))
-}
-
-func metaMatchEmpty(m *hashMeta) bitset {
-	return hasZeroByte(castUint64(m))
-}
-
-func nextMatch(b *bitset) uint32 {
-	s := uint32(bits.TrailingZeros64(uint64(*b)))
-	*b &= ^(1 << s) // clear bit |s|
-	return s >> 3   // div by 8
-}
-
-func hasZeroByte(x uint64) bitset {
-	return bitset(((x - loBits) & ^(x)) & hiBits)
-}
-
-func castUint64(m *hashMeta) uint64 {
-	return *(*uint64)((unsafe.Pointer)(m))
 }
