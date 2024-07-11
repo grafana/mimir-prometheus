@@ -69,10 +69,6 @@ func (m *seriesHashmap) get(hash uint64, lset labels.Labels) *memSeries {
 		matches := metaMatchH1(&m.meta[g], hi)
 		for matches != 0 {
 			s := nextMatch(&matches)
-			if hash != m.hashes[g][s] {
-				continue
-			}
-
 			if labels.Equal(lset, m.series[g][s].lset) {
 				return m.series[g][s]
 			}
@@ -100,10 +96,6 @@ func (m *seriesHashmap) set(hash uint64, series *memSeries) {
 		matches := metaMatchH1(&m.meta[g], hi)
 		for matches != 0 {
 			s := nextMatch(&matches)
-			if hash != m.hashes[g][s] {
-				continue
-			}
-
 			// We only read series.labels() if we actually have the same hash,
 			// because the implementation of series.labels() is expensive with dedupelabels.
 			if labels.Equal(series.lset, m.series[g][s].lset) { // update, although we could also panic: I think we don't expect updates in the series hashmap
