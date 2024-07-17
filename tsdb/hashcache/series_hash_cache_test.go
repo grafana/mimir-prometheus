@@ -47,7 +47,7 @@ func TestSeriesHashCache(t *testing.T) {
 func TestSeriesHashCache_MeasureApproximateSizePerEntry(t *testing.T) {
 	// This test measures the approximate size (in bytes) per cache entry.
 	// We only take in account the memory used by the map, which is the largest amount.
-	const numEntries = 100000
+	const numEntries = 2 << 16
 	c := NewSeriesHashCache(1024 * 1024 * 1024)
 	b := c.GetBlockCache(ulid.MustNew(0, rand.Reader).String())
 
