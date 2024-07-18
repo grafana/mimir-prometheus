@@ -58,6 +58,8 @@ const (
 	tBlank
 	tMName
 	tQString
+	tParentOpen
+	tParentClose
 	tBraceOpen
 	tBraceClose
 	tLName
@@ -85,8 +87,6 @@ func (t token) String() string {
 		return "TYPE"
 	case tUnit:
 		return "UNIT"
-	case tIdens:
-		return "ID"
 	case tEOFWord:
 		return "EOFWORD"
 	case tText:
@@ -176,7 +176,7 @@ func NewPromParser(b []byte, st *labels.SymbolTable) Parser {
 	}
 }
 
-func (p *PromParser) Identifiers() []string {
+func (p *PromParser) IdentifyingLabels() []string {
 	return nil
 }
 

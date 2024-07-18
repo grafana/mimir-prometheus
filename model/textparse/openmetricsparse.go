@@ -90,12 +90,12 @@ type OpenMetricsParser struct {
 	// of the label name and value start and end characters.
 	offsets []int
 
-	identifierlbs []string
-	eOffsets      []int
-	exemplar      []byte
-	exemplarVal   float64
-	exemplarTs    int64
-	hasExemplarTs bool
+	identifyingLabels []string
+	eOffsets          []int
+	exemplar          []byte
+	exemplarVal       float64
+	exemplarTs        int64
+	hasExemplarTs     bool
 }
 
 // NewOpenMetricsParser returns a new parser of the byte slice.
@@ -143,8 +143,8 @@ func (p *OpenMetricsParser) Type() ([]byte, model.MetricType) {
 	return p.l.b[p.offsets[0]:p.offsets[1]], p.mtype
 }
 
-func (p *OpenMetricsParser) Identifiers() []string {
-	return p.identifierlbs
+func (p *OpenMetricsParser) IdentifyingLabels() []string {
+	return p.identifyingLabels
 }
 
 // Unit returns the metric name and unit in the current entry.
@@ -252,7 +252,7 @@ func (p *OpenMetricsParser) Next() (Entry, error) {
 
 	p.start = p.l.i
 	p.offsets = p.offsets[:0]
-	p.identifierlbs = p.identifierlbs[:0]
+	p.identifyingLabels = p.identifyingLabels[:0]
 	p.eOffsets = p.eOffsets[:0]
 	p.exemplar = p.exemplar[:0]
 	p.exemplarVal = 0
@@ -266,12 +266,6 @@ func (p *OpenMetricsParser) Next() (Entry, error) {
 		return EntryInvalid, io.EOF
 	case tEOF:
 		return EntryInvalid, errors.New("data does not end with # EOF")
-	case tIdens:
-		p.identifierlbs, err = p.parseIdentifierLabels()
-		if err != nil {
-			return EntryInvalid, err
-		}
-		return EntryIdent, nil
 	case tHelp, tType, tUnit:
 		switch t2 := p.nextToken(); t2 {
 		case tMName:
@@ -288,10 +282,19 @@ func (p *OpenMetricsParser) Next() (Entry, error) {
 		switch t2 := p.nextToken(); t2 {
 		case tText:
 			if len(p.l.buf()) > 1 {
-				p.text = p.l.buf()[1 : len(p.l.buf())-1]
+				p.text = p.l.buf()[1:len(p.l.buf())]
 			} else {
 				p.text = []byte{}
 			}
+			t3 := p.nextToken()
+			if t == tType && t3 == tParentOpen {
+				if p.identifyingLabels, err = p.parseIdentifierLabels(); err != nil {
+					return EntryInvalid, err
+				}
+			} else if t3 != tLinebreak {
+				return EntryInvalid, p.parseError("expected linebreak get", t3)
+			}
+
 		default:
 			return EntryInvalid, fmt.Errorf("expected text in %s", t.String())
 		}
@@ -317,6 +320,7 @@ func (p *OpenMetricsParser) Next() (Entry, error) {
 			default:
 				return EntryInvalid, fmt.Errorf("invalid metric type %q", s)
 			}
+
 		case tHelp:
 			if !utf8.Valid(p.text) {
 				return EntryInvalid, fmt.Errorf("help text %q is not a valid utf8 string", p.text)
@@ -417,8 +421,16 @@ func (p *OpenMetricsParser) parseComment() error {
 }
 
 func (p *OpenMetricsParser) parseIdentifierLabels() ([]string, error) {
-	res := p.identifierlbs
+	res := p.identifyingLabels
 	t := p.nextToken()
+	// for the case when there is an empty ()
+	if t == tParentClose {
+		if l := p.nextToken(); l != tLinebreak {
+			return nil, p.parseError("expected linebreak after )", l)
+		}
+		return nil, nil
+	}
+
 	for {
 		curTStart := p.l.start
 		curTI := p.l.i
@@ -427,7 +439,7 @@ func (p *OpenMetricsParser) parseIdentifierLabels() ([]string, error) {
 		case tLName:
 			res = append(res, string(p.l.b[curTStart:curTI]))
 		default:
-			return nil, p.parseError("expected label or linebreak", t)
+			return nil, p.parseError("expected label or )", t)
 		}
 
 		t := p.nextToken()
@@ -435,12 +447,15 @@ func (p *OpenMetricsParser) parseIdentifierLabels() ([]string, error) {
 		case tComma:
 			p.nextToken()
 			continue
-		case tLinebreak:
+		case tParentClose:
+			if l := p.nextToken(); l != tLinebreak {
+				return nil, p.parseError("expected linebreak after )", l)
+			}
 			// sort before returning labels
 			sort.Strings(res)
 			return res, nil
 		default:
-			return nil, p.parseError("expected comma or linebreak", t)
+			return nil, p.parseError("expected comma or )", t)
 		}
 	}
 }

@@ -91,7 +91,7 @@ func NewProtobufParser(b []byte, parseClassicHistograms bool, st *labels.SymbolT
 	}
 }
 
-func (p *ProtobufParser) Identifiers() []string {
+func (p *ProtobufParser) IdentifyingLabels() []string {
 	return nil
 }
 

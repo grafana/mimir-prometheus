@@ -51,8 +51,8 @@ type Parser interface {
 	// The returned byte slices become invalid after the next call to Next.
 	Unit() ([]byte, []byte)
 
-	// Identifiers returns the identifiers for info metrics
-	Identifiers() []string
+	// IdentifyingLabels returns the identifying labels for info metrics
+	IdentifyingLabels() []string
 
 	// Comment returns the text of the current comment.
 	// Must only be called after Next returned a comment entry.
@@ -113,5 +113,4 @@ const (
 	EntryComment   Entry = 3
 	EntryUnit      Entry = 4
 	EntryHistogram Entry = 5 // A series with a native histogram as a value.
-	EntryIdent     Entry = 6
 )
