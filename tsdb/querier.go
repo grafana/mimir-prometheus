@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime/debug"
 	"slices"
 
 	"github.com/oklog/ulid"
@@ -77,6 +78,84 @@ func newBlockBaseQuerier(b BlockReader, mint, maxt int64) (*blockBaseQuerier, er
 	}, nil
 }
 
+func (q *blockBaseQuerier) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, matchers ...*labels.Matcher) (labels.Labels, annotations.Annotations, error) {
+	return q.index.InfoMetricDataLabels(ctx, lbls, t, q, matchers...)
+}
+
+func (q *blockBaseQuerier) IdentifyingLabels(t int64, chks []chunks.Meta) ([]int, int64, error) {
+	// Find the info metric's latest non-stale sample versus t among the chunks.
+	st := int64(math.MinInt64)
+	var ils []int
+	fmt.Printf("blockBaseQuerier.IdentifyingLabels: Searching for latest sample among %d chunks\n", len(chks))
+	for _, meta := range chks {
+		chk, _, err := q.chunks.ChunkOrIterable(meta)
+		if err != nil {
+			if errors.Is(err, fmt.Errorf("not found")) {
+				continue
+			}
+			fmt.Printf("LatestTimestamp hit an error calling cr.ChunkOrIterable: %s\n", err)
+			return nil, 0, err
+		}
+
+		// Find the latest non-stale sample.
+		it := chk.Iterator(nil)
+		curST := int64(math.MinInt64)
+		prevST := int64(math.MinInt64)
+		var curILs []int
+		var prevILs []int
+		for vt := it.Next(); vt != chunkenc.ValNone; vt = it.Next() {
+			st, v := it.AtInfoSample()
+			if st > t {
+				// We've progressed past t, pick the previous timestamp.
+				// TODO: Pick only if previous timestamp is non-stale.
+				fmt.Printf("blockBaseQuerier.IdentifyingLabels: We've progressed past t, picking prevST %d\n", prevST)
+				curST = prevST
+				curILs = prevILs
+				break
+			}
+			if vt != chunkenc.ValInfoSample {
+				continue
+			}
+
+			if st < t {
+				fmt.Printf("blockBaseQuerier.IdentifyingLabels: st < t, setting prevST: %d\n", t)
+				prevST = st
+				prevILs = v
+				continue
+			}
+
+			// st == t.
+			// We've got a non-stale sample exactly at t.
+			// TODO: Pick only if non-stale.
+			fmt.Printf("blockBaseQuerier.IdentifyingLabels: st == t, setting curST: %d\n", t)
+			curST = st
+			curILs = v
+			break
+		}
+
+		if curST > t {
+			panic(fmt.Sprintf("chunk range should be max %d", t))
+		}
+		switch {
+		case curST > st:
+			st = curST
+			ils = curILs
+			fmt.Printf("blockBaseQuerier.IdentifyingLabels: Found latest sample timestamp at timestamp %d\n", st)
+		case curST < 0 && prevST > st:
+			fmt.Printf("blockBaseQuerier.IdentifyingLabels: Using prevST: %d\n", prevST)
+			st = prevST
+			ils = prevILs
+		default:
+			fmt.Printf("blockBaseQuerier.IdentifyingLabels: Couldn't find a matching sample in this chunk, curST: %d\n", curST)
+		}
+	}
+
+	if len(ils) == 0 {
+		fmt.Printf("blockBaseQuerier.IdentifyingLabels: No identifying labels could be found\n")
+	}
+	return ils, st, nil
+}
+
 func (q *blockBaseQuerier) LabelValues(ctx context.Context, name string, hints *storage.LabelHints, matchers ...*labels.Matcher) ([]string, annotations.Annotations, error) {
 	res, err := q.index.SortedLabelValues(ctx, name, matchers...)
 	return res, nil, err
@@ -130,17 +209,29 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		p = q.index.SortedPostings(p)
 	}
 
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+			break
+		}
+	}
+
+	if isTargetInfo {
+		fmt.Printf("blockQuerier: returning block series set for target_info\n")
+	}
+
 	if hints != nil {
 		mint = hints.Start
 		maxt = hints.End
 		disableTrimming = hints.DisableTrimming
 		if hints.Func == "series" {
 			// When you're only looking up metadata (for example series API), you don't need to load any chunks.
-			return newBlockSeriesSet(q.index, newNopChunkReader(), q.tombstones, p, mint, maxt, disableTrimming)
+			return newBlockSeriesSet(q.index, newNopChunkReader(), q.tombstones, p, mint, maxt, disableTrimming, isTargetInfo)
 		}
 	}
 
-	return newBlockSeriesSet(q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming)
+	return newBlockSeriesSet(q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming, isTargetInfo)
 }
 
 // blockChunkQuerier provides chunk querying access to a single block database.
@@ -177,6 +268,17 @@ func (q *blockChunkQuerier) Select(ctx context.Context, sortSeries bool, hints *
 	}
 	if sortSeries {
 		p = q.index.SortedPostings(p)
+	}
+
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+			break
+		}
+	}
+	if isTargetInfo {
+		fmt.Printf("blockChunkQuerier: returning block series set for target_info\n")
 	}
 	return NewBlockChunkSeriesSet(q.blockID, q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming)
 }
@@ -233,6 +335,13 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		return +1
 	})
 
+	isTargetInfo := false
+	for _, m := range ms {
+		if m.Name == "__name__" && m.Value == "target_info" {
+			isTargetInfo = true
+		}
+	}
+
 	for _, m := range ms {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -281,12 +390,21 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 				its = append(its, it)
 			default: // l="a"
 				// Non-Not matcher, use normal postingsForMatcher.
+				if isTargetInfo {
+					fmt.Printf("Matcher %s\n", m.String())
+				}
 				it, err := postingsForMatcher(ctx, ix, m)
 				if err != nil {
 					return nil, err
 				}
 				if index.IsEmptyPostingsType(it) {
+					if isTargetInfo {
+						fmt.Printf("Matcher %s returned zero postings\n", m.String())
+					}
 					return index.EmptyPostings(), nil
+				}
+				if isTargetInfo {
+					fmt.Printf("Matcher %s returned non-zero postings\n", m.String())
 				}
 				its = append(its, it)
 			}
@@ -581,6 +699,8 @@ type blockBaseSeriesSet struct {
 	tombstones      tombstones.Reader
 	mint, maxt      int64
 	disableTrimming bool
+	// XXX: Debugging
+	isDebug bool
 
 	curr seriesData
 
@@ -591,6 +711,7 @@ type blockBaseSeriesSet struct {
 
 func (b *blockBaseSeriesSet) Next() bool {
 	for b.p.Next() {
+		fmt.Printf("blockBaseSeriesSet.Next: Getting series from %v (%T)\n", b.index, b.index)
 		if err := b.index.Series(b.p.At(), &b.builder, &b.bufChks); err != nil {
 			// Postings may be stale. Skip if no underlying series exists.
 			if errors.Is(err, storage.ErrNotFound) {
@@ -663,6 +784,7 @@ func (b *blockBaseSeriesSet) Next() bool {
 		}
 
 		b.curr.labels = b.builder.Labels()
+		// fmt.Printf("current labels: %s\n", b.curr.labels.String())
 		b.curr.chks = chks
 		b.curr.intervals = intervals
 		return true
@@ -730,11 +852,13 @@ func (p *populateWithDelGenericSeriesIterator) reset(blockID ulid.ULID, cr Chunk
 // not copied irrespective of copyHeadChunk because it will be re-encoded later anyway.
 func (p *populateWithDelGenericSeriesIterator) next(copyHeadChunk bool) bool {
 	if p.err != nil || p.i >= len(p.metas)-1 {
+		fmt.Printf("populateWithDelGenericSeriesIterator: nothing to return, err: %v\n", p.err)
 		return false
 	}
 
 	p.i++
 	p.currMeta = p.metas[p.i]
+	fmt.Printf("populateWithDelGenericSeriesIterator: p.currMeta: %#v\n", p.currMeta)
 
 	p.bufIter.Intervals = p.bufIter.Intervals[:0]
 	for _, interval := range p.intervals {
@@ -748,15 +872,18 @@ func (p *populateWithDelGenericSeriesIterator) next(copyHeadChunk bool) bool {
 	if ok && copyHeadChunk && len(p.bufIter.Intervals) == 0 {
 		// ChunkWithCopy will copy the head chunk.
 		var maxt int64
+		fmt.Printf("populateWithDelGenericSeriesIterator: Calling hcr.ChunkWithCopy\n")
 		p.currMeta.Chunk, maxt, p.err = hcr.ChunkWithCopy(p.currMeta)
 		// For the in-memory head chunk the index reader sets maxt as MaxInt64. We fix it here.
 		p.currMeta.MaxTime = maxt
 	} else {
+		fmt.Printf("populateWithDelGenericSeriesIterator: Calling p.cr.ChunkOrIterable: %T\n", p.cr)
 		p.currMeta.Chunk, iterable, p.err = p.cr.ChunkOrIterable(p.currMeta)
 	}
 
 	if p.err != nil {
 		p.err = fmt.Errorf("cannot populate chunk %d from block %s: %w", p.currMeta.Ref, p.blockID.String(), p.err)
+		fmt.Printf("populateWithDelGenericSeriesIterator: nothing to return, err: %v\n", p.err)
 		return false
 	}
 
@@ -766,18 +893,22 @@ func (p *populateWithDelGenericSeriesIterator) next(copyHeadChunk bool) bool {
 			// If there is no overlap with deletion intervals and a single chunk is
 			// returned, we can take chunk as it is.
 			p.currDelIter = nil
+			fmt.Printf("populateWithDelGenericSeriesIterator: Returning true because no intervals\n")
 			return true
 		}
 		// Otherwise we need to iterate over the samples in the single chunk
 		// and create new chunks.
 		p.bufIter.Iter = p.currMeta.Chunk.Iterator(p.bufIter.Iter)
 		p.currDelIter = &p.bufIter
+		fmt.Printf("populateWithDelGenericSeriesIterator: Returning true because we have an iterator: %T\n", p.bufIter)
 		return true
 	}
 
+	fmt.Printf("Don't have p.currMeta.Chunk\n")
 	// Otherwise, use the iterable to create an iterator.
 	p.bufIter.Iter = iterable.Iterator(p.bufIter.Iter)
 	p.currDelIter = &p.bufIter
+	fmt.Printf("populateWithDelGenericSeriesIterator: Returning true because we created an iterator: %T\n", p.currDelIter)
 	return true
 }
 
@@ -839,12 +970,16 @@ func (p *populateWithDelSeriesIterator) Next() chunkenc.ValueType {
 	for p.next(false) {
 		if p.currDelIter != nil {
 			p.curr = p.currDelIter
+			fmt.Printf("populateWithDelSeriesIterator.Next: Obtained current iterator: %T\n", p.curr)
 		} else {
 			p.curr = p.currMeta.Chunk.Iterator(p.curr)
+			fmt.Printf("populateWithDelSeriesIterator.Next: Obtained current iterator: %T\n", p.curr)
 		}
 		if valueType := p.curr.Next(); valueType != chunkenc.ValNone {
+			fmt.Printf("populateWithDelSeriesIterator: Value type is not none %s\n", valueType)
 			return valueType
 		}
+		fmt.Printf("populateWithDelSeriesIterator: Value type is none :(\n")
 	}
 	return chunkenc.ValNone
 }
@@ -873,6 +1008,10 @@ func (p *populateWithDelSeriesIterator) AtHistogram(h *histogram.Histogram) (int
 
 func (p *populateWithDelSeriesIterator) AtFloatHistogram(fh *histogram.FloatHistogram) (int64, *histogram.FloatHistogram) {
 	return p.curr.AtFloatHistogram(fh)
+}
+
+func (p *populateWithDelSeriesIterator) AtInfoSample() (int64, []int) {
+	return p.curr.AtInfoSample()
 }
 
 func (p *populateWithDelSeriesIterator) AtT() int64 {
@@ -1020,6 +1159,21 @@ func (p *populateWithDelChunkSeriesIterator) populateCurrForSingleChunk() bool {
 				break
 			}
 		}
+	case chunkenc.ValInfoSample:
+		newChunk = chunkenc.NewInfoSampleChunk()
+		if app, err = newChunk.Appender(); err != nil {
+			break
+		}
+		for vt := valueType; vt != chunkenc.ValNone; vt = p.currDelIter.Next() {
+			if vt != chunkenc.ValInfoSample {
+				err = fmt.Errorf("found value type %v in info metric chunk", vt)
+				break
+			}
+			var ils []int
+			t, ils = p.currDelIter.AtInfoSample()
+			fmt.Printf("populateWithDelChunkSeriesIterator.populateCurrForSingleChunk: appending info sample; t: %d, ils: %#v\n", t, ils)
+			app.AppendInfoSample(t, ils)
+		}
 	default:
 		err = fmt.Errorf("populateCurrForSingleChunk: value type %v unsupported", valueType)
 	}
@@ -1076,7 +1230,7 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 		// Check if the encoding has changed (i.e. we need to create a new
 		// chunk as chunks can't have multiple encoding types).
 		// For the first sample, the following condition will always be true as
-		// ValNoneNone != ValFloat | ValHistogram | ValFloatHistogram.
+		// ValNoneNone != ValFloat | ValHistogram | ValFloatHistogram | ValInfoSample.
 		if currentValueType != prevValueType {
 			if prevValueType != chunkenc.ValNone {
 				p.chunksFromIterable = append(p.chunksFromIterable, chunks.Meta{Chunk: currentChunk, MinTime: cmint, MaxTime: cmaxt})
@@ -1113,6 +1267,15 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 				// counter reset header for the appender that's returned.
 				newChunk, recoded, app, err = app.AppendFloatHistogram(nil, t, v, false)
 			}
+		case chunkenc.ValInfoSample:
+			{
+				var ils []int
+				t, ils = p.currDelIter.AtInfoSample()
+				fmt.Printf("populateWithDelChunkSeriesIterator.populateChunksFromIterable: appending info sample; t: %d, ils: %#v\n", t, ils)
+				app.AppendInfoSample(t, ils)
+			}
+		default:
+			err = fmt.Errorf("unrecognized chunk encoding %s", currentValueType)
 		}
 
 		if err != nil {
@@ -1162,7 +1325,7 @@ type blockSeriesSet struct {
 	blockBaseSeriesSet
 }
 
-func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p index.Postings, mint, maxt int64, disableTrimming bool) storage.SeriesSet {
+func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p index.Postings, mint, maxt int64, disableTrimming, isDebug bool) storage.SeriesSet {
 	return &blockSeriesSet{
 		blockBaseSeriesSet{
 			index:           i,
@@ -1172,12 +1335,17 @@ func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p inde
 			mint:            mint,
 			maxt:            maxt,
 			disableTrimming: disableTrimming,
+			isDebug:         isDebug,
 		},
 	}
 }
 
 func (b *blockSeriesSet) At() storage.Series {
 	// At can be looped over before iterating, so save the current values locally.
+	if b.isDebug {
+		fmt.Printf("blockSeriesSet: Returning series %s\n", b.curr.labels.String())
+		debug.PrintStack()
+	}
 	return &blockSeriesEntry{
 		chunks:     b.chunks,
 		blockID:    b.blockID,
@@ -1289,6 +1457,10 @@ func (it *DeletedIterator) AtFloatHistogram(fh *histogram.FloatHistogram) (int64
 	return t, h
 }
 
+func (it *DeletedIterator) AtInfoSample() (int64, []int) {
+	return it.Iter.AtInfoSample()
+}
+
 func (it *DeletedIterator) AtT() int64 {
 	return it.Iter.AtT()
 }
@@ -1323,6 +1495,7 @@ func (it *DeletedIterator) Seek(t int64) chunkenc.ValueType {
 }
 
 func (it *DeletedIterator) Next() chunkenc.ValueType {
+	fmt.Printf("DeletedIterator.Next, wrapping %T\n", it.Iter)
 Outer:
 	for valueType := it.Iter.Next(); valueType != chunkenc.ValNone; valueType = it.Iter.Next() {
 		ts := it.AtT()

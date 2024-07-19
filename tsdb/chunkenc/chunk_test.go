@@ -68,6 +68,7 @@ func testChunk(t *testing.T, c Chunk) {
 		app.Append(ts, v)
 		exp = append(exp, pair{t: ts, v: v})
 	}
+	require.Equal(t, 300, c.NumSamples())
 
 	// 1. Expand iterator in simple case.
 	it1 := c.Iterator(nil)
