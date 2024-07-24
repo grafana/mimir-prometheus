@@ -2758,6 +2758,7 @@ func TestPostingsForMatchers(t *testing.T) {
 	app.Append(0, labels.FromStrings("n", "1"), 0, 0)
 	app.Append(0, labels.FromStrings("n", "1", "i", "a"), 0, 0)
 	app.Append(0, labels.FromStrings("n", "1", "i", "b"), 0, 0)
+	app.Append(0, labels.FromStrings("n", "1", "i", "\n"), 0, 0)
 	app.Append(0, labels.FromStrings("n", "2"), 0, 0)
 	app.Append(0, labels.FromStrings("n", "2.5"), 0, 0)
 	require.NoError(t, app.Commit())
@@ -2773,6 +2774,7 @@ func TestPostingsForMatchers(t *testing.T) {
 				labels.FromStrings("n", "1"),
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
@@ -2791,6 +2793,7 @@ func TestPostingsForMatchers(t *testing.T) {
 				labels.FromStrings("n", "1"),
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 				labels.FromStrings("n", "2"),
 				labels.FromStrings("n", "2.5"),
 			},
@@ -2808,6 +2811,7 @@ func TestPostingsForMatchers(t *testing.T) {
 			exp: []labels.Labels{
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
@@ -2819,6 +2823,7 @@ func TestPostingsForMatchers(t *testing.T) {
 			exp: []labels.Labels{
 				labels.FromStrings("n", "1"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
@@ -2826,6 +2831,7 @@ func TestPostingsForMatchers(t *testing.T) {
 			exp: []labels.Labels{
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		// Regex.
@@ -2835,6 +2841,7 @@ func TestPostingsForMatchers(t *testing.T) {
 				labels.FromStrings("n", "1"),
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
@@ -2870,6 +2877,7 @@ func TestPostingsForMatchers(t *testing.T) {
 				labels.FromStrings("n", "1"),
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
@@ -2877,6 +2885,7 @@ func TestPostingsForMatchers(t *testing.T) {
 			exp: []labels.Labels{
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		// Not regex.
@@ -2885,6 +2894,7 @@ func TestPostingsForMatchers(t *testing.T) {
 			exp: []labels.Labels{
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
@@ -2918,12 +2928,14 @@ func TestPostingsForMatchers(t *testing.T) {
 			exp: []labels.Labels{
 				labels.FromStrings("n", "1"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
 			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "n", "1"), labels.MustNewMatcher(labels.MatchNotRegexp, "i", "^a?$")},
 			exp: []labels.Labels{
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
@@ -2931,6 +2943,7 @@ func TestPostingsForMatchers(t *testing.T) {
 			exp: []labels.Labels{
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 			},
 		},
 		{
@@ -2964,6 +2977,7 @@ func TestPostingsForMatchers(t *testing.T) {
 				labels.FromStrings("n", "1"),
 				labels.FromStrings("n", "1", "i", "a"),
 				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
 				labels.FromStrings("n", "2"),
 			},
 		},
@@ -3010,6 +3024,57 @@ func TestPostingsForMatchers(t *testing.T) {
 				labels.FromStrings("n", "2"),
 				labels.FromStrings("n", "2.5"),
 			},
+		},
+		// Test shortcut for i=~".*"
+		{
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "i", ".*")},
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1"),
+				labels.FromStrings("n", "1", "i", "a"),
+				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
+				labels.FromStrings("n", "2"),
+				labels.FromStrings("n", "2.5"),
+			},
+		},
+		// Test shortcut for n=~".*" and i=~"^.*$"
+		{
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "n", ".*"), labels.MustNewMatcher(labels.MatchRegexp, "i", "^.*$")},
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1"),
+				labels.FromStrings("n", "1", "i", "a"),
+				labels.FromStrings("n", "1", "i", "b"),
+				labels.FromStrings("n", "1", "i", "\n"),
+				labels.FromStrings("n", "2"),
+				labels.FromStrings("n", "2.5"),
+			},
+		},
+		// Test shortcut for n=~"^.*$"
+		{
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "n", "^.*$"), labels.MustNewMatcher(labels.MatchEqual, "i", "a")},
+			exp: []labels.Labels{
+				labels.FromStrings("n", "1", "i", "a"),
+			},
+		},
+		// Test shortcut for i!~".*"
+		{
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchNotRegexp, "i", ".*")},
+			exp:      []labels.Labels{},
+		},
+		// Test shortcut for n!~"^.*$",  i!~".*". First one triggers empty result.
+		{
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchNotRegexp, "n", "^.*$"), labels.MustNewMatcher(labels.MatchNotRegexp, "i", ".*")},
+			exp:      []labels.Labels{},
+		},
+		// Test shortcut i!~".*"
+		{
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchRegexp, "n", ".*"), labels.MustNewMatcher(labels.MatchNotRegexp, "i", ".*")},
+			exp:      []labels.Labels{},
+		},
+		// Test shortcut i!~"^.*$"
+		{
+			matchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "n", "1"), labels.MustNewMatcher(labels.MatchNotRegexp, "i", "^.*$")},
+			exp:      []labels.Labels{},
 		},
 	}
 
