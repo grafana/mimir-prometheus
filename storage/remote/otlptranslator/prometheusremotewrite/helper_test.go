@@ -67,6 +67,30 @@ func TestCreateAttributes(t *testing.T) {
 					Name:  "metric_attr",
 					Value: "metric value",
 				},
+				{
+					Name:  "___metalabel__otel_res_attr_metric_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_instance",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_service_instance_id",
+					Value: "service ID",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_service_name",
+					Value: "service name",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_existent_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_job",
+					Value: "resource value",
+				},
 			},
 		},
 		{
@@ -91,6 +115,30 @@ func TestCreateAttributes(t *testing.T) {
 				},
 				{
 					Name:  "existent_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_metric_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_instance",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_service_instance_id",
+					Value: "service ID",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_service_name",
+					Value: "service name",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_existent_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_job",
 					Value: "resource value",
 				},
 			},
@@ -119,6 +167,30 @@ func TestCreateAttributes(t *testing.T) {
 					Name:  "metric_attr",
 					Value: "metric value",
 				},
+				{
+					Name:  "___metalabel__otel_res_attr_metric_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_instance",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_service_instance_id",
+					Value: "service ID",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_service_name",
+					Value: "service name",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_existent_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_job",
+					Value: "resource value",
+				},
 			},
 		},
 		{
@@ -144,6 +216,30 @@ func TestCreateAttributes(t *testing.T) {
 				{
 					Name:  "metric_attr",
 					Value: "metric value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_metric_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_instance",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_service_instance_id",
+					Value: "service ID",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_service_name",
+					Value: "service name",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_existent_attr",
+					Value: "resource value",
+				},
+				{
+					Name:  "___metalabel__otel_res_attr_job",
+					Value: "resource value",
 				},
 			},
 		},
