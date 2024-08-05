@@ -57,5 +57,6 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 	}, res)
 
 	// TODO(jesusvazquez) Add a test to verify that the metadata is stored in the metadata store.
+
 	// TODO(jesusvazquez) Add a test to make sure metadata changes between timestamps.
 }
