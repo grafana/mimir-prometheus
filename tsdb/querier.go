@@ -18,6 +18,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"regexp"
 	"slices"
 
 	"github.com/oklog/ulid"
@@ -35,6 +36,7 @@ import (
 
 // checkContextEveryNIterations is used in some tight loops to check if the context is done.
 const checkContextEveryNIterations = 100
+const metaDataPrefix = `^__metadata__`
 
 type blockBaseQuerier struct {
 	blockID    ulid.ULID
@@ -119,9 +121,42 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	maxt := q.maxt
 	disableTrimming := false
 	sharded := hints != nil && hints.ShardCount > 0
-	p, err := q.index.PostingsForMatchers(ctx, sharded, ms...)
-	if err != nil {
-		return storage.ErrSeriesSet(err)
+	// here we get the posting matches metadata
+	re, _ := regexp.Compile(metaDataPrefix)
+
+	// get the label matchers related to metadata
+	metaMatchers := make([]*labels.Matcher, 0)
+	normalMatchers := make([]*labels.Matcher, 0)
+	for _, m := range ms {
+		if re.MatchString(m.Name) {
+			metaMatchers = append(metaMatchers, m)
+		} else {
+			normalMatchers = append(normalMatchers, m)
+		}
+	}
+	var p index.Postings
+	var err error
+	if len(metaMatchers) > 0 {
+		// here we need to intersect the metadata matchers with normal matchers
+		// get the metadata matchers
+		mp, err := q.index.PostingsForMatchers(ctx, sharded, metaMatchers...)
+		if err != nil {
+			return storage.ErrSeriesSet(err)
+		}
+
+		// get the normal matchers
+		np, err := q.index.PostingsForMatchers(ctx, sharded, normalMatchers...)
+		if err != nil {
+			return storage.ErrSeriesSet(err)
+		}
+		// intersect the metadata matchers with normal matchers
+		p = index.MetaIntersect(mp, np)
+
+	} else {
+		p, err = q.index.PostingsForMatchers(ctx, sharded, metaMatchers...)
+		if err != nil {
+			return storage.ErrSeriesSet(err)
+		}
 	}
 	if sharded {
 		p = q.index.ShardedPostings(p, hints.ShardIndex, hints.ShardCount)
