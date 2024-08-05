@@ -511,7 +511,7 @@ func Intersect(its ...Postings) Postings {
 }
 
 // MetaIntersect returns a new postings list over the relationship between the meta and the series.
-func MetaIntersect(meta Postings, it Postings) Postings {
+func MetaIntersect(meta, it Postings) Postings {
 	if meta == EmptyPostings() || it == EmptyPostings() {
 		return EmptyPostings()
 	}
