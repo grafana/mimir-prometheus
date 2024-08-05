@@ -18,8 +18,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
-	"regexp"
 	"slices"
+
+	"github.com/grafana/regexp"
 
 	"github.com/oklog/ulid"
 
@@ -35,8 +36,10 @@ import (
 )
 
 // checkContextEveryNIterations is used in some tight loops to check if the context is done.
-const checkContextEveryNIterations = 100
-const metaDataPrefix = `^__metadata__`
+const (
+	checkContextEveryNIterations = 100
+	metaDataPrefix               = `^__metadata__`
+)
 
 type blockBaseQuerier struct {
 	blockID    ulid.ULID
@@ -122,7 +125,7 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	disableTrimming := false
 	sharded := hints != nil && hints.ShardCount > 0
 	// here we get the posting matches metadata
-	re, _ := regexp.Compile(metaDataPrefix)
+	re := regexp.MustCompile(metaDataPrefix)
 
 	// get the label matchers related to metadata
 	metaMatchers := make([]*labels.Matcher, 0)
@@ -151,7 +154,6 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		}
 		// intersect the metadata matchers with normal matchers
 		p = index.MetaIntersect(mp, np)
-
 	} else {
 		p, err = q.index.PostingsForMatchers(ctx, sharded, metaMatchers...)
 		if err != nil {
@@ -510,7 +512,6 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 // buf is space for holding result (if it isn't big enough, it will be ignored), may be nil.
 func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
 	values := map[string]struct{}{}
-
 	var builder labels.ScratchBuilder
 	for _, ref := range refs {
 		err := r.Series(ref, &builder, nil)
