@@ -23,8 +23,8 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 	_, err := app1.Append(0, labels.FromStrings(
 		"__name__", "http_requests_total",
 		"job", "foo",
-		"metadata.foo.service", "foo",
-		"metadata.node.ip", "192.168.1.1",
+		"__metadata__foo__service", "foo",
+		"__metadata__node__ip", "192.168.1.1",
 	), 0, 0)
 	require.NoError(t, err)
 
@@ -32,8 +32,8 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 	_, err = app1.Append(0, labels.FromStrings(
 		"__name__", "http_requests_total",
 		"job", "foo",
-		"metadata.foo.service", "foo",
-		"metadata.node.ip", "192.168.1.2",
+		"__metadata__foo__service", "foo",
+		"__metadata__node__ip", "192.168.1.2",
 	), 1, 1)
 	require.NoError(t, err)
 

@@ -719,8 +719,8 @@ func TestRemoteWriteWithNewMetadata(t *testing.T) {
 			Labels: []prompb.Label{
 				{Name: "__name__", Value: "http_requests_total"},
 				{Name: "job", Value: "foo"},
-				{Name: "metadata.foo.service", Value: "foo"},
-				{Name: "metadata.node.ip", Value: "192.168.1.1"},
+				{Name: "__metadata__foo__service", Value: "foo"},
+				{Name: "__metadata__node__ip", Value: "192.168.1.1"},
 			},
 			Samples: []prompb.Sample{{Value: 0, Timestamp: 0}},
 		},
@@ -728,8 +728,8 @@ func TestRemoteWriteWithNewMetadata(t *testing.T) {
 			Labels: []prompb.Label{
 				{Name: "__name__", Value: "http_requests_total"},
 				{Name: "job", Value: "foo"},
-				{Name: "metadata.foo.service", Value: "foo"},
-				{Name: "metadata.node.ip", Value: "192.168.1.2"},
+				{Name: "__metadata__foo__service", Value: "foo"},
+				{Name: "__metadata__node__ip", Value: "192.168.1.2"},
 			},
 			Samples: []prompb.Sample{{Value: 1, Timestamp: 1}},
 		},
