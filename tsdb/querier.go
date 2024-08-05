@@ -20,8 +20,6 @@ import (
 	"math"
 	"slices"
 
-	"github.com/grafana/regexp"
-
 	"github.com/oklog/ulid"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -38,7 +36,6 @@ import (
 // checkContextEveryNIterations is used in some tight loops to check if the context is done.
 const (
 	checkContextEveryNIterations = 100
-	metaDataPrefix               = `^__metadata__`
 )
 
 type blockBaseQuerier struct {
@@ -128,19 +125,7 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	// TODO(jesus.vazquez) When we have the metadata store, we need to intersect postings results with it
 	var p index.Postings
 	var err error
-	// here we get the posting matches metadata
-	re := regexp.MustCompile(metaDataPrefix)
-
-	// get the label matchers related to metadata
-	metaMatchers := make([]*labels.Matcher, 0)
-	normalMatchers := make([]*labels.Matcher, 0)
-	for _, m := range ms {
-		if re.MatchString(m.Name) {
-			metaMatchers = append(metaMatchers, m)
-		} else {
-			normalMatchers = append(normalMatchers, m)
-		}
-	}
+	metaMatchers, normalMatchers := seperateMetaMatchers(ms)
 	if len(metaMatchers) > 0 {
 		// TODO(ying.wang): Here we need to query metadata store to get the metas, they are not normal postings
 		// this is not right for the moment
