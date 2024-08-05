@@ -34,7 +34,10 @@ import (
 )
 
 // checkContextEveryNIterations is used in some tight loops to check if the context is done.
-const checkContextEveryNIterations = 100
+const (
+	checkContextEveryNIterations = 100
+	metaDataPrefix               = `^__metadata__`
+)
 
 type blockBaseQuerier struct {
 	blockID    ulid.ULID
@@ -123,6 +126,42 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
+
+	// TODO(jesus.vazquez) When we have the metadata store, we need to intersect postings results with it
+	// here we get the posting matches metadata
+	// re := regexp.MustCompile(metaDataPrefix)
+
+	// // get the label matchers related to metadata
+	// metaMatchers := make([]*labels.Matcher, 0)
+	// normalMatchers := make([]*labels.Matcher, 0)
+	// for _, m := range ms {
+	// 	if re.MatchString(m.Name) {
+	// 		metaMatchers = append(metaMatchers, m)
+	// 	} else {
+	// 		normalMatchers = append(normalMatchers, m)
+	// 	}
+	// }
+	// if len(metaMatchers) > 0 {
+	// 	// TODO(ying.wang): Here we need to query metadata store to get the metas, they are not normal postings
+	// 	// this is not right for the moment
+	// 	mp, err := q.index.PostingsForMatchers(ctx, sharded, metaMatchers...)
+	// 	if err != nil {
+	// 		return storage.ErrSeriesSet(err)
+	// 	}
+
+	// 	// get the normal matchers
+	// 	np, err := q.index.PostingsForMatchers(ctx, sharded, normalMatchers...)
+	// 	if err != nil {
+	// 		return storage.ErrSeriesSet(err)
+	// 	}
+	// 	// intersect the metadata matchers with normal matchers
+	// 	p = index.MetaIntersect(mp, np)
+	// } else {
+	// 	p, err = q.index.PostingsForMatchers(ctx, sharded, metaMatchers...)
+	// 	if err != nil {
+	// 		return storage.ErrSeriesSet(err)
+	// 	}
+	// }
 	if sharded {
 		p = q.index.ShardedPostings(p, hints.ShardIndex, hints.ShardCount)
 	}
@@ -475,7 +514,6 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 // buf is space for holding result (if it isn't big enough, it will be ignored), may be nil.
 func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
 	values := map[string]struct{}{}
-
 	var builder labels.ScratchBuilder
 	for _, ref := range refs {
 		err := r.Series(ref, &builder, nil)
