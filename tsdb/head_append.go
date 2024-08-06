@@ -304,17 +304,19 @@ type headAppender struct {
 	headMaxt      int64 // We track it here to not take the lock for every sample appended.
 	oooTimeWindow int64 // Use the same for the entire append, and don't load the atomic for each sample.
 
-	series               []record.RefSeries // New series held by this appender.
-	metaLabelSeries      []record.RefSeries
-	samples              []record.RefSample               // New float samples held by this appender.
-	sampleSeries         []*memSeries                     // Float series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
-	histograms           []record.RefHistogramSample      // New histogram samples held by this appender.
-	histogramSeries      []*memSeries                     // HistogramSamples series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
-	floatHistograms      []record.RefFloatHistogramSample // New float histogram samples held by this appender.
-	floatHistogramSeries []*memSeries                     // FloatHistogramSamples series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
-	metadata             []record.RefMetadata             // New metadata held by this appender.
-	metadataSeries       []*memSeries                     // Series corresponding to the metadata held by this appender.
-	exemplars            []exemplarWithSeriesRef          // New exemplars held by this appender.
+	series                []record.RefSeries // New series held by this appender.
+	metaLabelSeries       []record.RefSeries
+	samples               []record.RefSample               // New float samples held by this appender.
+	metaLabelSamples      []record.RefSample               // Newmeta label samples held by this appender.
+	sampleSeries          []*memSeries                     // Float series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	sampleMetaLabelSeries []*memSeries                     // Meta label series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	histograms            []record.RefHistogramSample      // New histogram samples held by this appender.
+	histogramSeries       []*memSeries                     // HistogramSamples series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	floatHistograms       []record.RefFloatHistogramSample // New float histogram samples held by this appender.
+	floatHistogramSeries  []*memSeries                     // FloatHistogramSamples series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
+	metadata              []record.RefMetadata             // New metadata held by this appender.
+	metadataSeries        []*memSeries                     // Series corresponding to the metadata held by this appender.
+	exemplars             []exemplarWithSeriesRef          // New exemplars held by this appender.
 
 	appendID, cleanupAppendIDsBelow uint64
 	closed                          bool
@@ -328,7 +330,6 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		return 0, storage.ErrOutOfBounds
 	}
 
-	// This bit extracts the metalabels from the original label set.
 	// TODO(jesus.vazquez) A way to improve the performance of this bit and avoid allocating the new slices would be to
 	// update the append method to receive both label sets instead of allocating the slices here every time.
 	metaLabels, lset := seperateMetaLabels(lset)
@@ -343,7 +344,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	}
 
 	// TODO(jesus.vazquez) Should we extend Append to also have the series ref to the metalabel series? That would optimize this a bit.
-	_, err := a.getOrCreateMetaLabels(metaLabels)
+	m, err := a.getOrCreateMetaLabels(metaLabels)
 	if err != nil {
 		return 0, fmt.Errorf("error creating metalabels series: %w", err)
 	}
@@ -391,6 +392,15 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		V:   v,
 	})
 	a.sampleSeries = append(a.sampleSeries, s)
+
+	// Metalabels
+	a.metaLabelSamples = append(a.metaLabelSamples, record.RefSample{
+		Ref: m.ref,
+		T:   t,
+		V:   0.0,
+	})
+	a.sampleMetaLabelSeries = append(a.sampleMetaLabelSeries, m)
+
 	return storage.SeriesRef(s.ref), nil
 }
 
