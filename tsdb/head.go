@@ -2161,33 +2161,12 @@ type metaLabelsSeries struct {
 	seriesLifecycleCallback SeriesLifecycleCallback
 }
 
-func newMetaLabelsSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *metaLabelsSeries {
-	m := &metaLabelsSeries{
-		size:                    stripeSize,
-		series:                  make([]map[chunks.HeadSeriesRef]*memSeries, stripeSize),
-		hashes:                  make([]seriesHashmap, stripeSize),
-		locks:                   make([]stripeLock, stripeSize),
-		seriesLifecycleCallback: seriesCallback,
-	}
+func (m *metaLabelsSeries) getByHash(hash uint64, lset labels.Labels) *memSeries {
+	i := hash & uint64(m.size-1)
 
-	for i := range m.series {
-		m.series[i] = map[chunks.HeadSeriesRef]*memSeries{}
-	}
-	for i := range m.hashes {
-		m.hashes[i] = seriesHashmap{
-			unique:    map[uint64]*memSeries{},
-			conflicts: nil, // Initialized on demand in set().
-		}
-	}
-	return m
-}
-
-func (s *metaLabelsSeries) getByHash(hash uint64, lset labels.Labels) *memSeries {
-	i := hash & uint64(s.size-1)
-
-	s.locks[i].RLock()
-	series := s.hashes[i].get(hash, lset)
-	s.locks[i].RUnlock()
+	m.locks[i].RLock()
+	series := m.hashes[i].get(hash, lset)
+	m.locks[i].RUnlock()
 
 	return series
 }

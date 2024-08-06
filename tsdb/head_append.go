@@ -342,10 +342,10 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		}
 	}
 
-	// TODO(jesus.vazquez) Then getOrCreate the series just with the normal labels
+	// TODO(jesus.vazquez) Should we extend Append to also have the series ref to the metalabel series? That would optimize this a bit.
 	_, err := a.getOrCreateMetaLabels(metaLabels)
 	if err != nil {
-		return 0, fmt.Errorf("error creating metalabels series: %v", err)
+		return 0, fmt.Errorf("error creating metalabels series: %w", err)
 	}
 
 	if value.IsStaleNaN(v) {
