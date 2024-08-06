@@ -714,6 +714,7 @@ func TestRemoteWriteWithNewMetadata(t *testing.T) {
 
 	handler := NewWriteHandler(log.NewNopLogger(), nil, db.Head(), []config.RemoteWriteProtoMsg{config.RemoteWriteProtoMsgV1})
 
+	// The same time series, but the __metadata__node__ip label changes for the second sample.
 	ts := []prompb.TimeSeries{
 		{
 			Labels: []prompb.Label{
