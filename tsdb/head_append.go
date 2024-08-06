@@ -327,6 +327,13 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		return 0, storage.ErrOutOfBounds
 	}
 
+	// here we need to separate metalabels from normal labels
+	// and store them in the metadata store
+	// if the metadata store is enabled
+	metaLabels, lset := seperateMetaLabels(lset)
+	if metaLabels.Len() > 0 {
+		fmt.Println("TODO: write metadata to the metadata store, now we simply drop meta labels")
+	}
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
 	if s == nil {
 		var err error

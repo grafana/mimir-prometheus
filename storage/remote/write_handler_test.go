@@ -744,7 +744,7 @@ func TestRemoteWriteWithNewMetadata(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
 	require.Equal(t, http.StatusNoContent, recorder.Code)
-	require.Equal(t, uint64(2), db.Head().NumSeries())
+	require.Equal(t, uint64(1), db.Head().NumSeries())
 }
 
 func BenchmarkRemoteWriteOOOSamples(b *testing.B) {
