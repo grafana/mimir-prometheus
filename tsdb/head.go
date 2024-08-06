@@ -109,6 +109,8 @@ type Head struct {
 
 	// All series addressable by their ID or hash.
 	series *stripeSeries
+	// All metadataSeries addressable by their ID or hash
+	metadataSeries *metadataSeries
 
 	deletedMtx sync.Mutex
 	deleted    map[chunks.HeadSeriesRef]int // Deleted series, and what WAL segment they must be kept until.
@@ -116,6 +118,8 @@ type Head struct {
 	// TODO(codesome): Extend MemPostings to return only OOOPostings, Set OOOStatus, ... Like an additional map of ooo postings.
 	postings *index.MemPostings // Postings lists for terms.
 	pfmc     *PostingsForMatchersCache
+
+	// TODO8jesus.vazquez) Add here metadata series postings list?
 
 	tombstones *tombstones.MemTombstones
 
@@ -1898,6 +1902,15 @@ const (
 // with the maps was profiled to be slower – likely due to the additional pointer
 // dereferences.
 type stripeSeries struct {
+	size                    int
+	series                  []map[chunks.HeadSeriesRef]*memSeries // Sharded by ref. A series ref is the value of `size` when the series was being newly added.
+	hashes                  []seriesHashmap                       // Sharded by label hash.
+	locks                   []stripeLock                          // Sharded by ref for series access, by label hash for hashes access.
+	seriesLifecycleCallback SeriesLifecycleCallback
+}
+
+// metadataSeries works like stripeSeries but is used for the metadata store.
+type metadataSeries struct {
 	size                    int
 	series                  []map[chunks.HeadSeriesRef]*memSeries // Sharded by ref. A series ref is the value of `size` when the series was being newly added.
 	hashes                  []seriesHashmap                       // Sharded by label hash.
