@@ -110,8 +110,8 @@ type Head struct {
 
 	// All series addressable by their ID or hash.
 	series *stripeSeries
-	// All metadataSeries addressable by their ID or hash
-	metaLabelsSeries *metaLabelsSeries
+	// All metaLabelSeries addressable by their ID or hash
+	metaLabelSeries *metaLabelSeries
 
 	deletedMtx sync.Mutex
 	deleted    map[chunks.HeadSeriesRef]int // Deleted series, and what WAL segment they must be kept until.
@@ -371,12 +371,14 @@ func (h *Head) resetInMemoryState() error {
 	}
 
 	h.series = newStripeSeries(h.opts.StripeSize, h.opts.SeriesCallback)
+	h.metaLabelSeries = newMetaLabelSeries(h.opts.StripeSize)
 	h.iso = newIsolation(h.opts.IsolationDisabled)
 	h.oooIso = newOOOIsolation()
 	h.numSeries.Store(0)
 	h.exemplarMetrics = em
 	h.exemplars = es
 	h.postings = index.NewUnorderedMemPostings()
+	h.metaLabelsPostings = index.NewUnorderedMemPostings()
 	h.tombstones = tombstones.NewMemTombstones()
 	h.deleted = map[chunks.HeadSeriesRef]int{}
 	h.chunkRange.Store(h.opts.ChunkRange)
@@ -1778,7 +1780,7 @@ func (h *Head) getOrCreateMetaLabels(hash uint64, lset labels.Labels) (*memSerie
 	// Just using `getOrCreateWithID` below would be semantically sufficient, but we'd create
 	// a new series on every sample inserted via Add(), which causes allocations
 	// and makes our series IDs rather random and harder to compress in postings.
-	s := h.metaLabelsSeries.getByHash(hash, lset)
+	s := h.metaLabelSeries.getByHash(hash, lset)
 	if s != nil {
 		return s, false, nil
 	}
@@ -1813,7 +1815,7 @@ func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labe
 }
 
 func (h *Head) getOrCreateMetaLabelsWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
-	m, created, err := h.metaLabelsSeries.getOrSet(hash, lset, func() *memSeries {
+	m, created, err := h.metaLabelSeries.getOrSet(hash, lset, func() *memSeries {
 		shardHash := uint64(0)
 		if h.opts.EnableSharding {
 			shardHash = labels.StableHash(lset)
@@ -2152,16 +2154,35 @@ func (s *stripeSeries) getOrSet(hash uint64, lset labels.Labels, createSeries fu
 	return series, true, nil
 }
 
-// metaLabelsSeries works like stripeSeries but is used for the metalabels store.
-type metaLabelsSeries struct {
-	size                    int
-	series                  []map[chunks.HeadSeriesRef]*memSeries // Sharded by ref. A series ref is the value of `size` when the series was being newly added.
-	hashes                  []seriesHashmap                       // Sharded by label hash.
-	locks                   []stripeLock                          // Sharded by ref for series access, by label hash for hashes access.
-	seriesLifecycleCallback SeriesLifecycleCallback
+// metaLabelSeries works like stripeSeries but is used for the metalabels store.
+type metaLabelSeries struct {
+	size   int
+	series []map[chunks.HeadSeriesRef]*memSeries // Sharded by ref. A series ref is the value of `size` when the series was being newly added.
+	hashes []seriesHashmap                       // Sharded by label hash.
+	locks  []stripeLock                          // Sharded by ref for series access, by label hash for hashes access.
 }
 
-func (m *metaLabelsSeries) getByHash(hash uint64, lset labels.Labels) *memSeries {
+func newMetaLabelSeries(stripeSize int) *metaLabelSeries {
+	m := &metaLabelSeries{
+		size:   stripeSize,
+		series: make([]map[chunks.HeadSeriesRef]*memSeries, stripeSize),
+		hashes: make([]seriesHashmap, stripeSize),
+		locks:  make([]stripeLock, stripeSize),
+	}
+
+	for i := range m.series {
+		m.series[i] = map[chunks.HeadSeriesRef]*memSeries{}
+	}
+	for i := range m.hashes {
+		m.hashes[i] = seriesHashmap{
+			unique:    map[uint64]*memSeries{},
+			conflicts: nil, // Initialized on demand in set().
+		}
+	}
+	return m
+}
+
+func (m *metaLabelSeries) getByHash(hash uint64, lset labels.Labels) *memSeries {
 	i := hash & uint64(m.size-1)
 
 	m.locks[i].RLock()
@@ -2171,18 +2192,8 @@ func (m *metaLabelsSeries) getByHash(hash uint64, lset labels.Labels) *memSeries
 	return series
 }
 
-func (m *metaLabelsSeries) getOrSet(hash uint64, lset labels.Labels, createSeries func() *memSeries) (*memSeries, bool, error) {
-	// PreCreation is called here to avoid calling it inside the lock.
-	// It is not necessary to call it just before creating a series,
-	// rather it gives a 'hint' whether to create a series or not.
-	preCreationErr := m.seriesLifecycleCallback.PreCreation(lset)
-
-	// Create the series, unless the PreCreation() callback as failed.
-	// If failed, we'll not allow to create a new series anyway.
-	var series *memSeries
-	if preCreationErr == nil {
-		series = createSeries()
-	}
+func (m *metaLabelSeries) getOrSet(hash uint64, lset labels.Labels, createSeries func() *memSeries) (*memSeries, bool, error) {
+	series := createSeries()
 
 	i := hash & uint64(m.size-1)
 	m.locks[i].Lock()
@@ -2191,18 +2202,9 @@ func (m *metaLabelsSeries) getOrSet(hash uint64, lset labels.Labels, createSerie
 		m.locks[i].Unlock()
 		return prev, false, nil
 	}
-	if preCreationErr == nil {
-		m.hashes[i].set(hash, series)
-	}
-	m.locks[i].Unlock()
 
-	if preCreationErr != nil {
-		// The callback prevented creation of series.
-		return nil, false, preCreationErr
-	}
-	// Setting the series in the s.hashes marks the creation of series
-	// as any further calls to this methods would return that series.
-	m.seriesLifecycleCallback.PostCreation(series.labels())
+	m.hashes[i].set(hash, series)
+	m.locks[i].Unlock()
 
 	i = uint64(series.ref) & uint64(m.size-1)
 
