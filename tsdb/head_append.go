@@ -304,7 +304,8 @@ type headAppender struct {
 	headMaxt      int64 // We track it here to not take the lock for every sample appended.
 	oooTimeWindow int64 // Use the same for the entire append, and don't load the atomic for each sample.
 
-	series               []record.RefSeries               // New series held by this appender.
+	series               []record.RefSeries // New series held by this appender.
+	metaLabelSeries      []record.RefSeries
 	samples              []record.RefSample               // New float samples held by this appender.
 	sampleSeries         []*memSeries                     // Float series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
 	histograms           []record.RefHistogramSample      // New histogram samples held by this appender.
@@ -327,16 +328,10 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		return 0, storage.ErrOutOfBounds
 	}
 
-	// here we need to separate metalabels from normal labels
-	// and store them in the metadata store
-	// if the metadata store is enabled
+	// This bit extracts the metalabels from the original label set.
+	// TODO(jesus.vazquez) A way to improve the performance of this bit and avoid allocating the new slices would be to
+	// update the append method to receive both label sets instead of allocating the slices here every time.
 	metaLabels, lset := seperateMetaLabels(lset)
-	if metaLabels.Len() > 0 {
-		fmt.Println("TODO: write metadata to the metadata store, now we simply drop meta labels")
-	}
-	// TODO(jesus.vazquez) Extract metalabels from the series and create a metalabel series with that
-	// TODO(jesus.vazquez) One idea is to update the append method to receive both label sets instead of allocating the slices here every time.
-	// TODO(jesus.vazquez) Then getOrCreate the series just with the normal labels
 
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
 	if s == nil {
@@ -345,6 +340,12 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 		if err != nil {
 			return 0, err
 		}
+	}
+
+	// TODO(jesus.vazquez) Then getOrCreate the series just with the normal labels
+	_, err := a.getOrCreateMetaLabels(metaLabels)
+	if err != nil {
+		return 0, fmt.Errorf("error creating metalabels series: %v", err)
 	}
 
 	if value.IsStaleNaN(v) {
@@ -456,6 +457,30 @@ func (a *headAppender) getOrCreate(lset labels.Labels) (*memSeries, error) {
 		})
 	}
 	return s, nil
+}
+
+func (a *headAppender) getOrCreateMetaLabels(lset labels.Labels) (*memSeries, error) {
+	// Ensure no empty labels have gotten through.
+	lset = lset.WithoutEmpty()
+	if lset.IsEmpty() {
+		return nil, fmt.Errorf("empty labelset: %w", ErrInvalidSample)
+	}
+	if l, dup := lset.HasDuplicateLabelNames(); dup {
+		return nil, fmt.Errorf(`label name "%s" is not unique: %w`, l, ErrInvalidSample)
+	}
+	var created bool
+	var err error
+	m, created, err := a.head.getOrCreateMetaLabels(lset.Hash(), lset)
+	if err != nil {
+		return nil, err
+	}
+	if created {
+		a.metaLabelSeries = append(a.metaLabelSeries, record.RefSeries{
+			Ref:    m.ref,
+			Labels: lset,
+		})
+	}
+	return m, nil
 }
 
 // appendable checks whether the given sample is valid for appending to the series. (if we return false and no error)
