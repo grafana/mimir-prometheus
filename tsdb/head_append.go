@@ -334,6 +334,10 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	if metaLabels.Len() > 0 {
 		fmt.Println("TODO: write metadata to the metadata store, now we simply drop meta labels")
 	}
+	// TODO(jesus.vazquez) Extract metalabels from the series and create a metalabel series with that
+	// TODO(jesus.vazquez) One idea is to update the append method to receive both label sets instead of allocating the slices here every time.
+	// TODO(jesus.vazquez) Then getOrCreate the series just with the normal labels
+
 	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
 	if s == nil {
 		var err error
