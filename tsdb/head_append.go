@@ -344,9 +344,13 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	}
 
 	// TODO(jesus.vazquez) Should we extend Append to also have the series ref to the metalabel series? That would optimize this a bit.
-	m, err := a.getOrCreateMetaLabels(metaLabels)
-	if err != nil {
-		return 0, fmt.Errorf("error creating metalabels series: %w", err)
+	var m *memSeries
+	var err error
+	if metaLabels.Len() > 0 { // We only need to crerate a metalabels series if there are metalabels in the sample.
+		m, err = a.getOrCreateMetaLabels(metaLabels)
+		if err != nil {
+			return 0, fmt.Errorf("error creating metalabels series: %w", err)
+		}
 	}
 
 	if value.IsStaleNaN(v) {
@@ -394,12 +398,14 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	a.sampleSeries = append(a.sampleSeries, s)
 
 	// Metalabels
-	a.metaLabelSamples = append(a.metaLabelSamples, record.RefSample{
-		Ref: m.ref,
-		T:   t,
-		V:   0.0,
-	})
-	a.sampleMetaLabelSeries = append(a.sampleMetaLabelSeries, m)
+	if metaLabels.Len() > 0 {
+		a.metaLabelSamples = append(a.metaLabelSamples, record.RefSample{
+			Ref: m.ref,
+			T:   t,
+			V:   0.0,
+		})
+		a.sampleMetaLabelSeries = append(a.sampleMetaLabelSeries, m)
+	}
 
 	return storage.SeriesRef(s.ref), nil
 }
