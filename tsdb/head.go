@@ -82,6 +82,7 @@ type chunkDiskMapper interface {
 type Head struct {
 	chunkRange               atomic.Int64
 	numSeries                atomic.Uint64
+	numMetaLabelSeries       atomic.Uint64
 	minOOOTime, maxOOOTime   atomic.Int64 // TODO(jesusvazquez) These should be updated after garbage collection.
 	minTime, maxTime         atomic.Int64 // Current min and max of the samples included in the head. TODO(jesusvazquez) Ensure these are properly tracked.
 	minValidTime             atomic.Int64 // Mint allowed to be added to the head. It shouldn't be lower than the maxt of the last persisted block.
@@ -109,6 +110,8 @@ type Head struct {
 
 	// All series addressable by their ID or hash.
 	series *stripeSeries
+	// All metaLabelSeries addressable by their ID or hash
+	metaLabelSeries *metaLabelSeries
 
 	deletedMtx sync.Mutex
 	deleted    map[chunks.HeadSeriesRef]int // Deleted series, and what WAL segment they must be kept until.
@@ -116,6 +119,8 @@ type Head struct {
 	// TODO(codesome): Extend MemPostings to return only OOOPostings, Set OOOStatus, ... Like an additional map of ooo postings.
 	postings *index.MemPostings // Postings lists for terms.
 	pfmc     *PostingsForMatchersCache
+
+	metaLabelsPostings *index.MemPostings
 
 	tombstones *tombstones.MemTombstones
 
@@ -366,12 +371,14 @@ func (h *Head) resetInMemoryState() error {
 	}
 
 	h.series = newStripeSeries(h.opts.StripeSize, h.opts.SeriesCallback)
+	h.metaLabelSeries = newMetaLabelSeries(h.opts.StripeSize)
 	h.iso = newIsolation(h.opts.IsolationDisabled)
 	h.oooIso = newOOOIsolation()
 	h.numSeries.Store(0)
 	h.exemplarMetrics = em
 	h.exemplars = es
 	h.postings = index.NewUnorderedMemPostings()
+	h.metaLabelsPostings = index.NewUnorderedMemPostings()
 	h.tombstones = tombstones.NewMemTombstones()
 	h.deleted = map[chunks.HeadSeriesRef]int{}
 	h.chunkRange.Store(h.opts.ChunkRange)
@@ -390,6 +397,7 @@ type headMetrics struct {
 	seriesCreated             prometheus.Counter
 	seriesRemoved             prometheus.Counter
 	seriesNotFound            prometheus.Counter
+	metaLabelsSeriesCreated   prometheus.Counter
 	chunks                    prometheus.Gauge
 	chunksCreated             prometheus.Counter
 	chunksRemoved             prometheus.Counter
@@ -442,6 +450,10 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 		seriesNotFound: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_series_not_found_total",
 			Help: "Total number of requests for series that were not found.",
+		}),
+		metaLabelsSeriesCreated: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_metalabels_series_created_total",
+			Help: "Total number of metalabels series created in the head",
 		}),
 		chunks: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "prometheus_tsdb_head_chunks",
@@ -555,6 +567,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.seriesCreated,
 			m.seriesRemoved,
 			m.seriesNotFound,
+			m.metaLabelsSeriesCreated,
 			m.gcDuration,
 			m.walTruncateDuration,
 			m.walCorruptionsTotal,
@@ -1763,6 +1776,21 @@ func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool, e
 	return h.getOrCreateWithID(id, hash, lset)
 }
 
+func (h *Head) getOrCreateMetaLabels(hash uint64, lset labels.Labels) (*memSeries, bool, error) {
+	// Just using `getOrCreateWithID` below would be semantically sufficient, but we'd create
+	// a new series on every sample inserted via Add(), which causes allocations
+	// and makes our series IDs rather random and harder to compress in postings.
+	s := h.metaLabelSeries.getByHash(hash, lset)
+	if s != nil {
+		return s, false, nil
+	}
+
+	// Optimistically assume that we are the first one to create the series.
+	id := chunks.HeadSeriesRef(h.lastSeriesID.Inc())
+
+	return h.getOrCreateMetaLabelsWithID(id, hash, lset)
+}
+
 func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
 	s, created, err := h.series.getOrSet(hash, lset, func() *memSeries {
 		shardHash := uint64(0)
@@ -1784,6 +1812,29 @@ func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labe
 
 	h.postings.Add(storage.SeriesRef(id), lset)
 	return s, true, nil
+}
+
+func (h *Head) getOrCreateMetaLabelsWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
+	m, created, err := h.metaLabelSeries.getOrSet(hash, lset, func() *memSeries {
+		shardHash := uint64(0)
+		if h.opts.EnableSharding {
+			shardHash = labels.StableHash(lset)
+		}
+
+		return newMemSeries(lset, id, shardHash, h.secondaryHashFunc(lset), h.opts.ChunkEndTimeVariance, h.opts.IsolationDisabled)
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if !created {
+		return m, false, nil
+	}
+
+	h.metrics.metaLabelsSeriesCreated.Inc()
+	h.numMetaLabelSeries.Inc()
+
+	h.metaLabelsPostings.Add(storage.SeriesRef(id), lset)
+	return m, true, nil
 }
 
 // mmapHeadChunks will iterate all memSeries stored on Head and call mmapHeadChunks() on each of them.
@@ -2099,6 +2150,67 @@ func (s *stripeSeries) getOrSet(hash uint64, lset labels.Labels, createSeries fu
 	s.locks[i].Lock()
 	s.series[i][series.ref] = series
 	s.locks[i].Unlock()
+
+	return series, true, nil
+}
+
+// metaLabelSeries works like stripeSeries but is used for the metalabels store.
+type metaLabelSeries struct {
+	size   int
+	series []map[chunks.HeadSeriesRef]*memSeries // Sharded by ref. A series ref is the value of `size` when the series was being newly added.
+	hashes []seriesHashmap                       // Sharded by label hash.
+	locks  []stripeLock                          // Sharded by ref for series access, by label hash for hashes access.
+}
+
+func newMetaLabelSeries(stripeSize int) *metaLabelSeries {
+	m := &metaLabelSeries{
+		size:   stripeSize,
+		series: make([]map[chunks.HeadSeriesRef]*memSeries, stripeSize),
+		hashes: make([]seriesHashmap, stripeSize),
+		locks:  make([]stripeLock, stripeSize),
+	}
+
+	for i := range m.series {
+		m.series[i] = map[chunks.HeadSeriesRef]*memSeries{}
+	}
+	for i := range m.hashes {
+		m.hashes[i] = seriesHashmap{
+			unique:    map[uint64]*memSeries{},
+			conflicts: nil, // Initialized on demand in set().
+		}
+	}
+	return m
+}
+
+func (m *metaLabelSeries) getByHash(hash uint64, lset labels.Labels) *memSeries {
+	i := hash & uint64(m.size-1)
+
+	m.locks[i].RLock()
+	series := m.hashes[i].get(hash, lset)
+	m.locks[i].RUnlock()
+
+	return series
+}
+
+func (m *metaLabelSeries) getOrSet(hash uint64, lset labels.Labels, createSeries func() *memSeries) (*memSeries, bool, error) {
+	series := createSeries()
+
+	i := hash & uint64(m.size-1)
+	m.locks[i].Lock()
+
+	if prev := m.hashes[i].get(hash, lset); prev != nil {
+		m.locks[i].Unlock()
+		return prev, false, nil
+	}
+
+	m.hashes[i].set(hash, series)
+	m.locks[i].Unlock()
+
+	i = uint64(series.ref) & uint64(m.size-1)
+
+	m.locks[i].Lock()
+	m.series[i][series.ref] = series
+	m.locks[i].Unlock()
 
 	return series, true, nil
 }
