@@ -280,6 +280,21 @@ func (h *Head) putSeriesBuffer(b []*memSeries) {
 	h.seriesPool.Put(b[:0])
 }
 
+func (h *Head) getSeriesMetaLabelBuffer() []*memSeries {
+	b := h.seriesMetaLabelPool.Get()
+	if b == nil {
+		return make([]*memSeries, 0, 512)
+	}
+	return b
+}
+
+func (h *Head) putSeriesMetaLabelBuffer(b []*memSeries) {
+	for i := range b { // Zero out to avoid retaining data.
+		b[i] = nil
+	}
+	h.seriesMetaLabelPool.Put(b[:0])
+}
+
 func (h *Head) getBytesBuffer() []byte {
 	b := h.bytesPool.Get()
 	if b == nil {
@@ -879,6 +894,7 @@ func (a *headAppender) Commit() (err error) {
 	defer a.head.metrics.activeAppenders.Dec()
 	defer a.head.putAppendBuffer(a.samples)
 	defer a.head.putSeriesBuffer(a.sampleSeries)
+	defer a.head.putSeriesMetaLabelBuffer(a.sampleMetaLabelSeries)
 	defer a.head.putExemplarBuffer(a.exemplars)
 	defer a.head.putHistogramBuffer(a.histograms)
 	defer a.head.putFloatHistogramBuffer(a.floatHistograms)
@@ -888,6 +904,7 @@ func (a *headAppender) Commit() (err error) {
 	var (
 		floatsAppended     = len(a.samples)
 		histogramsAppended = len(a.histograms) + len(a.floatHistograms)
+		metaLabelsAppended = len(a.metaLabelSamples)
 		// number of samples out of order but accepted: with ooo enabled and within time window
 		floatOOOAccepted int
 		// number of samples rejected due to: out of order but OOO support disabled.
@@ -1051,6 +1068,60 @@ func (a *headAppender) Commit() (err error) {
 		series.Unlock()
 	}
 
+	for i, s := range a.metaLabelSamples {
+		series = a.sampleMetaLabelSeries[i]
+		series.Lock()
+
+		oooSample, _, err := series.appendable(s.T, s.V, a.headMaxt, a.minValidTime, a.oooTimeWindow)
+		switch {
+		case err == nil:
+			// Do nothing.
+		case errors.Is(err, storage.ErrOutOfOrderSample):
+			fmt.Printf("out of order metalabels sample: %v\n", s)
+			metaLabelsAppended--
+		case errors.Is(err, storage.ErrOutOfBounds):
+			fmt.Printf("out of bounds metalabels sample: %v\n", s)
+			metaLabelsAppended--
+		case errors.Is(err, storage.ErrTooOldSample):
+			fmt.Printf("too old metalabels sample: %v\n", s)
+			metaLabelsAppended--
+		default:
+			floatsAppended--
+		}
+
+		var ok, chunkCreated bool
+
+		switch {
+		case err != nil:
+			// Do nothing here.
+		case oooSample:
+			fmt.Printf("ignoring out of order metalabels sample: %v\n", s)
+		default:
+			// TODO(jesus.vazquez) I think we need separate chunkdiskmapper for metalabels with separate opts such as dir
+			ok, chunkCreated = series.append(s.T, s.V, a.appendID, appendChunkOpts)
+			if ok {
+				if s.T < inOrderMint {
+					inOrderMint = s.T
+				}
+				if s.T > inOrderMaxt {
+					inOrderMaxt = s.T
+				}
+			} else {
+				// The sample is an exact duplicate, and should be silently dropped.
+				metaLabelsAppended--
+			}
+		}
+
+		if chunkCreated {
+			// TODO(jesus.vazquez) We need separate metrics for metalabel series
+			a.head.metrics.chunks.Inc()
+			a.head.metrics.chunksCreated.Inc()
+		}
+
+		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.pendingCommit = false
+	}
+
 	for i, s := range a.histograms {
 		series = a.histogramSeries[i]
 		series.Lock()
@@ -1113,6 +1184,7 @@ func (a *headAppender) Commit() (err error) {
 	a.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatOOBRejected))
 	a.head.metrics.tooOldSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatTooOldRejected))
 	a.head.metrics.samplesAppended.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatsAppended))
+	a.head.metrics.metaLabelSamplesAppended.WithLabelValues(sampleMetricTypeFloat).Add(float64(metaLabelsAppended))
 	a.head.metrics.samplesAppended.WithLabelValues(sampleMetricTypeHistogram).Add(float64(histogramsAppended))
 	a.head.metrics.outOfOrderSamplesAppended.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatOOOAccepted))
 	a.head.updateMinMaxTime(inOrderMint, inOrderMaxt)
