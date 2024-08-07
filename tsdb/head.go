@@ -114,6 +114,12 @@ type Head struct {
 	// All metaLabelSeries addressable by their ID or hash
 	metaLabelSeries *metaLabelSeries
 
+	// Depending on the use cases and benchmarks, we might want to make it into a map of ref->[]ref.
+	// It is a map of map for easy checking of duplicates during ingestion. If we decide to make it ref->[]ref,
+	// we might have to keep the []ref slice sorted for a binary search.
+	seriesToMeta map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{} // Mapping from series ID to meta label ID.
+	metaToSeries map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{} // Mapping from meta label ID to series ID.
+
 	deletedMtx sync.Mutex
 	deleted    map[chunks.HeadSeriesRef]int // Deleted series, and what WAL segment they must be kept until.
 
@@ -316,6 +322,8 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, wbl *wlog.WL, opts *Hea
 		reg:               r,
 		secondaryHashFunc: shf,
 		pfmc:              NewPostingsForMatchersCache(opts.PostingsForMatchersCacheTTL, opts.PostingsForMatchersCacheMaxItems, opts.PostingsForMatchersCacheMaxBytes, opts.PostingsForMatchersCacheForce),
+		metaToSeries:      make(map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{}),
+		seriesToMeta:      make(map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{}),
 	}
 	if err := h.resetInMemoryState(); err != nil {
 		return nil, err

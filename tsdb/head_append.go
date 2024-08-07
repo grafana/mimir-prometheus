@@ -322,7 +322,7 @@ type headAppender struct {
 	series                []record.RefSeries // New series held by this appender.
 	metaLabelSeries       []record.RefSeries
 	samples               []record.RefSample               // New float samples held by this appender.
-	metaLabelSamples      []record.RefSample               // Newmeta label samples held by this appender.
+	metaLabelSamples      []record.RefMetaSample           // Newmeta label samples held by this appender.
 	sampleSeries          []*memSeries                     // Float series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
 	sampleMetaLabelSeries []*memSeries                     // Meta label series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
 	histograms            []record.RefHistogramSample      // New histogram samples held by this appender.
@@ -361,7 +361,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	// TODO(jesus.vazquez) Should we extend Append to also have the series ref to the metalabel series? That would optimize this a bit.
 	var m *memSeries
 	var err error
-	if metaLabels.Len() > 0 { // We only need to crerate a metalabels series if there are metalabels in the sample.
+	if metaLabels.Len() > 0 { // We only need to create a metalabels series if there are metalabels in the sample.
 		m, err = a.getOrCreateMetaLabels(metaLabels)
 		if err != nil {
 			return 0, fmt.Errorf("error creating metalabels series: %w", err)
@@ -413,11 +413,11 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	a.sampleSeries = append(a.sampleSeries, s)
 
 	// Metalabels
-	if metaLabels.Len() > 0 {
-		a.metaLabelSamples = append(a.metaLabelSamples, record.RefSample{
-			Ref: m.ref,
-			T:   t,
-			V:   0.0,
+	if m != nil {
+		a.metaLabelSamples = append(a.metaLabelSamples, record.RefMetaSample{
+			SeriesRef: s.ref,
+			MetasRef:  m.ref,
+			T:         t,
 		})
 		a.sampleMetaLabelSeries = append(a.sampleMetaLabelSeries, m)
 	}
@@ -1072,7 +1072,7 @@ func (a *headAppender) Commit() (err error) {
 		series = a.sampleMetaLabelSeries[i]
 		series.Lock()
 
-		oooSample, _, err := series.appendable(s.T, s.V, a.headMaxt, a.minValidTime, a.oooTimeWindow)
+		oooSample, _, err := series.appendable(s.T, 0, a.headMaxt, a.minValidTime, a.oooTimeWindow)
 		switch {
 		case err == nil:
 			// Do nothing.
@@ -1098,7 +1098,7 @@ func (a *headAppender) Commit() (err error) {
 			fmt.Printf("ignoring out of order metalabels sample: %v\n", s)
 		default:
 			// TODO(jesus.vazquez) I think we need separate chunkdiskmapper for metalabels with separate opts such as dir
-			ok, chunkCreated = series.append(s.T, s.V, a.appendID, appendChunkOpts)
+			ok, chunkCreated = series.append(s.T, 0, a.appendID, appendChunkOpts)
 			if ok {
 				if s.T < inOrderMint {
 					inOrderMint = s.T
@@ -1106,6 +1106,15 @@ func (a *headAppender) Commit() (err error) {
 				if s.T > inOrderMaxt {
 					inOrderMaxt = s.T
 				}
+				// Update the maps linking series to metalabels and vice versa.
+				if _, ok := a.head.metaToSeries[s.MetasRef]; !ok {
+					a.head.metaToSeries[s.MetasRef] = make(map[chunks.HeadSeriesRef]struct{})
+				}
+				if _, ok := a.head.seriesToMeta[s.SeriesRef]; !ok {
+					a.head.seriesToMeta[s.SeriesRef] = make(map[chunks.HeadSeriesRef]struct{})
+				}
+				a.head.metaToSeries[s.MetasRef][s.SeriesRef] = struct{}{}
+				a.head.seriesToMeta[s.SeriesRef][s.MetasRef] = struct{}{}
 			} else {
 				// The sample is an exact duplicate, and should be silently dropped.
 				metaLabelsAppended--
