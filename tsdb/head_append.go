@@ -1084,18 +1084,24 @@ func (a *headAppender) Commit() (err error) {
 		}
 		a.head.metaToSeries[s.MetasRef][s.SeriesRef] = struct{}{}
 
+		if _, ok := a.head.seriesToMeta[s.SeriesRef]; !ok {
+			a.head.seriesToMeta[s.SeriesRef] = make(map[chunks.HeadSeriesRef][]metaWithTime)
+		}
+
 		// TODO: this assumes that the metadata ref remains the same for a metadata. Meant only for the prototype.
 		// TODO: handle conflicting metadata for a time range. Not in the scope of this prototype.
-		times := a.head.seriesToMeta[s.SeriesRef]
-		if len(times) != 0 && times[len(times)-1].metaRef == s.MetasRef {
-			if times[len(times)-1].mint > s.T {
-				a.head.seriesToMeta[s.SeriesRef][len(times)-1].mint = s.T
+		times := a.head.seriesToMeta[s.SeriesRef][s.MetasRef]
+		if len(times) != 0 {
+			lastIndex := len(times) - 1
+			last := times[lastIndex]
+			if last.mint > s.T {
+				a.head.seriesToMeta[s.SeriesRef][s.MetasRef][lastIndex].mint = s.T
 			}
-			if times[len(times)-1].maxt < s.T {
-				a.head.seriesToMeta[s.SeriesRef][len(times)-1].maxt = s.T
+			if last.maxt < s.T {
+				a.head.seriesToMeta[s.SeriesRef][s.MetasRef][lastIndex].maxt = s.T
 			}
 		} else {
-			a.head.seriesToMeta[s.SeriesRef] = append(times, metaWithTime{metaRef: s.MetasRef, mint: s.T, maxt: s.T})
+			a.head.seriesToMeta[s.SeriesRef][s.MetasRef] = []metaWithTime{{metaRef: s.MetasRef, mint: s.T, maxt: s.T}}
 		}
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)

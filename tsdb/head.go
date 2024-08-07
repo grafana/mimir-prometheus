@@ -114,10 +114,10 @@ type Head struct {
 	// All metaLabelSeries addressable by their ID or hash
 	metaLabelSeries *metaLabelSeries
 
-	// Mapping from series ID to metas sorted by time.
+	// Mapping from series ID to different metas with each meta having instances sorted by time.
 	// It is possible that there are some overlaps because of out of order samples and they are not handled
 	// in the prototype.
-	seriesToMeta map[chunks.HeadSeriesRef][]metaWithTime
+	seriesToMeta map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef][]metaWithTime
 	// Mapping from meta label ID to series ID.
 	// Depending on the use cases and benchmarks, we might want to make it into a map of ref->[]ref.
 	// It is a map of map for easy checking of duplicates during ingestion. If we decide to make it ref->[]ref,
@@ -332,7 +332,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, wbl *wlog.WL, opts *Hea
 		secondaryHashFunc: shf,
 		pfmc:              NewPostingsForMatchersCache(opts.PostingsForMatchersCacheTTL, opts.PostingsForMatchersCacheMaxItems, opts.PostingsForMatchersCacheMaxBytes, opts.PostingsForMatchersCacheForce),
 		metaToSeries:      make(map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{}),
-		seriesToMeta:      make(map[chunks.HeadSeriesRef][]metaWithTime),
+		seriesToMeta:      make(map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef][]metaWithTime),
 	}
 	if err := h.resetInMemoryState(); err != nil {
 		return nil, err
