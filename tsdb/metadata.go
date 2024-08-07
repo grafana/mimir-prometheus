@@ -6,11 +6,9 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 )
 
-const metaDataPrefix = `^__metadata__`
-
 func seperateMetaMatchers(ms []*labels.Matcher) ([]*labels.Matcher, []*labels.Matcher) {
 	// here we get the posting matches metadata
-	re := regexp.MustCompile(metaDataPrefix)
+	re := regexp.MustCompile(labels.MetadataPrefix)
 
 	// get the label matchers related to metadata
 	metaMatchers := make([]*labels.Matcher, 0)
@@ -27,7 +25,7 @@ func seperateMetaMatchers(ms []*labels.Matcher) ([]*labels.Matcher, []*labels.Ma
 
 func seperateMetaLabels(lbs labels.Labels) (labels.Labels, labels.Labels) {
 	// here we get the posting matches metadata
-	re := regexp.MustCompile(metaDataPrefix)
+	re := regexp.MustCompile(labels.MetadataPrefix)
 
 	// get the label matchers related to metadata
 	metaLabels := []labels.Label{}
