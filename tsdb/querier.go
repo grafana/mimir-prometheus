@@ -126,26 +126,14 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	var p index.Postings
 	var err error
 	metaMatchers, normalMatchers := seperateMetaMatchers(ms)
-	if len(metaMatchers) > 0 {
-		// TODO(ying.wang): Here we need to query metadata store to get the metas, they are not normal postings
-		// this is not right for the moment
-		mp, err := q.index.PostingsForMatchers(ctx, sharded, metaMatchers...)
-		if err != nil {
-			return storage.ErrSeriesSet(err)
-		}
+	// Get metadata refs separately
+	// Call a functions to link meta refs to series refs
+	// use that matching to return the series set later
+	context.WithValue(ctx, "metaMatchers", true)
 
-		// get the normal matchers
-		np, err := q.index.PostingsForMatchers(ctx, sharded, normalMatchers...)
-		if err != nil {
-			return storage.ErrSeriesSet(err)
-		}
-		// intersect the metadata matchers with normal matchers
-		p = index.MetaIntersect(mp, np)
-	} else {
-		p, err = q.index.PostingsForMatchers(ctx, sharded, ms...)
-		if err != nil {
-			return storage.ErrSeriesSet(err)
-		}
+	p, err = q.index.PostingsForMatchers(ctx, sharded, normalMatchers...)
+	if err != nil {
+		return storage.ErrSeriesSet(err)
 	}
 
 	if sharded {
@@ -153,6 +141,26 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	}
 	if sortSeries {
 		p = q.index.SortedPostings(p)
+	}
+
+	hir, ok := q.index.(*headIndexReader)
+	if len(metaMatchers) > 0 && ok {
+		ix := &headMetaIndexReader{hir.head}
+		metaPostings, err := PostingsForMatchers(ctx, ix, metaMatchers...)
+		if err != nil {
+			return storage.ErrSeriesSet(err)
+		}
+		_ = metaPostings
+
+		// TODO: merge metaPostings with p to match the series with metadata.
+		err = ix.Merge(p, metaPostings)
+		if err != nil {
+			return storage.ErrSeriesSet(err)
+		}
+
+		// TODO: take the merged thing from ix.Merge (which will include tuples of seriesRef and metaRef).
+		// And then use that to return appropriate series. Will probably need to write another newBlockSeriesSet
+		// with some updated parts.
 	}
 
 	if hints != nil {
@@ -402,7 +410,14 @@ func inversePostingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *l
 
 const maxExpandedPostingsFactor = 100 // Division factor for maximum number of matched series.
 
-func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, matchers ...*labels.Matcher) ([]string, error) {
+type reducedIndexReader interface {
+	LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error)
+	PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error)
+	Postings(ctx context.Context, name string, values ...string) (index.Postings, error)
+	Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error
+}
+
+func labelValuesWithMatchers(ctx context.Context, r reducedIndexReader, name string, matchers ...*labels.Matcher) ([]string, error) {
 	allValues, err := r.LabelValues(ctx, name)
 	if err != nil {
 		return nil, fmt.Errorf("fetching values of label %s: %w", name, err)
@@ -498,7 +513,7 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 
 // labelValuesFromSeries returns all unique label values from for given label name from supplied series. Values are not sorted.
 // buf is space for holding result (if it isn't big enough, it will be ignored), may be nil.
-func labelValuesFromSeries(r IndexReader, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
+func labelValuesFromSeries(r reducedIndexReader, labelName string, refs []storage.SeriesRef, buf []string) ([]string, error) {
 	values := map[string]struct{}{}
 	var builder labels.ScratchBuilder
 	for _, ref := range refs {
