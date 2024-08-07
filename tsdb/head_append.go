@@ -280,13 +280,13 @@ func (h *Head) putSeriesBuffer(b []*memSeries) {
 	h.seriesPool.Put(b[:0])
 }
 
-func (h *Head) getSeriesMetaLabelBuffer() []*memSeries {
-	b := h.seriesMetaLabelPool.Get()
-	if b == nil {
-		return make([]*memSeries, 0, 512)
-	}
-	return b
-}
+// func (h *Head) getSeriesMetaLabelBuffer() []*memSeries {
+// 	b := h.seriesMetaLabelPool.Get()
+// 	if b == nil {
+// 		return make([]*memSeries, 0, 512)
+// 	}
+// 	return b
+// }
 
 func (h *Head) putSeriesMetaLabelBuffer(b []*memSeries) {
 	for i := range b { // Zero out to avoid retaining data.
