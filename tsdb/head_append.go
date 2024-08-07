@@ -1086,7 +1086,7 @@ func (a *headAppender) Commit() (err error) {
 			fmt.Printf("too old metalabels sample: %v\n", s)
 			metaLabelsAppended--
 		default:
-			floatsAppended--
+			metaLabelsAppended--
 		}
 
 		var ok, chunkCreated bool
