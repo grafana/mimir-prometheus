@@ -114,11 +114,15 @@ type Head struct {
 	// All metaLabelSeries addressable by their ID or hash
 	metaLabelSeries *metaLabelSeries
 
+	// Mapping from series ID to metas sorted by time.
+	// It is possible that there are some overlaps because of out of order samples and they are not handled
+	// in the prototype.
+	seriesToMeta map[chunks.HeadSeriesRef][]metaWithTime
+	// Mapping from meta label ID to series ID.
 	// Depending on the use cases and benchmarks, we might want to make it into a map of ref->[]ref.
 	// It is a map of map for easy checking of duplicates during ingestion. If we decide to make it ref->[]ref,
 	// we might have to keep the []ref slice sorted for a binary search.
-	seriesToMeta map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{} // Mapping from series ID to meta label ID.
-	metaToSeries map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{} // Mapping from meta label ID to series ID.
+	metaToSeries map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{}
 
 	deletedMtx sync.Mutex
 	deleted    map[chunks.HeadSeriesRef]int // Deleted series, and what WAL segment they must be kept until.
@@ -156,6 +160,11 @@ type Head struct {
 	memTruncationInProcess atomic.Bool
 
 	secondaryHashFunc func(labels.Labels) uint32
+}
+
+type metaWithTime struct {
+	metaRef    chunks.HeadSeriesRef
+	mint, maxt int64
 }
 
 type ExemplarStorage interface {
@@ -323,7 +332,7 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, wbl *wlog.WL, opts *Hea
 		secondaryHashFunc: shf,
 		pfmc:              NewPostingsForMatchersCache(opts.PostingsForMatchersCacheTTL, opts.PostingsForMatchersCacheMaxItems, opts.PostingsForMatchersCacheMaxBytes, opts.PostingsForMatchersCacheForce),
 		metaToSeries:      make(map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{}),
-		seriesToMeta:      make(map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{}),
+		seriesToMeta:      make(map[chunks.HeadSeriesRef][]metaWithTime),
 	}
 	if err := h.resetInMemoryState(); err != nil {
 		return nil, err
@@ -2318,6 +2327,12 @@ type memSeries struct {
 
 	// txs is nil if isolation is disabled.
 	txs *txRing
+}
+
+type metaSeries struct {
+	memSeries
+	// [mints[i], maxts[i]] for each i are the time ranges when this metadata was active.
+	mints, maxts []int64
 }
 
 // memSeriesOOOFields contains the fields required by memSeries

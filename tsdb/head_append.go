@@ -1071,60 +1071,31 @@ func (a *headAppender) Commit() (err error) {
 	for i, s := range a.metaLabelSamples {
 		series = a.sampleMetaLabelSeries[i]
 		series.Lock()
-
-		oooSample, _, err := series.appendable(s.T, 0, a.headMaxt, a.minValidTime, a.oooTimeWindow)
-		switch {
-		case err == nil:
-			// Do nothing.
-		case errors.Is(err, storage.ErrOutOfOrderSample):
-			fmt.Printf("out of order metalabels sample: %v\n", s)
-			metaLabelsAppended--
-		case errors.Is(err, storage.ErrOutOfBounds):
-			fmt.Printf("out of bounds metalabels sample: %v\n", s)
-			metaLabelsAppended--
-		case errors.Is(err, storage.ErrTooOldSample):
-			fmt.Printf("too old metalabels sample: %v\n", s)
-			metaLabelsAppended--
-		default:
-			metaLabelsAppended--
+		// TODO(jesus.vazquez) I think we need separate chunkdiskmapper for metalabels with separate opts such as dir
+		if s.T < inOrderMint {
+			inOrderMint = s.T
 		}
+		if s.T > inOrderMaxt {
+			inOrderMaxt = s.T
+		}
+		// Update the maps linking series to metalabels and vice versa.
+		if _, ok := a.head.metaToSeries[s.MetasRef]; !ok {
+			a.head.metaToSeries[s.MetasRef] = make(map[chunks.HeadSeriesRef]struct{})
+		}
+		a.head.metaToSeries[s.MetasRef][s.SeriesRef] = struct{}{}
 
-		var ok, chunkCreated bool
-
-		switch {
-		case err != nil:
-			// Do nothing here.
-		case oooSample:
-			fmt.Printf("ignoring out of order metalabels sample: %v\n", s)
-		default:
-			// TODO(jesus.vazquez) I think we need separate chunkdiskmapper for metalabels with separate opts such as dir
-			ok, chunkCreated = series.append(s.T, 0, a.appendID, appendChunkOpts)
-			if ok {
-				if s.T < inOrderMint {
-					inOrderMint = s.T
-				}
-				if s.T > inOrderMaxt {
-					inOrderMaxt = s.T
-				}
-				// Update the maps linking series to metalabels and vice versa.
-				if _, ok := a.head.metaToSeries[s.MetasRef]; !ok {
-					a.head.metaToSeries[s.MetasRef] = make(map[chunks.HeadSeriesRef]struct{})
-				}
-				if _, ok := a.head.seriesToMeta[s.SeriesRef]; !ok {
-					a.head.seriesToMeta[s.SeriesRef] = make(map[chunks.HeadSeriesRef]struct{})
-				}
-				a.head.metaToSeries[s.MetasRef][s.SeriesRef] = struct{}{}
-				a.head.seriesToMeta[s.SeriesRef][s.MetasRef] = struct{}{}
-			} else {
-				// The sample is an exact duplicate, and should be silently dropped.
-				metaLabelsAppended--
+		// TODO: this assumes that the metadata ref remains the same for a metadata. Meant only for the prototype.
+		// TODO: handle conflicting metadata for a time range. Not in the scope of this prototype.
+		times := a.head.seriesToMeta[s.SeriesRef]
+		if len(times) != 0 && times[len(times)-1].metaRef == s.MetasRef {
+			if times[len(times)-1].mint > s.T {
+				a.head.seriesToMeta[s.SeriesRef][len(times)-1].mint = s.T
 			}
-		}
-
-		if chunkCreated {
-			// TODO(jesus.vazquez) We need separate metrics for metalabel series
-			a.head.metrics.chunks.Inc()
-			a.head.metrics.chunksCreated.Inc()
+			if times[len(times)-1].maxt < s.T {
+				a.head.seriesToMeta[s.SeriesRef][len(times)-1].maxt = s.T
+			}
+		} else {
+			a.head.seriesToMeta[s.SeriesRef] = append(times, metaWithTime{metaRef: s.MetasRef, mint: s.T, maxt: s.T})
 		}
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
