@@ -204,7 +204,9 @@ func (h *headIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchB
 		h.head.metrics.seriesNotFound.Inc()
 		return storage.ErrNotFound
 	}
-	builder.Assign(s.labels())
+	s.labels().Range(func(l labels.Label) {
+		builder.Add(l.Name, l.Value)
+	})
 
 	if chks == nil {
 		return nil
@@ -300,9 +302,9 @@ func (h *headMetaIndexReader) Series(ref storage.SeriesRef, builder *labels.Scra
 		h.head.metrics.seriesNotFound.Inc()
 		return storage.ErrNotFound
 	}
-	for _, ss := range s.labels() {
-		builder.Add(ss.Name, ss.Value)
-	}
+	s.labels().Range(func(l labels.Label) {
+		builder.Add(l.Name, l.Value)
+	})
 	return nil
 }
 
