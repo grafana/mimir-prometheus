@@ -117,10 +117,6 @@ func NewBlockQuerier(b BlockReader, mint, maxt int64) (storage.Querier, error) {
 	return &blockQuerier{blockBaseQuerier: q}, nil
 }
 
-const (
-	metaMatchersID = "metaMatchers"
-)
-
 func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, ms ...*labels.Matcher) storage.SeriesSet {
 	mint := q.mint
 	maxt := q.maxt
