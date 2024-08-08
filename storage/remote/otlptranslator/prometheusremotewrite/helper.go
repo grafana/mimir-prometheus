@@ -158,7 +158,7 @@ func createAttributes(resource pcommon.Resource, attributes pcommon.Map, setting
 
 	metadataLabels := make([]prompb.Label, 0, resourceAttrs.Len())
 	resourceAttrs.Range(func(key string, value pcommon.Value) bool {
-		name := labels.MetadataPrefix + "otel_res_attr_" + key
+		name := labels.MetalabelPrefix + "otel_res_attr_" + key
 		metadataLabels = append(metadataLabels, prompb.Label{Name: name, Value: value.AsString()})
 		return true
 	})
