@@ -13,5 +13,7 @@
 
 package labels
 
-// MetadataPrefix is the prefix for metadata labels.
-const MetadataPrefix = `^__metalabel__`
+const MetalabelRegex = `^__metalabel__`
+
+// MetalabelPrefix is the prefix for metadata labels.
+const MetalabelPrefix = `__metalabel__`

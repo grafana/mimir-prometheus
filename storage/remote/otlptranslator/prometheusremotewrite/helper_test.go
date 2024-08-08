@@ -68,27 +68,27 @@ func TestCreateAttributes(t *testing.T) {
 					Value: "metric value",
 				},
 				{
-					Name:  "___metalabel__otel_res_attr_metric_attr",
+					Name:  "__metalabel__otel_res_attr_metric_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metalabel__otel_res_attr_instance",
+					Name:  "__metalabel__otel_res_attr_instance",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metalabel__otel_res_attr_service_instance_id",
+					Name:  "__metalabel__otel_res_attr_service_instance_id",
 					Value: "service ID",
 				},
 				{
-					Name:  "___metalabel__otel_res_attr_service_name",
+					Name:  "__metalabel__otel_res_attr_service_name",
 					Value: "service name",
 				},
 				{
-					Name:  "___metalabel__otel_res_attr_existent_attr",
+					Name:  "__metalabel__otel_res_attr_existent_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metalabel__otel_res_attr_job",
+					Name:  "__metalabel__otel_res_attr_job",
 					Value: "resource value",
 				},
 			},
