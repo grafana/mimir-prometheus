@@ -126,7 +126,6 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	disableTrimming := false
 	sharded := hints != nil && hints.ShardCount > 0
 
-	// TODO(jesus.vazquez) When we have the metadata store, we need to intersect postings results with it
 	var p index.Postings
 	var err error
 	metaMatchers, normalMatchers := seperateMetaMatchers(ms)
