@@ -68,27 +68,27 @@ func TestCreateAttributes(t *testing.T) {
 					Value: "metric value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_metric_attr",
+					Name:  "___metalabel__otel_res_attr_metric_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_instance",
+					Name:  "___metalabel__otel_res_attr_instance",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_service_instance_id",
+					Name:  "___metalabel__otel_res_attr_service_instance_id",
 					Value: "service ID",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_service_name",
+					Name:  "___metalabel__otel_res_attr_service_name",
 					Value: "service name",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_existent_attr",
+					Name:  "___metalabel__otel_res_attr_existent_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_job",
+					Name:  "___metalabel__otel_res_attr_job",
 					Value: "resource value",
 				},
 			},
@@ -118,27 +118,27 @@ func TestCreateAttributes(t *testing.T) {
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_metric_attr",
+					Name:  "___metalabel__otel_res_attr_metric_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_instance",
+					Name:  "___metalabel__otel_res_attr_instance",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_service_instance_id",
+					Name:  "___metalabel__otel_res_attr_service_instance_id",
 					Value: "service ID",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_service_name",
+					Name:  "___metalabel__otel_res_attr_service_name",
 					Value: "service name",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_existent_attr",
+					Name:  "___metalabel__otel_res_attr_existent_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_job",
+					Name:  "___metalabel__otel_res_attr_job",
 					Value: "resource value",
 				},
 			},
@@ -168,27 +168,27 @@ func TestCreateAttributes(t *testing.T) {
 					Value: "metric value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_metric_attr",
+					Name:  "___metalabel__otel_res_attr_metric_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_instance",
+					Name:  "___metalabel__otel_res_attr_instance",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_service_instance_id",
+					Name:  "___metalabel__otel_res_attr_service_instance_id",
 					Value: "service ID",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_service_name",
+					Name:  "___metalabel__otel_res_attr_service_name",
 					Value: "service name",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_existent_attr",
+					Name:  "___metalabel__otel_res_attr_existent_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_job",
+					Name:  "___metalabel__otel_res_attr_job",
 					Value: "resource value",
 				},
 			},
@@ -218,27 +218,27 @@ func TestCreateAttributes(t *testing.T) {
 					Value: "metric value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_metric_attr",
+					Name:  "___metalabel__otel_res_attr_metric_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_instance",
+					Name:  "___metalabel__otel_res_attr_instance",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_service_instance_id",
+					Name:  "___metalabel__otel_res_attr_service_instance_id",
 					Value: "service ID",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_service_name",
+					Name:  "___metalabel__otel_res_attr_service_name",
 					Value: "service name",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_existent_attr",
+					Name:  "___metalabel__otel_res_attr_existent_attr",
 					Value: "resource value",
 				},
 				{
-					Name:  "___metadata__otel_res_attr_job",
+					Name:  "___metalabel__otel_res_attr_job",
 					Value: "resource value",
 				},
 			},

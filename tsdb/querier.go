@@ -133,8 +133,6 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	// Get metadata refs separately
 	// Call a functions to link meta refs to series refs
 	// use that matching to return the series set later
-	context.WithValue(ctx, metaMatchersID, true)
-
 	p, err = q.index.PostingsForMatchers(ctx, sharded, normalMatchers...)
 	if err != nil {
 		return storage.ErrSeriesSet(err)
@@ -731,7 +729,7 @@ func (b *blockBaseSeriesSet) Next() bool {
 			lbls := b.builder.Labels()
 			b.builder.Reset()
 			for _, l := range lbls {
-				if strings.HasPrefix(l.Name, "__metadata") && !b.metaInfo.metaNames[l.Name] {
+				if strings.HasPrefix(l.Name, "__metalabel__") && !b.metaInfo.metaNames[l.Name] {
 					continue
 				}
 				b.builder.Add(l.Name, l.Value)

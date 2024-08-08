@@ -714,14 +714,14 @@ func TestRemoteWriteWithNewMetadata(t *testing.T) {
 
 	handler := NewWriteHandler(log.NewNopLogger(), nil, db.Head(), []config.RemoteWriteProtoMsg{config.RemoteWriteProtoMsgV1})
 
-	// The same time series, but the __metadata__node__ip label changes for the second sample.
+	// The same time series, but the __metalabel__node__ip label changes for the second sample.
 	ts := []prompb.TimeSeries{
 		{
 			Labels: []prompb.Label{
 				{Name: "__name__", Value: "http_requests_total"},
 				{Name: "job", Value: "foo"},
-				{Name: "__metadata__foo__service", Value: "foo"},
-				{Name: "__metadata__node__ip", Value: "192.168.1.1"},
+				{Name: "__metalabel__foo__service", Value: "foo"},
+				{Name: "__metalabel__node__ip", Value: "192.168.1.1"},
 			},
 			Samples: []prompb.Sample{{Value: 0, Timestamp: 0}},
 		},
@@ -729,8 +729,8 @@ func TestRemoteWriteWithNewMetadata(t *testing.T) {
 			Labels: []prompb.Label{
 				{Name: "__name__", Value: "http_requests_total"},
 				{Name: "job", Value: "foo"},
-				{Name: "__metadata__foo__service", Value: "foo"},
-				{Name: "__metadata__node__ip", Value: "192.168.1.2"},
+				{Name: "__metalabel__foo__service", Value: "foo"},
+				{Name: "__metalabel__node__ip", Value: "192.168.1.2"},
 			},
 			Samples: []prompb.Sample{{Value: 1, Timestamp: 1}},
 		},
