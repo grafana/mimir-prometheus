@@ -156,7 +156,6 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 			return storage.ErrSeriesSet(err)
 		}
 
-		// TODO: merge metaPostings with p to get pairs of (metadata, series).
 		seriesMetaPairs, err := hmir.Merge(p, metaPostings)
 		if err != nil {
 			return storage.ErrSeriesSet(err)
@@ -167,7 +166,6 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 			seriesPostings = append(seriesPostings, pair[0])
 		}
 		p = index.NewListPostings(seriesPostings)
-		// TODO: when getting the series, look at the pairs and add the labels
 
 		metaInfo = &seriesSetMetaInfo{
 			seriesMetaMapping: seriesMetaPairs,
