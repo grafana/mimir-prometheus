@@ -147,23 +147,34 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	}
 
 	hir, ok := q.index.(*headIndexReader)
+	var metaInfo *seriesSetMetaInfo
 	if len(metaMatchers) > 0 && ok {
-		ix := &headMetaIndexReader{hir.head}
-		metaPostings, err := PostingsForMatchers(ctx, ix, metaMatchers...)
+		hmir := &headMetaIndexReader{hir.head}
+		metaPostings, err := PostingsForMatchers(ctx, hmir, metaMatchers...)
 		if err != nil {
 			return storage.ErrSeriesSet(err)
 		}
 
 		// TODO: merge metaPostings with p to get pairs of (metadata, series).
-		seriesMetaPairs, err := ix.Merge(p, metaPostings)
+		seriesMetaPairs, err := hmir.Merge(p, metaPostings)
 		if err != nil {
 			return storage.ErrSeriesSet(err)
 		}
 
-		_ = seriesMetaPairs
-		// TODO: take the merged thing from ix.Merge (which will include tuples of seriesRef and metaRef).
-		// And then use that to return appropriate series. Will probably need to write another newBlockSeriesSet
-		// with some updated parts.
+		var seriesPostings []storage.SeriesRef
+		for _, pair := range seriesMetaPairs {
+			seriesPostings = append(seriesPostings, pair[0])
+		}
+		p = index.NewListPostings(seriesPostings)
+		// TODO: when getting the series, look at the pairs and add the labels
+
+		metaInfo = &seriesSetMetaInfo{
+			seriesMetaMapping: seriesMetaPairs,
+			hmir:              hmir,
+		}
+		for _, m := range metaMatchers {
+			metaInfo.labelNames = append(metaInfo.labelNames, m.Name)
+		}
 	}
 
 	if hints != nil {
@@ -172,11 +183,11 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		disableTrimming = hints.DisableTrimming
 		if hints.Func == "series" {
 			// When you're only looking up metadata (for example series API), you don't need to load any chunks.
-			return newBlockSeriesSet(q.index, newNopChunkReader(), q.tombstones, p, mint, maxt, disableTrimming)
+			return newBlockSeriesSet(q.index, newNopChunkReader(), q.tombstones, p, mint, maxt, disableTrimming, metaInfo)
 		}
 	}
 
-	return newBlockSeriesSet(q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming)
+	return newBlockSeriesSet(q.index, q.chunks, q.tombstones, p, mint, maxt, disableTrimming, metaInfo)
 }
 
 // blockChunkQuerier provides chunk querying access to a single block database.
@@ -629,10 +640,21 @@ type blockBaseSeriesSet struct {
 	bufChks []chunks.Meta
 	builder labels.ScratchBuilder
 	err     error
+
+	seriesMetaMappingIdx int
+	metaInfo             *seriesSetMetaInfo
+}
+
+type seriesSetMetaInfo struct {
+	seriesMetaMapping [][2]storage.SeriesRef
+	hmir              *headMetaIndexReader
+	labelNames        []string
 }
 
 func (b *blockBaseSeriesSet) Next() bool {
 	for b.p.Next() {
+		metaIdx := b.seriesMetaMappingIdx
+		b.seriesMetaMappingIdx++
 		if err := b.index.Series(b.p.At(), &b.builder, &b.bufChks); err != nil {
 			// Postings may be stale. Skip if no underlying series exists.
 			if errors.Is(err, storage.ErrNotFound) {
@@ -704,6 +726,11 @@ func (b *blockBaseSeriesSet) Next() bool {
 			intervals = intervals.Add(tombstones.Interval{Mint: b.maxt + 1, Maxt: math.MaxInt64})
 		}
 
+		if b.metaInfo != nil {
+			fmt.Println("seriesMetaMapping", len(b.metaInfo.seriesMetaMapping), metaIdx)
+			_ = b.metaInfo.hmir.Series(b.metaInfo.seriesMetaMapping[metaIdx][1], &b.builder, nil)
+			b.builder.Sort()
+		}
 		b.curr.labels = b.builder.Labels()
 		b.curr.chks = chks
 		b.curr.intervals = intervals
@@ -1204,7 +1231,7 @@ type blockSeriesSet struct {
 	blockBaseSeriesSet
 }
 
-func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p index.Postings, mint, maxt int64, disableTrimming bool) storage.SeriesSet {
+func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p index.Postings, mint, maxt int64, disableTrimming bool, metaInfo *seriesSetMetaInfo) storage.SeriesSet {
 	return &blockSeriesSet{
 		blockBaseSeriesSet{
 			index:           i,
@@ -1214,6 +1241,7 @@ func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p inde
 			mint:            mint,
 			maxt:            maxt,
 			disableTrimming: disableTrimming,
+			metaInfo:        metaInfo,
 		},
 	}
 }

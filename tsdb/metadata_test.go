@@ -11,11 +11,6 @@ import (
 )
 
 func TestDBAppenderSeriesWithMetadata(t *testing.T) {
-	db := openTestDB(t, nil, nil)
-	defer func() {
-		require.NoError(t, db.Close())
-	}()
-
 	// TODO(jesusvazquez) Add a test to make sure metadata changes between timestamps.
 	ctx := context.Background()
 	testCases := []struct {
@@ -56,13 +51,16 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 			result: map[string][]chunks.Sample{
 				labels.FromStrings(
 					"__name__", "http_requests_total",
+					"__metadata__foo__service", "foo",
 					"__metadata__node__ip", "192.168.1.1",
 					"job", "foo",
 				).String(): {
 					sample{t: 0, f: 0},
+					sample{t: 2, f: 2},
 				},
 				labels.FromStrings(
 					"__name__", "http_requests_dropped_total",
+					"__metadata__foo__service", "foo",
 					"__metadata__node__ip", "192.168.1.1",
 					"job", "foo",
 				).String(): {
@@ -74,6 +72,10 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			db := openTestDB(t, nil, nil)
+			t.Cleanup(func() {
+				require.NoError(t, db.Close())
+			})
 			app1 := db.Appender(ctx)
 
 			// Add a sample with metadata.
