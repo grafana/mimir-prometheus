@@ -280,6 +280,21 @@ func (h *Head) putSeriesBuffer(b []*memSeries) {
 	h.seriesPool.Put(b[:0])
 }
 
+// func (h *Head) getSeriesMetaLabelBuffer() []*memSeries {
+// 	b := h.seriesMetaLabelPool.Get()
+// 	if b == nil {
+// 		return make([]*memSeries, 0, 512)
+// 	}
+// 	return b
+// }
+
+func (h *Head) putSeriesMetaLabelBuffer(b []*memSeries) {
+	for i := range b { // Zero out to avoid retaining data.
+		b[i] = nil
+	}
+	h.seriesMetaLabelPool.Put(b[:0])
+}
+
 func (h *Head) getBytesBuffer() []byte {
 	b := h.bytesPool.Get()
 	if b == nil {
@@ -307,7 +322,7 @@ type headAppender struct {
 	series                []record.RefSeries // New series held by this appender.
 	metaLabelSeries       []record.RefSeries
 	samples               []record.RefSample               // New float samples held by this appender.
-	metaLabelSamples      []record.RefSample               // Newmeta label samples held by this appender.
+	metaLabelSamples      []record.RefMetaSample           // Newmeta label samples held by this appender.
 	sampleSeries          []*memSeries                     // Float series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
 	sampleMetaLabelSeries []*memSeries                     // Meta label series corresponding to the samples held by this appender (using corresponding slice indices - same series may appear more than once).
 	histograms            []record.RefHistogramSample      // New histogram samples held by this appender.
@@ -346,7 +361,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	// TODO(jesus.vazquez) Should we extend Append to also have the series ref to the metalabel series? That would optimize this a bit.
 	var m *memSeries
 	var err error
-	if metaLabels.Len() > 0 { // We only need to crerate a metalabels series if there are metalabels in the sample.
+	if metaLabels.Len() > 0 { // We only need to create a metalabels series if there are metalabels in the sample.
 		m, err = a.getOrCreateMetaLabels(metaLabels)
 		if err != nil {
 			return 0, fmt.Errorf("error creating metalabels series: %w", err)
@@ -398,11 +413,11 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 	a.sampleSeries = append(a.sampleSeries, s)
 
 	// Metalabels
-	if metaLabels.Len() > 0 {
-		a.metaLabelSamples = append(a.metaLabelSamples, record.RefSample{
-			Ref: m.ref,
-			T:   t,
-			V:   0.0,
+	if m != nil {
+		a.metaLabelSamples = append(a.metaLabelSamples, record.RefMetaSample{
+			SeriesRef: s.ref,
+			MetasRef:  m.ref,
+			T:         t,
 		})
 		a.sampleMetaLabelSeries = append(a.sampleMetaLabelSeries, m)
 	}
@@ -879,6 +894,7 @@ func (a *headAppender) Commit() (err error) {
 	defer a.head.metrics.activeAppenders.Dec()
 	defer a.head.putAppendBuffer(a.samples)
 	defer a.head.putSeriesBuffer(a.sampleSeries)
+	defer a.head.putSeriesMetaLabelBuffer(a.sampleMetaLabelSeries)
 	defer a.head.putExemplarBuffer(a.exemplars)
 	defer a.head.putHistogramBuffer(a.histograms)
 	defer a.head.putFloatHistogramBuffer(a.floatHistograms)
@@ -888,6 +904,7 @@ func (a *headAppender) Commit() (err error) {
 	var (
 		floatsAppended     = len(a.samples)
 		histogramsAppended = len(a.histograms) + len(a.floatHistograms)
+		metaLabelsAppended = len(a.metaLabelSamples)
 		// number of samples out of order but accepted: with ooo enabled and within time window
 		floatOOOAccepted int
 		// number of samples rejected due to: out of order but OOO support disabled.
@@ -1051,6 +1068,48 @@ func (a *headAppender) Commit() (err error) {
 		series.Unlock()
 	}
 
+	for i, s := range a.metaLabelSamples {
+		series = a.sampleMetaLabelSeries[i]
+		series.Lock()
+		if s.T < inOrderMint {
+			inOrderMint = s.T
+		}
+		if s.T > inOrderMaxt {
+			inOrderMaxt = s.T
+		}
+		// Update the maps linking series to metalabels and vice versa.
+		if _, ok := a.head.metaToSeries[s.MetasRef]; !ok {
+			a.head.metaToSeries[s.MetasRef] = make(map[chunks.HeadSeriesRef]struct{})
+		}
+		a.head.metaToSeries[s.MetasRef][s.SeriesRef] = struct{}{}
+
+		if _, ok := a.head.seriesToMeta[s.SeriesRef]; !ok {
+			a.head.seriesToMeta[s.SeriesRef] = make(map[chunks.HeadSeriesRef][]metaWithTime)
+		}
+
+		// TODO: this assumes that the metadata ref remains the same for a metadata. Meant only for the prototype.
+		// TODO: handle conflicting metadata for a time range. Not in the scope of this prototype.
+		times := a.head.seriesToMeta[s.SeriesRef][s.MetasRef]
+		if len(times) != 0 {
+			lastIndex := len(times) - 1
+			last := times[lastIndex]
+			if last.mint > s.T {
+				a.head.seriesToMeta[s.SeriesRef][s.MetasRef][lastIndex].mint = s.T
+			}
+			if last.maxt < s.T {
+				a.head.seriesToMeta[s.SeriesRef][s.MetasRef][lastIndex].maxt = s.T
+			}
+		} else {
+			a.head.seriesToMeta[s.SeriesRef][s.MetasRef] = []metaWithTime{{metaRef: s.MetasRef, mint: s.T, maxt: s.T}}
+		}
+
+		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.pendingCommit = false
+
+		// Unlock the series here after all operations are done.
+		series.Unlock()
+	}
+
 	for i, s := range a.histograms {
 		series = a.histogramSeries[i]
 		series.Lock()
@@ -1113,6 +1172,7 @@ func (a *headAppender) Commit() (err error) {
 	a.head.metrics.outOfBoundSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatOOBRejected))
 	a.head.metrics.tooOldSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatTooOldRejected))
 	a.head.metrics.samplesAppended.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatsAppended))
+	a.head.metrics.metaLabelSamplesAppended.WithLabelValues(sampleMetricTypeFloat).Add(float64(metaLabelsAppended))
 	a.head.metrics.samplesAppended.WithLabelValues(sampleMetricTypeHistogram).Add(float64(histogramsAppended))
 	a.head.metrics.outOfOrderSamplesAppended.WithLabelValues(sampleMetricTypeFloat).Add(float64(floatOOOAccepted))
 	a.head.updateMinMaxTime(inOrderMint, inOrderMaxt)

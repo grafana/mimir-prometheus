@@ -105,6 +105,7 @@ type Head struct {
 	floatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]
 	metadataPool        zeropool.Pool[[]record.RefMetadata]
 	seriesPool          zeropool.Pool[[]*memSeries]
+	seriesMetaLabelPool zeropool.Pool[[]*memSeries]
 	bytesPool           zeropool.Pool[[]byte]
 	memChunkPool        sync.Pool
 
@@ -112,6 +113,16 @@ type Head struct {
 	series *stripeSeries
 	// All metaLabelSeries addressable by their ID or hash
 	metaLabelSeries *metaLabelSeries
+
+	// Mapping from series ID to different metas with each meta having instances sorted by time.
+	// It is possible that there are some overlaps because of out of order samples and they are not handled
+	// in the prototype.
+	seriesToMeta map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef][]metaWithTime
+	// Mapping from meta label ID to series ID.
+	// Depending on the use cases and benchmarks, we might want to make it into a map of ref->[]ref.
+	// It is a map of map for easy checking of duplicates during ingestion. If we decide to make it ref->[]ref,
+	// we might have to keep the []ref slice sorted for a binary search.
+	metaToSeries map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{}
 
 	deletedMtx sync.Mutex
 	deleted    map[chunks.HeadSeriesRef]int // Deleted series, and what WAL segment they must be kept until.
@@ -149,6 +160,11 @@ type Head struct {
 	memTruncationInProcess atomic.Bool
 
 	secondaryHashFunc func(labels.Labels) uint32
+}
+
+type metaWithTime struct {
+	metaRef    chunks.HeadSeriesRef
+	mint, maxt int64
 }
 
 type ExemplarStorage interface {
@@ -315,6 +331,8 @@ func NewHead(r prometheus.Registerer, l log.Logger, wal, wbl *wlog.WL, opts *Hea
 		reg:               r,
 		secondaryHashFunc: shf,
 		pfmc:              NewPostingsForMatchersCache(opts.PostingsForMatchersCacheTTL, opts.PostingsForMatchersCacheMaxItems, opts.PostingsForMatchersCacheMaxBytes, opts.PostingsForMatchersCacheForce),
+		metaToSeries:      make(map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef]struct{}),
+		seriesToMeta:      make(map[chunks.HeadSeriesRef]map[chunks.HeadSeriesRef][]metaWithTime),
 	}
 	if err := h.resetInMemoryState(); err != nil {
 		return nil, err
@@ -397,12 +415,13 @@ type headMetrics struct {
 	seriesCreated             prometheus.Counter
 	seriesRemoved             prometheus.Counter
 	seriesNotFound            prometheus.Counter
-	metaLabelsSeriesCreated   prometheus.Counter
+	metaLabelSeriesCreated    prometheus.Counter
 	chunks                    prometheus.Gauge
 	chunksCreated             prometheus.Counter
 	chunksRemoved             prometheus.Counter
 	gcDuration                prometheus.Summary
 	samplesAppended           *prometheus.CounterVec
+	metaLabelSamplesAppended  *prometheus.CounterVec
 	outOfOrderSamplesAppended *prometheus.CounterVec
 	outOfBoundSamples         *prometheus.CounterVec
 	outOfOrderSamples         *prometheus.CounterVec
@@ -451,9 +470,9 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_head_series_not_found_total",
 			Help: "Total number of requests for series that were not found.",
 		}),
-		metaLabelsSeriesCreated: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "prometheus_tsdb_head_metalabels_series_created_total",
-			Help: "Total number of metalabels series created in the head",
+		metaLabelSeriesCreated: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_metalabel_series_created_total",
+			Help: "Total number of metalabel series created in the head",
 		}),
 		chunks: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "prometheus_tsdb_head_chunks",
@@ -486,6 +505,10 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 		samplesAppended: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_samples_appended_total",
 			Help: "Total number of appended samples.",
+		}, []string{"type"}),
+		metaLabelSamplesAppended: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_metalabel_samples_appended_total",
+			Help: "Total number of appended metalabel samples.",
 		}, []string{"type"}),
 		outOfOrderSamplesAppended: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_out_of_order_samples_appended_total",
@@ -567,12 +590,13 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.seriesCreated,
 			m.seriesRemoved,
 			m.seriesNotFound,
-			m.metaLabelsSeriesCreated,
+			m.metaLabelSeriesCreated,
 			m.gcDuration,
 			m.walTruncateDuration,
 			m.walCorruptionsTotal,
 			m.dataTotalReplayDuration,
 			m.samplesAppended,
+			m.metaLabelSamplesAppended,
 			m.outOfOrderSamplesAppended,
 			m.outOfBoundSamples,
 			m.outOfOrderSamples,
@@ -1830,7 +1854,7 @@ func (h *Head) getOrCreateMetaLabelsWithID(id chunks.HeadSeriesRef, hash uint64,
 		return m, false, nil
 	}
 
-	h.metrics.metaLabelsSeriesCreated.Inc()
+	h.metrics.metaLabelSeriesCreated.Inc()
 	h.numMetaLabelSeries.Inc()
 
 	h.metaLabelsPostings.Add(storage.SeriesRef(id), lset)
