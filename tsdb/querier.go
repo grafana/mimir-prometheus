@@ -116,6 +116,10 @@ func NewBlockQuerier(b BlockReader, mint, maxt int64) (storage.Querier, error) {
 	return &blockQuerier{blockBaseQuerier: q}, nil
 }
 
+const (
+	metaMatchersID = "metaMatchers"
+)
+
 func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, ms ...*labels.Matcher) storage.SeriesSet {
 	mint := q.mint
 	maxt := q.maxt
@@ -129,7 +133,7 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 	// Get metadata refs separately
 	// Call a functions to link meta refs to series refs
 	// use that matching to return the series set later
-	context.WithValue(ctx, "metaMatchers", true)
+	context.WithValue(ctx, metaMatchers, true)
 
 	p, err = q.index.PostingsForMatchers(ctx, sharded, normalMatchers...)
 	if err != nil {

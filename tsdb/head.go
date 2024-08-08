@@ -2329,12 +2329,6 @@ type memSeries struct {
 	txs *txRing
 }
 
-type metaSeries struct {
-	memSeries
-	// [mints[i], maxts[i]] for each i are the time ranges when this metadata was active.
-	mints, maxts []int64
-}
-
 // memSeriesOOOFields contains the fields required by memSeries
 // to handle out-of-order data.
 type memSeriesOOOFields struct {
