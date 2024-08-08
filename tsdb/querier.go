@@ -649,6 +649,7 @@ func (b *blockBaseSeriesSet) Next() bool {
 	for b.p.Next() {
 		metaIdx := b.seriesMetaMappingIdx
 		b.seriesMetaMappingIdx++
+		b.builder.Reset()
 		if err := b.index.Series(b.p.At(), &b.builder, &b.bufChks); err != nil {
 			// Postings may be stale. Skip if no underlying series exists.
 			if errors.Is(err, storage.ErrNotFound) {
@@ -724,12 +725,12 @@ func (b *blockBaseSeriesSet) Next() bool {
 			_ = b.metaInfo.hmir.Series(b.metaInfo.seriesMetaMapping[metaIdx][1], &b.builder, nil)
 			lbls := b.builder.Labels()
 			b.builder.Reset()
-			for _, l := range lbls {
+			lbls.Range(func(l labels.Label) {
 				if strings.HasPrefix(l.Name, "__metalabel__") && !b.metaInfo.metaNames[l.Name] {
-					continue
+					return
 				}
 				b.builder.Add(l.Name, l.Value)
-			}
+			})
 			b.builder.Sort()
 		}
 		b.curr.labels = b.builder.Labels()
