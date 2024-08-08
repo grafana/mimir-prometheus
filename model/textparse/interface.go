@@ -51,6 +51,9 @@ type Parser interface {
 	// The returned byte slices become invalid after the next call to Next.
 	Unit() ([]byte, []byte)
 
+	// IdentifyingLabels returns the identifying labels for info metrics
+	IdentifyingLabels() []string
+
 	// Comment returns the text of the current comment.
 	// Must only be called after Next returned a comment entry.
 	// The returned byte slice becomes invalid after the next call to Next.

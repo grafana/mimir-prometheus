@@ -11,7 +11,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:generate go get -u modernc.org/golex
+//go:generate go install -u modernc.org/golex@latest
 //go:generate golex -o=openmetricslex.l.go openmetricslex.l
 
 package textparse
@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -89,11 +90,12 @@ type OpenMetricsParser struct {
 	// of the label name and value start and end characters.
 	offsets []int
 
-	eOffsets      []int
-	exemplar      []byte
-	exemplarVal   float64
-	exemplarTs    int64
-	hasExemplarTs bool
+	identifyingLabels []string
+	eOffsets          []int
+	exemplar          []byte
+	exemplarVal       float64
+	exemplarTs        int64
+	hasExemplarTs     bool
 }
 
 // NewOpenMetricsParser returns a new parser of the byte slice.
@@ -139,6 +141,10 @@ func (p *OpenMetricsParser) Help() ([]byte, []byte) {
 // The returned byte slices become invalid after the next call to Next.
 func (p *OpenMetricsParser) Type() ([]byte, model.MetricType) {
 	return p.l.b[p.offsets[0]:p.offsets[1]], p.mtype
+}
+
+func (p *OpenMetricsParser) IdentifyingLabels() []string {
+	return p.identifyingLabels
 }
 
 // Unit returns the metric name and unit in the current entry.
@@ -246,6 +252,7 @@ func (p *OpenMetricsParser) Next() (Entry, error) {
 
 	p.start = p.l.i
 	p.offsets = p.offsets[:0]
+	p.identifyingLabels = p.identifyingLabels[:0]
 	p.eOffsets = p.eOffsets[:0]
 	p.exemplar = p.exemplar[:0]
 	p.exemplarVal = 0
@@ -275,10 +282,19 @@ func (p *OpenMetricsParser) Next() (Entry, error) {
 		switch t2 := p.nextToken(); t2 {
 		case tText:
 			if len(p.l.buf()) > 1 {
-				p.text = p.l.buf()[1 : len(p.l.buf())-1]
+				p.text = p.l.buf()[1:len(p.l.buf())]
 			} else {
 				p.text = []byte{}
 			}
+			t3 := p.nextToken()
+			if t == tType && t3 == tParentOpen {
+				if p.identifyingLabels, err = p.parseIdentifierLabels(); err != nil {
+					return EntryInvalid, err
+				}
+			} else if t3 != tLinebreak {
+				return EntryInvalid, p.parseError("expected linebreak get", t3)
+			}
+
 		default:
 			return EntryInvalid, fmt.Errorf("expected text in %s", t.String())
 		}
@@ -304,6 +320,7 @@ func (p *OpenMetricsParser) Next() (Entry, error) {
 			default:
 				return EntryInvalid, fmt.Errorf("invalid metric type %q", s)
 			}
+
 		case tHelp:
 			if !utf8.Valid(p.text) {
 				return EntryInvalid, fmt.Errorf("help text %q is not a valid utf8 string", p.text)
@@ -401,6 +418,46 @@ func (p *OpenMetricsParser) parseComment() error {
 		return p.parseError("expected timestamp or comment", t2)
 	}
 	return nil
+}
+
+func (p *OpenMetricsParser) parseIdentifierLabels() ([]string, error) {
+	res := p.identifyingLabels
+	t := p.nextToken()
+	// for the case when there is an empty ()
+	if t == tParentClose {
+		if l := p.nextToken(); l != tLinebreak {
+			return nil, p.parseError("expected linebreak after )", l)
+		}
+		return nil, nil
+	}
+
+	for {
+		curTStart := p.l.start
+		curTI := p.l.i
+
+		switch t {
+		case tLName:
+			res = append(res, string(p.l.b[curTStart:curTI]))
+		default:
+			return nil, p.parseError("expected label or )", t)
+		}
+
+		t := p.nextToken()
+		switch t {
+		case tComma:
+			p.nextToken()
+			continue
+		case tParentClose:
+			if l := p.nextToken(); l != tLinebreak {
+				return nil, p.parseError("expected linebreak after )", l)
+			}
+			// sort before returning labels
+			sort.Strings(res)
+			return res, nil
+		default:
+			return nil, p.parseError("expected comma or )", t)
+		}
+	}
 }
 
 func (p *OpenMetricsParser) parseLVals(offsets []int, isExemplar bool) ([]int, error) {

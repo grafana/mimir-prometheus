@@ -68,6 +68,8 @@ foo_total 17.0 1520879607.789 # {id="counter-test"} 5`
 
 	input += "\n# HELP metric foo\x00bar"
 	input += "\nnull_byte_metric{a=\"abc\x00\"} 1"
+	input += "\n# TYPE ii info(a,b)"
+	input += "\nii{a=\"foo\",b=\"bar\",c=\"far\"} 1"
 	input += "\n# EOF\n"
 
 	int64p := func(x int64) *int64 { return &x }
@@ -232,6 +234,14 @@ foo_total 17.0 1520879607.789 # {id="counter-test"} 5`
 			m:    "null_byte_metric{a=\"abc\x00\"}",
 			v:    1,
 			lset: labels.FromStrings("__name__", "null_byte_metric", "a", "abc\x00"),
+		}, {
+			m:        "ii",
+			typ:      model.MetricTypeInfo,
+			identlbs: []string{"a", "b"},
+		}, {
+			m:    "ii{a=\"foo\",b=\"bar\",c=\"far\"}",
+			v:    1,
+			lset: labels.FromStrings("__name__", "ii", "a", "foo", "b", "bar", "c", "far"),
 		},
 	}
 

@@ -58,6 +58,8 @@ const (
 	tBlank
 	tMName
 	tQString
+	tParentOpen
+	tParentClose
 	tBraceOpen
 	tBraceClose
 	tLName
@@ -66,6 +68,7 @@ const (
 	tEqual
 	tTimestamp
 	tValue
+	tIdens
 )
 
 func (t token) String() string {
@@ -171,6 +174,10 @@ func NewPromParser(b []byte, st *labels.SymbolTable) Parser {
 		l:       &promlexer{b: append(b, '\n')},
 		builder: labels.NewScratchBuilderWithSymbolTable(st, 16),
 	}
+}
+
+func (p *PromParser) IdentifyingLabels() []string {
+	return nil
 }
 
 // Series returns the bytes of the series, the timestamp if set, and the value

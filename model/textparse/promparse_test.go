@@ -32,15 +32,16 @@ import (
 )
 
 type expectedParse struct {
-	lset    labels.Labels
-	m       string
-	t       *int64
-	v       float64
-	typ     model.MetricType
-	help    string
-	unit    string
-	comment string
-	e       *exemplar.Exemplar
+	lset     labels.Labels
+	m        string
+	t        *int64
+	v        float64
+	typ      model.MetricType
+	help     string
+	unit     string
+	comment  string
+	e        *exemplar.Exemplar
+	identlbs []string
 }
 
 func TestPromParse(t *testing.T) {
@@ -223,6 +224,7 @@ func checkParseResults(t *testing.T, p Parser, exp []expectedParse) {
 			m, typ := p.Type()
 			require.Equal(t, exp[i].m, string(m))
 			require.Equal(t, exp[i].typ, typ)
+			require.Equal(t, exp[i].identlbs, p.IdentifyingLabels())
 
 		case EntryHelp:
 			m, h := p.Help()
