@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/oklog/ulid"
 
@@ -171,9 +172,10 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		metaInfo = &seriesSetMetaInfo{
 			seriesMetaMapping: seriesMetaPairs,
 			hmir:              hmir,
+			metaNames:         make(map[string]bool),
 		}
 		for _, m := range metaMatchers {
-			metaInfo.labelNames = append(metaInfo.labelNames, m.Name)
+			metaInfo.metaNames[m.Name] = true
 		}
 	}
 
@@ -648,7 +650,7 @@ type blockBaseSeriesSet struct {
 type seriesSetMetaInfo struct {
 	seriesMetaMapping [][2]storage.SeriesRef
 	hmir              *headMetaIndexReader
-	labelNames        []string
+	metaNames         map[string]bool
 }
 
 func (b *blockBaseSeriesSet) Next() bool {
@@ -727,8 +729,15 @@ func (b *blockBaseSeriesSet) Next() bool {
 		}
 
 		if b.metaInfo != nil {
-			fmt.Println("seriesMetaMapping", len(b.metaInfo.seriesMetaMapping), metaIdx)
 			_ = b.metaInfo.hmir.Series(b.metaInfo.seriesMetaMapping[metaIdx][1], &b.builder, nil)
+			lbls := b.builder.Labels()
+			b.builder.Reset()
+			for _, l := range lbls {
+				if strings.HasPrefix(l.Name, "__metadata") && !b.metaInfo.metaNames[l.Name] {
+					continue
+				}
+				b.builder.Add(l.Name, l.Value)
+			}
 			b.builder.Sort()
 		}
 		b.curr.labels = b.builder.Labels()

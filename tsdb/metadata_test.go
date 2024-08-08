@@ -51,7 +51,6 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 			result: map[string][]chunks.Sample{
 				labels.FromStrings(
 					"__name__", "http_requests_total",
-					"__metadata__foo__service", "foo",
 					"__metadata__node__ip", "192.168.1.1",
 					"job", "foo",
 				).String(): {
@@ -60,7 +59,6 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 				},
 				labels.FromStrings(
 					"__name__", "http_requests_dropped_total",
-					"__metadata__foo__service", "foo",
 					"__metadata__node__ip", "192.168.1.1",
 					"job", "foo",
 				).String(): {
