@@ -42,8 +42,7 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 			},
 		},
 		{
-			// TODO(jesusvazquez) Add a test to verify that the metadata is stored in the metadata store.
-			name: "query metadata labels, should return all series matching the metadata",
+			name: "query metadata labels, should return all series matching the metadata and the queried metalabels",
 			lbsStrings: [][]string{
 				{"__name__", "http_requests_total", "job", "foo", "__metadata__foo__service", "foo", "__metadata__node__ip", "192.168.1.1"},
 				{"__name__", "http_requests_dropped_total", "job", "foo", "__metadata__foo__service", "foo", "__metadata__node__ip", "192.168.1.1"},
@@ -57,12 +56,14 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 			result: map[string][]chunks.Sample{
 				labels.FromStrings(
 					"__name__", "http_requests_total",
+					"__metadata__node__ip", "192.168.1.1",
 					"job", "foo",
 				).String(): {
 					sample{t: 0, f: 0},
 				},
 				labels.FromStrings(
 					"__name__", "http_requests_dropped_total",
+					"__metadata__node__ip", "192.168.1.1",
 					"job", "foo",
 				).String(): {
 					sample{t: 1, f: 1},
