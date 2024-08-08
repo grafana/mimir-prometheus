@@ -42,7 +42,7 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 					sample{t: 1, f: 1},
 				},
 			},
-			activate: false,
+			activate: true,
 		},
 		{
 			// TODO(jesusvazquez) Add a test to verify that the metadata is stored in the metadata store.
@@ -71,7 +71,7 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 					sample{t: 0, f: 0},
 				},
 			},
-			activate: false,
+			activate: true,
 		},
 	}
 

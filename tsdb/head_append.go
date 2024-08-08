@@ -1106,6 +1106,9 @@ func (a *headAppender) Commit() (err error) {
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
 		series.pendingCommit = false
+
+		// Unlock the series here after all operations are done.
+		series.Unlock()
 	}
 
 	for i, s := range a.histograms {
