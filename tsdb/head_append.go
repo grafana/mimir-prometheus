@@ -1071,7 +1071,6 @@ func (a *headAppender) Commit() (err error) {
 	for i, s := range a.metaLabelSamples {
 		series = a.sampleMetaLabelSeries[i]
 		series.Lock()
-		// TODO(jesus.vazquez) I think we need separate chunkdiskmapper for metalabels with separate opts such as dir
 		if s.T < inOrderMint {
 			inOrderMint = s.T
 		}

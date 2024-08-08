@@ -31,7 +31,6 @@ func TestDBAppenderSeriesWithMetadata(t *testing.T) {
 				{"__name__", "http_requests_total", "job", "foo", "__metadata__foo__service", "foo", "__metadata__node__ip", "192.168.1.2"},
 			},
 			lbsMatchers: []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "__name__", "http_requests_total")},
-			// TODO(jesusvazquez) There should be a single series http_requests_total{job="ingester"} with two samples since the metadata does not form part of the series.
 			result: map[string][]chunks.Sample{
 				labels.FromStrings(
 					"__name__", "http_requests_total",
