@@ -295,11 +295,19 @@ func (h *headMetaIndexReader) PostingsForMatchers(ctx context.Context, concurren
 }
 
 func (h *headMetaIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
+	s := h.head.metaLabelSeries.getByID(chunks.HeadSeriesRef(ref))
+	if s == nil {
+		h.head.metrics.seriesNotFound.Inc()
+		return storage.ErrNotFound
+	}
+	for _, ss := range s.labels() {
+		builder.Add(ss.Name, ss.Value)
+	}
 	return nil
 }
 
-func (h *headMetaIndexReader) Merge(seriesP, metaP index.Postings) ([][2]chunks.HeadSeriesRef, error) {
-	var seriesMetaPairs [][2]chunks.HeadSeriesRef
+func (h *headMetaIndexReader) Merge(seriesP, metaP index.Postings) ([][2]storage.SeriesRef, error) {
+	var seriesMetaPairs [][2]storage.SeriesRef
 	var metaPostings []chunks.HeadSeriesRef
 	for metaP.Next() {
 		metaPostings = append(metaPostings, chunks.HeadSeriesRef(metaP.At()))
@@ -314,7 +322,7 @@ func (h *headMetaIndexReader) Merge(seriesP, metaP index.Postings) ([][2]chunks.
 		for _, mp := range metaPostings {
 			if len(h.head.seriesToMeta[chunks.HeadSeriesRef(seriesRef)][mp]) > 0 {
 				// TODO: link seriesRef with mp and return the updated thing.
-				seriesMetaPairs = append(seriesMetaPairs, [2]chunks.HeadSeriesRef{chunks.HeadSeriesRef(seriesRef), mp})
+				seriesMetaPairs = append(seriesMetaPairs, [2]storage.SeriesRef{seriesRef, storage.SeriesRef(mp)})
 			}
 		}
 	}
