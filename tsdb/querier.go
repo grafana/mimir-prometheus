@@ -150,14 +150,14 @@ func (q *blockQuerier) Select(ctx context.Context, sortSeries bool, hints *stora
 		if err != nil {
 			return storage.ErrSeriesSet(err)
 		}
-		_ = metaPostings
 
-		// TODO: merge metaPostings with p to match the series with metadata.
-		err = ix.Merge(p, metaPostings)
+		// TODO: merge metaPostings with p to get pairs of (metadata, series).
+		seriesMetaPairs, err := ix.Merge(p, metaPostings)
 		if err != nil {
 			return storage.ErrSeriesSet(err)
 		}
 
+		_ = seriesMetaPairs
 		// TODO: take the merged thing from ix.Merge (which will include tuples of seriesRef and metaRef).
 		// And then use that to return appropriate series. Will probably need to write another newBlockSeriesSet
 		// with some updated parts.

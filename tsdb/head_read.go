@@ -298,24 +298,27 @@ func (h *headMetaIndexReader) Series(ref storage.SeriesRef, builder *labels.Scra
 	return nil
 }
 
-func (h *headMetaIndexReader) Merge(seriesP, metaP index.Postings) error {
+func (h *headMetaIndexReader) Merge(seriesP, metaP index.Postings) ([][2]chunks.HeadSeriesRef, error) {
+	var seriesMetaPairs [][2]chunks.HeadSeriesRef
 	var metaPostings []chunks.HeadSeriesRef
 	for metaP.Next() {
 		metaPostings = append(metaPostings, chunks.HeadSeriesRef(metaP.At()))
 	}
 	if err := metaP.Err(); err != nil {
-		return err
+		return seriesMetaPairs, err
 	}
 
+	// here get the latest pushed metadata for the series, return that as pair of series and metadata
 	for seriesP.Next() {
 		seriesRef := seriesP.At()
 		for _, mp := range metaPostings {
 			if len(h.head.seriesToMeta[chunks.HeadSeriesRef(seriesRef)][mp]) > 0 {
 				// TODO: link seriesRef with mp and return the updated thing.
+				seriesMetaPairs = append(seriesMetaPairs, [2]chunks.HeadSeriesRef{chunks.HeadSeriesRef(seriesRef), mp})
 			}
 		}
 	}
-	return seriesP.Err()
+	return seriesMetaPairs, seriesP.Err()
 }
 
 // headChunkID returns the HeadChunkID referred to by the given position.
