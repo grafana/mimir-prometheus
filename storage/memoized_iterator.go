@@ -75,10 +75,12 @@ func (b *MemoizedSeriesIterator) PeekPrev() (t int64, v float64, fh *histogram.F
 func (b *MemoizedSeriesIterator) Seek(t int64) chunkenc.ValueType {
 	t0 := t - b.delta
 
+	prevReset := false
 	if b.valueType != chunkenc.ValNone && t0 > b.lastTime {
 		// Reset the previously stored element because the seek advanced
 		// more than the delta.
 		b.prevTime = math.MinInt64
+		prevReset = true
 
 		b.valueType = b.it.Seek(t0)
 		switch b.valueType {
@@ -94,6 +96,12 @@ func (b *MemoizedSeriesIterator) Seek(t int64) chunkenc.ValueType {
 	}
 	for b.Next() != chunkenc.ValNone {
 		if b.lastTime >= t {
+			if prevReset {
+				// Depending on the underlying iterator, the prevTime may or may not get overridden with Next()
+				// call because sometimes b.lastTime >= t above is true and the Next() call is not made.
+				// So we do not rely on the underlying iterator to be deterministic and keep the state of prevTime.
+				b.prevTime = math.MinInt64
+			}
 			return b.valueType
 		}
 	}
