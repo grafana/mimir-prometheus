@@ -71,7 +71,8 @@ func TestPrometheusConverter_addGaugeNumberDataPoints(t *testing.T) {
 				metric.Gauge().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric: true,
+					ExportCreatedMetric:                 true,
+					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
 			)
@@ -171,6 +172,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
 							{Value: 1, Timestamp: convertTimeStamp(ts)},
 						},
 					},
@@ -249,7 +251,8 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				pcommon.NewResource(),
 				metric,
 				Settings{
-					ExportCreatedMetric: true,
+					ExportCreatedMetric:                 true,
+					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
 			)

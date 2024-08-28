@@ -220,12 +220,14 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
@@ -284,7 +286,8 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				metric.Summary().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric: true,
+					ExportCreatedMetric:                 true,
+					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
 			)
@@ -330,12 +333,14 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 					timeSeriesSignature(infLabels): {
 						Labels: infLabels,
 						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
@@ -395,7 +400,8 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 				metric.Histogram().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric: true,
+					ExportCreatedMetric:                 true,
+					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
 			)
