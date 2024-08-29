@@ -186,6 +186,8 @@ func (h *histogramIterator) AtFloatHistogram(_ *histogram.FloatHistogram) (int64
 	return 0, h.histograms[h.i].ToFloat(nil)
 }
 
+func (h *histogramIterator) AtInfoSample() (int64, []int) { panic("not implemented") }
+
 func (h *histogramIterator) AtT() int64 { return 0 }
 
 func (h *histogramIterator) Err() error { return nil }

@@ -46,7 +46,7 @@ func (o *OOOChunk) Insert(t int64, v float64, h *histogram.Histogram, fh *histog
 	// try to append at the end first if the new timestamp is higher than the
 	// last known timestamp.
 	if len(o.samples) == 0 || t > o.samples[len(o.samples)-1].t {
-		o.samples = append(o.samples, sample{t, v, h, fh})
+		o.samples = append(o.samples, sample{t, v, nil, nil, nil})
 		return true
 	}
 
@@ -55,7 +55,7 @@ func (o *OOOChunk) Insert(t int64, v float64, h *histogram.Histogram, fh *histog
 
 	if i >= len(o.samples) {
 		// none found. append it at the end
-		o.samples = append(o.samples, sample{t, v, h, fh})
+		o.samples = append(o.samples, sample{t, v, nil, nil, nil})
 		return true
 	}
 
@@ -67,7 +67,7 @@ func (o *OOOChunk) Insert(t int64, v float64, h *histogram.Histogram, fh *histog
 	// Expand length by 1 to make room. use a zero sample, we will overwrite it anyway.
 	o.samples = append(o.samples, sample{})
 	copy(o.samples[i+1:], o.samples[i:])
-	o.samples[i] = sample{t, v, h, fh}
+	o.samples[i] = sample{t, v, nil, nil, nil}
 
 	return true
 }

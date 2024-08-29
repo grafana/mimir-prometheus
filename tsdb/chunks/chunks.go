@@ -182,6 +182,8 @@ func ChunkFromSamplesGeneric(s Samples) (Meta, error) {
 			if newChunk != nil {
 				return emptyChunk, fmt.Errorf("did not expect to start a second chunk")
 			}
+		case chunkenc.ValInfoSample:
+			ca.AppendInfoSample(s.Get(i).T(), s.Get(i).IdentifyingLabels())
 		default:
 			panic(fmt.Sprintf("unknown sample type %s", sampleType.String()))
 		}
@@ -213,6 +215,9 @@ func ChunkMetasToSamples(chunks []Meta) (result []Sample) {
 			case chunkenc.ValFloatHistogram:
 				t, fh := it.AtFloatHistogram(nil)
 				result = append(result, sample{t: t, fh: fh})
+			case chunkenc.ValInfoSample:
+				t, ils := it.AtInfoSample()
+				result = append(result, sample{t: t, ils: ils})
 			default:
 				panic("unexpected value type")
 			}

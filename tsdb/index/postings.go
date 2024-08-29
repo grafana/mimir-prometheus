@@ -54,16 +54,18 @@ var ensureOrderBatchPool = sync.Pool{
 // EnsureOrder() must be called once before any reads are done. This allows for quick
 // unordered batch fills on startup.
 type MemPostings struct {
-	mtx     sync.RWMutex
-	m       map[string]map[string][]storage.SeriesRef
-	ordered bool
+	mtx         sync.RWMutex
+	m           map[string]map[string][]storage.SeriesRef
+	ordered     bool
+	infoMetrics map[storage.SeriesRef][]labels.Labels
 }
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
 func NewMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, 512),
-		ordered: true,
+		m:           make(map[string]map[string][]storage.SeriesRef, 512),
+		ordered:     true,
+		infoMetrics: make(map[storage.SeriesRef][]labels.Labels, 512),
 	}
 }
 
@@ -71,8 +73,9 @@ func NewMemPostings() *MemPostings {
 // until EnsureOrder() was called once.
 func NewUnorderedMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, 512),
-		ordered: false,
+		m:           make(map[string]map[string][]storage.SeriesRef, 512),
+		ordered:     false,
+		infoMetrics: make(map[storage.SeriesRef][]labels.Labels, 512),
 	}
 }
 
@@ -218,7 +221,13 @@ func (p *MemPostings) Get(name, value string) Postings {
 	p.mtx.RUnlock()
 
 	if lp == nil {
+		if name == "__name__" && value == "target_info" {
+			fmt.Printf("did not find postings for label %s=%s\n", name, value)
+		}
 		return EmptyPostings()
+	}
+	if name == "__name__" && value == "target_info" {
+		fmt.Printf("found postings for label %s=%s: %#v\n", name, value, lp)
 	}
 	return newListPostings(lp...)
 }
@@ -345,6 +354,46 @@ func (p *MemPostings) Add(id storage.SeriesRef, lset labels.Labels) {
 	p.mtx.Unlock()
 }
 
+// AddInfoMetric adds an info metric to the info metric index.
+func (p *MemPostings) AddInfoMetric(id storage.SeriesRef, lset labels.Labels, t int64, identifyingLabels []int) {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	ilsB := labels.NewScratchBuilder(len(identifyingLabels))
+	dlsB := labels.NewScratchBuilder(lset.Len() - len(identifyingLabels))
+	i := 0
+	j := 0
+	lset.Range(func(l labels.Label) {
+		switch {
+		case l.Name == labels.MetricName:
+			// Ignore.
+		case j >= len(identifyingLabels):
+			// There are no more identifying labels => data label.
+			dlsB.Add(l.Name, l.Value)
+		case i == identifyingLabels[j]:
+			j++
+			ilsB.Add(l.Name, l.Value)
+		default:
+			dlsB.Add(l.Name, l.Value)
+		}
+
+		i++
+	})
+
+	ils := ilsB.Labels()
+	found := false
+	for _, e := range p.infoMetrics[id] {
+		if labels.Equal(e, ils) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		fmt.Printf("Adding new info metric entry for series %d, t: %d, identifying labels: %#v\n", id, t, ilsB)
+		p.infoMetrics[id] = append(p.infoMetrics[id], ils)
+	}
+}
+
 func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 	nm, ok := p.m[l.Name]
 	if !ok {
@@ -367,6 +416,111 @@ func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 		}
 		list[i], list[i-1] = list[i-1], list[i]
 	}
+}
+
+func (p *MemPostings) InfoMetricDataLabels(ctx context.Context, lbls labels.Labels, t int64, dataLabels func(storage.SeriesRef) (labels.Labels, int64, string, error), matchers ...*labels.Matcher) (labels.Labels, error) {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+
+	var infoMetrics map[storage.SeriesRef][]labels.Labels
+	if len(matchers) == 0 {
+		// Consider all info metrics.
+		infoMetrics = p.infoMetrics
+		fmt.Printf("MemPostings: not filtering info metrics\n")
+	} else {
+		// Pick only info metrics that have matching (potential data) labels.
+		infoMetrics = map[storage.SeriesRef][]labels.Labels{}
+		for _, m := range matchers {
+			for v, srs := range p.m[m.Name] {
+				if !m.Matches(v) {
+					continue
+				}
+
+				for _, sr := range srs {
+					idls := p.infoMetrics[sr]
+					if len(idls) > 0 {
+						infoMetrics[sr] = idls
+					}
+				}
+			}
+		}
+	}
+	if len(infoMetrics) == 0 {
+		fmt.Printf("MemPostings: there are no info metrics\n")
+		return labels.Labels{}, nil
+	}
+
+	lblMap := lbls.Map()
+	infoMetricEntries := map[string]infoMetricEntry{}
+	// Find info metrics which may have matching identifying labels at t.
+	for sr, e := range infoMetrics {
+		var isMatch bool
+		for _, idls := range e {
+			// Check whether this identifying label set is a match.
+			isMatch = true
+			idls.Range(func(il labels.Label) {
+				if !isMatch {
+					return
+				}
+
+				matchVal, ok := lblMap[il.Name]
+				if !ok || matchVal != il.Value {
+					isMatch = false
+					fmt.Printf("MemPostings: This entry doesn't have matching identifying labels: %s = %s\n", il.Name, il.Value)
+				}
+			})
+			if isMatch {
+				// This identifying label set is a match, so we can use the info metric.
+				break
+			}
+		}
+		if !isMatch {
+			// Entry doesn't have corresponding identifying labels.
+			continue
+		}
+
+		// At least one of the info metric's identifying label sets matches, try to add its data labels.
+		fmt.Printf("MemPostings: This info metric matches\n")
+		dls, st, name, err := dataLabels(sr)
+		if err != nil {
+			return labels.Labels{}, err
+		}
+
+		// TODO: Filter data labels via matchers.
+
+		ie, exists := infoMetricEntries[name]
+		if exists && ie.t >= st {
+			// Existing one is up to date.
+			continue
+		}
+
+		infoMetricEntries[name] = infoMetricEntry{
+			t:          st,
+			dataLabels: dls,
+		}
+	}
+
+	dls := map[string]string{}
+	for _, ie := range infoMetricEntries {
+		ie.dataLabels.Range(func(l labels.Label) {
+			if _, exists := dls[l.Name]; !exists {
+				dls[l.Name] = l.Value
+			}
+		})
+	}
+	dlb := labels.NewScratchBuilder(len(dls))
+	for n, v := range dls {
+		dlb.Add(n, v)
+	}
+	return dlb.Labels(), nil
+}
+
+// infoMetricEntry represents an info metric's data labels at a certain timestamp.
+// This is used to discern between conflicting versions of the same info metric name,
+// e.g. target_info, where we choose based on timestamp.
+type infoMetricEntry struct {
+	t          int64
+	dataLabels labels.Labels
 }
 
 func (p *MemPostings) PostingsForLabelMatching(ctx context.Context, name string, match func(string) bool) Postings {

@@ -123,6 +123,8 @@ message Sample {
   // For Go, see github.com/prometheus/prometheus/model/timestamp/timestamp.go
   // for conversion from/to time.Time to Prometheus timestamp.
   int64 timestamp = 2;
+  // The set of identifying labels for info metrics, as array indices.
+  repeated int32 identifyingLabels = 3;
 }
 
 // Metadata represents the metadata associated with the given series' samples.
