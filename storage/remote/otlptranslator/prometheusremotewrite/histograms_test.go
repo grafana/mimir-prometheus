@@ -23,11 +23,12 @@ import (
 	"time"
 
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/prometheus/prompb"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
+
+	"github.com/prometheus/prometheus/prompb"
 
 	prometheustranslator "github.com/prometheus/prometheus/storage/remote/otlptranslator/prometheus"
 )
@@ -567,13 +568,14 @@ func TestExponentialToNativeHistogram(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			validateExponentialHistogramCount(t, tt.exponentialHist()) // Sanity check.
-			got, err := exponentialToNativeHistogram(tt.exponentialHist())
+			got, annots, err := exponentialToNativeHistogram(tt.exponentialHist())
 			if tt.wantErrMessage != "" {
 				assert.ErrorContains(t, err, tt.wantErrMessage)
 				return
 			}
 
 			require.NoError(t, err)
+			require.Empty(t, annots)
 			assert.Equal(t, tt.wantNativeHist(), got)
 			validateNativeHistogramCount(t, got)
 		})
@@ -753,7 +755,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 			metric := tt.metric()
 
 			converter := NewPrometheusConverter()
-			err := converter.addExponentialHistogramDataPoints(
+			annots, err := converter.addExponentialHistogramDataPoints(
 				context.Background(),
 				metric.ExponentialHistogram().DataPoints(),
 				pcommon.NewResource(),
@@ -763,6 +765,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				prometheustranslator.BuildCompliantName(metric, "", true),
 			)
 			require.NoError(t, err)
+			require.Empty(t, annots)
 
 			assert.Equal(t, tt.wantSeries(), converter.unique)
 			assert.Empty(t, converter.conflicts)
