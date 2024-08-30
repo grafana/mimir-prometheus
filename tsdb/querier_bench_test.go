@@ -264,65 +264,80 @@ func BenchmarkMergedStringIter(b *testing.B) {
 	b.ReportAllocs()
 }
 
-func BenchmarkQuerierSelect(b *testing.B) {
-	opts := DefaultHeadOptions()
-	opts.ChunkRange = 1000
-	opts.ChunkDirRoot = b.TempDir()
-	h, err := NewHead(nil, nil, nil, nil, opts, nil)
+func createHeadForBenchmarkSelect(b *testing.B, numSeries int, addSeries func(app storage.Appender, i int)) (*Head, *DB) {
+	dir := b.TempDir()
+	opts := DefaultOptions()
+	opts.OutOfOrderCapMax = 255
+	opts.OutOfOrderTimeWindow = 1000
+	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(b, err)
-	defer h.Close()
+	b.Cleanup(func() {
+		require.NoError(b, db.Close())
+	})
+	h := db.Head()
+
 	app := h.Appender(context.Background())
-	numSeries := 1000000
 	for i := 0; i < numSeries; i++ {
-		app.Append(0, labels.FromStrings("foo", "bar", "i", fmt.Sprintf("%d%s", i, postingsBenchSuffix)), int64(i), 0)
+		addSeries(app, i)
 	}
 	require.NoError(b, app.Commit())
+	return h, db
+}
 
-	bench := func(b *testing.B, br BlockReader, sorted, sharding bool) {
-		matcher := labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")
-		for s := 1; s <= numSeries; s *= 10 {
-			b.Run(fmt.Sprintf("%dof%d", s, numSeries), func(b *testing.B) {
-				mint := int64(0)
-				maxt := int64(s - 1)
-				q, err := NewBlockQuerier(br, mint, maxt)
-				require.NoError(b, err)
+func benchmarkSelect(b *testing.B, queryable storage.Queryable, numSeries int, sorted, sharding bool) {
+	matcher := labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")
+	b.ResetTimer()
+	for s := 1; s <= numSeries; s *= 10 {
+		b.Run(fmt.Sprintf("%dof%d", s, numSeries), func(b *testing.B) {
+			mint := int64(0)
+			maxt := int64(s - 1)
+			q, err := queryable.Querier(0, int64(s-1))
+			require.NoError(b, err)
 
-				b.ResetTimer()
-				for i := 0; i < b.N; i++ {
-					var hints *storage.SelectHints
-					if sharding {
-						hints = &storage.SelectHints{
-							Start:      mint,
-							End:        maxt,
-							ShardIndex: uint64(i % 16),
-							ShardCount: 16,
-						}
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				var hints *storage.SelectHints
+				if sharding {
+					hints = &storage.SelectHints{
+						Start:      mint,
+						End:        maxt,
+						ShardIndex: uint64(i % 16),
+						ShardCount: 16,
 					}
-
-					ss := q.Select(context.Background(), sorted, hints, matcher)
-					for ss.Next() {
-					}
-					require.NoError(b, ss.Err())
 				}
-				q.Close()
-			})
-		}
+				ss := q.Select(context.Background(), sorted, hints, matcher)
+				for ss.Next() {
+				}
+				require.NoError(b, ss.Err())
+			}
+			q.Close()
+		})
 	}
+}
+
+func BenchmarkQuerierSelect(b *testing.B) {
+	numSeries := 1000000
+	h, db := createHeadForBenchmarkSelect(b, numSeries, func(app storage.Appender, i int) {
+		_, err := app.Append(0, labels.FromStrings("foo", "bar", "i", fmt.Sprintf("%d%s", i, postingsBenchSuffix)), int64(i), 0)
+		if err != nil {
+			b.Fatal(err)
+		}
+	})
 
 	b.Run("Head", func(b *testing.B) {
 		b.Run("without sharding", func(b *testing.B) {
-			bench(b, h, false, false)
+			benchmarkSelect(b, db, numSeries, false, false)
 		})
 		b.Run("with sharding", func(b *testing.B) {
-			bench(b, h, false, true)
+			benchmarkSelect(b, db, numSeries, false, true)
 		})
 	})
 	b.Run("SortedHead", func(b *testing.B) {
 		b.Run("without sharding", func(b *testing.B) {
-			bench(b, h, true, false)
+			benchmarkSelect(b, db, numSeries, true, false)
 		})
 		b.Run("with sharding", func(b *testing.B) {
-			bench(b, h, true, true)
+			benchmarkSelect(b, db, numSeries, true, true)
 		})
 	})
 
@@ -338,10 +353,36 @@ func BenchmarkQuerierSelect(b *testing.B) {
 
 	b.Run("Block", func(b *testing.B) {
 		b.Run("without sharding", func(b *testing.B) {
-			bench(b, block, false, false)
+			benchmarkSelect(b, (*queryableBlock)(block), numSeries, false, false)
 		})
 		b.Run("with sharding", func(b *testing.B) {
-			bench(b, block, false, true)
+			benchmarkSelect(b, (*queryableBlock)(block), numSeries, false, true)
 		})
+	})
+}
+
+// Type wrapper to let a Block be a Queryable in benchmarkSelect().
+type queryableBlock Block
+
+func (pb *queryableBlock) Querier(mint, maxt int64) (storage.Querier, error) {
+	return NewBlockQuerier((*Block)(pb), mint, maxt)
+}
+
+func BenchmarkQuerierSelectWithOutOfOrder(b *testing.B) {
+	numSeries := 1000000
+	_, db := createHeadForBenchmarkSelect(b, numSeries, func(app storage.Appender, i int) {
+		l := labels.FromStrings("foo", "bar", "i", fmt.Sprintf("%d%s", i, postingsBenchSuffix))
+		ref, err := app.Append(0, l, int64(i+1), 0)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, err = app.Append(ref, l, int64(i), 1) // Out of order sample
+		if err != nil {
+			b.Fatal(err)
+		}
+	})
+
+	b.Run("Head", func(b *testing.B) {
+		benchmarkSelect(b, db, numSeries, false, false)
 	})
 }

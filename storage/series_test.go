@@ -105,7 +105,7 @@ func TestNewListChunkSeriesFromSamples(t *testing.T) {
 	require.Len(t, chks, count, "should have one chunk per group of samples")
 }
 
-// TestSeriesSetToChunkSet test the property of SeriesSet that says
+// TestChunkSeriesSetToSeriesSet test the property of SeriesSet that says
 // returned series should be iterable even after Next is called.
 func TestChunkSeriesSetToSeriesSet(t *testing.T) {
 	series := []struct {

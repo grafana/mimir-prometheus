@@ -249,3 +249,19 @@ In the event of multiple consecutive Head compactions being possible, only the f
 Note that during this delay, the Head continues its usual operations, which include serving and appending series.
 
 Despite the delay in compaction, the blocks produced are time-aligned in the same manner as they would be if the delay was not in place.
+
+## Delay __name__ label removal for PromQL engine
+
+`--enable-feature=promql-delayed-name-removal`
+
+When enabled, Prometheus will change the way in which the `__name__` label is removed from PromQL query results (for functions and expressions for which this is necessary). Specifically, it will delay the removal to the last step of the query evaluation, instead of every time an expression or function creating derived metrics is evaluated.
+
+This allows optionally preserving the `__name__` label via the `label_replace` and `label_join` functions, and helps prevent the "vector cannot contain metrics with the same labelset" error, which can happen when applying a regex-matcher to the `__name__` label.
+
+## UTF-8 Name Support
+
+`--enable-feature=utf8-names`
+
+When enabled, changes the metric and label name validation scheme inside Prometheus to allow the full UTF-8 character set.
+By itself, this flag does not enable the request of UTF-8 names via content negotiation.
+Users will also have to set `metric_name_validation_scheme` in scrape configs to enable the feature either on the global config or on a per-scrape config basis.
