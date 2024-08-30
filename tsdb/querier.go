@@ -124,7 +124,6 @@ func selectSeriesSet(ctx context.Context, sortSeries bool, hints *storage.Select
 	disableTrimming := false
 	sharded := hints != nil && hints.ShardCount > 0
 	p, err := index.PostingsForMatchers(ctx, sharded, ms...)
-	// p, err := PostingsForMatchers(ctx, index, ms...)
 	if err != nil {
 		return storage.ErrSeriesSet(err)
 	}
@@ -178,7 +177,6 @@ func selectChunkSeriesSet(ctx context.Context, sortSeries bool, hints *storage.S
 		disableTrimming = hints.DisableTrimming
 	}
 	p, err := index.PostingsForMatchers(ctx, sharded, ms...)
-	// p, err := PostingsForMatchers(ctx, index, ms...)
 	if err != nil {
 		return storage.ErrChunkSeriesSet(err)
 	}
