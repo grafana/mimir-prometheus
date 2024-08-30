@@ -111,7 +111,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 							default:
 							}
 							<-release
-							return nil, fmt.Errorf(matchersString(ms))
+							return nil, fmt.Errorf("%s", matchersString(ms))
 						}, &timeNowMock{}, forced)
 
 						results := make([]error, len(calls))
