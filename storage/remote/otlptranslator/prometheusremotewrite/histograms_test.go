@@ -767,6 +767,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 			)
 			require.NoError(t, err)
 			require.Empty(t, annots)
+
 			assert.Equal(t, tt.wantSeries(), converter.unique)
 			assert.Empty(t, converter.conflicts)
 		})
