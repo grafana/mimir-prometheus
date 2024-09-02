@@ -505,8 +505,8 @@ func (h *otlpWriteHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	converter := otlptranslator.NewPrometheusConverter()
 	if err := converter.FromMetrics(r.Context(), req.Metrics(), otlptranslator.Settings{
-		AddMetricSuffixes:         true,
-		PromoteResourceAttributes: otlpCfg.PromoteResourceAttributes,
+		AddMetricSuffixes:                   true,
+		PromoteResourceAttributes:           otlpCfg.PromoteResourceAttributes,
 		EnableCreatedTimestampZeroIngestion: h.enableCTZeroIngestion,
 	}); err != nil {
 		level.Warn(h.logger).Log("msg", "Error translating OTLP metrics to Prometheus write request", "err", err)

@@ -244,7 +244,7 @@ type Options struct {
 	Version               *PrometheusVersion
 	Flags                 map[string]string
 
-	ListenAddresses                     []string
+	ListenAddress                       string
 	CORSOrigin                          *regexp.Regexp
 	ReadTimeout                         time.Duration
 	MaxConnections                      int
