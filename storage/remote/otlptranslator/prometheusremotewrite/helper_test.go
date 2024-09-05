@@ -188,22 +188,25 @@ func Test_convertTimeStamp(t *testing.T) {
 }
 
 func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
-	ts := pcommon.Timestamp(time.Now().UnixNano())
+	now := time.Now()
+	nowUnixNano := pcommon.Timestamp(now.UnixNano())
+	nowMinus20s := pcommon.Timestamp(now.Add(-20 * time.Second).UnixNano())
+	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
 	tests := []struct {
 		name   string
 		metric func() pmetric.Metric
 		want   func() map[uint64]*prompb.TimeSeries
 	}{
 		{
-			name: "summary with start time",
+			name: "summary with start time equal to sample timestamp",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_summary")
 				metric.SetEmptySummary()
 
 				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(ts)
-				dp.SetStartTimestamp(ts)
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowUnixNano)
 
 				return metric
 			},
@@ -221,21 +224,111 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 					timeSeriesSignature(createdLabels): {
 						Labels: createdLabels,
 						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(ts)), Timestamp: convertTimeStamp(ts)},
+							{Value: float64(convertTimeStamp(nowUnixNano)), Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "summary with start time within two minutes to sample timestamp",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_summary")
+				metric.SetEmptySummary()
+
+				dp := metric.Summary().DataPoints().AppendEmpty()
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowMinus20s)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
+				}
+				createdLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
+				}
+				sumLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowMinus20s)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(sumLabels): {
+						Labels: sumLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowMinus20s)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(createdLabels): {
+						Labels: createdLabels,
+						Samples: []prompb.Sample{
+							{Value: float64(convertTimeStamp(nowMinus20s)), Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "summary with start time older than two minutes to sample timestamp",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_summary")
+				metric.SetEmptySummary()
+
+				dp := metric.Summary().DataPoints().AppendEmpty()
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowMinus1h)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
+				}
+				createdLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
+				}
+				sumLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(sumLabels): {
+						Labels: sumLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(createdLabels): {
+						Labels: createdLabels,
+						Samples: []prompb.Sample{
+							{Value: float64(convertTimeStamp(nowMinus1h)), Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -249,7 +342,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				metric.SetEmptySummary()
 
 				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(ts)
+				dp.SetTimestamp(nowUnixNano)
 
 				return metric
 			},
@@ -264,13 +357,13 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -334,14 +427,12 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 					timeSeriesSignature(infLabels): {
 						Labels: infLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts) - 1},
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
