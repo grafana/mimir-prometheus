@@ -568,14 +568,13 @@ func TestExponentialToNativeHistogram(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			validateExponentialHistogramCount(t, tt.exponentialHist()) // Sanity check.
-			got, annots, err := exponentialToNativeHistogram(tt.exponentialHist())
+			got, err := exponentialToNativeHistogram(tt.exponentialHist())
 			if tt.wantErrMessage != "" {
 				assert.ErrorContains(t, err, tt.wantErrMessage)
 				return
 			}
 
 			require.NoError(t, err)
-			require.Empty(t, annots)
 			assert.Equal(t, tt.wantNativeHist(), got)
 			validateNativeHistogramCount(t, got)
 		})
@@ -755,7 +754,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 			metric := tt.metric()
 
 			converter := NewPrometheusConverter()
-			annots, err := converter.addExponentialHistogramDataPoints(
+			err := converter.addExponentialHistogramDataPoints(
 				context.Background(),
 				metric.ExponentialHistogram().DataPoints(),
 				pcommon.NewResource(),
@@ -766,7 +765,6 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				prometheustranslator.BuildCompliantName(metric, "", true),
 			)
 			require.NoError(t, err)
-			require.Empty(t, annots)
 
 			assert.Equal(t, tt.wantSeries(), converter.unique)
 			assert.Empty(t, converter.conflicts)
