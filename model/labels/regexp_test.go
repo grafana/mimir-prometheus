@@ -880,12 +880,16 @@ func TestAnalyzeRealQueries(t *testing.T) {
 
 		// Sorted list of timestamps when the queries have been received.
 		queryStartTimes []time.Time
+
+		// List of all queries execution wall times.
+		wallTimes []time.Duration
 	}
 
-	labelValueRE := regexp.MustCompile(`=~(?:\\"|')([^"']*)(?:\\"|')`)
+	labelValueRE := regexp.MustCompile(`[=!]~(?:\\"|')([^"']*)(?:\\"|')`)
 	tsRE := regexp.MustCompile(`ts=([^ ]+)`)
 	shardedQueriesRE := regexp.MustCompile(`sharded_queries=(\d+)`)
 	splitQueriesRE := regexp.MustCompile(`split_queries=(\d+)`)
+	wallTimeSecondsRE := regexp.MustCompile(`query_wall_time_seconds=([0-9.]+)`)
 
 	labelValues := make(map[string]*labelValueInfo)
 
@@ -909,8 +913,10 @@ func TestAnalyzeRealQueries(t *testing.T) {
 		tsRaw := tsRE.FindStringSubmatch(line)
 		shardedQueriesRaw := shardedQueriesRE.FindStringSubmatch(line)
 		splitQueriesRaw := splitQueriesRE.FindStringSubmatch(line)
+		wallTimeSecondsRaw := wallTimeSecondsRE.FindStringSubmatch(line)
 		shardedQueries := 0
 		splitQueries := 0
+		wallTimeSeconds := 0.
 		var ts time.Time
 
 		if len(tsRaw) > 0 {
@@ -921,6 +927,9 @@ func TestAnalyzeRealQueries(t *testing.T) {
 		}
 		if len(splitQueriesRaw) > 0 {
 			splitQueries, _ = strconv.Atoi(splitQueriesRaw[1])
+		}
+		if len(wallTimeSecondsRaw) > 0 {
+			wallTimeSeconds, _ = strconv.ParseFloat(wallTimeSecondsRaw[1], 64)
 		}
 
 		numQueries++
@@ -938,6 +947,10 @@ func TestAnalyzeRealQueries(t *testing.T) {
 
 			if !ts.IsZero() {
 				info.queryStartTimes = append(info.queryStartTimes, ts)
+			}
+
+			if wallTimeSeconds > 0 {
+				info.wallTimes = append(info.wallTimes, time.Duration(wallTimeSeconds*float64(time.Second)))
 			}
 		}
 	}
@@ -993,8 +1006,14 @@ func TestAnalyzeRealQueries(t *testing.T) {
 			avgQueryStartTimeDiff time.Duration
 			sumQueryStartTime     time.Duration
 			countQueryStartTime   int
+
+			minWallTime time.Duration
+			maxWallTime time.Duration
+			avgWallTime time.Duration
+			sumWallTime time.Duration
 		)
 
+		// Compute min/max/avg query start times diff.
 		for i := 1; i < len(info.queryStartTimes); i++ {
 			diff := info.queryStartTimes[i].Sub(info.queryStartTimes[i-1])
 
@@ -1013,9 +1032,27 @@ func TestAnalyzeRealQueries(t *testing.T) {
 			avgQueryStartTimeDiff = sumQueryStartTime / time.Duration(countQueryStartTime)
 		}
 
-		t.Logf("num queries: %d\t num split queries: %d\t num sharded queries: %d\t optimized: %t\t parsing time: %.0fms\t min/avg/max query start time diff (sec): %.2f/%.2f/%.2f regexp: %s",
+		// Compute min/max/avg query execution time.
+		for i := 0; i < len(info.wallTimes); i++ {
+			sumWallTime += info.wallTimes[i]
+
+			if minWallTime == 0 || info.wallTimes[i] < minWallTime {
+				minWallTime = info.wallTimes[i]
+			}
+			if info.wallTimes[i] > maxWallTime {
+				maxWallTime = info.wallTimes[i]
+			}
+		}
+
+		if len(info.wallTimes) > 0 {
+			avgWallTime = sumWallTime / time.Duration(len(info.wallTimes))
+		}
+
+		t.Logf("num queries: %d\t num split queries: %d\t num sharded queries: %d\t optimized: %t\t parsing time: %.0fms\t min/avg/max query start time diff (sec): %.2f/%.2f/%.2f min/avg/max query wall time (sec): %.2f/%.2f/%.2f regexp: %s",
 			info.numMatchingQueries, info.numSplitQueries, info.numShardedQueries, info.optimized, info.averageParsingTimeMillis,
-			minQueryStartTimeDiff.Seconds(), avgQueryStartTimeDiff.Seconds(), maxQueryStartTimeDiff.Seconds(), labelValue)
+			minQueryStartTimeDiff.Seconds(), avgQueryStartTimeDiff.Seconds(), maxQueryStartTimeDiff.Seconds(),
+			minWallTime.Seconds(), avgWallTime.Seconds(), maxWallTime.Seconds(),
+			labelValue)
 	}
 }
 
