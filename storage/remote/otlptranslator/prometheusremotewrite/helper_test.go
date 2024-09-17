@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-kit/log"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -384,6 +385,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
+				log.NewNopLogger(),
 			)
 
 			assert.Equal(t, tt.want(), converter.unique)
@@ -496,6 +498,7 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
+				log.NewNopLogger(),
 			)
 
 			assert.Equal(t, tt.want(), converter.unique)
