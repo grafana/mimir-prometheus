@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/go-kit/log"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -36,7 +37,7 @@ func TestFromMetrics(t *testing.T) {
 		cancel()
 		payload := createExportRequest(5, 128, 128, 2, 0)
 
-		err := converter.FromMetrics(ctx, payload.Metrics(), Settings{})
+		err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, log.NewNopLogger())
 		require.ErrorIs(t, err, context.Canceled)
 	})
 
@@ -47,8 +48,35 @@ func TestFromMetrics(t *testing.T) {
 		t.Cleanup(cancel)
 		payload := createExportRequest(5, 128, 128, 2, 0)
 
-		err := converter.FromMetrics(ctx, payload.Metrics(), Settings{})
+		err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, log.NewNopLogger())
 		require.ErrorIs(t, err, context.DeadlineExceeded)
+	})
+
+	t.Run("exponential histogram warnings for zero count and non-zero sum", func(t *testing.T) {
+		request := pmetricotlp.NewExportRequest()
+		rm := request.Metrics().ResourceMetrics().AppendEmpty()
+		generateAttributes(rm.Resource().Attributes(), "resource", 10)
+
+		metrics := rm.ScopeMetrics().AppendEmpty().Metrics()
+		ts := pcommon.NewTimestampFromTime(time.Now())
+
+		for i := 1; i <= 10; i++ {
+			m := metrics.AppendEmpty()
+			m.SetEmptyExponentialHistogram()
+			m.SetName(fmt.Sprintf("histogram-%d", i))
+			m.ExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+			h := m.ExponentialHistogram().DataPoints().AppendEmpty()
+			h.SetTimestamp(ts)
+
+			h.SetCount(0)
+			h.SetSum(155)
+
+			generateAttributes(h.Attributes(), "series", 10)
+		}
+
+		converter := NewPrometheusConverter()
+		err := converter.FromMetrics(context.Background(), request.Metrics(), Settings{}, log.NewNopLogger())
+		require.NoError(t, err)
 	})
 }
 
@@ -74,7 +102,7 @@ func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
 
 											for i := 0; i < b.N; i++ {
 												converter := NewPrometheusConverter()
-												require.NoError(b, converter.FromMetrics(context.Background(), payload.Metrics(), Settings{}))
+												require.NoError(b, converter.FromMetrics(context.Background(), payload.Metrics(), Settings{}, log.NewNopLogger()))
 												require.NotNil(b, converter.TimeSeries())
 											}
 										})
