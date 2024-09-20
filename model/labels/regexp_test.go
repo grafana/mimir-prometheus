@@ -821,7 +821,7 @@ func FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions(f *testing.F) 
 	for _, re := range regexes {
 		m, err := NewFastRegexMatcher(re)
 		require.NoError(f, err)
-		r := regexp.MustCompile("^(?:" + re + ")$")
+		r := regexp.MustCompile("^(?s:" + re + ")$")
 		matchers = append(matchers, m)
 		res = append(res, r)
 	}
@@ -852,7 +852,7 @@ func FuzzFastRegexMatcher_WithFuzzyRegularExpressions(f *testing.F) {
 			return
 		}
 
-		reg, err := regexp.Compile("^(?:" + re + ")$")
+		reg, err := regexp.Compile("^(?s:" + re + ")$")
 		if err != nil {
 			// Ignore invalid regexes.
 			return
