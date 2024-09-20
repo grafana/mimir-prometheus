@@ -617,7 +617,7 @@ func (c *PrometheusConverter) handleHistogramStartTime(startTs, sampleTs int64, 
 		return
 	}
 
-	ts.Histograms = append(ts.Histograms, prompb.Histogram{})
+	ts.Histograms = append(ts.Histograms, prompb.Histogram{Timestamp: startTs})
 }
 
 // addResourceTargetInfo converts the resource to the target info metric.

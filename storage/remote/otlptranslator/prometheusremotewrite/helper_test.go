@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
@@ -375,7 +376,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 			metric := tt.metric()
 			converter := NewPrometheusConverter()
 
-			converter.addSummaryDataPoints(
+			err := converter.addSummaryDataPoints(
 				context.Background(),
 				metric.Summary().DataPoints(),
 				pcommon.NewResource(),
@@ -385,6 +386,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				},
 				metric.Name(),
 			)
+			require.NoError(t, err)
 
 			assert.Equal(t, tt.want(), converter.unique)
 			assert.Empty(t, converter.conflicts)
@@ -487,7 +489,7 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 			metric := tt.metric()
 			converter := NewPrometheusConverter()
 
-			converter.addHistogramDataPoints(
+			err := converter.addHistogramDataPoints(
 				context.Background(),
 				metric.Histogram().DataPoints(),
 				pcommon.NewResource(),
@@ -497,6 +499,188 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 				},
 				metric.Name(),
 			)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want(), converter.unique)
+			assert.Empty(t, converter.conflicts)
+		})
+	}
+}
+
+func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
+	now := time.Now()
+	nowUnixNano := pcommon.Timestamp(now.UnixNano())
+	nowMinus20s := pcommon.Timestamp(now.Add(-20 * time.Second).UnixNano())
+	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
+	tests := []struct {
+		name   string
+		metric func() pmetric.Metric
+		want   func() map[uint64]*prompb.TimeSeries
+	}{
+		{
+			name: "histogram with start time",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_exponential_hist")
+				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+				pt.SetTimestamp(nowUnixNano)
+				pt.SetStartTimestamp(nowUnixNano)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Histograms: []prompb.Histogram{
+							{
+								Timestamp: convertTimeStamp(nowUnixNano),
+								Count: &prompb.Histogram_CountInt{
+									CountInt: 0,
+								},
+								ZeroCount: &prompb.Histogram_ZeroCountInt{
+									ZeroCountInt: 0,
+								},
+								ZeroThreshold: defaultZeroThreshold,
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "histogram without start time",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_exponential_hist")
+				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+				pt.SetTimestamp(nowUnixNano)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Histograms: []prompb.Histogram{
+							{
+								Timestamp: convertTimeStamp(nowUnixNano),
+								Count: &prompb.Histogram_CountInt{
+									CountInt: 0,
+								},
+								ZeroCount: &prompb.Histogram_ZeroCountInt{
+									ZeroCountInt: 0,
+								},
+								ZeroThreshold: defaultZeroThreshold,
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "histogram with start time within two minutes to sample timestamp",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_exponential_hist")
+				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+				pt.SetTimestamp(nowUnixNano)
+				pt.SetStartTimestamp(nowMinus20s)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Histograms: []prompb.Histogram{
+							{
+								Timestamp: convertTimeStamp(nowMinus20s),
+							},
+							{
+								Timestamp: convertTimeStamp(nowUnixNano),
+								Count: &prompb.Histogram_CountInt{
+									CountInt: 0,
+								},
+								ZeroCount: &prompb.Histogram_ZeroCountInt{
+									ZeroCountInt: 0,
+								},
+								ZeroThreshold: defaultZeroThreshold,
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "histogram with start time older than two minutes to sample timestamp",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_exponential_hist")
+				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+				pt.SetTimestamp(nowUnixNano)
+				pt.SetStartTimestamp(nowMinus1h)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Histograms: []prompb.Histogram{
+							{
+								Timestamp: convertTimeStamp(nowUnixNano),
+								Count: &prompb.Histogram_CountInt{
+									CountInt: 0,
+								},
+								ZeroCount: &prompb.Histogram_ZeroCountInt{
+									ZeroCountInt: 0,
+								},
+								ZeroThreshold: defaultZeroThreshold,
+							},
+						},
+					},
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metric := tt.metric()
+			converter := NewPrometheusConverter()
+
+			annot, err := converter.addExponentialHistogramDataPoints(
+				context.Background(),
+				metric.ExponentialHistogram().DataPoints(),
+				pcommon.NewResource(),
+				Settings{
+					ExportCreatedMetric:                 true,
+					EnableCreatedTimestampZeroIngestion: true,
+				},
+				metric.Name(),
+			)
+			require.NoError(t, err)
+			require.Empty(t, annot)
 
 			assert.Equal(t, tt.want(), converter.unique)
 			assert.Empty(t, converter.conflicts)
