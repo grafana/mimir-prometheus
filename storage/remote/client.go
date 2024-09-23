@@ -173,7 +173,7 @@ func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
 // for the current request.
 func (t *transport) GotConn(info httptrace.GotConnInfo) {
 	connInfo := fmt.Sprintf("[local address: %s, remote address: %s]", info.Conn.LocalAddr(), info.Conn.RemoteAddr())
-	fmt.Printf("connection %s reused for %v: %v, was idle: %v, idle time: %v\n", connInfo, t.currentRequest.URL, info.Reused, info.WasIdle, info.IdleTime)
+	fmt.Printf("connection %s (to %v) - reused: %v, was idle: %v, idle time: %v\n", connInfo, t.currentRequest.URL, info.Reused, info.WasIdle, info.IdleTime)
 }
 
 // NewReadClient creates a new client for remote read.
@@ -202,7 +202,6 @@ func NewReadClient(name string, conf *ClientConfig) (ReadClient, error) {
 
 // NewWriteClient creates a new client for remote write.
 func NewWriteClient(name string, conf *ClientConfig) (WriteClient, error) {
-	fmt.Println(conf.HTTPClientConfig.EnableHTTP2)
 	httpClient, err := config_util.NewClientFromConfig(conf.HTTPClientConfig, "remote_storage_write_client")
 	if err != nil {
 		return nil, err
@@ -308,26 +307,30 @@ func (c *Client) Store(ctx context.Context, req []byte, attempt int) (WriteRespo
 
 	clientTrace := &httptrace.ClientTrace{
 		GetConn: func(hostPort string) {
-			fmt.Println("starting to create conn ", hostPort)
+			fmt.Printf("get or create a connection to %s\n", hostPort)
 		},
 		DNSStart: func(info httptrace.DNSStartInfo) {
-			fmt.Println("starting to look up dns", info)
+			fmt.Printf("starting to look up dns for %v\n", info)
 		},
 		DNSDone: func(info httptrace.DNSDoneInfo) {
-			fmt.Println("done looking up dns", info)
+			fmt.Printf("looking up dns done: %v\n", info.Addrs)
 		},
 		ConnectStart: func(network, addr string) {
-			fmt.Println("starting tcp connection", network, addr)
+			fmt.Printf("starting connection - protocol: %s, address: %s\n", network, addr)
 		},
 		ConnectDone: func(network, addr string, err error) {
-			fmt.Println("tcp connection created", network, addr, err)
+			if err == nil {
+				fmt.Printf("connection successfully created - protocol: %s, address: %s\n", network, addr)
+			} else {
+				fmt.Printf("connection was not created - protocol: %s, address: %s, error: %s\n", network, addr, err)
+			}
 		},
 		GotConn: func(info httptrace.GotConnInfo) {
 			connInfo = fmt.Sprintf("[local address: %s, remote address: %s]", info.Conn.LocalAddr(), info.Conn.RemoteAddr())
 			if t, ok := c.Client.Transport.(*transport); ok {
 				t.GotConn(info)
 			} else {
-				fmt.Printf("connection %s established, reused: %v, was idle: %v, idle time: %v\n", connInfo, info.Reused, info.WasIdle, info.IdleTime)
+				fmt.Printf("connection %s - reused: %v, was idle: %v, idle time: %v\n", connInfo, info.Reused, info.WasIdle, info.IdleTime)
 			}
 		},
 		PutIdleConn: func(err error) {
@@ -352,7 +355,7 @@ func (c *Client) Store(ctx context.Context, req []byte, attempt int) (WriteRespo
 		_ = httpResp.Body.Close()
 	}()
 
-	fmt.Printf("\t\treceived response for connection %s, HTTP version: %s, status code: %d, server name: %s, request URI: %s, request remote address: %s\n", connInfo, httpResp.Proto, httpResp.StatusCode, httpResp.TLS.ServerName, httpResp.Request.RequestURI, httpResp.Request.RemoteAddr)
+	fmt.Printf("\t\treceived response for connection %s, HTTP version: %s, status code: %d, server name: %s\n", connInfo, httpResp.Proto, httpResp.StatusCode, httpResp.TLS.ServerName)
 
 	// TODO(bwplotka): Pass logger and emit debug on error?
 	// Parsing error means there were some response header values we can't parse,
