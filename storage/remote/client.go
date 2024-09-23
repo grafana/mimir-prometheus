@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptrace"
 	"strconv"
 	"strings"
 	"time"
@@ -31,15 +32,14 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/sigv4"
 	"github.com/prometheus/common/version"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/storage/remote/azuread"
 	"github.com/prometheus/prometheus/storage/remote/googleiam"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -151,6 +151,31 @@ type ReadClient interface {
 	Read(ctx context.Context, query *prompb.Query, sortSeries bool) (storage.SeriesSet, error)
 }
 
+// transport is an http.RoundTripper that keeps track of the in-flight
+// request and implements hooks to report HTTP tracing events.
+type transport struct {
+	currentRequest *http.Request
+	rt             http.RoundTripper
+}
+
+// RoundTrip wraps http.DefaultTransport.RoundTrip to keep track
+// of the current request.
+func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.currentRequest = req
+	resp, err := t.rt.RoundTrip(req)
+	if err != nil {
+		fmt.Printf("request to %s ended with an error: %s\n", req.RemoteAddr, err)
+	}
+	return resp, err
+}
+
+// GotConn prints whether the connection has been used previously
+// for the current request.
+func (t *transport) GotConn(info httptrace.GotConnInfo) {
+	connInfo := fmt.Sprintf("[local address: %s, remote address: %s]", info.Conn.LocalAddr(), info.Conn.RemoteAddr())
+	fmt.Printf("connection %s reused for %v: %v, was idle: %v, idle time: %v\n", connInfo, t.currentRequest.URL, info.Reused, info.WasIdle, info.IdleTime)
+}
+
 // NewReadClient creates a new client for remote read.
 func NewReadClient(name string, conf *ClientConfig) (ReadClient, error) {
 	httpClient, err := config_util.NewClientFromConfig(conf.HTTPClientConfig, "remote_storage_read_client")
@@ -162,7 +187,6 @@ func NewReadClient(name string, conf *ClientConfig) (ReadClient, error) {
 	if len(conf.Headers) > 0 {
 		t = newInjectHeadersRoundTripper(conf.Headers, t)
 	}
-	httpClient.Transport = otelhttp.NewTransport(t)
 
 	return &Client{
 		remoteName:          name,
@@ -178,6 +202,7 @@ func NewReadClient(name string, conf *ClientConfig) (ReadClient, error) {
 
 // NewWriteClient creates a new client for remote write.
 func NewWriteClient(name string, conf *ClientConfig) (WriteClient, error) {
+	fmt.Println(conf.HTTPClientConfig.EnableHTTP2)
 	httpClient, err := config_util.NewClientFromConfig(conf.HTTPClientConfig, "remote_storage_write_client")
 	if err != nil {
 		return nil, err
@@ -214,7 +239,7 @@ func NewWriteClient(name string, conf *ClientConfig) (WriteClient, error) {
 		writeProtoMsg = conf.WriteProtoMsg
 	}
 
-	httpClient.Transport = otelhttp.NewTransport(t)
+	httpClient.Transport = &transport{rt: otelhttp.NewTransport(t)}
 	return &Client{
 		remoteName:       name,
 		urlString:        conf.URL.String(),
@@ -279,7 +304,44 @@ func (c *Client) Store(ctx context.Context, req []byte, attempt int) (WriteRespo
 	ctx, span := otel.Tracer("").Start(ctx, "Remote Store", trace.WithSpanKind(trace.SpanKindClient))
 	defer span.End()
 
-	httpResp, err := c.Client.Do(httpReq.WithContext(ctx))
+	var connInfo string
+
+	clientTrace := &httptrace.ClientTrace{
+		GetConn: func(hostPort string) {
+			fmt.Println("starting to create conn ", hostPort)
+		},
+		DNSStart: func(info httptrace.DNSStartInfo) {
+			fmt.Println("starting to look up dns", info)
+		},
+		DNSDone: func(info httptrace.DNSDoneInfo) {
+			fmt.Println("done looking up dns", info)
+		},
+		ConnectStart: func(network, addr string) {
+			fmt.Println("starting tcp connection", network, addr)
+		},
+		ConnectDone: func(network, addr string, err error) {
+			fmt.Println("tcp connection created", network, addr, err)
+		},
+		GotConn: func(info httptrace.GotConnInfo) {
+			connInfo = fmt.Sprintf("[local address: %s, remote address: %s]", info.Conn.LocalAddr(), info.Conn.RemoteAddr())
+			if t, ok := c.Client.Transport.(*transport); ok {
+				t.GotConn(info)
+			} else {
+				fmt.Printf("connection %s established, reused: %v, was idle: %v, idle time: %v\n", connInfo, info.Reused, info.WasIdle, info.IdleTime)
+			}
+		},
+		PutIdleConn: func(err error) {
+			if err == nil {
+				fmt.Printf("connection %s returned to the idle pool\n", connInfo)
+			} else {
+				fmt.Printf("error while retruning connection %s to the idle pool: %s\n", connInfo, err)
+			}
+		},
+	}
+
+	clientTraceCtx := httptrace.WithClientTrace(httpReq.Context(), clientTrace)
+
+	httpResp, err := c.Client.Do(httpReq.WithContext(clientTraceCtx))
 	if err != nil {
 		// Errors from Client.Do are from (for example) network errors, so are
 		// recoverable.
@@ -289,6 +351,8 @@ func (c *Client) Store(ctx context.Context, req []byte, attempt int) (WriteRespo
 		_, _ = io.Copy(io.Discard, httpResp.Body)
 		_ = httpResp.Body.Close()
 	}()
+
+	fmt.Printf("\t\treceived response for connection %s, HTTP version: %s, status code: %d, server name: %s, request URI: %s, request remote address: %s\n", connInfo, httpResp.Proto, httpResp.StatusCode, httpResp.TLS.ServerName, httpResp.Request.RequestURI, httpResp.Request.RemoteAddr)
 
 	// TODO(bwplotka): Pass logger and emit debug on error?
 	// Parsing error means there were some response header values we can't parse,
