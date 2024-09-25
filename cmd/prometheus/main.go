@@ -240,6 +240,9 @@ func (c *flagConfig) setFeatureListOptions(logger log.Logger) error {
 				config.DefaultConfig.GlobalConfig.ScrapeProtocols = config.DefaultProtoFirstScrapeProtocols
 				config.DefaultGlobalConfig.ScrapeProtocols = config.DefaultProtoFirstScrapeProtocols
 				level.Info(logger).Log("msg", "Experimental native histogram support enabled. Changed default scrape_protocols to prefer PrometheusProto format.", "global.scrape_protocols", fmt.Sprintf("%v", config.DefaultGlobalConfig.ScrapeProtocols))
+			case "ooo-native-histograms":
+				c.tsdb.EnableOOONativeHistograms = true
+				level.Info(logger).Log("msg", "Experimental out-of-order native histogram ingestion enabled. This will only take effect if OutOfOrderTimeWindow is > 0 and if EnableNativeHistograms = true")
 			case "created-timestamp-zero-ingestion":
 				c.scrape.EnableCreatedTimestampZeroIngestion = true
 				c.web.EnableCreatedTimestampZeroIngestion = true
@@ -1807,6 +1810,7 @@ type tsdbOptions struct {
 	EnableNativeHistograms         bool
 	EnableDelayedCompaction        bool
 	EnableOverlappingCompaction    bool
+	EnableOOONativeHistograms      bool
 }
 
 func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
@@ -1826,6 +1830,7 @@ func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
 		MaxExemplars:                   opts.MaxExemplars,
 		EnableMemorySnapshotOnShutdown: opts.EnableMemorySnapshotOnShutdown,
 		EnableNativeHistograms:         opts.EnableNativeHistograms,
+		EnableOOONativeHistograms:      opts.EnableOOONativeHistograms,
 		OutOfOrderTimeWindow:           opts.OutOfOrderTimeWindow,
 		EnableDelayedCompaction:        opts.EnableDelayedCompaction,
 		EnableOverlappingCompaction:    opts.EnableOverlappingCompaction,
