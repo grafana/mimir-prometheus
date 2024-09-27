@@ -21,11 +21,6 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      # This file would normally be created by `make assets`, here we just
-      #  mock it because the file is required for the tests to pass.
-      - name: Mock building of necessary react file
-        run: mkdir web/ui/static/react && touch web/ui/static/react/index.html
-
       - name: Run Tests
         run: GOOPTS=-tags=${{ matrix.buildtags }} make common-test
 
