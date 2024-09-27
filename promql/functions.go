@@ -1572,7 +1572,7 @@ func (ev *evaluator) evalLabelJoin(ctx context.Context, args parser.Expressions)
 
 // === label_join(vector model.ValVector, dest_labelname, separator, src_labelname...) (Vector, Annotations) ===
 func funcLabelJoin(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
-	panic("funcLabelReplace wrong implementation called")
+	panic("funcLabelJoin wrong implementation called")
 }
 
 // Common code for date related functions.
@@ -1655,6 +1655,11 @@ func funcYear(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper)
 	}), nil
 }
 
+// === info(matrix parser.ValueTypeVector, [ls label-selector]) (Vector, Annotations) ===
+func funcInfo(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
+	panic("funcInfo wrong implementation called")
+}
+
 // FunctionCalls is a list of all functions supported by PromQL, including their types.
 var FunctionCalls = map[string]FunctionCall{
 	"abs":                funcAbs,
@@ -1695,6 +1700,7 @@ var FunctionCalls = map[string]FunctionCall{
 	"hour":               funcHour,
 	"idelta":             funcIdelta,
 	"increase":           funcIncrease,
+	"info":               funcInfo,
 	"irate":              funcIrate,
 	"label_replace":      funcLabelReplace,
 	"label_join":         funcLabelJoin,
