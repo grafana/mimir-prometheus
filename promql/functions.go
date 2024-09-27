@@ -1655,11 +1655,6 @@ func funcYear(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper)
 	}), nil
 }
 
-// === info(matrix parser.ValueTypeVector, [ls label-selector]) (Vector, Annotations) ===
-func funcInfo(vals []parser.Value, args parser.Expressions, enh *EvalNodeHelper) (Vector, annotations.Annotations) {
-	panic("funcInfo wrong implementation called")
-}
-
 // FunctionCalls is a list of all functions supported by PromQL, including their types.
 var FunctionCalls = map[string]FunctionCall{
 	"abs":                funcAbs,
@@ -1700,7 +1695,7 @@ var FunctionCalls = map[string]FunctionCall{
 	"hour":               funcHour,
 	"idelta":             funcIdelta,
 	"increase":           funcIncrease,
-	"info":               funcInfo,
+	"info":               nil,
 	"irate":              funcIrate,
 	"label_replace":      funcLabelReplace,
 	"label_join":         funcLabelJoin,
