@@ -597,8 +597,8 @@ func (c *PrometheusConverter) handleStartTime(startTs, ts int64, labels []prompb
 	}
 
 	threshold := defaultIntervalForStartTimestamps
-	if settings.ValidIntervalForStartTimestamps != 0 {
-		threshold = settings.ValidIntervalForStartTimestamps.Milliseconds()
+	if settings.ValidIntervalCreatedTimestampZeroIngestion != 0 {
+		threshold = settings.ValidIntervalCreatedTimestampZeroIngestion.Milliseconds()
 	}
 
 	// The difference between the start and the actual timestamp is more than a reasonable time, so we skip this sample.
@@ -626,8 +626,8 @@ func (c *PrometheusConverter) handleHistogramStartTime(startTs, sampleTs int64, 
 	}
 
 	threshold := defaultIntervalForStartTimestamps
-	if settings.ValidIntervalForStartTimestamps != 0 {
-		threshold = settings.ValidIntervalForStartTimestamps.Milliseconds()
+	if settings.ValidIntervalCreatedTimestampZeroIngestion != 0 {
+		threshold = settings.ValidIntervalCreatedTimestampZeroIngestion.Milliseconds()
 	}
 
 	// The difference between the start and the actual timestamp is more than a reasonable time, so we skip this sample.

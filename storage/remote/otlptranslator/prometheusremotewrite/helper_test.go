@@ -432,9 +432,9 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				metric.Summary().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric:                 true,
-					EnableCreatedTimestampZeroIngestion: true,
-					ValidIntervalForStartTimestamps:     tt.overrideValidInterval,
+					ExportCreatedMetric:                        true,
+					EnableCreatedTimestampZeroIngestion:        true,
+					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
 				metric.Name(),
 				log.NewNopLogger(),
@@ -770,9 +770,9 @@ func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
 				metric.ExponentialHistogram().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric:                 true,
-					EnableCreatedTimestampZeroIngestion: true,
-					ValidIntervalForStartTimestamps:     tt.overrideValidInterval,
+					ExportCreatedMetric:                        true,
+					EnableCreatedTimestampZeroIngestion:        true,
+					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
 				metric.Name(),
 			)
