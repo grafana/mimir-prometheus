@@ -1047,7 +1047,7 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 
 	require.Equal(t, int64(2000), s.mmappedChunks[0].minTime)
 	_, _, _, err = s.chunk(0, chunkDiskMapper, &memChunkPool)
-	require.Equal(t, storage.ErrNotFound, err, "first chunks not gone")
+	require.ErrorIs(t, err, storage.ErrNotFound, "first chunks not gone")
 	require.Equal(t, countBefore/2, len(s.mmappedChunks)+1) // +1 for the head chunk.
 	chk, _, _, err = s.chunk(lastID, chunkDiskMapper, &memChunkPool)
 	require.NoError(t, err)
@@ -1950,7 +1950,7 @@ func TestGCChunkAccess(t *testing.T) {
 	require.NoError(t, h.Truncate(1500)) // Remove a chunk.
 
 	_, _, err = cr.ChunkOrIterable(chunks[0])
-	require.Equal(t, storage.ErrNotFound, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
 	_, _, err = cr.ChunkOrIterable(chunks[1])
 	require.NoError(t, err)
 }
@@ -2011,9 +2011,9 @@ func TestGCSeriesAccess(t *testing.T) {
 	require.Equal(t, (*memSeries)(nil), h.series.getByID(1))
 
 	_, _, err = cr.ChunkOrIterable(chunks[0])
-	require.Equal(t, storage.ErrNotFound, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
 	_, _, err = cr.ChunkOrIterable(chunks[1])
-	require.Equal(t, storage.ErrNotFound, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
 }
 
 func TestUncommittedSamplesNotLostOnTruncate(t *testing.T) {
@@ -5691,7 +5691,7 @@ func TestSnapshotAheadOfWALError(t *testing.T) {
 
 	// Verify that snapshot directory does not exist anymore.
 	_, _, _, err = LastChunkSnapshot(head.opts.ChunkDirRoot)
-	require.Equal(t, record.ErrNotFound, err)
+	require.ErrorIs(t, err, record.ErrNotFound)
 
 	require.NoError(t, head.Close())
 }
