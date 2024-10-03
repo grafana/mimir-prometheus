@@ -35,15 +35,15 @@ import (
 )
 
 type Settings struct {
-	ExternalLabels                      map[string]string
-	Namespace                           string
-	PromoteResourceAttributes           []string
-	ValidIntervalForStartTimestamps     time.Duration
-	DisableTargetInfo                   bool
-	ExportCreatedMetric                 bool
-	AddMetricSuffixes                   bool
-	SendMetadata                        bool
-	EnableCreatedTimestampZeroIngestion bool
+	ExternalLabels                             map[string]string
+	Namespace                                  string
+	PromoteResourceAttributes                  []string
+	DisableTargetInfo                          bool
+	ExportCreatedMetric                        bool
+	AddMetricSuffixes                          bool
+	SendMetadata                               bool
+	EnableCreatedTimestampZeroIngestion        bool
+	ValidIntervalCreatedTimestampZeroIngestion time.Duration
 }
 
 type StartTsAndTs struct {

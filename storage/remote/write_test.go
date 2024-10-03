@@ -384,7 +384,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 		return config.Config{
 			OTLPConfig: config.DefaultOTLPConfig,
 		}
-	}, false)
+	}, false, 0)
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
