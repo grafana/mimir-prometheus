@@ -244,32 +244,35 @@ type Options struct {
 	Version               *PrometheusVersion
 	Flags                 map[string]string
 
-	ListenAddresses                     []string
-	CORSOrigin                          *regexp.Regexp
-	ReadTimeout                         time.Duration
-	MaxConnections                      int
-	ExternalURL                         *url.URL
-	RoutePrefix                         string
-	UseLocalAssets                      bool
-	UserAssetsPath                      string
-	ConsoleTemplatesPath                string
-	ConsoleLibrariesPath                string
-	EnableLifecycle                     bool
-	EnableAdminAPI                      bool
-	PageTitle                           string
-	RemoteReadSampleLimit               int
-	RemoteReadConcurrencyLimit          int
-	RemoteReadBytesInFrame              int
-	EnableRemoteWriteReceiver           bool
-	EnableOTLPWriteReceiver             bool
-	EnableCreatedTimestampZeroIngestion bool
-	IsAgent                             bool
-	AppName                             string
+	ListenAddresses            []string
+	CORSOrigin                 *regexp.Regexp
+	ReadTimeout                time.Duration
+	MaxConnections             int
+	ExternalURL                *url.URL
+	RoutePrefix                string
+	UseLocalAssets             bool
+	UserAssetsPath             string
+	ConsoleTemplatesPath       string
+	ConsoleLibrariesPath       string
+	EnableLifecycle            bool
+	EnableAdminAPI             bool
+	PageTitle                  string
+	RemoteReadSampleLimit      int
+	RemoteReadConcurrencyLimit int
+	RemoteReadBytesInFrame     int
+	EnableRemoteWriteReceiver  bool
+	EnableOTLPWriteReceiver    bool
+	IsAgent                    bool
+	AppName                    string
 
 	AcceptRemoteWriteProtoMsgs []config.RemoteWriteProtoMsg
 
 	Gatherer   prometheus.Gatherer
 	Registerer prometheus.Registerer
+
+	// Our Grafana Cloud additions. Leaving them separately for the updates with upstream.
+	EnableCreatedTimestampZeroIngestion        bool
+	ValidIntervalCreatedTimestampZeroIngestion time.Duration
 }
 
 // New initializes a new web Handler.
@@ -359,6 +362,7 @@ func New(logger log.Logger, o *Options) *Handler {
 		o.AcceptRemoteWriteProtoMsgs,
 		o.EnableOTLPWriteReceiver,
 		o.EnableCreatedTimestampZeroIngestion,
+		o.ValidIntervalCreatedTimestampZeroIngestion,
 	)
 
 	if o.RoutePrefix != "/" {

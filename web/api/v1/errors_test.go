@@ -141,6 +141,7 @@ func createPrometheusAPI(t *testing.T, q storage.SampleAndChunkQueryable) *route
 		config.RemoteWriteProtoMsgs{config.RemoteWriteProtoMsgV1, config.RemoteWriteProtoMsgV2},
 		false,
 		false,
+		0,
 	)
 
 	promRouter := route.New().WithPrefix("/api/v1")
