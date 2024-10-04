@@ -69,7 +69,7 @@ func (i *oooIsolation) HasOpenReadsAtOrBefore(ref chunks.ChunkDiskMapperRef) boo
 //
 // The caller must ensure that the returned oooIsolationState is eventually closed when
 // the read is complete.
-func (i *oooIsolation) TrackReadAfter(minRef chunks.ChunkDiskMapperRef) *oooIsolationState {
+func (i *oooIsolation) TrackReadAfter(minRef chunks.ChunkDiskMapperRef, mint int64, maxt int64) *oooIsolationState {
 	s := &oooIsolationState{
 		i:      i,
 		minRef: minRef,
@@ -77,7 +77,7 @@ func (i *oooIsolation) TrackReadAfter(minRef chunks.ChunkDiskMapperRef) *oooIsol
 
 	i.mtx.Lock()
 	s.e = i.openReads.PushBack(s)
-	level.Info(s.i.logger).Log("tag", "missing_chunks", "msg", "appended to ooo isolation state", "minRef", minRef)
+	level.Info(s.i.logger).Log("tag", "missing_chunks", "msg", "appended to ooo isolation state", "minRef", minRef, "mint", mint, "maxt", maxt)
 	i.mtx.Unlock()
 
 	return s

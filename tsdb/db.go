@@ -2146,12 +2146,14 @@ func (db *DB) Querier(mint, maxt int64) (_ storage.Querier, err error) {
 		// won't run into a race later since any truncation that comes after will wait on this querier if it overlaps.
 		shouldClose, getNew, newMint := db.head.IsQuerierCollidingWithTruncation(mint, maxt)
 		if shouldClose {
+			level.Info(db.logger).Log("tag", "missing_chunks", "msg", "should close head querier", "mint", mint, "maxt", maxt)
 			if err := headQuerier.Close(); err != nil {
 				return nil, fmt.Errorf("closing head block querier %s: %w", rh, err)
 			}
 			headQuerier = nil
 		}
 		if getNew {
+			level.Info(db.logger).Log("tag", "missing_chunks", "msg", "getting new range head", "mint", mint, "maxt", maxt, "new_mint", newMint)
 			rh := NewRangeHead(db.head, newMint, maxt)
 			headQuerier, err = db.blockQuerierFunc(rh, newMint, maxt)
 			if err != nil {
@@ -2164,8 +2166,7 @@ func (db *DB) Querier(mint, maxt int64) (_ storage.Querier, err error) {
 	if overlapsOOO {
 		// We need to fetch from in-order and out-of-order chunks: wrap the headQuerier.
 		lastGarbageCollectedMmapRef := db.lastGarbageCollectedMmapRef
-		isoState := db.head.oooIso.TrackReadAfter(lastGarbageCollectedMmapRef)
-		level.Info(db.logger).Log("tag", "missing_chunks", "msg", "got iso state for ooo head", "mint", mint, "maxt", maxt, "lastGarbageCollectedMmapRef", lastGarbageCollectedMmapRef)
+		isoState := db.head.oooIso.TrackReadAfter(lastGarbageCollectedMmapRef, mint, maxt)
 		headQuerier = NewHeadAndOOOQuerier(inoMint, mint, maxt, db.head, isoState, headQuerier)
 	}
 
@@ -2225,12 +2226,14 @@ func (db *DB) blockChunkQuerierForRange(mint, maxt int64) (_ []storage.ChunkQuer
 		// won't run into a race later since any truncation that comes after will wait on this querier if it overlaps.
 		shouldClose, getNew, newMint := db.head.IsQuerierCollidingWithTruncation(mint, maxt)
 		if shouldClose {
+			level.Info(db.logger).Log("tag", "missing_chunks", "msg", "should close head querier", "mint", mint, "maxt", maxt)
 			if err := headQuerier.Close(); err != nil {
 				return nil, fmt.Errorf("closing head querier %s: %w", rh, err)
 			}
 			headQuerier = nil
 		}
 		if getNew {
+			level.Info(db.logger).Log("tag", "missing_chunks", "msg", "getting new range head", "mint", mint, "maxt", maxt, "new_mint", newMint)
 			rh := NewRangeHead(db.head, newMint, maxt)
 			headQuerier, err = db.blockChunkQuerierFunc(rh, newMint, maxt)
 			if err != nil {
@@ -2242,7 +2245,7 @@ func (db *DB) blockChunkQuerierForRange(mint, maxt int64) (_ []storage.ChunkQuer
 
 	if overlapsOOO {
 		// We need to fetch from in-order and out-of-order chunks: wrap the headQuerier.
-		isoState := db.head.oooIso.TrackReadAfter(db.lastGarbageCollectedMmapRef)
+		isoState := db.head.oooIso.TrackReadAfter(db.lastGarbageCollectedMmapRef, mint, maxt)
 		headQuerier = NewHeadAndOOOChunkQuerier(inoMint, mint, maxt, db.head, isoState, headQuerier)
 	}
 

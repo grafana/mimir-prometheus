@@ -29,13 +29,13 @@ func TestOOOIsolation(t *testing.T) {
 	require.False(t, i.HasOpenReadsAtOrBefore(3))
 
 	// Add a read.
-	read1 := i.TrackReadAfter(1)
+	read1 := i.TrackReadAfter(1, 0, 0)
 	require.False(t, i.HasOpenReadsAtOrBefore(0))
 	require.False(t, i.HasOpenReadsAtOrBefore(1))
 	require.True(t, i.HasOpenReadsAtOrBefore(2))
 
 	// Add another overlapping read.
-	read2 := i.TrackReadAfter(0)
+	read2 := i.TrackReadAfter(0, 0, 0)
 	require.False(t, i.HasOpenReadsAtOrBefore(0))
 	require.True(t, i.HasOpenReadsAtOrBefore(1))
 	require.True(t, i.HasOpenReadsAtOrBefore(2))
