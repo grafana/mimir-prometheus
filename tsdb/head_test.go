@@ -718,15 +718,15 @@ func TestHead_ReadWAL(t *testing.T) {
 				return x
 			}
 
-			c, _, _, err := s10.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+			c, _, _, err := s10.chunk(0, head.chunkDiskMapper, &head.memChunkPool, 0, 0, 0)
 			require.NoError(t, err)
 			require.Equal(t, []sample{{100, 2, nil, nil}, {101, 5, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
-			c, _, _, err = s50.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+			c, _, _, err = s50.chunk(0, head.chunkDiskMapper, &head.memChunkPool, 0, 0, 0)
 			require.NoError(t, err)
 			require.Equal(t, []sample{{101, 6, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
 			// The samples before the new series record should be discarded since a duplicate record
 			// is only possible when old samples were compacted.
-			c, _, _, err = s100.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+			c, _, _, err = s100.chunk(0, head.chunkDiskMapper, &head.memChunkPool, 0, 0, 0)
 			require.NoError(t, err)
 			require.Equal(t, []sample{{101, 7, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
 
@@ -1035,21 +1035,21 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 	// that the ID of the last chunk still gives us the same chunk afterwards.
 	countBefore := len(s.mmappedChunks) + 1 // +1 for the head chunk.
 	lastID := s.headChunkID(countBefore - 1)
-	lastChunk, _, _, err := s.chunk(lastID, chunkDiskMapper, &memChunkPool)
+	lastChunk, _, _, err := s.chunk(lastID, chunkDiskMapper, &memChunkPool, 0, 0, 0)
 	require.NoError(t, err)
 	require.NotNil(t, lastChunk)
 
-	chk, _, _, err := s.chunk(0, chunkDiskMapper, &memChunkPool)
+	chk, _, _, err := s.chunk(0, chunkDiskMapper, &memChunkPool, 0, 0, 0)
 	require.NotNil(t, chk)
 	require.NoError(t, err)
 
 	s.truncateChunksBefore(2000, 0)
 
 	require.Equal(t, int64(2000), s.mmappedChunks[0].minTime)
-	_, _, _, err = s.chunk(0, chunkDiskMapper, &memChunkPool)
+	_, _, _, err = s.chunk(0, chunkDiskMapper, &memChunkPool, 0, 0, 0)
 	require.ErrorIs(t, err, storage.ErrNotFound, "first chunks not gone")
 	require.Equal(t, countBefore/2, len(s.mmappedChunks)+1) // +1 for the head chunk.
-	chk, _, _, err = s.chunk(lastID, chunkDiskMapper, &memChunkPool)
+	chk, _, _, err = s.chunk(lastID, chunkDiskMapper, &memChunkPool, 0, 0, 0)
 	require.NoError(t, err)
 	require.Equal(t, lastChunk, chk)
 }
@@ -3305,7 +3305,7 @@ func TestIteratorSeekIntoBuffer(t *testing.T) {
 		New: func() interface{} {
 			return &memChunk{}
 		},
-	})
+	}, 0, 0, 0)
 	require.NoError(t, err)
 	it := c.chunk.Iterator(nil)
 
