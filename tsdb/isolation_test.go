@@ -28,7 +28,7 @@ func TestIsolation(t *testing.T) {
 		lowWatermark uint64
 	}
 	var appendA, appendB result
-	iso := newIsolation(false)
+	iso := newIsolation(false, nil)
 
 	// Low watermark starts at 1.
 	require.Equal(t, uint64(0), iso.lowWatermark())
@@ -82,7 +82,7 @@ func countOpenReads(iso *isolation) int {
 func BenchmarkIsolation(b *testing.B) {
 	for _, goroutines := range []int{10, 100, 1000, 10000} {
 		b.Run(strconv.Itoa(goroutines), func(b *testing.B) {
-			iso := newIsolation(false)
+			iso := newIsolation(false, nil)
 
 			wg := sync.WaitGroup{}
 			start := make(chan struct{})
@@ -112,7 +112,7 @@ func BenchmarkIsolation(b *testing.B) {
 func BenchmarkIsolationWithState(b *testing.B) {
 	for _, goroutines := range []int{10, 100, 1000, 10000} {
 		b.Run(strconv.Itoa(goroutines), func(b *testing.B) {
-			iso := newIsolation(false)
+			iso := newIsolation(false, nil)
 
 			wg := sync.WaitGroup{}
 			start := make(chan struct{})

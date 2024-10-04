@@ -20,7 +20,7 @@ import (
 )
 
 func TestOOOIsolation(t *testing.T) {
-	i := newOOOIsolation()
+	i := newOOOIsolation(nil)
 
 	// Empty state shouldn't have any open reads.
 	require.False(t, i.HasOpenReadsAtOrBefore(0))
