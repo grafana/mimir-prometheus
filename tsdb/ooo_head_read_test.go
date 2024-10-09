@@ -370,7 +370,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 					require.Equal(t, expChunks, chks)
 
 					err = ir.Series(storage.SeriesRef(s1ID+1), &b, &chks)
-					require.Equal(t, storage.ErrNotFound, err)
+					require.ErrorIs(t, err, storage.ErrNotFound)
 				})
 			}
 		}
@@ -506,7 +506,7 @@ func testOOOHeadChunkReader_Chunk(t *testing.T, scenario sampleTypeScenario) {
 			Ref: 0x1800000, Chunk: chunkenc.Chunk(nil), MinTime: 100, MaxTime: 300,
 		})
 		require.Nil(t, iterable)
-		require.Equal(t, err, fmt.Errorf("not found"))
+		require.ErrorIs(t, err, storage.ErrNotFound)
 		require.Nil(t, c)
 	})
 

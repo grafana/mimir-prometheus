@@ -344,7 +344,7 @@ func BenchmarkLoadWLs(b *testing.B) {
 
 					// Write mmapped chunks.
 					if c.mmappedChunkT != 0 {
-						chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, mmappedChunksDir(dir), chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
+						chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, mmappedChunksDir(dir), chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize, nil)
 						require.NoError(b, err)
 						cOpts := chunkOpts{
 							chunkDiskMapper: chunkDiskMapper,
@@ -718,15 +718,15 @@ func TestHead_ReadWAL(t *testing.T) {
 				return x
 			}
 
-			c, _, _, err := s10.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+			c, _, _, err := s10.chunk(0, head.chunkDiskMapper, &head.memChunkPool, 0, 0, 0)
 			require.NoError(t, err)
 			require.Equal(t, []sample{{100, 2, nil, nil}, {101, 5, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
-			c, _, _, err = s50.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+			c, _, _, err = s50.chunk(0, head.chunkDiskMapper, &head.memChunkPool, 0, 0, 0)
 			require.NoError(t, err)
 			require.Equal(t, []sample{{101, 6, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
 			// The samples before the new series record should be discarded since a duplicate record
 			// is only possible when old samples were compacted.
-			c, _, _, err = s100.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+			c, _, _, err = s100.chunk(0, head.chunkDiskMapper, &head.memChunkPool, 0, 0, 0)
 			require.NoError(t, err)
 			require.Equal(t, []sample{{101, 7, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
 
@@ -1006,7 +1006,7 @@ func TestHead_Truncate(t *testing.T) {
 func TestMemSeries_truncateChunks(t *testing.T) {
 	dir := t.TempDir()
 	// This is usually taken from the Head, but passing manually here.
-	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
+	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize, nil)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, chunkDiskMapper.Close())
@@ -1035,21 +1035,21 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 	// that the ID of the last chunk still gives us the same chunk afterwards.
 	countBefore := len(s.mmappedChunks) + 1 // +1 for the head chunk.
 	lastID := s.headChunkID(countBefore - 1)
-	lastChunk, _, _, err := s.chunk(lastID, chunkDiskMapper, &memChunkPool)
+	lastChunk, _, _, err := s.chunk(lastID, chunkDiskMapper, &memChunkPool, 0, 0, 0)
 	require.NoError(t, err)
 	require.NotNil(t, lastChunk)
 
-	chk, _, _, err := s.chunk(0, chunkDiskMapper, &memChunkPool)
+	chk, _, _, err := s.chunk(0, chunkDiskMapper, &memChunkPool, 0, 0, 0)
 	require.NotNil(t, chk)
 	require.NoError(t, err)
 
 	s.truncateChunksBefore(2000, 0)
 
 	require.Equal(t, int64(2000), s.mmappedChunks[0].minTime)
-	_, _, _, err = s.chunk(0, chunkDiskMapper, &memChunkPool)
-	require.Equal(t, storage.ErrNotFound, err, "first chunks not gone")
+	_, _, _, err = s.chunk(0, chunkDiskMapper, &memChunkPool, 0, 0, 0)
+	require.ErrorIs(t, err, storage.ErrNotFound, "first chunks not gone")
 	require.Equal(t, countBefore/2, len(s.mmappedChunks)+1) // +1 for the head chunk.
-	chk, _, _, err = s.chunk(lastID, chunkDiskMapper, &memChunkPool)
+	chk, _, _, err = s.chunk(lastID, chunkDiskMapper, &memChunkPool, 0, 0, 0)
 	require.NoError(t, err)
 	require.Equal(t, lastChunk, chk)
 }
@@ -1158,7 +1158,7 @@ func TestMemSeries_truncateChunks_scenarios(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
+			chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize, nil)
 			require.NoError(t, err)
 			defer func() {
 				require.NoError(t, chunkDiskMapper.Close())
@@ -1727,7 +1727,7 @@ func TestComputeChunkEndTime(t *testing.T) {
 func TestMemSeries_append(t *testing.T) {
 	dir := t.TempDir()
 	// This is usually taken from the Head, but passing manually here.
-	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
+	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize, nil)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, chunkDiskMapper.Close())
@@ -1788,7 +1788,7 @@ func TestMemSeries_append(t *testing.T) {
 func TestMemSeries_appendHistogram(t *testing.T) {
 	dir := t.TempDir()
 	// This is usually taken from the Head, but passing manually here.
-	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
+	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize, nil)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, chunkDiskMapper.Close())
@@ -1850,7 +1850,7 @@ func TestMemSeries_append_atVariableRate(t *testing.T) {
 	const samplesPerChunk = 120
 	dir := t.TempDir()
 	// This is usually taken from the Head, but passing manually here.
-	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
+	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, chunkDiskMapper.Close())
@@ -1950,7 +1950,7 @@ func TestGCChunkAccess(t *testing.T) {
 	require.NoError(t, h.Truncate(1500)) // Remove a chunk.
 
 	_, _, err = cr.ChunkOrIterable(chunks[0])
-	require.Equal(t, storage.ErrNotFound, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
 	_, _, err = cr.ChunkOrIterable(chunks[1])
 	require.NoError(t, err)
 }
@@ -2011,9 +2011,9 @@ func TestGCSeriesAccess(t *testing.T) {
 	require.Equal(t, (*memSeries)(nil), h.series.getByID(1))
 
 	_, _, err = cr.ChunkOrIterable(chunks[0])
-	require.Equal(t, storage.ErrNotFound, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
 	_, _, err = cr.ChunkOrIterable(chunks[1])
-	require.Equal(t, storage.ErrNotFound, err)
+	require.ErrorIs(t, err, storage.ErrNotFound)
 }
 
 func TestUncommittedSamplesNotLostOnTruncate(t *testing.T) {
@@ -3283,7 +3283,7 @@ func BenchmarkHeadLabelValuesWithMatchers(b *testing.B) {
 func TestIteratorSeekIntoBuffer(t *testing.T) {
 	dir := t.TempDir()
 	// This is usually taken from the Head, but passing manually here.
-	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
+	chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize, nil)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, chunkDiskMapper.Close())
@@ -3305,7 +3305,7 @@ func TestIteratorSeekIntoBuffer(t *testing.T) {
 		New: func() interface{} {
 			return &memChunk{}
 		},
-	})
+	}, 0, 0, 0)
 	require.NoError(t, err)
 	it := c.chunk.Iterator(nil)
 
@@ -5691,7 +5691,7 @@ func TestSnapshotAheadOfWALError(t *testing.T) {
 
 	// Verify that snapshot directory does not exist anymore.
 	_, _, _, err = LastChunkSnapshot(head.opts.ChunkDirRoot)
-	require.Equal(t, record.ErrNotFound, err)
+	require.ErrorIs(t, err, record.ErrNotFound)
 
 	require.NoError(t, head.Close())
 }

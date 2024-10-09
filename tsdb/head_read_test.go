@@ -377,7 +377,7 @@ func TestMemSeries_chunk(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize)
+			chunkDiskMapper, err := chunks.NewChunkDiskMapper(nil, dir, chunkenc.NewPool(), chunks.DefaultWriteBufferSize, chunks.DefaultWriteQueueSize, nil)
 			require.NoError(t, err)
 			defer func() {
 				require.NoError(t, chunkDiskMapper.Close())
@@ -389,7 +389,7 @@ func TestMemSeries_chunk(t *testing.T) {
 				tc.setup(t, series, chunkDiskMapper)
 			}
 
-			chk, headChunk, isOpen, err := series.chunk(tc.inputID, chunkDiskMapper, memChunkPool)
+			chk, headChunk, isOpen, err := series.chunk(tc.inputID, chunkDiskMapper, memChunkPool, 0, 0, 0)
 			switch tc.expected {
 			case outOpenHeadChunk:
 				require.NoError(t, err, "unexpected error")
