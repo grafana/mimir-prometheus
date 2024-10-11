@@ -2391,7 +2391,6 @@ func TestGroup_Eval_RaceCondition(t *testing.T) {
 				wg.Done()
 			}()
 		}
-
 	}
 
 	wg.Wait()
