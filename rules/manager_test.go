@@ -2357,6 +2357,46 @@ func TestUpdateWhenStopped(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestGroup_Eval_RaceCondition(t *testing.T) {
+	storage := teststorage.New(t)
+	t.Cleanup(func() { storage.Close() })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	var (
+		inflightQueries atomic.Int32
+		maxInflight     atomic.Int32
+		maxConcurrency  int64 = 10
+		groupCount            = 2
+	)
+
+	files := []string{"fixtures/rules_multiple_groups.yaml"}
+
+	ruleManager := NewManager(optsFactory(storage, &maxInflight, &inflightQueries, maxConcurrency))
+
+	groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, files...)
+	require.Empty(t, errs)
+	require.Len(t, groups, groupCount)
+
+	// Evaluate groups concurrently (like they normally do).
+	var wg sync.WaitGroup
+	for _, group := range groups {
+		group := group
+
+		for i := 0; i < 100; i++ {
+			wg.Add(1)
+			go func() {
+				group.Eval(ctx, time.Now())
+				wg.Done()
+			}()
+		}
+
+	}
+
+	wg.Wait()
+}
+
 const artificialDelay = 250 * time.Millisecond
 
 func optsFactory(storage storage.Storage, maxInflight, inflightQueries *atomic.Int32, maxConcurrent int64) *ManagerOptions {
