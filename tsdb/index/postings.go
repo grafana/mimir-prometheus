@@ -524,8 +524,16 @@ type intersectPostings struct {
 	cur storage.SeriesRef
 }
 
+var intersectPostingsPool = sync.Pool{New: func() any { return &intersectPostings{} }}
+
 func newIntersectPostings(its ...Postings) *intersectPostings {
-	return &intersectPostings{arr: its}
+	it := intersectPostingsPool.Get().(*intersectPostings)
+	it.arr = its
+	runtime.SetFinalizer(it, func(it *intersectPostings) {
+		*it = intersectPostings{}
+		intersectPostingsPool.Put(it)
+	})
+	return it
 }
 
 func (it *intersectPostings) At() storage.SeriesRef {
@@ -663,11 +671,17 @@ type removedPostings struct {
 	fok, rok    bool
 }
 
+var removedPostingsPool = sync.Pool{New: func() any { return &removedPostings{} }}
+
 func newRemovedPostings(full, remove Postings) *removedPostings {
-	return &removedPostings{
-		full:   full,
-		remove: remove,
-	}
+	it := removedPostingsPool.Get().(*removedPostings)
+	it.full = full
+	it.remove = remove
+	runtime.SetFinalizer(it, func(it *removedPostings) {
+		*it = removedPostings{}
+		removedPostingsPool.Put(it)
+	})
+	return it
 }
 
 func (rp *removedPostings) At() storage.SeriesRef {
@@ -736,8 +750,16 @@ func NewListPostings(list []storage.SeriesRef) Postings {
 	return newListPostings(list...)
 }
 
+var listPostingsPool = sync.Pool{New: func() any { return &ListPostings{} }}
+
 func newListPostings(list ...storage.SeriesRef) *ListPostings {
-	return &ListPostings{list: list}
+	it := listPostingsPool.Get().(*ListPostings)
+	it.list = list
+	runtime.SetFinalizer(it, func(it *ListPostings) {
+		*it = ListPostings{}
+		listPostingsPool.Put(it)
+	})
+	return it
 }
 
 func (it *ListPostings) At() storage.SeriesRef {
@@ -785,8 +807,16 @@ type bigEndianPostings struct {
 	cur  uint32
 }
 
+var bigEndianPostingsPool = sync.Pool{New: func() any { return &bigEndianPostings{} }}
+
 func newBigEndianPostings(list []byte) *bigEndianPostings {
-	return &bigEndianPostings{list: list}
+	it := bigEndianPostingsPool.Get().(*bigEndianPostings)
+	it.list = list
+	runtime.SetFinalizer(it, func(it *bigEndianPostings) {
+		*it = bigEndianPostings{}
+		bigEndianPostingsPool.Put(it)
+	})
+	return it
 }
 
 func (it *bigEndianPostings) At() storage.SeriesRef {
