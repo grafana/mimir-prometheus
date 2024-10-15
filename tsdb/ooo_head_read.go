@@ -335,6 +335,7 @@ func NewOOOCompactionHead(ctx context.Context, head *Head) (*OOOCompactionHead, 
 	p = hr.SortedPostings(p)
 
 	var lastSeq, lastOff int
+	defer index.MaybeRecyclePostings(p)
 	for p.Next() {
 		seriesRef := p.At()
 		ms := head.series.getByID(chunks.HeadSeriesRef(seriesRef))

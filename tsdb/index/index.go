@@ -1575,6 +1575,7 @@ func (r *Reader) LabelNamesFor(ctx context.Context, postings Postings) ([]string
 	// Gather offsetsMap the name offsetsMap in the symbol table first
 	offsetsMap := make(map[uint32]struct{})
 	i := 0
+	defer MaybeRecyclePostings(postings)
 	for postings.Next() {
 		id := postings.At()
 		i++
@@ -1869,6 +1870,7 @@ func (r *Reader) ShardedPostings(p Postings, shardIndex, shardCount uint64) Post
 		seriesHashCache = r.cacheProvider.SeriesHashCache()
 	}
 
+	defer MaybeRecyclePostings(p)
 	for p.Next() {
 		id := p.At()
 

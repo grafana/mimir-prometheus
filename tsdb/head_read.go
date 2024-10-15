@@ -133,6 +133,7 @@ func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
 	series := make([]*memSeries, 0, 128)
 
 	// Fetch all the series only once.
+	defer index.MaybeRecyclePostings(p)
 	for p.Next() {
 		s := h.head.series.getByID(chunks.HeadSeriesRef(p.At()))
 		if s == nil {
@@ -165,7 +166,7 @@ func (h *headIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 	}
 
 	out := make([]storage.SeriesRef, 0, 128)
-
+	defer index.MaybeRecyclePostings(p)
 	for p.Next() {
 		s := h.head.series.getByID(chunks.HeadSeriesRef(p.At()))
 		if s == nil {
@@ -299,6 +300,7 @@ func (h *headIndexReader) LabelValueFor(_ context.Context, id storage.SeriesRef,
 func (h *headIndexReader) LabelNamesFor(ctx context.Context, series index.Postings) ([]string, error) {
 	namesMap := make(map[string]struct{})
 	i := 0
+	defer index.MaybeRecyclePostings(series)
 	for series.Next() {
 		i++
 		if i%checkContextEveryNIterations == 0 && ctx.Err() != nil {

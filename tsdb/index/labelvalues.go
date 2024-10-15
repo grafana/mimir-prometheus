@@ -270,6 +270,8 @@ func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatc
 
 // intersect returns whether p1 and p2 have at least one series in common.
 func intersect(p1, p2 Postings) bool {
+	defer MaybeRecyclePostings(p1)
+	defer MaybeRecyclePostings(p2)
 	if !p1.Next() || !p2.Next() {
 		return false
 	}
@@ -302,6 +304,8 @@ func intersect(p1, p2 Postings) bool {
 
 // contains returns whether subp is contained in p.
 func contains(p, subp Postings) bool {
+	defer MaybeRecyclePostings(p)
+	defer MaybeRecyclePostings(subp)
 	for subp.Next() {
 		if needle := subp.At(); !p.Seek(needle) || p.At() != needle {
 			return false
