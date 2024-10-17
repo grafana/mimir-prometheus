@@ -948,6 +948,18 @@ func debugOutOfOrderChunks(lbls labels.Labels, chks []chunks.Meta, logger log.Lo
 	for i := 1; i < len(chks); i++ {
 		currChk := chks[i]
 
+		if currChk.Chunk != nil && (currChk.Chunk.Encoding() == chunkenc.EncHistogram || currChk.Chunk.Encoding() == chunkenc.EncFloatHistogram) {
+			sit := currChk.Chunk.Iterator(nil)
+			for sit.Next() != chunkenc.ValNone {
+				t := sit.AtT()
+				if t < currChk.MinTime || t > currChk.MaxTime {
+					level.Error(logger).Log(
+						"msg", "found out-of-range sample in chunk", "t", t, "min_time", currChk.MinTime, "max_time", currChk.MaxTime, "ref", currChk.Ref,
+					)
+				}
+			}
+		}
+
 		if currChk.MinTime > prevChk.MaxTime {
 			// Not out of order.
 			continue
