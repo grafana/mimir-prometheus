@@ -508,6 +508,7 @@ func analyzeBlock(ctx context.Context, path, blockID string, limit int, runExten
 
 	chks := []chunks.Meta{}
 	builder := labels.ScratchBuilder{}
+	defer index.MaybeRecyclePostings(p)
 	for p.Next() {
 		if err = ir.Series(p.At(), &builder, &chks); err != nil {
 			return err
@@ -636,6 +637,7 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 	histogramChunkSize := make([]int, 0)
 	histogramChunkBucketsCount := make([]int, 0)
 	var builder labels.ScratchBuilder
+	defer index.MaybeRecyclePostings(postingsr)
 	for postingsr.Next() {
 		var chks []chunks.Meta
 		if err := indexr.Series(postingsr.At(), &builder, &chks); err != nil {
