@@ -426,6 +426,7 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 		return allValues, nil
 	}
 
+	// p will be recycled by the FindIntersectingPostings call below.
 	p, err := r.PostingsForMatchers(ctx, false, matchers...)
 	if err != nil {
 		return nil, fmt.Errorf("fetching postings for matchers: %w", err)
@@ -456,11 +457,13 @@ func labelValuesWithMatchers(ctx context.Context, r IndexReader, name string, ma
 		}
 
 		// If we haven't reached end of postings, we prepend our expanded postings to "p", and continue.
+		// p will be recycled by the FindIntersectingPostings call below.
 		p = newPrependPostings(expanded, p)
 	}
 
 	valuesPostings := make([]index.Postings, len(allValues))
 	for i, value := range allValues {
+		// valuesPostings[i], will be recycled by the FindIntersectingPostings call below.
 		valuesPostings[i], err = r.Postings(ctx, name, value)
 		if err != nil {
 			return nil, fmt.Errorf("fetching postings for %s=%q: %w", name, value, err)

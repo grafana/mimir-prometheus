@@ -1548,6 +1548,7 @@ func (h *Head) Delete(ctx context.Context, mint, maxt int64, ms ...*labels.Match
 	}
 
 	var stones []tombstones.Stone
+	defer index.MaybeRecyclePostings(p)
 	for p.Next() {
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("select series: %w", err)
