@@ -371,7 +371,7 @@ func TestFindSetMatches(t *testing.T) {
 			parsed, err := syntax.Parse(c.pattern, syntax.Perl)
 			require.NoError(t, err)
 			matches, actualCaseSensitive := findSetMatches(parsed)
-			require.Equal(t, c.expMatches, matches)
+			require.ElementsMatch(t, c.expMatches, matches)
 			require.Equal(t, c.expCaseSensitive, actualCaseSensitive)
 
 			if c.expCaseSensitive {
@@ -379,7 +379,7 @@ func TestFindSetMatches(t *testing.T) {
 				// set matches are maintained in the final matcher.
 				r, err := newFastRegexMatcherWithoutCache(c.pattern)
 				require.NoError(t, err)
-				require.Equal(t, c.expMatches, r.SetMatches())
+				require.ElementsMatch(t, c.expMatches, r.SetMatches())
 			}
 		})
 	}
@@ -489,9 +489,9 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		{"^(?i:foo)$", &equalStringMatcher{s: "FOO", caseSensitive: false}},
 		{"^((?i:foo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
 		{`(?i:((foo|bar)))`, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "BAR", caseSensitive: false}})},
-		{`(?i:((foo1|foo2|bar)))`, orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}}), &equalStringMatcher{s: "BAR", caseSensitive: false}})},
+		{`(?i:((foo1|foo2|bar)))`, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "BAR", caseSensitive: false}, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}})})},
 		{"^((?i:foo|oo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "OO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
-		{"(?i:(foo1|foo2|bar))", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}}), &equalStringMatcher{s: "BAR", caseSensitive: false}})},
+		{"(?i:(foo1|foo2|bar))", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "BAR", caseSensitive: false}, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}})})},
 		{".*foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: anyStringWithoutNewlineMatcher{}, right: anyStringWithoutNewlineMatcher{}}},
 		{"(.*)foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: anyStringWithoutNewlineMatcher{}, right: anyStringWithoutNewlineMatcher{}}},
 		{"(.*)foo(.*)", &containsStringMatcher{substrings: []string{"foo"}, left: anyStringWithoutNewlineMatcher{}, right: anyStringWithoutNewlineMatcher{}}},
@@ -508,7 +508,7 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		{"(prometheus|api_prom)_api_v1_.+", &containsStringMatcher{substrings: []string{"prometheus_api_v1_", "api_prom_api_v1_"}, left: nil, right: &anyNonEmptyStringMatcher{matchNL: false}}},
 		{"^((.*)(bar|b|buzz)(.+)|foo)$", orStringMatcher([]StringMatcher{&containsStringMatcher{substrings: []string{"bar", "b", "buzz"}, left: anyStringWithoutNewlineMatcher{}, right: &anyNonEmptyStringMatcher{matchNL: false}}, &equalStringMatcher{s: "foo", caseSensitive: true}})},
 		{"((fo(bar))|.+foo)", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "fobar", caseSensitive: true}}), &literalSuffixStringMatcher{suffix: "foo", suffixCaseSensitive: true, left: &anyNonEmptyStringMatcher{matchNL: false}}})},
-		{"(.+)/(gateway|cortex-gw|cortex-gw-internal)", &containsStringMatcher{substrings: []string{"/gateway", "/cortex-gw", "/cortex-gw-internal"}, left: &anyNonEmptyStringMatcher{matchNL: false}, right: nil}},
+		{"(.+)/(gateway|cortex-gw|cortex-gw-internal)", &containsStringMatcher{substrings: []string{"/cortex-gw", "/cortex-gw-internal", "/gateway"}, left: &anyNonEmptyStringMatcher{matchNL: false}, right: nil}},
 		// we don't support case insensitive matching for contains.
 		// This is because there's no strings.IndexOfFold function.
 		// We can revisit later if this is really popular by using strings.ToUpper.
