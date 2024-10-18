@@ -1045,6 +1045,19 @@ func (p *populateWithDelChunkSeriesIterator) populateCurrForSingleChunk() bool {
 
 	p.currMetaWithChunk.Chunk = newChunk
 	p.currMetaWithChunk.MaxTime = t
+
+	// Verify that the chunks are sane and no samples are outside.
+	if newChunk.Encoding() != chunkenc.EncHistogram && newChunk.Encoding() != chunkenc.EncFloatHistogram {
+		return true
+	}
+	it := newChunk.Iterator(nil)
+	for it.Next() != chunkenc.ValNone {
+		t := it.AtT()
+		if t < p.currMetaWithChunk.MinTime || t > p.currMetaWithChunk.MaxTime {
+			fmt.Printf("KRAJO: populateCurrForSingleChunk: sample outside of chunk: t=%d, mint=%d, maxt=%d\n", t, p.currMetaWithChunk.MinTime, p.currMetaWithChunk.MaxTime)
+		}
+	}
+
 	return true
 }
 
@@ -1156,6 +1169,19 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 
 	if len(p.chunksFromIterable) == 0 {
 		return false
+	}
+
+	for i, chk := range p.chunksFromIterable {
+		if chk.Chunk.Encoding() != chunkenc.EncHistogram && chk.Chunk.Encoding() != chunkenc.EncFloatHistogram {
+			continue
+		}
+		it := chk.Chunk.Iterator(nil)
+		for it.Next() != chunkenc.ValNone {
+			t := it.AtT()
+			if t < chk.MinTime || t > chk.MaxTime {
+				fmt.Printf("KRAJO: populateChunksFromIterable: sample outside of chunk: idx=%d/%d, t=%d, mint=%d, maxt=%d\n", i, len(p.chunksFromIterable), t, chk.MinTime, chk.MaxTime)
+			}
+		}
 	}
 
 	p.currMetaWithChunk = p.chunksFromIterable[0]

@@ -14,6 +14,7 @@
 package tsdb
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -163,5 +164,20 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64) (chks []memChunk, err error
 	if prevEncoding != chunkenc.EncNone {
 		chks = append(chks, memChunk{chunk, cmint, cmaxt, nil})
 	}
+
+	// Verify that the chunks are sane and no samples are outside.
+	for i, chk := range chks {
+		if chk.chunk.Encoding() != chunkenc.EncHistogram && chk.chunk.Encoding() != chunkenc.EncFloatHistogram {
+			continue
+		}
+		it := chk.chunk.Iterator(nil)
+		for it.Next() != chunkenc.ValNone {
+			t := it.AtT()
+			if t < chk.minTime || t > chk.maxTime {
+				fmt.Printf("KRAJO: ToEncodedChunks: sample outside of chunk: i=%d, t=%d, chk.mint=%d, chk.maxt=%d, mint=%d, maxt=%d, len_chks=%d\n", i, t, chk.minTime, chk.maxTime, mint, maxt, len(chks))
+			}
+		}
+	}
+
 	return chks, nil
 }
