@@ -45,20 +45,23 @@ import (
 
 // Group is a set of rules that have a logical relation.
 type Group struct {
-	name                 string
-	file                 string
-	interval             time.Duration
-	queryOffset          *time.Duration
-	limit                int
-	rules                []Rule
-	sourceTenants        []string
-	seriesInPreviousEval []map[string]labels.Labels // One per Rule.
-	staleSeries          []labels.Labels
-	opts                 *ManagerOptions
-	mtx                  sync.Mutex
-	evaluationTime       time.Duration
-	lastEvaluation       time.Time // Wall-clock time of most recent evaluation.
-	lastEvalTimestamp    time.Time // Time slot used for most recent evaluation.
+	name          string
+	file          string
+	interval      time.Duration
+	queryOffset   *time.Duration
+	limit         int
+	rules         []Rule
+	sourceTenants []string
+
+	seriesInPreviousEvalMtx sync.Mutex
+	seriesInPreviousEval    []map[string]labels.Labels // One per Rule.
+
+	staleSeries       []labels.Labels
+	opts              *ManagerOptions
+	mtx               sync.Mutex
+	evaluationTime    time.Duration
+	lastEvaluation    time.Time // Wall-clock time of most recent evaluation.
+	lastEvalTimestamp time.Time // Time slot used for most recent evaluation.
 
 	shouldRestore bool
 
@@ -209,6 +212,20 @@ func (g *Group) Interval() time.Duration { return g.interval }
 // Limit returns the group's limit.
 func (g *Group) Limit() int { return g.limit }
 
+// seriesInPreviousEvalForRuleIndex returns the series for the rule at the given index.
+func (g *Group) seriesInPreviousEvalForRuleIndex(i int) map[string]labels.Labels {
+	g.seriesInPreviousEvalMtx.Lock()
+	defer g.seriesInPreviousEvalMtx.Unlock()
+	return g.seriesInPreviousEval[i]
+}
+
+// setSeriesInPreviousEvalForRule sets the series for the rule at the given index.
+func (g *Group) setSeriesInPreviousEvalForRule(i int, series map[string]labels.Labels) {
+	g.seriesInPreviousEvalMtx.Lock()
+	defer g.seriesInPreviousEvalMtx.Unlock()
+	g.seriesInPreviousEval[i] = series
+}
+
 // SourceTenants returns the source tenants for the group.
 // If it's empty or nil, then the owning user/tenant is considered to be the source tenant.
 func (g *Group) SourceTenants() []string { return g.sourceTenants }
@@ -244,6 +261,7 @@ func (g *Group) run(ctx context.Context) {
 			return
 		}
 		go func(now time.Time) {
+			g.seriesInPreviousEvalMtx.Lock()
 			for _, rule := range g.seriesInPreviousEval {
 				for _, r := range rule {
 					g.staleSeries = append(g.staleSeries, r)
@@ -251,6 +269,7 @@ func (g *Group) run(ctx context.Context) {
 			}
 			// That can be garbage collected at this point.
 			g.seriesInPreviousEval = nil
+			g.seriesInPreviousEvalMtx.Unlock()
 			// Wait for 2 intervals to give the opportunity to renamed rules
 			// to insert new series in the tsdb. At this point if there is a
 			// renamed rule, it should already be started.
@@ -458,7 +477,9 @@ func (g *Group) CopyState(from *Group) {
 			continue
 		}
 		fi := indexes[0]
-		g.seriesInPreviousEval[i] = from.seriesInPreviousEval[fi]
+
+		g.setSeriesInPreviousEvalForRule(i, from.seriesInPreviousEvalForRuleIndex(fi))
+
 		ruleMap[nameAndLabels] = indexes[1:]
 
 		ar, ok := rule.(*AlertingRule)
@@ -481,7 +502,7 @@ func (g *Group) CopyState(from *Group) {
 		nameAndLabels := nameAndLabels(fromRule)
 		l := ruleMap[nameAndLabels]
 		if len(l) != 0 {
-			for _, series := range from.seriesInPreviousEval[fi] {
+			for _, series := range from.seriesInPreviousEvalForRuleIndex(fi) {
 				g.staleSeries = append(g.staleSeries, series)
 			}
 		}
@@ -557,7 +578,8 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 			)
 
 			app := g.opts.Appendable.Appender(ctx)
-			seriesReturned := make(map[string]labels.Labels, len(g.seriesInPreviousEval[i]))
+			seriesReturned := make(map[string]labels.Labels, len(g.seriesInPreviousEvalForRuleIndex(i)))
+
 			defer func() {
 				if err := app.Commit(); err != nil {
 					rule.SetHealth(HealthBad)
@@ -568,7 +590,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 					level.Warn(logger).Log("msg", "Rule sample appending failed", "err", err)
 					return
 				}
-				g.seriesInPreviousEval[i] = seriesReturned
+				g.setSeriesInPreviousEvalForRule(i, seriesReturned)
 			}()
 
 			for _, s := range vector {
@@ -614,7 +636,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 				level.Warn(logger).Log("msg", "Error on ingesting results from rule evaluation with different value but same timestamp", "num_dropped", numDuplicates)
 			}
 
-			for metric, lset := range g.seriesInPreviousEval[i] {
+			for metric, lset := range g.seriesInPreviousEvalForRuleIndex(i) {
 				if _, ok := seriesReturned[metric]; !ok {
 					// Series no longer exposed, mark it stale.
 					_, err = app.Append(0, lset, timestamp.FromTime(ts.Add(-ruleQueryOffset)), math.Float64frombits(value.StaleNaN))
