@@ -513,7 +513,8 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
 	now := time.Now()
 	nowUnixNano := pcommon.Timestamp(now.UnixNano())
-	nowMinus20s := pcommon.Timestamp(now.Add(-20 * time.Second).UnixNano())
+	// nowMinus2m30s := pcommon.Timestamp(now.Add(-2 * time.Minute).Add(-30 * time.Second).UnixNano())
+	// nowMinus6m := pcommon.Timestamp(now.Add(-6 * time.Minute).UnixNano())
 	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
 	tests := []struct {
 		name   string
@@ -591,47 +592,88 @@ func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "histogram with start time within two minutes to sample timestamp",
-			metric: func() pmetric.Metric {
-				metric := pmetric.NewMetric()
-				metric.SetName("test_exponential_hist")
-				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+		//  TODO(@jesusvazquez) Reenable after OOO NH is stable
+		// {
+		// 	name: "histogram with start time within default valid interval to sample timestamp",
+		// 	metric: func() pmetric.Metric {
+		// 		metric := pmetric.NewMetric()
+		// 		metric.SetName("test_exponential_hist")
+		// 		metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
 
-				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
-				pt.SetTimestamp(nowUnixNano)
-				pt.SetStartTimestamp(nowMinus20s)
+		// 		pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+		// 		pt.SetTimestamp(nowUnixNano)
+		// 		pt.SetStartTimestamp(nowMinus2m30s)
 
-				return metric
-			},
-			want: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
-				}
-				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
-						Histograms: []prompb.Histogram{
-							{
-								Timestamp: convertTimeStamp(nowMinus20s),
-							},
-							{
-								Timestamp: convertTimeStamp(nowUnixNano),
-								Count: &prompb.Histogram_CountInt{
-									CountInt: 0,
-								},
-								ZeroCount: &prompb.Histogram_ZeroCountInt{
-									ZeroCountInt: 0,
-								},
-								ZeroThreshold: defaultZeroThreshold,
-							},
-						},
-					},
-				}
-			},
-		},
+		// 		return metric
+		// 	},
+		// 	want: func() map[uint64]*prompb.TimeSeries {
+		// 		labels := []prompb.Label{
+		// 			{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+		// 		}
+		// 		return map[uint64]*prompb.TimeSeries{
+		// 			timeSeriesSignature(labels): {
+		// 				Labels: labels,
+		// 				Histograms: []prompb.Histogram{
+		// 					{
+		// 						Timestamp: convertTimeStamp(nowMinus2m30s),
+		// 					},
+		// 					{
+		// 						Timestamp: convertTimeStamp(nowUnixNano),
+		// 						Count: &prompb.Histogram_CountInt{
+		// 							CountInt: 0,
+		// 						},
+		// 						ZeroCount: &prompb.Histogram_ZeroCountInt{
+		// 							ZeroCountInt: 0,
+		// 						},
+		// 						ZeroThreshold: defaultZeroThreshold,
+		// 					},
+		// 				},
+		// 			},
+		// 		}
+		// 	},
+		// },
+		// {
+		// 	name: "histogram with start time within overiden valid interval to sample timestamp",
+		// 	metric: func() pmetric.Metric {
+		// 		metric := pmetric.NewMetric()
+		// 		metric.SetName("test_exponential_hist")
+		// 		metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+		// 		pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+		// 		pt.SetTimestamp(nowUnixNano)
+		// 		pt.SetStartTimestamp(nowMinus6m)
+
+		// 		return metric
+		// 	},
+		// 	want: func() map[uint64]*prompb.TimeSeries {
+		// 		labels := []prompb.Label{
+		// 			{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+		// 		}
+		// 		return map[uint64]*prompb.TimeSeries{
+		// 			timeSeriesSignature(labels): {
+		// 				Labels: labels,
+		// 				Histograms: []prompb.Histogram{
+		// 					{
+		// 						Timestamp: convertTimeStamp(nowMinus6m),
+		// 					},
+		// 					{
+		// 						Timestamp: convertTimeStamp(nowUnixNano),
+		// 						Count: &prompb.Histogram_CountInt{
+		// 							CountInt: 0,
+		// 						},
+		// 						ZeroCount: &prompb.Histogram_ZeroCountInt{
+		// 							ZeroCountInt: 0,
+		// 						},
+		// 						ZeroThreshold: defaultZeroThreshold,
+		// 					},
+		// 				},
+		// 			},
+		// 		}
+		// 	},
+		// 	overrideValidInterval: 10 * time.Minute,
+		// },
 		{
-			name: "histogram with start time older than two minutes to sample timestamp",
+			name: "histogram with start time older than default valid interval to sample timestamp",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_exponential_hist")
