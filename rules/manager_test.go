@@ -2361,9 +2361,6 @@ func TestGroup_Eval_RaceCondition(t *testing.T) {
 	storage := teststorage.New(t)
 	t.Cleanup(func() { storage.Close() })
 
-	// ctx, cancel := context.WithCancel(context.Background())
-	// t.Cleanup(cancel)
-
 	var (
 		inflightQueries atomic.Int32
 		maxInflight     atomic.Int32
