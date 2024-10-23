@@ -2357,7 +2357,7 @@ func TestUpdateWhenStopped(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestGroup_Eval_RaceCondition(t *testing.T) {
+func TestGroup_Eval_RaceConditionOnStoppingGroupEvaluationWhileRulesAreEvaluatedConcurrently(t *testing.T) {
 	storage := teststorage.New(t)
 	t.Cleanup(func() { storage.Close() })
 
