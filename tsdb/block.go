@@ -629,6 +629,7 @@ func (pb *Block) Delete(ctx context.Context, mint, maxt int64, ms ...*labels.Mat
 	if err != nil {
 		return fmt.Errorf("select series: %w", err)
 	}
+	defer index.MaybeRecyclePostings(p)
 
 	ir := pb.indexr
 

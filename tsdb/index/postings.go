@@ -447,6 +447,7 @@ func (p *MemPostings) labelValues(name string) []string {
 
 // ExpandPostings returns the postings expanded as a slice.
 func ExpandPostings(p Postings) (res []storage.SeriesRef, err error) {
+	defer MaybeRecyclePostings(p)
 	for p.Next() {
 		res = append(res, p.At())
 	}
@@ -524,8 +525,23 @@ type intersectPostings struct {
 	cur storage.SeriesRef
 }
 
+var (
+	intersectPostingsPool          = sync.Pool{New: func() any { return new(intersectPostings) }}
+	_                     recycler = new(intersectPostings)
+)
+
 func newIntersectPostings(its ...Postings) *intersectPostings {
-	return &intersectPostings{arr: its}
+	it := intersectPostingsPool.Get().(*intersectPostings)
+	it.arr = its
+	return it
+}
+
+func (it *intersectPostings) Recycle() {
+	for _, p := range it.arr {
+		MaybeRecyclePostings(p)
+	}
+	*it = intersectPostings{}
+	intersectPostingsPool.Put(it)
 }
 
 func (it *intersectPostings) At() storage.SeriesRef {
@@ -596,10 +612,26 @@ type mergedPostings struct {
 	cur storage.SeriesRef
 }
 
+var (
+	mergedPostingsPool          = sync.Pool{New: func() any { return new(mergedPostings) }}
+	_                  recycler = new(mergedPostings)
+)
+
 func newMergedPostings(p []Postings) (m *mergedPostings, nonEmpty bool) {
 	const maxVal = storage.SeriesRef(math.MaxUint64) // This value must be higher than all real values used in the tree.
 	lt := loser.New(p, maxVal)
-	return &mergedPostings{p: p, h: lt}, true
+	it := mergedPostingsPool.Get().(*mergedPostings)
+	it.p = p
+	it.h = lt
+	return it, true
+}
+
+func (it *mergedPostings) Recycle() {
+	for _, p := range it.p {
+		MaybeRecyclePostings(p)
+	}
+	*it = mergedPostings{}
+	mergedPostingsPool.Put(it)
 }
 
 func (it *mergedPostings) Next() bool {
@@ -663,18 +695,30 @@ type removedPostings struct {
 	fok, rok    bool
 }
 
+var (
+	removedPostingsPool          = sync.Pool{New: func() any { return new(removedPostings) }}
+	_                   recycler = new(removedPostings)
+)
+
 func newRemovedPostings(full, remove Postings) *removedPostings {
-	return &removedPostings{
-		full:   full,
-		remove: remove,
-	}
+	it := removedPostingsPool.Get().(*removedPostings)
+	it.full = full
+	it.remove = remove
+	return it
+}
+
+func (rp *removedPostings) Recycle() {
+	MaybeRecyclePostings(rp.full)
+	MaybeRecyclePostings(rp.remove)
+	*rp = removedPostings{}
+	removedPostingsPool.Put(rp)
 }
 
 func (rp *removedPostings) At() storage.SeriesRef {
 	return rp.cur
 }
 
-func (rp *removedPostings) Next() bool {
+func (rp *removedPostings) Next() (next bool) {
 	if !rp.initialized {
 		rp.fok = rp.full.Next()
 		rp.rok = rp.remove.Next()
@@ -732,12 +776,24 @@ type ListPostings struct {
 	cur  storage.SeriesRef
 }
 
+var (
+	listPostingsPool          = sync.Pool{New: func() any { return new(ListPostings) }}
+	_                recycler = new(ListPostings)
+)
+
 func NewListPostings(list []storage.SeriesRef) Postings {
 	return newListPostings(list...)
 }
 
 func newListPostings(list ...storage.SeriesRef) *ListPostings {
-	return &ListPostings{list: list}
+	it := listPostingsPool.Get().(*ListPostings)
+	it.list = list
+	return it
+}
+
+func (it *ListPostings) Recycle() {
+	*it = ListPostings{}
+	listPostingsPool.Put(it)
 }
 
 func (it *ListPostings) At() storage.SeriesRef {
@@ -785,8 +841,20 @@ type bigEndianPostings struct {
 	cur  uint32
 }
 
+var (
+	bigEndianPostingsPool          = sync.Pool{New: func() any { return new(bigEndianPostings) }}
+	_                     recycler = new(bigEndianPostings)
+)
+
 func newBigEndianPostings(list []byte) *bigEndianPostings {
-	return &bigEndianPostings{list: list}
+	it := bigEndianPostingsPool.Get().(*bigEndianPostings)
+	it.list = list
+	return it
+}
+
+func (it *bigEndianPostings) Recycle() {
+	*it = bigEndianPostings{}
+	bigEndianPostingsPool.Put(it)
 }
 
 func (it *bigEndianPostings) At() storage.SeriesRef {
@@ -852,8 +920,10 @@ func (c *PostingsCloner) Clone() Postings {
 // if intersection is non empty, then i is added to the indexes returned.
 // Returned indexes are not sorted.
 func FindIntersectingPostings(p Postings, candidates []Postings) (indexes []int, err error) {
+	defer MaybeRecyclePostings(p)
 	h := make(postingsWithIndexHeap, 0, len(candidates))
 	for idx, it := range candidates {
+		defer MaybeRecyclePostings(candidates[idx])
 		switch {
 		case it.Next():
 			h = append(h, postingsWithIndex{index: idx, p: it})
@@ -885,8 +955,10 @@ func FindIntersectingPostings(p Postings, candidates []Postings) (indexes []int,
 // The idea is the need to find postings iterators not fully contained in a set you wish to exclude.
 // Returned indexes are not sorted.
 func findNonContainedPostings(p Postings, candidates []Postings) (indexes []int, err error) {
+	defer MaybeRecyclePostings(p)
 	h := make(postingsWithIndexHeap, 0, len(candidates))
 	for idx, it := range candidates {
+		defer MaybeRecyclePostings(candidates[idx])
 		switch {
 		case it.Next():
 			h = append(h, postingsWithIndex{index: idx, p: it})
@@ -957,6 +1029,7 @@ func (h postingsWithIndexHeap) at() storage.SeriesRef { return h[0].p.At() }
 // If Next() returns fails and there's no error reported by Postings.Err(), then root is marked as removed and heap is fixed.
 func (h *postingsWithIndexHeap) next() error {
 	pi := (*h)[0]
+	// recycled in the caller.
 	next := pi.p.Next()
 	if next {
 		heap.Fix(h, 0)
@@ -1001,4 +1074,17 @@ func (h *postingsWithIndexHeap) Pop() interface{} {
 	x := old[n-1]
 	*h = old[0 : n-1]
 	return x
+}
+
+func MaybeRecyclePostings(p Postings) {
+	if r, ok := p.(recycler); ok {
+		r.Recycle()
+	}
+}
+
+// recycler is an interface for types that can be recycled.
+// it's not exported to avoid creating a contract on its name.
+// it's not anonymous to allow us enforce it on some types.
+type recycler interface {
+	Recycle()
 }
