@@ -2377,9 +2377,14 @@ func TestGroup_Eval_RaceConditionOnStoppingGroupEvaluationWhileRulesAreEvaluated
 	<-ruleManager.block
 
 	// Update the group a decent number of times to simulate start and stopping in the middle of an evaluation.
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 10; i++ {
 		err := ruleManager.Update(time.Second, files, labels.EmptyLabels(), "", nil)
 		require.NoError(t, err)
+
+		// Wait half of the query execution duration and then change the rule groups loaded by the manager
+		// so that the previous rule group will be interrupted while the query is executing.
+		time.Sleep(artificialDelay / 2)
+
 		err = ruleManager.Update(time.Second, files2, labels.EmptyLabels(), "", nil)
 		require.NoError(t, err)
 	}
