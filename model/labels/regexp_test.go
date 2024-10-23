@@ -454,7 +454,8 @@ func BenchmarkToNormalizedLower(b *testing.B) {
 							}
 							b.ResetTimer()
 							for n := 0; n < b.N; n++ {
-								toNormalisedLower(inputs[n%len(inputs)])
+								var a [256]byte
+								toNormalisedLower(inputs[n%len(inputs)], a[:])
 							}
 						})
 					}
@@ -1759,6 +1760,6 @@ func TestToNormalisedLower(t *testing.T) {
 		"ſſAſſa": "ssassa",
 	}
 	for input, expectedOutput := range testCases {
-		require.Equal(t, expectedOutput, toNormalisedLower(input))
+		require.Equal(t, expectedOutput, toNormalisedLower(input, nil))
 	}
 }
