@@ -6163,7 +6163,7 @@ func testOOOInterleavedImplicitCounterResets(t *testing.T, name string, scenario
 			},
 			expectedChunks: []expectedChunk{
 				{histogram.UnknownCounterReset, 2}, // I1+O2.
-				{histogram.CounterReset, 2},        // O2.I2.
+				{histogram.UnknownCounterReset, 2}, // O2.I2.
 			},
 		},
 		"counter reset in OOO mmapped chunk cleared by in-memory ooo chunk": {
@@ -6190,8 +6190,9 @@ func testOOOInterleavedImplicitCounterResets(t *testing.T, name string, scenario
 			},
 			expectedChunks: []expectedChunk{
 				{histogram.UnknownCounterReset, 3}, // MO1.
-				{histogram.CounterReset, 2},        // O1+MO2.
-				{histogram.CounterReset, 3},        // MO3+I1.
+				{histogram.UnknownCounterReset, 1}, // O1.
+				{histogram.UnknownCounterReset, 1}, // MO2.
+				{histogram.UnknownCounterReset, 3}, // MO3+I1.
 			},
 		},
 		"counter reset in OOO mmapped chunk cleared by another OOO mmaped chunk": {
@@ -6218,7 +6219,9 @@ func testOOOInterleavedImplicitCounterResets(t *testing.T, name string, scenario
 			},
 			expectedChunks: []expectedChunk{
 				{histogram.UnknownCounterReset, 1}, // MO1.
-				{histogram.CounterReset, 7},        // MO3+MO2+O1+I1.
+				{histogram.UnknownCounterReset, 3}, // MO3
+				{histogram.UnknownCounterReset, 2}, // MO2
+				{histogram.UnknownCounterReset, 2}, // O1+I1.
 			},
 		},
 	}
