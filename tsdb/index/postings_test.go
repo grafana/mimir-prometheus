@@ -124,8 +124,8 @@ func BenchmarkMemPostings_ensureOrder(b *testing.B) {
 }
 
 func TestIntersect(t *testing.T) {
-	a := newListPostings(1, 2, 3)
-	b := newListPostings(2, 3, 4)
+	a := func() Postings { return newListPostings(1, 2, 3) }
+	b := func() Postings { return newListPostings(2, 3, 4) }
 
 	cases := []struct {
 		in []Postings
@@ -137,31 +137,31 @@ func TestIntersect(t *testing.T) {
 			res: EmptyPostings(),
 		},
 		{
-			in:  []Postings{a, b, EmptyPostings()},
+			in:  []Postings{a(), b(), EmptyPostings()},
 			res: EmptyPostings(),
 		},
 		{
-			in:  []Postings{b, a, EmptyPostings()},
+			in:  []Postings{b(), a(), EmptyPostings()},
 			res: EmptyPostings(),
 		},
 		{
-			in:  []Postings{EmptyPostings(), b, a},
+			in:  []Postings{EmptyPostings(), b(), a()},
 			res: EmptyPostings(),
 		},
 		{
-			in:  []Postings{EmptyPostings(), a, b},
+			in:  []Postings{EmptyPostings(), a(), b()},
 			res: EmptyPostings(),
 		},
 		{
-			in:  []Postings{a, EmptyPostings(), b},
+			in:  []Postings{a(), EmptyPostings(), b()},
 			res: EmptyPostings(),
 		},
 		{
-			in:  []Postings{b, EmptyPostings(), a},
+			in:  []Postings{b(), EmptyPostings(), a()},
 			res: EmptyPostings(),
 		},
 		{
-			in:  []Postings{b, EmptyPostings(), a, a, b, a, a, a},
+			in:  []Postings{b(), EmptyPostings(), a(), a(), b(), a(), a(), a()},
 			res: EmptyPostings(),
 		},
 		{
