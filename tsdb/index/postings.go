@@ -513,6 +513,7 @@ func Intersect(its ...Postings) Postings {
 	}
 	for _, p := range its {
 		if p == EmptyPostings() {
+			maybeRecycleAllPostings(its)
 			return EmptyPostings()
 		}
 	}
@@ -537,9 +538,7 @@ func newIntersectPostings(its ...Postings) *intersectPostings {
 }
 
 func (it *intersectPostings) Recycle() {
-	for _, p := range it.arr {
-		MaybeRecyclePostings(p)
-	}
+	maybeRecycleAllPostings(it.arr)
 	*it = intersectPostings{}
 	intersectPostingsPool.Put(it)
 }
@@ -627,9 +626,7 @@ func newMergedPostings(p []Postings) (m *mergedPostings, nonEmpty bool) {
 }
 
 func (it *mergedPostings) Recycle() {
-	for _, p := range it.p {
-		MaybeRecyclePostings(p)
-	}
+	maybeRecycleAllPostings(it.p)
 	*it = mergedPostings{}
 	mergedPostingsPool.Put(it)
 }
@@ -677,6 +674,7 @@ func (it mergedPostings) Err() error {
 // are not in the drop list.
 func Without(full, drop Postings) Postings {
 	if full == EmptyPostings() {
+		MaybeRecyclePostings(drop)
 		return EmptyPostings()
 	}
 
@@ -1074,6 +1072,12 @@ func (h *postingsWithIndexHeap) Pop() interface{} {
 	x := old[n-1]
 	*h = old[0 : n-1]
 	return x
+}
+
+func maybeRecycleAllPostings(ps []Postings) {
+	for _, p := range ps {
+		MaybeRecyclePostings(p)
+	}
 }
 
 func MaybeRecyclePostings(p Postings) {
