@@ -643,6 +643,62 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 	})
 }
 
+func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.B) {
+	const (
+		numMatchers   = 100
+		numGoroutines = 100
+	)
+
+	var (
+		ctx         = context.Background()
+		indexReader = indexForPostingsMock{}
+	)
+
+	// Create some matchers.
+	matchersLists := make([][]*labels.Matcher, numMatchers)
+	for i := range matchersLists {
+		matchersLists[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", strconv.Itoa(i))}
+	}
+
+	// Create a postings list. In this test every postings lookup returns a cope of the same list.
+	refs := make([]storage.SeriesRef, 10)
+	for r := range refs {
+		refs[r] = storage.SeriesRef(r)
+	}
+
+	// Configure the cache to evict continuously.
+	cache := NewPostingsForMatchersCache(time.Hour, 0, 0, true)
+	cache.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+		return index.NewListPostings(refs), nil
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(numGoroutines)
+	start := make(chan struct{})
+
+	for r := 0; r < numGoroutines; r++ {
+		go func() {
+			defer wg.Done()
+
+			// Wait until the start signal.
+			<-start
+
+			for n := 0; n < b.N/numGoroutines; n++ {
+				_, err := cache.PostingsForMatchers(ctx, indexReader, true, matchersLists[n%len(matchersLists)]...)
+				if err != nil {
+					b.Fatalf("unexpected error: %v", err)
+				}
+			}
+		}()
+	}
+
+	b.ResetTimer()
+
+	// Start goroutines and wait until they're done.
+	close(start)
+	wg.Wait()
+}
+
 type indexForPostingsMock struct{}
 
 func (idx indexForPostingsMock) LabelValues(context.Context, string, ...*labels.Matcher) ([]string, error) {
