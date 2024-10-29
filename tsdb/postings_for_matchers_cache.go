@@ -314,19 +314,26 @@ func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, k
 		return
 	}
 
-	c.cachedMtx.Lock()
-	defer c.cachedMtx.Unlock()
+	// Cache the promise.
+	var lastCachedBytes int64
+	{
+		c.cachedMtx.Lock()
 
-	c.cached.PushBack(&postingsForMatchersCachedCall{
-		key:       key,
-		ts:        ts,
-		sizeBytes: sizeBytes,
-	})
-	c.cachedBytes += sizeBytes
+		c.cached.PushBack(&postingsForMatchersCachedCall{
+			key:       key,
+			ts:        ts,
+			sizeBytes: sizeBytes,
+		})
+		c.cachedBytes += sizeBytes
+		lastCachedBytes = c.cachedBytes
+
+		c.cachedMtx.Unlock()
+	}
+
 	span.AddEvent("added cached value to expiry queue", trace.WithAttributes(
 		attribute.Stringer("timestamp", ts),
 		attribute.Int64("size in bytes", sizeBytes),
-		attribute.Int64("cached bytes", c.cachedBytes),
+		attribute.Int64("cached bytes", lastCachedBytes),
 	))
 }
 
