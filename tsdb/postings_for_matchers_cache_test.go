@@ -645,13 +645,16 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 
 func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.B) {
 	const (
-		numMatchers   = 100
-		numGoroutines = 100
+		numMatchers = 100
+		numWorkers  = 100
 	)
 
 	var (
-		ctx         = context.Background()
-		indexReader = indexForPostingsMock{}
+		ctx          = context.Background()
+		indexReader  = indexForPostingsMock{}
+		start        = make(chan struct{})
+		workersErrMx = sync.Mutex{}
+		workersErr   error
 	)
 
 	// Create some matchers.
@@ -673,20 +676,23 @@ func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.
 	}
 
 	wg := sync.WaitGroup{}
-	wg.Add(numGoroutines)
-	start := make(chan struct{})
+	wg.Add(numWorkers)
 
-	for r := 0; r < numGoroutines; r++ {
+	for r := 0; r < numWorkers; r++ {
 		go func() {
 			defer wg.Done()
 
 			// Wait until the start signal.
 			<-start
 
-			for n := 0; n < b.N/numGoroutines; n++ {
+			for n := 0; n < b.N/numWorkers; n++ {
 				_, err := cache.PostingsForMatchers(ctx, indexReader, true, matchersLists[n%len(matchersLists)]...)
 				if err != nil {
-					b.Fatalf("unexpected error: %v", err)
+					workersErrMx.Lock()
+					workersErr = err
+					workersErrMx.Unlock()
+
+					break
 				}
 			}
 		}()
@@ -694,9 +700,11 @@ func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.
 
 	b.ResetTimer()
 
-	// Start goroutines and wait until they're done.
+	// Start workers and wait until they're done.
 	close(start)
 	wg.Wait()
+
+	require.NoError(b, workersErr)
 }
 
 type indexForPostingsMock struct{}
