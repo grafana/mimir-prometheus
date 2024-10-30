@@ -643,6 +643,70 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 	})
 }
 
+func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.B) {
+	const (
+		numMatchers = 100
+		numWorkers  = 100
+	)
+
+	var (
+		ctx          = context.Background()
+		indexReader  = indexForPostingsMock{}
+		start        = make(chan struct{})
+		workersErrMx = sync.Mutex{}
+		workersErr   error
+	)
+
+	// Create some matchers.
+	matchersLists := make([][]*labels.Matcher, numMatchers)
+	for i := range matchersLists {
+		matchersLists[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", strconv.Itoa(i))}
+	}
+
+	// Create a postings list. In this test every postings lookup returns a cope of the same list.
+	refs := make([]storage.SeriesRef, 10)
+	for r := range refs {
+		refs[r] = storage.SeriesRef(r)
+	}
+
+	// Configure the cache to evict continuously.
+	cache := NewPostingsForMatchersCache(time.Hour, 0, 0, true)
+	cache.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+		return index.NewListPostings(refs), nil
+	}
+
+	wg := sync.WaitGroup{}
+	wg.Add(numWorkers)
+
+	for r := 0; r < numWorkers; r++ {
+		go func() {
+			defer wg.Done()
+
+			// Wait until the start signal.
+			<-start
+
+			for n := 0; n < b.N/numWorkers; n++ {
+				_, err := cache.PostingsForMatchers(ctx, indexReader, true, matchersLists[n%len(matchersLists)]...)
+				if err != nil {
+					workersErrMx.Lock()
+					workersErr = err
+					workersErrMx.Unlock()
+
+					break
+				}
+			}
+		}()
+	}
+
+	b.ResetTimer()
+
+	// Start workers and wait until they're done.
+	close(start)
+	wg.Wait()
+
+	require.NoError(b, workersErr)
+}
+
 type indexForPostingsMock struct{}
 
 func (idx indexForPostingsMock) LabelValues(context.Context, string, ...*labels.Matcher) ([]string, error) {
