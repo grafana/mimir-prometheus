@@ -842,12 +842,15 @@ func newEqualMultiStringMatcher(caseSensitive bool, estimatedSize, estimatedPref
 		return &equalMultiStringSliceMatcher{caseSensitive: caseSensitive, values: make([]string, 0, estimatedSize)}
 	}
 
-	return &equalMultiStringMapMatcher{
-		values:        make(map[string]struct{}, estimatedSize),
-		prefixes:      make(map[string][]StringMatcher, estimatedPrefixes),
-		minPrefixLen:  minPrefixLength,
-		caseSensitive: caseSensitive,
+	mm := multiStringMapMatcher{
+		values:       make(map[string]struct{}, estimatedSize),
+		prefixes:     make(map[string][]StringMatcher, estimatedPrefixes),
+		minPrefixLen: minPrefixLength,
 	}
+	if !caseSensitive {
+		return &multiStringMapMatcherInsensitive{multiStringMapMatcher: mm}
+	}
+	return &mm
 }
 
 // equalMultiStringSliceMatcher matches a string exactly against a slice of valid values.
@@ -886,9 +889,9 @@ func (m *equalMultiStringSliceMatcher) Matches(s string) bool {
 	return false
 }
 
-// equalMultiStringMapMatcher matches a string exactly against a map of valid values
+// multiStringMapMatcher matches a string exactly against a map of valid values
 // or against a set of prefix matchers.
-type equalMultiStringMapMatcher struct {
+type multiStringMapMatcher struct {
 	// values contains values to match a string against. If the matching is case insensitive,
 	// the values here must be lowercase.
 	values map[string]struct{}
@@ -896,38 +899,51 @@ type equalMultiStringMapMatcher struct {
 	// If the matching is case insensitive, prefixes are all lowercase.
 	prefixes map[string][]StringMatcher
 	// minPrefixLen can be zero, meaning there are no prefix matchers.
-	minPrefixLen  int
-	caseSensitive bool
+	minPrefixLen int
 }
 
-func (m *equalMultiStringMapMatcher) add(s string) {
-	if !m.caseSensitive {
-		s = toNormalisedLower(s, nil) // Don't pass a stack buffer here - it will always escape to heap.
-	}
+// multiStringMapMatcherInsensitive matches a string insensitively against a map of valid values
+// or against a set of prefix matchers.
+type multiStringMapMatcherInsensitive struct {
+	multiStringMapMatcher
+}
 
+func (m *multiStringMapMatcher) add(s string) {
 	m.values[s] = struct{}{}
 }
 
-func (m *equalMultiStringMapMatcher) addPrefix(prefix string, prefixCaseSensitive bool, matcher StringMatcher) {
+func (m *multiStringMapMatcherInsensitive) add(s string) {
+	s = toNormalisedLower(s, nil) // Don't pass a stack buffer here - it will always escape to heap.
+	m.multiStringMapMatcher.add(s)
+}
+
+func (m *multiStringMapMatcher) addPrefixInternal(prefix string, matcher StringMatcher) {
 	if m.minPrefixLen == 0 {
 		panic("addPrefix called when no prefix length defined")
 	}
 	if len(prefix) < m.minPrefixLen {
 		panic("addPrefix called with a too short prefix")
 	}
-	if m.caseSensitive != prefixCaseSensitive {
-		panic("addPrefix called with a prefix whose case sensitivity is different than the expected one")
-	}
 
 	s := prefix[:m.minPrefixLen]
-	if !m.caseSensitive {
-		s = strings.ToLower(s)
-	}
-
 	m.prefixes[s] = append(m.prefixes[s], matcher)
 }
 
-func (m *equalMultiStringMapMatcher) setMatches() []string {
+func (m *multiStringMapMatcher) addPrefix(prefix string, prefixCaseSensitive bool, matcher StringMatcher) {
+	if !prefixCaseSensitive {
+		panic("addPrefix called with case-insensitive match")
+	}
+	m.addPrefixInternal(prefix, matcher)
+}
+
+func (m *multiStringMapMatcherInsensitive) addPrefix(prefix string, prefixCaseSensitive bool, matcher StringMatcher) {
+	if prefixCaseSensitive {
+		panic("addPrefix called with case-sensitive match")
+	}
+	m.addPrefixInternal(strings.ToLower(prefix), matcher)
+}
+
+func (m *multiStringMapMatcher) setMatches() []string {
 	if len(m.values) >= maxSetMatches || len(m.prefixes) > 0 {
 		return nil
 	}
@@ -939,24 +955,33 @@ func (m *equalMultiStringMapMatcher) setMatches() []string {
 	return matches
 }
 
-func (m *equalMultiStringMapMatcher) Matches(s string) bool {
-	if len(m.values) > 0 {
-		sNorm := s
-		var a [32]byte
-		if !m.caseSensitive {
-			sNorm = toNormalisedLower(s, a[:])
+func (m *multiStringMapMatcher) Matches(s string) bool {
+	if _, ok := m.values[s]; ok {
+		return true
+	}
+
+	if m.minPrefixLen > 0 && len(s) >= m.minPrefixLen {
+		prefix := s[:m.minPrefixLen]
+		for _, matcher := range m.prefixes[prefix] {
+			if matcher.Matches(s) {
+				return true
+			}
 		}
+	}
+	return false
+}
+
+func (m *multiStringMapMatcherInsensitive) Matches(s string) bool {
+	var a [32]byte
+	if len(m.values) > 0 {
+		sNorm := toNormalisedLower(s, a[:])
 		if _, ok := m.values[sNorm]; ok {
 			return true
 		}
 	}
 
 	if m.minPrefixLen > 0 && len(s) >= m.minPrefixLen {
-		prefix := s[:m.minPrefixLen]
-		var a [32]byte
-		if !m.caseSensitive {
-			prefix = toNormalisedLower(s[:m.minPrefixLen], a[:])
-		}
+		prefix := toNormalisedLower(s[:m.minPrefixLen], a[:])
 		for _, matcher := range m.prefixes[prefix] {
 			if matcher.Matches(s) {
 				return true

@@ -1217,10 +1217,15 @@ func TestNewEqualMultiStringMatcher(t *testing.T) {
 			}
 
 			if testData.expectedValuesMap != nil || testData.expectedPrefixesMap != nil {
-				require.IsType(t, &equalMultiStringMapMatcher{}, matcher)
-				require.Equal(t, testData.expectedValuesMap, matcher.(*equalMultiStringMapMatcher).values)
-				require.Equal(t, testData.expectedPrefixesMap, matcher.(*equalMultiStringMapMatcher).prefixes)
-				require.Equal(t, testData.caseSensitive, matcher.(*equalMultiStringMapMatcher).caseSensitive)
+				if testData.caseSensitive {
+					require.IsType(t, &multiStringMapMatcher{}, matcher)
+					require.Equal(t, testData.expectedValuesMap, matcher.(*multiStringMapMatcher).values)
+					require.Equal(t, testData.expectedPrefixesMap, matcher.(*multiStringMapMatcher).prefixes)
+				} else {
+					require.IsType(t, &multiStringMapMatcherInsensitive{}, matcher)
+					require.Equal(t, testData.expectedValuesMap, matcher.(*multiStringMapMatcherInsensitive).values)
+					require.Equal(t, testData.expectedPrefixesMap, matcher.(*multiStringMapMatcherInsensitive).prefixes)
+				}
 			}
 			if testData.expectedValuesList != nil {
 				require.IsType(t, &equalMultiStringSliceMatcher{}, matcher)
@@ -1492,7 +1497,7 @@ func BenchmarkOptimizeEqualOrPrefixStringMatchers(b *testing.B) {
 					if numAlternations < minEqualMultiStringMatcherMapThreshold && !prefixMatcher {
 						require.IsType(b, &equalMultiStringSliceMatcher{}, optimized)
 					} else {
-						require.IsType(b, &equalMultiStringMapMatcher{}, optimized)
+						require.IsType(b, &multiStringMapMatcher{}, optimized)
 					}
 
 					b.Run("without optimizeEqualOrPrefixStringMatchers()", func(b *testing.B) {
@@ -1731,7 +1736,13 @@ func visitStringMatcher(matcher StringMatcher, callback func(matcher StringMatch
 		}
 
 	// No nested matchers for the following ones.
-	case *equalMultiStringMapMatcher:
+	case *multiStringMapMatcher:
+		for _, prefixes := range casted.prefixes {
+			for _, matcher := range prefixes {
+				visitStringMatcher(matcher, callback)
+			}
+		}
+	case *multiStringMapMatcherInsensitive:
 		for _, prefixes := range casted.prefixes {
 			for _, matcher := range prefixes {
 				visitStringMatcher(matcher, callback)
