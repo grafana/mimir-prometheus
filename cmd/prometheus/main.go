@@ -200,11 +200,10 @@ type flagConfig struct {
 	memlimitRatio float64
 	// These options are extracted from featureList
 	// for ease of use.
-	enableExpandExternalLabels bool
-	enablePerStepStats         bool
-	enableAutoGOMAXPROCS       bool
-	enableAutoGOMEMLIMIT       bool
-	enableConcurrentRuleEval   bool
+	enablePerStepStats       bool
+	enableAutoGOMAXPROCS     bool
+	enableAutoGOMEMLIMIT     bool
+	enableConcurrentRuleEval bool
 
 	prometheusURL   string
 	corsRegexString string
@@ -220,9 +219,6 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 		opts := strings.Split(f, ",")
 		for _, o := range opts {
 			switch o {
-			case "expand-external-labels":
-				c.enableExpandExternalLabels = true
-				logger.Info("Experimental expand-external-labels enabled")
 			case "exemplar-storage":
 				c.tsdb.EnableExemplarStorage = true
 				logger.Info("Experimental in-memory exemplar storage enabled")
@@ -596,7 +592,7 @@ func main() {
 
 	// Throw error for invalid config before starting other components.
 	var cfgFile *config.Config
-	if cfgFile, err = config.LoadFile(cfg.configFile, agentMode, false, promslog.NewNopLogger()); err != nil {
+	if cfgFile, err = config.LoadFile(cfg.configFile, agentMode, promslog.NewNopLogger()); err != nil {
 		absPath, pathErr := filepath.Abs(cfg.configFile)
 		if pathErr != nil {
 			absPath = cfg.configFile
@@ -1146,7 +1142,7 @@ func main() {
 				for {
 					select {
 					case <-hup:
-						if err := reloadConfig(cfg.configFile, cfg.enableExpandExternalLabels, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, callback, reloaders...); err != nil {
+						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, callback, reloaders...); err != nil {
 							logger.Error("Error reloading config", "err", err)
 						} else if cfg.enableAutoReload {
 							if currentChecksum, err := config.GenerateChecksum(cfg.configFile); err == nil {
@@ -1156,7 +1152,7 @@ func main() {
 							}
 						}
 					case rc := <-webHandler.Reload():
-						if err := reloadConfig(cfg.configFile, cfg.enableExpandExternalLabels, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, callback, reloaders...); err != nil {
+						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, callback, reloaders...); err != nil {
 							logger.Error("Error reloading config", "err", err)
 							rc <- err
 						} else {
@@ -1181,7 +1177,7 @@ func main() {
 						}
 						logger.Info("Configuration file change detected, reloading the configuration.")
 
-						if err := reloadConfig(cfg.configFile, cfg.enableExpandExternalLabels, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, callback, reloaders...); err != nil {
+						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, callback, reloaders...); err != nil {
 							logger.Error("Error reloading config", "err", err)
 						} else {
 							checksum = currentChecksum
@@ -1211,7 +1207,7 @@ func main() {
 					return nil
 				}
 
-				if err := reloadConfig(cfg.configFile, cfg.enableExpandExternalLabels, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, func(bool) {}, reloaders...); err != nil {
+				if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, func(bool) {}, reloaders...); err != nil {
 					return fmt.Errorf("error loading config from %q: %w", cfg.configFile, err)
 				}
 
@@ -1438,7 +1434,7 @@ type reloader struct {
 	reloader func(*config.Config) error
 }
 
-func reloadConfig(filename string, expandExternalLabels, enableExemplarStorage bool, logger *slog.Logger, noStepSuqueryInterval *safePromQLNoStepSubqueryInterval, callback func(bool), rls ...reloader) (err error) {
+func reloadConfig(filename string, enableExemplarStorage bool, logger *slog.Logger, noStepSuqueryInterval *safePromQLNoStepSubqueryInterval, callback func(bool), rls ...reloader) (err error) {
 	start := time.Now()
 	timingsLogger := logger
 	logger.Info("Loading configuration file", "filename", filename)
@@ -1454,7 +1450,7 @@ func reloadConfig(filename string, expandExternalLabels, enableExemplarStorage b
 		}
 	}()
 
-	conf, err := config.LoadFile(filename, agentMode, expandExternalLabels, logger)
+	conf, err := config.LoadFile(filename, agentMode, logger)
 	if err != nil {
 		return fmt.Errorf("couldn't load configuration (--config.file=%q): %w", filename, err)
 	}
