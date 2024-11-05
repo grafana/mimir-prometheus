@@ -76,9 +76,9 @@ import (
 	"github.com/prometheus/prometheus/tsdb/wlog"
 	"github.com/prometheus/prometheus/util/documentcli"
 	"github.com/prometheus/prometheus/util/logging"
+	"github.com/prometheus/prometheus/util/notifications"
 	prom_runtime "github.com/prometheus/prometheus/util/runtime"
 	"github.com/prometheus/prometheus/web"
-	"github.com/prometheus/prometheus/web/api"
 )
 
 var (
@@ -501,9 +501,10 @@ func main() {
 
 	logger := promlog.New(&cfg.promlogConfig)
 
-	notifs := api.NewNotifications(cfg.maxNotificationsSubscribers, prometheus.DefaultRegisterer)
+	notifs := notifications.NewNotifications(cfg.maxNotificationsSubscribers, prometheus.DefaultRegisterer)
 	cfg.web.NotificationsSub = notifs.Sub
 	cfg.web.NotificationsGetter = notifs.Get
+	notifs.AddNotification(notifications.StartingUp)
 
 	if err := cfg.setFeatureListOptions(logger); err != nil {
 		fmt.Fprintln(os.Stderr, fmt.Errorf("Error parsing feature list: %w", err))
@@ -990,6 +991,7 @@ func main() {
 			func(err error) {
 				close(cancel)
 				webHandler.SetReady(web.Stopping)
+				notifs.AddNotification(notifications.ShuttingDown)
 			},
 		)
 	}
@@ -1090,10 +1092,10 @@ func main() {
 
 		callback := func(success bool) {
 			if success {
-				notifs.DeleteNotification(api.ConfigurationUnsuccessful)
+				notifs.DeleteNotification(notifications.ConfigurationUnsuccessful)
 				return
 			}
-			notifs.AddNotification(api.ConfigurationUnsuccessful)
+			notifs.AddNotification(notifications.ConfigurationUnsuccessful)
 		}
 
 		g.Add(
@@ -1175,6 +1177,7 @@ func main() {
 				reloadReady.Close()
 
 				webHandler.SetReady(web.Ready)
+				notifs.DeleteNotification(notifications.StartingUp)
 				level.Info(logger).Log("msg", "Server is ready to receive web requests.")
 				<-cancel
 				return nil
