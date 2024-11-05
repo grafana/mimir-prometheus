@@ -984,7 +984,7 @@ func main() {
 			},
 			func(err error) {
 				close(cancel)
-				webHandler.SetReady(false)
+				webHandler.SetReady(web.Stopping)
 			},
 		)
 	}
@@ -1163,7 +1163,7 @@ func main() {
 
 				reloadReady.Close()
 
-				webHandler.SetReady(true)
+				webHandler.SetReady(web.Ready)
 				level.Info(logger).Log("msg", "Server is ready to receive web requests.")
 				<-cancel
 				return nil
