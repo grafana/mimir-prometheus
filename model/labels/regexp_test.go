@@ -469,9 +469,9 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		exp     StringMatcher
 	}{
 		{".*", trueMatcher{}},
-		{"().*", anyStringWithoutNewlineMatcher{}},
-		{".*()", anyStringWithoutNewlineMatcher{}},
-		{"().*()", anyStringWithoutNewlineMatcher{}},
+		{"().*", trueMatcher{}},
+		{".*()", trueMatcher{}},
+		{"().*()", trueMatcher{}},
 		{".*?", trueMatcher{}},
 		{"(?s:.*)", trueMatcher{}},
 		{"(.*)", trueMatcher{}},
@@ -508,7 +508,7 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		{"(prometheus|api_prom)_api_v1_.+", &containsStringMatcher{substrings: []string{"prometheus_api_v1_", "api_prom_api_v1_"}, left: nil, right: &anyNonEmptyStringMatcher{matchNL: true}}},
 		{"^((.*)(bar|b|buzz)(.+)|foo)$", orStringMatcher([]StringMatcher{&containsStringMatcher{substrings: []string{"bar", "b", "buzz"}, left: trueMatcher{}, right: &anyNonEmptyStringMatcher{matchNL: true}}, &equalStringMatcher{s: "foo", caseSensitive: true}})},
 		{"((fo(bar))|.+foo)", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "fobar", caseSensitive: true}}), &literalSuffixStringMatcher{suffix: "foo", suffixCaseSensitive: true, left: &anyNonEmptyStringMatcher{matchNL: true}}})},
-		{"(.+)/(gateway|cortex-gw|cortex-gw-internal)", &containsStringMatcher{substrings: []string{"/gateway", "/cortex-gw", "/cortex-gw-internal"}, left: &anyNonEmptyStringMatcher{matchNL: false}, right: nil}},
+		{"(.+)/(gateway|cortex-gw|cortex-gw-internal)", &containsStringMatcher{substrings: []string{"/cortex-gw", "/cortex-gw-internal", "/gateway"}, left: &anyNonEmptyStringMatcher{matchNL: true}, right: nil}},
 		// we don't support case insensitive matching for contains.
 		// This is because there's no strings.IndexOfFold function.
 		// We can revisit later if this is really popular by using strings.ToUpper.
