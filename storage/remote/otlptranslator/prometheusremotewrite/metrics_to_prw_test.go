@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -34,7 +34,7 @@ func TestFromMetrics(t *testing.T) {
 		converter := NewPrometheusConverter()
 		payload := createExportRequest(5, 128, 128, 2, 0)
 
-		annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), Settings{})
+		annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), Settings{}, promslog.NewNopLogger())
 		require.NoError(t, err)
 		require.Empty(t, annots)
 	})
@@ -46,7 +46,7 @@ func TestFromMetrics(t *testing.T) {
 		cancel()
 		payload := createExportRequest(5, 128, 128, 2, 0)
 
-		annots, err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, log.NewNopLogger())
+		annots, err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, promslog.NewNopLogger())
 		require.ErrorIs(t, err, context.Canceled)
 		require.Empty(t, annots)
 	})
@@ -58,7 +58,7 @@ func TestFromMetrics(t *testing.T) {
 		t.Cleanup(cancel)
 		payload := createExportRequest(5, 128, 128, 2, 0)
 
-		annots, err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, log.NewNopLogger())
+		annots, err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, promslog.NewNopLogger())
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		require.Empty(t, annots)
 	})
@@ -86,7 +86,7 @@ func TestFromMetrics(t *testing.T) {
 		}
 
 		converter := NewPrometheusConverter()
-		annots, err := converter.FromMetrics(context.Background(), request.Metrics(), Settings{}, log.NewNopLogger())
+		annots, err := converter.FromMetrics(context.Background(), request.Metrics(), Settings{}, promslog.NewNopLogger())
 		require.NoError(t, err)
 		require.NotEmpty(t, annots)
 		ws, infos := annots.AsStrings("", 0, 0)
@@ -119,7 +119,7 @@ func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
 
 											for i := 0; i < b.N; i++ {
 												converter := NewPrometheusConverter()
-												annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), Settings{}, log.NewNopLogger())
+												annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), Settings{}, promslog.NewNopLogger())
 												require.NoError(b, err)
 												require.Empty(b, annots)
 												require.NotNil(b, converter.TimeSeries())

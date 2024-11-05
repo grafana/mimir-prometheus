@@ -157,11 +157,11 @@ type RuleGroup struct {
 	EvaluationDelay *model.Duration `yaml:"evaluation_delay,omitempty"`
 	QueryOffset     *model.Duration `yaml:"query_offset,omitempty"`
 
-	Limit                         int        `yaml:"limit,omitempty"`
-	Rules                         []RuleNode `yaml:"rules"`
-	Labels      map[string]string `yaml:"labels,omitempty"`
-	SourceTenants                 []string   `yaml:"source_tenants,omitempty"`
-	AlignEvaluationTimeOnInterval bool       `yaml:"align_evaluation_time_on_interval,omitempty"`
+	Limit                         int               `yaml:"limit,omitempty"`
+	Rules                         []RuleNode        `yaml:"rules"`
+	Labels                        map[string]string `yaml:"labels,omitempty"`
+	SourceTenants                 []string          `yaml:"source_tenants,omitempty"`
+	AlignEvaluationTimeOnInterval bool              `yaml:"align_evaluation_time_on_interval,omitempty"`
 }
 
 // Rule describes an alerting or recording rule.

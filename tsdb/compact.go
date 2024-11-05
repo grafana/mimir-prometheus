@@ -550,8 +550,8 @@ func (c *LeveledCompactor) CompactWithBlockPopulator(dest string, dirs []string,
 			meta := outBlocks[ix].meta
 
 			if meta.Stats.NumSamples == 0 {
-				level.Info(c.logger).Log(
-					"msg", "compact blocks resulted in empty block",
+				c.logger.Info(
+					"compact blocks resulted in empty block",
 					"count", len(blocks),
 					"sources", fmt.Sprintf("%v", uids),
 					"duration", time.Since(start),
@@ -561,8 +561,8 @@ func (c *LeveledCompactor) CompactWithBlockPopulator(dest string, dirs []string,
 				allOutputBlocksAreEmpty = false
 				ulids[ix] = outBlocks[ix].meta.ULID
 
-				level.Info(c.logger).Log(
-					"msg", "compact blocks",
+				c.logger.Info(
+					"compact blocks",
 					"count", len(blocks),
 					"mint", meta.MinTime,
 					"maxt", meta.MaxTime,
@@ -680,12 +680,12 @@ func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, s
 				for _, ob := range obs {
 					if ob.tmpDir != "" {
 						if removeErr := os.RemoveAll(ob.tmpDir); removeErr != nil {
-							level.Error(c.logger).Log("msg", "Failed to remove temp folder after failed compaction", "dir", ob.tmpDir, "err", removeErr.Error())
+							c.logger.Error("Failed to remove temp folder after failed compaction", "dir", ob.tmpDir, "err", removeErr.Error())
 						}
 					}
 					if ob.blockDir != "" {
 						if removeErr := os.RemoveAll(ob.blockDir); removeErr != nil {
-							level.Error(c.logger).Log("msg", "Failed to remove block folder after failed compaction", "dir", ob.blockDir, "err", removeErr.Error())
+							c.logger.Error("Failed to remove block folder after failed compaction", "dir", ob.blockDir, "err", removeErr.Error())
 						}
 					}
 				}
@@ -700,8 +700,8 @@ func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, s
 			meta := outBlocks[ix][jx].meta
 			if meta.Stats.NumSamples != 0 {
 				noOOOBlock = false
-				level.Info(c.logger).Log(
-					"msg", "compact ooo head",
+				c.logger.Info(
+					"compact ooo head",
 					"mint", meta.MinTime,
 					"maxt", meta.MaxTime,
 					"ulid", meta.ULID,
@@ -716,8 +716,8 @@ func (c *LeveledCompactor) compactOOO(dest string, oooHead *OOOCompactionHead, s
 	}
 
 	if noOOOBlock {
-		level.Info(c.logger).Log(
-			"msg", "compact ooo head resulted in no blocks",
+		c.logger.Info(
+			"compact ooo head resulted in no blocks",
 			"duration", time.Since(start),
 		)
 		return nil, nil
@@ -814,7 +814,7 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blockPop
 			if err != nil && ob.blockDir != "" {
 				// RemoveAll returns no error when tmp doesn't exist so it is safe to always run it.
 				if removeErr := os.RemoveAll(ob.blockDir); removeErr != nil {
-					level.Error(c.logger).Log("msg", "Failed to remove block folder after failed compaction", "dir", ob.blockDir, "err", removeErr.Error())
+					c.logger.Error("Failed to remove block folder after failed compaction", "dir", ob.blockDir, "err", removeErr.Error())
 				}
 			}
 		}
@@ -939,7 +939,7 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blockPop
 	return nil
 }
 
-func debugOutOfOrderChunks(lbls labels.Labels, chks []chunks.Meta, logger log.Logger) {
+func debugOutOfOrderChunks(lbls labels.Labels, chks []chunks.Meta, logger *slog.Logger) {
 	if len(chks) <= 1 {
 		return
 	}
@@ -955,7 +955,6 @@ func debugOutOfOrderChunks(lbls labels.Labels, chks []chunks.Meta, logger log.Lo
 
 		// Looks like the chunk is out of order.
 		logValues := []any{
-			"msg", "found out-of-order chunk when compacting",
 			"num_chunks_for_series", len(chks),
 			"index", i,
 			"labels", lbls.String(),
@@ -983,7 +982,7 @@ func debugOutOfOrderChunks(lbls labels.Labels, chks []chunks.Meta, logger log.Lo
 			)
 		}
 
-		level.Warn(logger).Log(logValues...)
+		logger.Warn("found out-of-order chunk when compacting", logValues...)
 	}
 }
 
@@ -1015,7 +1014,7 @@ type DefaultBlockPopulator struct{}
 // It expects sorted blocks input by mint.
 // If there is more than 1 output block, each output block will only contain series that hash into its shard
 // (based on total number of output blocks).
-func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *CompactorMetrics, logger log.Logger, chunkPool chunkenc.Pool, mergeFunc storage.VerticalChunkSeriesMergeFunc, concurrencyOpts LeveledCompactorConcurrencyOptions, blocks []BlockReader, minT, maxT int64, outBlocks []shardedBlock, postingsFunc IndexReaderPostingsFunc) (err error) {
+func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *CompactorMetrics, logger *slog.Logger, chunkPool chunkenc.Pool, mergeFunc storage.VerticalChunkSeriesMergeFunc, concurrencyOpts LeveledCompactorConcurrencyOptions, blocks []BlockReader, minT, maxT int64, outBlocks []shardedBlock, postingsFunc IndexReaderPostingsFunc) (err error) {
 	if len(blocks) == 0 {
 		return errors.New("cannot populate block(s) from no readers")
 	}
@@ -1319,7 +1318,7 @@ func populateSymbols(ctx context.Context, mergeFunc storage.VerticalChunkSeriesM
 }
 
 // Returns opened blocks, and blocks that should be closed (also returned in case of error).
-func openBlocksForCompaction(dirs []string, open []*Block, logger log.Logger, pool chunkenc.Pool, concurrency int) (blocks, blocksToClose []*Block, _ error) {
+func openBlocksForCompaction(dirs []string, open []*Block, logger *slog.Logger, pool chunkenc.Pool, concurrency int) (blocks, blocksToClose []*Block, _ error) {
 	blocks = make([]*Block, 0, len(dirs))
 	blocksToClose = make([]*Block, 0, len(dirs))
 

@@ -19,7 +19,6 @@ import (
 	"log/slog"
 	"math"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -76,8 +75,8 @@ type Group struct {
 	evalIterationFunc GroupEvalIterationFunc
 
 	// concurrencyController controls the rules evaluation concurrency.
-	concurrencyController RuleConcurrencyController
-	appOpts               *storage.AppendOptions
+	concurrencyController         RuleConcurrencyController
+	appOpts                       *storage.AppendOptions
 	alignEvaluationTimeOnInterval bool
 }
 
@@ -135,24 +134,24 @@ func NewGroup(o GroupOptions) *Group {
 	}
 
 	return &Group{
-		name:                  o.Name,
-		file:                  o.File,
-		interval:              o.Interval,
-		queryOffset:           o.QueryOffset,
-		limit:                 o.Limit,
-		rules:                 o.Rules,
-		shouldRestore:         o.ShouldRestore,
-		opts:                  o.Opts,
-		sourceTenants:         o.SourceTenants,
-		seriesInPreviousEval:  make([]map[string]labels.Labels, len(o.Rules)),
-		done:                  make(chan struct{}),
-		managerDone:           o.done,
-		terminated:            make(chan struct{}),
-		logger:                o.Opts.Logger.With("file", o.File, "group", o.Name),
-		metrics:               metrics,
-		evalIterationFunc:     evalIterationFunc,
-		concurrencyController: concurrencyController,
-		appOpts:               &storage.AppendOptions{DiscardOutOfOrder: true},
+		name:                          o.Name,
+		file:                          o.File,
+		interval:                      o.Interval,
+		queryOffset:                   o.QueryOffset,
+		limit:                         o.Limit,
+		rules:                         o.Rules,
+		shouldRestore:                 o.ShouldRestore,
+		opts:                          o.Opts,
+		sourceTenants:                 o.SourceTenants,
+		seriesInPreviousEval:          make([]map[string]labels.Labels, len(o.Rules)),
+		done:                          make(chan struct{}),
+		managerDone:                   o.done,
+		terminated:                    make(chan struct{}),
+		logger:                        o.Opts.Logger.With("file", o.File, "group", o.Name),
+		metrics:                       metrics,
+		evalIterationFunc:             evalIterationFunc,
+		concurrencyController:         concurrencyController,
+		appOpts:                       &storage.AppendOptions{DiscardOutOfOrder: true},
 		alignEvaluationTimeOnInterval: o.AlignEvaluationTimeOnInterval,
 	}
 }
@@ -598,15 +597,15 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 					switch {
 					case errors.Is(unwrappedErr, storage.ErrOutOfOrderSample):
 						numOutOfOrder++
-						level.Warn(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
+						logger.Warn("Rule evaluation result discarded", "err", err, "sample", s)
 					case errors.Is(unwrappedErr, storage.ErrTooOldSample):
 						numTooOld++
-						level.Warn(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
+						logger.Warn("Rule evaluation result discarded", "err", err, "sample", s)
 					case errors.Is(unwrappedErr, storage.ErrDuplicateSampleForTimestamp):
 						numDuplicates++
-						level.Warn(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
+						logger.Warn("Rule evaluation result discarded", "err", err, "sample", s)
 					default:
-						level.Warn(logger).Log("msg", "Rule evaluation result discarded", "err", err, "sample", s)
+						logger.Warn("Rule evaluation result discarded", "err", err, "sample", s)
 					}
 				} else {
 					buf := [1024]byte{}
@@ -877,7 +876,7 @@ func (g *Group) Equals(ng *Group) bool {
 		copyAndSort := func(x []string) []string {
 			copied := make([]string, len(x))
 			copy(copied, x)
-			sort.Strings(copied)
+			slices.Sort(copied)
 			return copied
 		}
 

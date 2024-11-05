@@ -497,7 +497,7 @@ func NewOTLPWriteHandler(logger *slog.Logger, appendable storage.Appendable, con
 }
 
 type otlpWriteHandler struct {
-	logger     *slog.Logger
+	logger                       *slog.Logger
 	rwHandler                    *writeHandler
 	configFunc                   func() config.Config
 	enableCTZeroIngestion        bool

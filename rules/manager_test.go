@@ -862,7 +862,7 @@ func TestUpdate_AlwaysRestore(t *testing.T) {
 		Appendable:              st,
 		Queryable:               st,
 		Context:                 context.Background(),
-		Logger:                  log.NewNopLogger(),
+		Logger:                  promslog.NewNopLogger(),
 		AlwaysRestoreAlertState: true,
 	})
 	ruleManager.start()
@@ -894,7 +894,7 @@ func TestUpdate_AlwaysRestoreDoesntAffectUnchangedGroups(t *testing.T) {
 		Appendable:              st,
 		Queryable:               st,
 		Context:                 context.Background(),
-		Logger:                  log.NewNopLogger(),
+		Logger:                  promslog.NewNopLogger(),
 		AlwaysRestoreAlertState: true,
 	})
 	ruleManager.start()
@@ -933,7 +933,7 @@ func TestUpdateSetsSourceTenants(t *testing.T) {
 		Queryable:  st,
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -975,7 +975,7 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 		Queryable:  st,
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -1047,7 +1047,7 @@ func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
 		Queryable:                  st,
 		QueryFunc:                  mockQueryFunc,
 		Context:                    context.Background(),
-		Logger:                     log.NewNopLogger(),
+		Logger:                     promslog.NewNopLogger(),
 		GroupEvaluationContextFunc: mockContextWrapFunc,
 	})
 
@@ -1080,13 +1080,13 @@ type ruleGroupsTest struct {
 
 // ruleGroupTest forms a testing struct for running tests over rules.
 type ruleGroupTest struct {
-	Name                          string         `yaml:"name"`
-	Interval                      model.Duration `yaml:"interval,omitempty"`
-	Limit                         int            `yaml:"limit,omitempty"`
-	Rules                         []rulefmt.Rule `yaml:"rules"`
-	Labels   map[string]string `yaml:"labels,omitempty"`
-	SourceTenants                 []string       `yaml:"source_tenants,omitempty"`
-	AlignEvaluationTimeOnInterval bool           `yaml:"align_evaluation_time_on_interval,omitempty"`
+	Name                          string            `yaml:"name"`
+	Interval                      model.Duration    `yaml:"interval,omitempty"`
+	Limit                         int               `yaml:"limit,omitempty"`
+	Rules                         []rulefmt.Rule    `yaml:"rules"`
+	Labels                        map[string]string `yaml:"labels,omitempty"`
+	SourceTenants                 []string          `yaml:"source_tenants,omitempty"`
+	AlignEvaluationTimeOnInterval bool              `yaml:"align_evaluation_time_on_interval,omitempty"`
 }
 
 func formatRules(r *rulefmt.RuleGroups) ruleGroupsTest {
@@ -1109,7 +1109,7 @@ func formatRules(r *rulefmt.RuleGroups) ruleGroupsTest {
 			Interval:                      g.Interval,
 			Limit:                         g.Limit,
 			Rules:                         rtmp,
-			Labels:   g.Labels,
+			Labels:                        g.Labels,
 			SourceTenants:                 g.SourceTenants,
 			AlignEvaluationTimeOnInterval: g.AlignEvaluationTimeOnInterval,
 		})

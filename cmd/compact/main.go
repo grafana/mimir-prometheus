@@ -9,7 +9,7 @@ import (
 	"runtime/pprof"
 	"syscall"
 
-	golog "github.com/go-kit/log"
+	"github.com/prometheus/common/promslog"
 
 	"github.com/prometheus/prometheus/tsdb"
 )
@@ -35,7 +35,7 @@ func main() {
 
 	flag.Parse()
 
-	logger := golog.NewLogfmtLogger(os.Stderr)
+	logger := promslog.New(&promslog.Config{})
 
 	var blockDirs []string
 	for _, d := range flag.Args() {

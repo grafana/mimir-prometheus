@@ -537,7 +537,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 
 		for _, shardCount := range shardCounts {
 			t.Run(fmt.Sprintf("series=%d, shards=%d", series, shardCount), func(t *testing.T) {
-				c, err := NewLeveledCompactorWithChunkSize(ctx, nil, log.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+				c, err := NewLeveledCompactorWithChunkSize(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
 				require.NoError(t, err)
 
 				blockIDs, err := c.CompactWithSplitting(dir, blockDirs, openBlocks, shardCount)
@@ -572,7 +572,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 					// Our splitting compaction preserves it too.
 					seriesSymbols[""] = struct{}{}
 
-					block, err := OpenBlock(log.NewNopLogger(), filepath.Join(dir, blockID.String()), nil)
+					block, err := OpenBlock(promslog.NewNopLogger(), filepath.Join(dir, blockID.String()), nil)
 					require.NoError(t, err)
 
 					defer func() {
@@ -658,7 +658,7 @@ func TestCompaction_CompactEmptyBlocks(t *testing.T) {
 		require.NoError(t, os.Mkdir(bdir, 0o777))
 		require.NoError(t, os.Mkdir(chunkDir(bdir), 0o777))
 
-		_, err := writeMetaFile(log.NewNopLogger(), bdir, m)
+		_, err := writeMetaFile(promslog.NewNopLogger(), bdir, m)
 		require.NoError(t, err)
 
 		iw, err := index.NewWriter(context.Background(), filepath.Join(bdir, indexFilename))
@@ -671,7 +671,7 @@ func TestCompaction_CompactEmptyBlocks(t *testing.T) {
 		blockDirs = append(blockDirs, bdir)
 	}
 
-	c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, log.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+	c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
 	require.NoError(t, err)
 
 	blockIDs, err := c.CompactWithSplitting(dir, blockDirs, nil, 5)
@@ -1659,7 +1659,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 
 	// Open subset of blocks first.
 	const blocksToOpen = 2
-	opened, toClose, err := openBlocksForCompaction(blockDirs[:blocksToOpen], nil, log.NewNopLogger(), nil, 10)
+	opened, toClose, err := openBlocksForCompaction(blockDirs[:blocksToOpen], nil, promslog.NewNopLogger(), nil, 10)
 	for _, b := range toClose {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1669,7 +1669,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 	checkBlocks(t, toClose, blockDirs[:blocksToOpen]...)
 
 	// Open all blocks, but provide previously opened blocks.
-	opened2, toClose2, err := openBlocksForCompaction(blockDirs, opened, log.NewNopLogger(), nil, 10)
+	opened2, toClose2, err := openBlocksForCompaction(blockDirs, opened, promslog.NewNopLogger(), nil, 10)
 	for _, b := range toClose2 {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1695,11 +1695,11 @@ func TestOpenBlocksForCompactionErrorsNoMeta(t *testing.T) {
 	}
 
 	// open block[0]
-	b0, err := OpenBlock(log.NewNopLogger(), blockDirs[0], nil)
+	b0, err := OpenBlock(promslog.NewNopLogger(), blockDirs[0], nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b0.Close()) }()
 
-	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b0}, log.NewNopLogger(), nil, 10)
+	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b0}, promslog.NewNopLogger(), nil, 10)
 
 	require.Error(t, err)
 	// We didn't get to opening more blocks, because we found invalid dir, so there is nothing to close.
@@ -1722,7 +1722,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	}
 
 	// open block[1]
-	b1, err := OpenBlock(log.NewNopLogger(), blockDirs[1], nil)
+	b1, err := OpenBlock(promslog.NewNopLogger(), blockDirs[1], nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b1.Close()) }()
 
@@ -1732,7 +1732,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	// Block[2] will be opened correctly.
 	// Block[3] is invalid and will cause error.
 	// Block[4] will not be opened at all.
-	opened, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, log.NewNopLogger(), nil, 1)
+	opened, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, promslog.NewNopLogger(), nil, 1)
 	for _, b := range toClose {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
