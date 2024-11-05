@@ -1084,6 +1084,7 @@ type ruleGroupTest struct {
 	Interval                      model.Duration `yaml:"interval,omitempty"`
 	Limit                         int            `yaml:"limit,omitempty"`
 	Rules                         []rulefmt.Rule `yaml:"rules"`
+	Labels   map[string]string `yaml:"labels,omitempty"`
 	SourceTenants                 []string       `yaml:"source_tenants,omitempty"`
 	AlignEvaluationTimeOnInterval bool           `yaml:"align_evaluation_time_on_interval,omitempty"`
 }
@@ -1108,6 +1109,7 @@ func formatRules(r *rulefmt.RuleGroups) ruleGroupsTest {
 			Interval:                      g.Interval,
 			Limit:                         g.Limit,
 			Rules:                         rtmp,
+			Labels:   g.Labels,
 			SourceTenants:                 g.SourceTenants,
 			AlignEvaluationTimeOnInterval: g.AlignEvaluationTimeOnInterval,
 		})
@@ -2429,4 +2431,19 @@ func optsFactory(storage storage.Storage, maxInflight, inflightQueries *atomic.I
 			}, nil
 		},
 	}
+}
+
+func TestLabels_FromMaps(t *testing.T) {
+	mLabels := FromMaps(
+		map[string]string{"aaa": "101", "bbb": "222"},
+		map[string]string{"aaa": "111", "ccc": "333"},
+	)
+
+	expected := labels.New(
+		labels.Label{Name: "aaa", Value: "111"},
+		labels.Label{Name: "bbb", Value: "222"},
+		labels.Label{Name: "ccc", Value: "333"},
+	)
+
+	require.Equal(t, expected, mLabels, "unexpected labelset")
 }
