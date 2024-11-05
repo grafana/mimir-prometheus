@@ -30,6 +30,15 @@ import (
 )
 
 func TestFromMetrics(t *testing.T) {
+	t.Run("successful", func(t *testing.T) {
+		converter := NewPrometheusConverter()
+		payload := createExportRequest(5, 128, 128, 2, 0)
+
+		annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), Settings{})
+		require.NoError(t, err)
+		require.Empty(t, annots)
+	})
+
 	t.Run("context cancellation", func(t *testing.T) {
 		converter := NewPrometheusConverter()
 		ctx, cancel := context.WithCancel(context.Background())
@@ -37,8 +46,9 @@ func TestFromMetrics(t *testing.T) {
 		cancel()
 		payload := createExportRequest(5, 128, 128, 2, 0)
 
-		_, err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, log.NewNopLogger())
+		annots, err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, log.NewNopLogger())
 		require.ErrorIs(t, err, context.Canceled)
+		require.Empty(t, annots)
 	})
 
 	t.Run("context timeout", func(t *testing.T) {
@@ -48,8 +58,9 @@ func TestFromMetrics(t *testing.T) {
 		t.Cleanup(cancel)
 		payload := createExportRequest(5, 128, 128, 2, 0)
 
-		_, err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, log.NewNopLogger())
+		annots, err := converter.FromMetrics(ctx, payload.Metrics(), Settings{}, log.NewNopLogger())
 		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Empty(t, annots)
 	})
 
 	t.Run("exponential histogram warnings for zero count and non-zero sum", func(t *testing.T) {
