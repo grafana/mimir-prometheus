@@ -23,6 +23,7 @@ linters:
     - usestdlibvars
     - whitespace
     - loggercheck
+    - sloglint
 
 issues:
   max-issues-per-linter: 0
@@ -78,7 +79,9 @@ linters-settings:
           - pkg: "github.com/stretchr/testify/assert"
             desc: "Use github.com/stretchr/testify/require instead of github.com/stretchr/testify/assert"
           - pkg: "github.com/go-kit/kit/log"
-            desc: "Use github.com/go-kit/log instead of github.com/go-kit/kit/log"
+            desc: "Use log/slog instead of github.com/go-kit/kit/log"
+          - pkg: "github.com/go-kit/log"
+            desc: "Use log/slog instead of github.com/go-kit/log"
           - pkg: "io/ioutil"
             desc: "Use corresponding 'os' or 'io' functions instead."
           - pkg: "regexp"
@@ -100,8 +103,6 @@ linters-settings:
       - (net/http.ResponseWriter).Write
       # No need to check for errors on server's shutdown.
       - (*net/http.Server).Shutdown
-      # Never check for logger errors.
-      - (github.com/go-kit/log.Logger).Log
       # Never check for rollback errors as Rollback() is called when a previous error was detected.
       - (github.com/prometheus/prometheus/storage.Appender).Rollback
   goimports:
@@ -153,14 +154,4 @@ linters-settings:
     disable:
       - float-compare
       - go-require
-    enable:
-      - bool-compare
-      - compares
-      - empty
-      - error-is-as
-      - error-nil
-      - expected-actual
-      - len
-      - require-error
-      - suite-dont-use-pkg
-      - suite-extra-assert-call
+    enable-all: true

@@ -21,8 +21,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -256,7 +256,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
-				log.NewNopLogger(),
+				promslog.NewNopLogger(),
 			)
 
 			assert.Equal(t, tt.want(), converter.unique)

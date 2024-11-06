@@ -26,10 +26,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 	"gopkg.in/yaml.v2"
@@ -374,7 +374,7 @@ func TestForStateRestore(t *testing.T) {
 				Appendable:      storage,
 				Queryable:       storage,
 				Context:         context.Background(),
-				Logger:          log.NewNopLogger(),
+				Logger:          promslog.NewNopLogger(),
 				NotifyFunc:      func(ctx context.Context, expr string, alerts ...*Alert) {},
 				OutageTolerance: 30 * time.Minute,
 				ForGracePeriod:  10 * time.Minute,
@@ -547,7 +547,7 @@ func TestStaleness(t *testing.T) {
 			Appendable: st,
 			Queryable:  st,
 			Context:    context.Background(),
-			Logger:     log.NewNopLogger(),
+			Logger:     promslog.NewNopLogger(),
 		}
 
 		expr, err := parser.ParseExpr("a + 1")
@@ -641,7 +641,7 @@ groups:
 	require.NoError(t, err)
 
 	m := NewManager(&ManagerOptions{
-		Logger: log.NewNopLogger(),
+		Logger: promslog.NewNopLogger(),
 		DefaultRuleQueryOffset: func() time.Duration {
 			return time.Minute
 		},
@@ -781,7 +781,7 @@ func TestUpdate(t *testing.T) {
 		Queryable:  st,
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -862,7 +862,7 @@ func TestUpdate_AlwaysRestore(t *testing.T) {
 		Appendable:              st,
 		Queryable:               st,
 		Context:                 context.Background(),
-		Logger:                  log.NewNopLogger(),
+		Logger:                  promslog.NewNopLogger(),
 		AlwaysRestoreAlertState: true,
 	})
 	ruleManager.start()
@@ -894,7 +894,7 @@ func TestUpdate_AlwaysRestoreDoesntAffectUnchangedGroups(t *testing.T) {
 		Appendable:              st,
 		Queryable:               st,
 		Context:                 context.Background(),
-		Logger:                  log.NewNopLogger(),
+		Logger:                  promslog.NewNopLogger(),
 		AlwaysRestoreAlertState: true,
 	})
 	ruleManager.start()
@@ -933,7 +933,7 @@ func TestUpdateSetsSourceTenants(t *testing.T) {
 		Queryable:  st,
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -975,7 +975,7 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 		Queryable:  st,
 		QueryFunc:  EngineQueryFunc(engine, st),
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	})
 	ruleManager.start()
 	defer ruleManager.Stop()
@@ -1047,7 +1047,7 @@ func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
 		Queryable:                  st,
 		QueryFunc:                  mockQueryFunc,
 		Context:                    context.Background(),
-		Logger:                     log.NewNopLogger(),
+		Logger:                     promslog.NewNopLogger(),
 		GroupEvaluationContextFunc: mockContextWrapFunc,
 	})
 
@@ -1080,12 +1080,13 @@ type ruleGroupsTest struct {
 
 // ruleGroupTest forms a testing struct for running tests over rules.
 type ruleGroupTest struct {
-	Name                          string         `yaml:"name"`
-	Interval                      model.Duration `yaml:"interval,omitempty"`
-	Limit                         int            `yaml:"limit,omitempty"`
-	Rules                         []rulefmt.Rule `yaml:"rules"`
-	SourceTenants                 []string       `yaml:"source_tenants,omitempty"`
-	AlignEvaluationTimeOnInterval bool           `yaml:"align_evaluation_time_on_interval,omitempty"`
+	Name                          string            `yaml:"name"`
+	Interval                      model.Duration    `yaml:"interval,omitempty"`
+	Limit                         int               `yaml:"limit,omitempty"`
+	Rules                         []rulefmt.Rule    `yaml:"rules"`
+	Labels                        map[string]string `yaml:"labels,omitempty"`
+	SourceTenants                 []string          `yaml:"source_tenants,omitempty"`
+	AlignEvaluationTimeOnInterval bool              `yaml:"align_evaluation_time_on_interval,omitempty"`
 }
 
 func formatRules(r *rulefmt.RuleGroups) ruleGroupsTest {
@@ -1108,6 +1109,7 @@ func formatRules(r *rulefmt.RuleGroups) ruleGroupsTest {
 			Interval:                      g.Interval,
 			Limit:                         g.Limit,
 			Rules:                         rtmp,
+			Labels:                        g.Labels,
 			SourceTenants:                 g.SourceTenants,
 			AlignEvaluationTimeOnInterval: g.AlignEvaluationTimeOnInterval,
 		})
@@ -1160,14 +1162,14 @@ func TestNotify(t *testing.T) {
 		Appendable:  storage,
 		Queryable:   storage,
 		Context:     context.Background(),
-		Logger:      log.NewNopLogger(),
+		Logger:      promslog.NewNopLogger(),
 		NotifyFunc:  notifyFunc,
 		ResendDelay: 2 * time.Second,
 	}
 
 	expr, err := parser.ParseExpr("a > 1")
 	require.NoError(t, err)
-	rule := NewAlertingRule("aTooHigh", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, log.NewNopLogger())
+	rule := NewAlertingRule("aTooHigh", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 	group := NewGroup(GroupOptions{
 		Name:          "alert",
 		Interval:      time.Second,
@@ -1231,7 +1233,7 @@ func TestMetricsUpdate(t *testing.T) {
 		Queryable:  storage,
 		QueryFunc:  EngineQueryFunc(engine, storage),
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 		Registerer: registry,
 	})
 	ruleManager.start()
@@ -1305,7 +1307,7 @@ func TestGroupStalenessOnRemoval(t *testing.T) {
 		Queryable:  storage,
 		QueryFunc:  EngineQueryFunc(engine, storage),
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	})
 	var stopped bool
 	ruleManager.start()
@@ -1382,7 +1384,7 @@ func TestMetricsStalenessOnManagerShutdown(t *testing.T) {
 		Queryable:  storage,
 		QueryFunc:  EngineQueryFunc(engine, storage),
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	})
 	var stopped bool
 	ruleManager.start()
@@ -1428,6 +1430,53 @@ func countStaleNaN(t *testing.T, st storage.Storage) int {
 		}
 	}
 	return c
+}
+
+func TestRuleMovedBetweenGroups(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping test in short mode.")
+	}
+
+	storage := teststorage.New(t, 600000)
+	defer storage.Close()
+	opts := promql.EngineOpts{
+		Logger:     nil,
+		Reg:        nil,
+		MaxSamples: 10,
+		Timeout:    10 * time.Second,
+	}
+	engine := promql.NewEngine(opts)
+	ruleManager := NewManager(&ManagerOptions{
+		Appendable: storage,
+		Queryable:  storage,
+		QueryFunc:  EngineQueryFunc(engine, storage),
+		Context:    context.Background(),
+		Logger:     promslog.NewNopLogger(),
+	})
+	var stopped bool
+	ruleManager.start()
+	defer func() {
+		if !stopped {
+			ruleManager.Stop()
+		}
+	}()
+
+	rule2 := "fixtures/rules2.yaml"
+	rule1 := "fixtures/rules1.yaml"
+
+	// Load initial configuration of rules2
+	require.NoError(t, ruleManager.Update(1*time.Second, []string{rule2}, labels.EmptyLabels(), "", nil))
+
+	// Wait for rule to be evaluated
+	time.Sleep(3 * time.Second)
+
+	// Reload configuration  of rules1
+	require.NoError(t, ruleManager.Update(1*time.Second, []string{rule1}, labels.EmptyLabels(), "", nil))
+
+	// Wait for rule to be evaluated in new location and potential staleness marker
+	time.Sleep(3 * time.Second)
+
+	require.Equal(t, 0, countStaleNaN(t, storage)) // Not expecting any stale markers.
 }
 
 func TestGroupHasAlertingRules(t *testing.T) {
@@ -1484,7 +1533,7 @@ func TestRuleHealthUpdates(t *testing.T) {
 		Appendable: st,
 		Queryable:  st,
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	}
 
 	expr, err := parser.ParseExpr("a + 1")
@@ -1582,7 +1631,7 @@ func TestRuleGroupEvalIterationFunc(t *testing.T) {
 			Appendable:      storage,
 			Queryable:       storage,
 			Context:         context.Background(),
-			Logger:          log.NewNopLogger(),
+			Logger:          promslog.NewNopLogger(),
 			NotifyFunc:      func(ctx context.Context, expr string, alerts ...*Alert) {},
 			OutageTolerance: 30 * time.Minute,
 			ForGracePeriod:  10 * time.Minute,
@@ -1668,7 +1717,7 @@ func TestNativeHistogramsInRecordingRules(t *testing.T) {
 		Appendable: storage,
 		Queryable:  storage,
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 	}
 
 	expr, err := parser.ParseExpr("sum(histogram_metric)")
@@ -1716,7 +1765,7 @@ func TestManager_LoadGroups_ShouldCheckWhetherEachRuleHasDependentsAndDependenci
 
 	ruleManager := NewManager(&ManagerOptions{
 		Context:    context.Background(),
-		Logger:     log.NewNopLogger(),
+		Logger:     promslog.NewNopLogger(),
 		Appendable: storage,
 		QueryFunc:  func(ctx context.Context, q string, ts time.Time) (promql.Vector, error) { return nil, nil },
 	})
@@ -1772,7 +1821,7 @@ func TestDependencyMap(t *testing.T) {
 	ctx := context.Background()
 	opts := &ManagerOptions{
 		Context: ctx,
-		Logger:  log.NewNopLogger(),
+		Logger:  promslog.NewNopLogger(),
 	}
 
 	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
@@ -1781,7 +1830,7 @@ func TestDependencyMap(t *testing.T) {
 
 	expr, err = parser.ParseExpr("user:requests:rate1m <= 0")
 	require.NoError(t, err)
-	rule2 := NewAlertingRule("ZeroRequests", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, log.NewNopLogger())
+	rule2 := NewAlertingRule("ZeroRequests", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
 	expr, err = parser.ParseExpr("sum by (user) (rate(requests[5m]))")
 	require.NoError(t, err)
@@ -1821,7 +1870,7 @@ func TestNoDependency(t *testing.T) {
 	ctx := context.Background()
 	opts := &ManagerOptions{
 		Context: ctx,
-		Logger:  log.NewNopLogger(),
+		Logger:  promslog.NewNopLogger(),
 	}
 
 	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
@@ -1844,7 +1893,7 @@ func TestDependenciesEdgeCases(t *testing.T) {
 	ctx := context.Background()
 	opts := &ManagerOptions{
 		Context: ctx,
-		Logger:  log.NewNopLogger(),
+		Logger:  promslog.NewNopLogger(),
 	}
 
 	t.Run("empty group", func(t *testing.T) {
@@ -2002,7 +2051,7 @@ func TestNoMetricSelector(t *testing.T) {
 	ctx := context.Background()
 	opts := &ManagerOptions{
 		Context: ctx,
-		Logger:  log.NewNopLogger(),
+		Logger:  promslog.NewNopLogger(),
 	}
 
 	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
@@ -2031,7 +2080,7 @@ func TestDependentRulesWithNonMetricExpression(t *testing.T) {
 	ctx := context.Background()
 	opts := &ManagerOptions{
 		Context: ctx,
-		Logger:  log.NewNopLogger(),
+		Logger:  promslog.NewNopLogger(),
 	}
 
 	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
@@ -2040,7 +2089,7 @@ func TestDependentRulesWithNonMetricExpression(t *testing.T) {
 
 	expr, err = parser.ParseExpr("user:requests:rate1m <= 0")
 	require.NoError(t, err)
-	rule2 := NewAlertingRule("ZeroRequests", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, log.NewNopLogger())
+	rule2 := NewAlertingRule("ZeroRequests", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
 	expr, err = parser.ParseExpr("3")
 	require.NoError(t, err)
@@ -2063,7 +2112,7 @@ func TestRulesDependentOnMetaMetrics(t *testing.T) {
 	ctx := context.Background()
 	opts := &ManagerOptions{
 		Context: ctx,
-		Logger:  log.NewNopLogger(),
+		Logger:  promslog.NewNopLogger(),
 	}
 
 	// This rule is not dependent on any other rules in its group but it does depend on `ALERTS`, which is produced by
@@ -2092,7 +2141,7 @@ func TestDependencyMapUpdatesOnGroupUpdate(t *testing.T) {
 	files := []string{"fixtures/rules.yaml"}
 	ruleManager := NewManager(&ManagerOptions{
 		Context: context.Background(),
-		Logger:  log.NewNopLogger(),
+		Logger:  promslog.NewNopLogger(),
 	})
 
 	ruleManager.start()
@@ -2344,7 +2393,7 @@ func TestUpdateWhenStopped(t *testing.T) {
 	files := []string{"fixtures/rules.yaml"}
 	ruleManager := NewManager(&ManagerOptions{
 		Context: context.Background(),
-		Logger:  log.NewNopLogger(),
+		Logger:  promslog.NewNopLogger(),
 	})
 	ruleManager.start()
 	err := ruleManager.Update(10*time.Second, files, labels.EmptyLabels(), "", nil)
@@ -2401,7 +2450,7 @@ func optsFactory(storage storage.Storage, maxInflight, inflightQueries *atomic.I
 
 	return &ManagerOptions{
 		Context:                context.Background(),
-		Logger:                 log.NewNopLogger(),
+		Logger:                 promslog.NewNopLogger(),
 		ConcurrentEvalsEnabled: concurrent,
 		MaxConcurrentEvals:     maxConcurrent,
 		Appendable:             storage,
@@ -2429,4 +2478,19 @@ func optsFactory(storage storage.Storage, maxInflight, inflightQueries *atomic.I
 			}, nil
 		},
 	}
+}
+
+func TestLabels_FromMaps(t *testing.T) {
+	mLabels := FromMaps(
+		map[string]string{"aaa": "101", "bbb": "222"},
+		map[string]string{"aaa": "111", "ccc": "333"},
+	)
+
+	expected := labels.New(
+		labels.Label{Name: "aaa", Value: "111"},
+		labels.Label{Name: "bbb", Value: "222"},
+		labels.Label{Name: "ccc", Value: "333"},
+	)
+
+	require.Equal(t, expected, mLabels, "unexpected labelset")
 }

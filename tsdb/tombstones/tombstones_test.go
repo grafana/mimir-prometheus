@@ -20,8 +20,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
 	"github.com/stretchr/testify/require"
+
+	"github.com/prometheus/common/promslog"
 
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/testutil"
@@ -50,7 +51,7 @@ func TestWriteAndReadbackTombstones(t *testing.T) {
 		stones.AddInterval(storage.SeriesRef(ref), dranges...)
 	}
 
-	_, err := WriteFile(log.NewNopLogger(), tmpdir, stones)
+	_, err := WriteFile(promslog.NewNopLogger(), tmpdir, stones)
 	require.NoError(t, err)
 
 	restr, _, err := ReadTombstones(tmpdir)

@@ -21,13 +21,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/promslog"
 
 	"github.com/prometheus/prometheus/prompb"
 )
@@ -196,10 +196,10 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 	nowMinus6m := pcommon.Timestamp(now.Add(-20 * time.Second).UnixNano())
 	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
 	tests := []struct {
+		name                  string
 		overrideValidInterval time.Duration
 		metric                func() pmetric.Metric
 		want                  func() map[uint64]*prompb.TimeSeries
-		name                  string
 	}{
 		{
 			name: "summary with start time equal to sample timestamp",
@@ -437,7 +437,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
 				metric.Name(),
-				log.NewNopLogger(),
+				promslog.NewNopLogger(),
 			)
 			require.NoError(t, err)
 
@@ -551,7 +551,7 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
-				log.NewNopLogger(),
+				promslog.NewNopLogger(),
 			)
 			require.NoError(t, err)
 
@@ -784,4 +784,39 @@ func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
 			assert.Empty(t, converter.conflicts)
 		})
 	}
+}
+
+func TestGetPromExemplars(t *testing.T) {
+	ctx := context.Background()
+	everyN := &everyNTimes{n: 1}
+
+	t.Run("Exemplars with int value", func(t *testing.T) {
+		pt := pmetric.NewNumberDataPoint()
+		exemplar := pt.Exemplars().AppendEmpty()
+		exemplar.SetTimestamp(pcommon.Timestamp(time.Now().UnixNano()))
+		exemplar.SetIntValue(42)
+		exemplars, err := getPromExemplars(ctx, everyN, pt)
+		assert.NoError(t, err)
+		assert.Len(t, exemplars, 1)
+		assert.Equal(t, float64(42), exemplars[0].Value)
+	})
+
+	t.Run("Exemplars with double value", func(t *testing.T) {
+		pt := pmetric.NewNumberDataPoint()
+		exemplar := pt.Exemplars().AppendEmpty()
+		exemplar.SetTimestamp(pcommon.Timestamp(time.Now().UnixNano()))
+		exemplar.SetDoubleValue(69.420)
+		exemplars, err := getPromExemplars(ctx, everyN, pt)
+		assert.NoError(t, err)
+		assert.Len(t, exemplars, 1)
+		assert.Equal(t, 69.420, exemplars[0].Value)
+	})
+
+	t.Run("Exemplars with unsupported value type", func(t *testing.T) {
+		pt := pmetric.NewNumberDataPoint()
+		exemplar := pt.Exemplars().AppendEmpty()
+		exemplar.SetTimestamp(pcommon.Timestamp(time.Now().UnixNano()))
+		_, err := getPromExemplars(ctx, everyN, pt)
+		assert.Error(t, err)
+	})
 }

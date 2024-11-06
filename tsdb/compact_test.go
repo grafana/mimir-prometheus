@@ -29,9 +29,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
 	"github.com/oklog/ulid"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sync/semaphore"
 
@@ -436,7 +436,7 @@ func TestRangeWithFailedCompactionWontGetSelected(t *testing.T) {
 }
 
 func TestCompactionFailWillCleanUpTempDir(t *testing.T) {
-	compactor, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, log.NewNopLogger(), []int64{
+	compactor, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, promslog.NewNopLogger(), []int64{
 		20,
 		60,
 		240,
@@ -537,7 +537,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 
 		for _, shardCount := range shardCounts {
 			t.Run(fmt.Sprintf("series=%d, shards=%d", series, shardCount), func(t *testing.T) {
-				c, err := NewLeveledCompactorWithChunkSize(ctx, nil, log.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+				c, err := NewLeveledCompactorWithChunkSize(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
 				require.NoError(t, err)
 
 				blockIDs, err := c.CompactWithSplitting(dir, blockDirs, openBlocks, shardCount)
@@ -572,7 +572,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 					// Our splitting compaction preserves it too.
 					seriesSymbols[""] = struct{}{}
 
-					block, err := OpenBlock(log.NewNopLogger(), filepath.Join(dir, blockID.String()), nil)
+					block, err := OpenBlock(promslog.NewNopLogger(), filepath.Join(dir, blockID.String()), nil)
 					require.NoError(t, err)
 
 					defer func() {
@@ -658,7 +658,7 @@ func TestCompaction_CompactEmptyBlocks(t *testing.T) {
 		require.NoError(t, os.Mkdir(bdir, 0o777))
 		require.NoError(t, os.Mkdir(chunkDir(bdir), 0o777))
 
-		_, err := writeMetaFile(log.NewNopLogger(), bdir, m)
+		_, err := writeMetaFile(promslog.NewNopLogger(), bdir, m)
 		require.NoError(t, err)
 
 		iw, err := index.NewWriter(context.Background(), filepath.Join(bdir, indexFilename))
@@ -671,7 +671,7 @@ func TestCompaction_CompactEmptyBlocks(t *testing.T) {
 		blockDirs = append(blockDirs, bdir)
 	}
 
-	c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, log.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+	c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
 	require.NoError(t, err)
 
 	blockIDs, err := c.CompactWithSplitting(dir, blockDirs, nil, 5)
@@ -1247,8 +1247,7 @@ func TestCompaction_populateBlock(t *testing.T) {
 			}
 			err = blockPopulator.PopulateBlock(c.ctx, c.metrics, c.logger, c.chunkPool, c.mergeFunc, c.concurrencyOpts, blocks, meta.MinTime, meta.MaxTime, []shardedBlock{ob}, irPostingsFunc)
 			if tc.expErr != nil {
-				require.Error(t, err)
-				require.Equal(t, tc.expErr.Error(), err.Error())
+				require.EqualError(t, err, tc.expErr.Error())
 				return
 			}
 			require.NoError(t, err)
@@ -1365,7 +1364,7 @@ func BenchmarkCompaction(b *testing.B) {
 				blockDirs = append(blockDirs, block.Dir())
 			}
 
-			c, err := NewLeveledCompactor(context.Background(), nil, log.NewNopLogger(), []int64{0}, nil, nil)
+			c, err := NewLeveledCompactor(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, nil)
 			require.NoError(b, err)
 
 			b.ResetTimer()
@@ -1521,7 +1520,7 @@ func TestCancelCompactions(t *testing.T) {
 	// Measure the compaction time without interrupting it.
 	var timeCompactionUninterrupted time.Duration
 	{
-		db, err := open(tmpdir, log.NewNopLogger(), nil, DefaultOptions(), []int64{1, 2000}, nil)
+		db, err := open(tmpdir, promslog.NewNopLogger(), nil, DefaultOptions(), []int64{1, 2000}, nil)
 		require.NoError(t, err)
 		require.Len(t, db.Blocks(), 3, "initial block count mismatch")
 		require.Equal(t, 0.0, prom_testutil.ToFloat64(db.compactor.(*LeveledCompactor).metrics.Ran), "initial compaction counter mismatch")
@@ -1540,7 +1539,7 @@ func TestCancelCompactions(t *testing.T) {
 	}
 	// Measure the compaction time when closing the db in the middle of compaction.
 	{
-		db, err := open(tmpdirCopy, log.NewNopLogger(), nil, DefaultOptions(), []int64{1, 2000}, nil)
+		db, err := open(tmpdirCopy, promslog.NewNopLogger(), nil, DefaultOptions(), []int64{1, 2000}, nil)
 		require.NoError(t, err)
 		require.Len(t, db.Blocks(), 3, "initial block count mismatch")
 		require.Equal(t, 0.0, prom_testutil.ToFloat64(db.compactor.(*LeveledCompactor).metrics.Ran), "initial compaction counter mismatch")
@@ -1561,7 +1560,7 @@ func TestCancelCompactions(t *testing.T) {
 		// This checks that the `context.Canceled` error is properly checked at all levels:
 		// - tsdb_errors.NewMulti() should have the Is() method implemented for correct checks.
 		// - callers should check with errors.Is() instead of ==.
-		readOnlyDB, err := OpenDBReadOnly(tmpdirCopy, "", log.NewNopLogger())
+		readOnlyDB, err := OpenDBReadOnly(tmpdirCopy, "", promslog.NewNopLogger())
 		require.NoError(t, err)
 		blocks, err := readOnlyDB.Blocks()
 		require.NoError(t, err)
@@ -1573,7 +1572,7 @@ func TestCancelCompactions(t *testing.T) {
 }
 
 // TestDeleteCompactionBlockAfterFailedReload ensures that a failed reloadBlocks immediately after a compaction
-// deletes the resulting block to avoid creatings blocks with the same time range.
+// deletes the resulting block to avoid creating blocks with the same time range.
 func TestDeleteCompactionBlockAfterFailedReload(t *testing.T) {
 	tests := map[string]func(*DB) int{
 		"Test Head Compaction": func(db *DB) int {
@@ -1660,7 +1659,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 
 	// Open subset of blocks first.
 	const blocksToOpen = 2
-	opened, toClose, err := openBlocksForCompaction(blockDirs[:blocksToOpen], nil, log.NewNopLogger(), nil, 10)
+	opened, toClose, err := openBlocksForCompaction(blockDirs[:blocksToOpen], nil, promslog.NewNopLogger(), nil, 10)
 	for _, b := range toClose {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1670,7 +1669,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 	checkBlocks(t, toClose, blockDirs[:blocksToOpen]...)
 
 	// Open all blocks, but provide previously opened blocks.
-	opened2, toClose2, err := openBlocksForCompaction(blockDirs, opened, log.NewNopLogger(), nil, 10)
+	opened2, toClose2, err := openBlocksForCompaction(blockDirs, opened, promslog.NewNopLogger(), nil, 10)
 	for _, b := range toClose2 {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1696,11 +1695,11 @@ func TestOpenBlocksForCompactionErrorsNoMeta(t *testing.T) {
 	}
 
 	// open block[0]
-	b0, err := OpenBlock(log.NewNopLogger(), blockDirs[0], nil)
+	b0, err := OpenBlock(promslog.NewNopLogger(), blockDirs[0], nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b0.Close()) }()
 
-	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b0}, log.NewNopLogger(), nil, 10)
+	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b0}, promslog.NewNopLogger(), nil, 10)
 
 	require.Error(t, err)
 	// We didn't get to opening more blocks, because we found invalid dir, so there is nothing to close.
@@ -1723,7 +1722,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	}
 
 	// open block[1]
-	b1, err := OpenBlock(log.NewNopLogger(), blockDirs[1], nil)
+	b1, err := OpenBlock(promslog.NewNopLogger(), blockDirs[1], nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b1.Close()) }()
 
@@ -1733,7 +1732,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	// Block[2] will be opened correctly.
 	// Block[3] is invalid and will cause error.
 	// Block[4] will not be opened at all.
-	opened, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, log.NewNopLogger(), nil, 1)
+	opened, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, promslog.NewNopLogger(), nil, 1)
 	for _, b := range toClose {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -2540,7 +2539,7 @@ func TestCompactEmptyResultBlockWithTombstone(t *testing.T) {
 	err = block.Delete(ctx, 0, 10, labels.MustNewMatcher(labels.MatchEqual, defaultLabelName, "0"))
 	require.NoError(t, err)
 
-	c, err := NewLeveledCompactor(ctx, nil, log.NewNopLogger(), []int64{0}, nil, nil)
+	c, err := NewLeveledCompactor(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, nil)
 	require.NoError(t, err)
 
 	ulids, err := c.Compact(tmpdir, []string{blockDir}, []*Block{block})
@@ -2736,7 +2735,7 @@ func TestDelayedCompactionDoesNotBlockUnrelatedOps(t *testing.T) {
 			t.Parallel()
 
 			tmpdir := t.TempDir()
-			// Some blocks that need compation are present.
+			// Some blocks that need compaction are present.
 			createBlock(t, tmpdir, genSeries(1, 1, 0, 100))
 			createBlock(t, tmpdir, genSeries(1, 1, 100, 200))
 			createBlock(t, tmpdir, genSeries(1, 1, 200, 300))
@@ -2744,7 +2743,7 @@ func TestDelayedCompactionDoesNotBlockUnrelatedOps(t *testing.T) {
 			options := DefaultOptions()
 			// This will make the test timeout if compaction really waits for it.
 			options.CompactionDelay = time.Hour
-			db, err := open(tmpdir, log.NewNopLogger(), nil, options, []int64{10, 200}, nil)
+			db, err := open(tmpdir, promslog.NewNopLogger(), nil, options, []int64{10, 200}, nil)
 			require.NoError(t, err)
 			defer func() {
 				require.NoError(t, db.Close())

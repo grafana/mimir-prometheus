@@ -22,10 +22,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/go-kit/log"
 	"github.com/prometheus/client_golang/prometheus"
 	common_config "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -380,7 +380,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 	req.Header.Set("Content-Type", "application/x-protobuf")
 
 	appendable := &mockAppendable{}
-	handler := NewOTLPWriteHandler(log.NewNopLogger(), appendable, func() config.Config {
+	handler := NewOTLPWriteHandler(promslog.NewNopLogger(), appendable, func() config.Config {
 		return config.Config{
 			OTLPConfig: config.DefaultOTLPConfig,
 		}
