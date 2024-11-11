@@ -1732,6 +1732,22 @@ func (h *Head) String() string {
 	return "head"
 }
 
+// getOrCreateWithoutIndexing assumes that the caller will do a h.postings.Add() call for created series later.
+func (h *Head) getOrCreateWithoutIndexing(hash uint64, lset labels.Labels) (_ *memSeries, created bool, _ error) {
+	// Just using `getOrCreateWithID` below would be semantically sufficient, but we'd create
+	// a new series on every sample inserted via Add(), which causes allocations
+	// and makes our series IDs rather random and harder to compress in postings.
+	s := h.series.getByHash(hash, lset)
+	if s != nil {
+		return s, false, nil
+	}
+
+	// Optimistically assume that we are the first one to create the series.
+	id := chunks.HeadSeriesRef(h.lastSeriesID.Inc())
+
+	return h.getOrCreateWithID(id, hash, lset, false)
+}
+
 func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool, error) {
 	// Just using `getOrCreateWithID` below would be semantically sufficient, but we'd create
 	// a new series on every sample inserted via Add(), which causes allocations
@@ -1744,10 +1760,10 @@ func (h *Head) getOrCreate(hash uint64, lset labels.Labels) (*memSeries, bool, e
 	// Optimistically assume that we are the first one to create the series.
 	id := chunks.HeadSeriesRef(h.lastSeriesID.Inc())
 
-	return h.getOrCreateWithID(id, hash, lset)
+	return h.getOrCreateWithID(id, hash, lset, true)
 }
 
-func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels) (*memSeries, bool, error) {
+func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labels.Labels, index bool) (*memSeries, bool, error) {
 	s, created, err := h.series.getOrSet(hash, lset, func() *memSeries {
 		shardHash := uint64(0)
 		if h.opts.EnableSharding {
@@ -1766,7 +1782,9 @@ func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labe
 	h.metrics.seriesCreated.Inc()
 	h.numSeries.Inc()
 
-	h.postings.Add(storage.SeriesRef(id), lset)
+	if index {
+		h.postings.Add(storage.SeriesRef(id), lset)
+	}
 	return s, true, nil
 }
 

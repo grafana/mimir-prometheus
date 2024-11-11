@@ -30,6 +30,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/tsdb/record"
 )
 
 var allPostingsKey = labels.Label{}
@@ -366,6 +367,18 @@ func (p *MemPostings) Add(id storage.SeriesRef, lset labels.Labels) {
 	p.addFor(id, allPostingsKey)
 
 	p.mtx.Unlock()
+}
+
+func (p *MemPostings) AddBatch(series []record.RefSeries) {
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	for _, s := range series {
+		s.Labels.Range(func(l labels.Label) {
+			p.addFor(storage.SeriesRef(s.Ref), l)
+		})
+		p.addFor(storage.SeriesRef(s.Ref), allPostingsKey)
+	}
 }
 
 func appendWithExponentialGrowth[T any](a []T, v T) []T {
