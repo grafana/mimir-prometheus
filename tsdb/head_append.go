@@ -435,7 +435,7 @@ func (a *headAppender) getOrCreate(lset labels.Labels) (*memSeries, error) {
 	}
 	var created bool
 	var err error
-	s, created, err := a.head.getOrCreate(lset.Hash(), lset)
+	s, created, err := a.head.getOrCreateWithoutIndexing(lset.Hash(), lset)
 	if err != nil {
 		return nil, err
 	}
@@ -867,6 +867,10 @@ func exemplarsForEncoding(es []exemplarWithSeriesRef) []record.RefExemplar {
 	return ret
 }
 
+func (a *headAppender) indexSeries() {
+	a.head.postings.AddBatch(a.series)
+}
+
 // Commit writes to the WAL and adds the data to the Head.
 // TODO(codesome): Refactor this method to reduce indentation and make it more readable.
 func (a *headAppender) Commit() (err error) {
@@ -879,6 +883,9 @@ func (a *headAppender) Commit() (err error) {
 		_ = a.Rollback() // Most likely the same error will happen again.
 		return fmt.Errorf("write to WAL: %w", err)
 	}
+
+	// Index series after we know we won't rollback, because rollback would also index the series.
+	a.indexSeries()
 
 	if a.head.writeNotified != nil {
 		a.head.writeNotified.Notify()
@@ -1817,7 +1824,8 @@ func (a *headAppender) Rollback() (err error) {
 	a.histograms = nil
 	a.metadata = nil
 
-	// Series are created in the head memory regardless of rollback. Thus we have
-	// to log them to the WAL in any case.
+	// Series are created in the head memory regardless of rollback.
+	// Thus we have to index them and log them to the WAL in any case.
+	a.indexSeries()
 	return a.log()
 }
