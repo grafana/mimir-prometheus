@@ -3023,6 +3023,29 @@ func TestEngineOptsValidation(t *testing.T) {
 	}
 }
 
+func TestEngine_Close(t *testing.T) {
+	t.Run("nil engine", func(t *testing.T) {
+		var ng *promql.Engine
+		require.NoError(t, ng.Close())
+	})
+
+	t.Run("non-nil engine", func(t *testing.T) {
+		ng := promql.NewEngine(promql.EngineOpts{
+			Logger:                   nil,
+			Reg:                      nil,
+			MaxSamples:               0,
+			Timeout:                  100 * time.Second,
+			NoStepSubqueryIntervalFn: nil,
+			EnableAtModifier:         true,
+			EnableNegativeOffset:     true,
+			EnablePerStepStats:       false,
+			LookbackDelta:            0,
+			EnableDelayedNameRemoval: true,
+		})
+		require.NoError(t, ng.Close())
+	})
+}
+
 func TestInstantQueryWithRangeVectorSelector(t *testing.T) {
 	engine := newTestEngine(t)
 
@@ -3481,6 +3504,68 @@ histogram {{sum:4 count:4 buckets:[2 2]}} {{sum:6 count:6 buckets:[3 3]}} {{sum:
 			PositiveBuckets: []float64{1},
 		},
 	})
+}
+
+func TestEvaluationWithDelayedNameRemovalDisabled(t *testing.T) {
+	opts := promql.EngineOpts{
+		Logger:                   nil,
+		Reg:                      nil,
+		EnableAtModifier:         true,
+		MaxSamples:               10000,
+		Timeout:                  10 * time.Second,
+		EnableDelayedNameRemoval: false,
+	}
+	engine := promqltest.NewTestEngineWithOpts(t, opts)
+
+	promqltest.RunTest(t, `
+load 5m
+	metric{env="1"}	0 60 120
+	another_metric{env="1"}	60 120 180
+
+# Does not drop __name__ for vector selector
+eval instant at 15m metric{env="1"}
+	metric{env="1"} 120
+
+# Drops __name__ for unary operators
+eval instant at 15m -metric
+	{env="1"} -120
+
+# Drops __name__ for binary operators
+eval instant at 15m metric + another_metric
+	{env="1"} 300
+
+# Does not drop __name__ for binary comparison operators
+eval instant at 15m metric <= another_metric
+	metric{env="1"} 120
+
+# Drops __name__ for binary comparison operators with "bool" modifier
+eval instant at 15m metric <= bool another_metric
+	{env="1"} 1
+
+# Drops __name__ for vector-scalar operations
+eval instant at 15m metric * 2
+	{env="1"} 240
+
+# Drops __name__ for instant-vector functions
+eval instant at 15m clamp(metric, 0, 100)
+	{env="1"} 100
+
+# Drops __name__ for round function
+eval instant at 15m round(metric)
+	{env="1"} 120
+
+# Drops __name__ for range-vector functions
+eval instant at 15m rate(metric{env="1"}[10m])
+	{env="1"} 0.2
+
+# Does not drop __name__ for last_over_time function
+eval instant at 15m last_over_time(metric{env="1"}[10m])
+	metric{env="1"} 120
+
+# Drops name for other _over_time functions
+eval instant at 15m max_over_time(metric{env="1"}[10m])
+	{env="1"} 120
+`, engine)
 }
 
 func TestRateAnnotations(t *testing.T) {
