@@ -440,6 +440,7 @@ func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 		mp.Add(3, labels.FromStrings("a", "1", "b", "3"))
 		mp.Add(4, labels.FromStrings("a", "1", "b", "4"))
 		mp.Add(5, labels.FromStrings("a", "2", "b", "5"))
+		mp.Commit()
 		return mp
 	}
 
@@ -525,6 +526,7 @@ func TestHeadIndexReader_LabelValuesExcluding(t *testing.T) {
 		mp.Add(5, labels.FromStrings("a", "1", "b", "5"))
 		// This should be the only value of 5 found, since a!=1
 		mp.Add(6, labels.FromStrings("a", "2", "b", "5"))
+		mp.Commit()
 		return mp
 	}
 

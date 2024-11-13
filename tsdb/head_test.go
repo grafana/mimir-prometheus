@@ -98,8 +98,12 @@ func BenchmarkCreateSeries(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for _, s := range series {
-		h.getOrCreate(s.Labels().Hash(), s.Labels())
+	for i, s := range series {
+		getOrCreateAndCommit(h, s.Labels().Hash(), s.Labels())
+		// Commit from time to time.
+		if i%16 == 0 {
+			h.postings.Commit()
+		}
 	}
 }
 
@@ -886,7 +890,7 @@ func BenchmarkHead_Truncate(b *testing.B) {
 			}
 
 			allSeries[i] = labels.FromStrings(append(nameValues, "first", "a", "second", "a", "third", "a")...)
-			s, _, _ := h.getOrCreate(allSeries[i].Hash(), allSeries[i])
+			s, _, _ := getOrCreateAndCommit(h, allSeries[i].Hash(), allSeries[i])
 			s.mmappedChunks = []*mmappedChunk{
 				{minTime: 1000 * int64(i/churn), maxTime: 999 + 1000*int64(i/churn)},
 			}
@@ -923,10 +927,10 @@ func TestHead_Truncate(t *testing.T) {
 
 	ctx := context.Background()
 
-	s1, _, _ := h.getOrCreate(1, labels.FromStrings("a", "1", "b", "1"))
-	s2, _, _ := h.getOrCreate(2, labels.FromStrings("a", "2", "b", "1"))
-	s3, _, _ := h.getOrCreate(3, labels.FromStrings("a", "1", "b", "2"))
-	s4, _, _ := h.getOrCreate(4, labels.FromStrings("a", "2", "b", "2", "c", "1"))
+	s1, _, _ := getOrCreateAndCommit(h, 1, labels.FromStrings("a", "1", "b", "1"))
+	s2, _, _ := getOrCreateAndCommit(h, 2, labels.FromStrings("a", "2", "b", "1"))
+	s3, _, _ := getOrCreateAndCommit(h, 3, labels.FromStrings("a", "1", "b", "2"))
+	s4, _, _ := getOrCreateAndCommit(h, 4, labels.FromStrings("a", "2", "b", "2", "c", "1"))
 
 	s1.mmappedChunks = []*mmappedChunk{
 		{minTime: 0, maxTime: 999},
@@ -1912,7 +1916,7 @@ func TestGCChunkAccess(t *testing.T) {
 
 	h.initTime(0)
 
-	s, _, _ := h.getOrCreate(1, labels.FromStrings("a", "1"))
+	s, _, _ := getOrCreateAndCommit(h, 1, labels.FromStrings("a", "1"))
 
 	// Appending 2 samples for the first chunk.
 	ok, chunkCreated := s.append(0, 0, 0, cOpts)
@@ -1971,7 +1975,7 @@ func TestGCSeriesAccess(t *testing.T) {
 
 	h.initTime(0)
 
-	s, _, _ := h.getOrCreate(1, labels.FromStrings("a", "1"))
+	s, _, _ := getOrCreateAndCommit(h, 1, labels.FromStrings("a", "1"))
 
 	// Appending 2 samples for the first chunk.
 	ok, chunkCreated := s.append(0, 0, 0, cOpts)
@@ -2294,7 +2298,7 @@ func TestHeadReadWriterRepair(t *testing.T) {
 			samplesPerChunk: DefaultSamplesPerChunk,
 		}
 
-		s, created, _ := h.getOrCreate(1, labels.FromStrings("a", "1"))
+		s, created, _ := getOrCreateAndCommit(h, 1, labels.FromStrings("a", "1"))
 		require.True(t, created, "series was not created")
 
 		for i := 0; i < 7; i++ {
@@ -2655,7 +2659,7 @@ func TestIsolationAppendIDZeroIsNoop(t *testing.T) {
 		samplesPerChunk: DefaultSamplesPerChunk,
 	}
 
-	s, _, _ := h.getOrCreate(1, labels.FromStrings("a", "1"))
+	s, _, _ := getOrCreateAndCommit(h, 1, labels.FromStrings("a", "1"))
 
 	ok, _ := s.append(0, 0, 0, cOpts)
 	require.True(t, ok, "Series append failed.")
@@ -4621,7 +4625,7 @@ func TestHistogramCounterResetHeader(t *testing.T) {
 			checkExpCounterResetHeader := func(newHeaders ...chunkenc.CounterResetHeader) {
 				expHeaders = append(expHeaders, newHeaders...)
 
-				ms, _, err := head.getOrCreate(l.Hash(), l)
+				ms, _, err := getOrCreateAndCommit(head, l.Hash(), l)
 				require.NoError(t, err)
 				ms.mmapChunks(head.chunkDiskMapper)
 				require.Len(t, ms.mmappedChunks, len(expHeaders)-1) // One is the head chunk.
@@ -4749,7 +4753,7 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 			checkOOOExpCounterResetHeader := func(newChunks ...expOOOMmappedChunks) {
 				expChunks = append(expChunks, newChunks...)
 
-				ms, _, err := head.getOrCreate(l.Hash(), l)
+				ms, _, err := getOrCreateAndCommit(head, l.Hash(), l)
 				require.NoError(t, err)
 
 				require.Len(t, ms.ooo.oooMmappedChunks, len(expChunks))
@@ -4893,7 +4897,7 @@ func TestAppendingDifferentEncodingToSameSeries(t *testing.T) {
 
 	var expResult []chunks.Sample
 	checkExpChunks := func(count int) {
-		ms, created, err := db.Head().getOrCreate(lbls.Hash(), lbls)
+		ms, created, err := getOrCreateAndCommit(db.Head(), lbls.Hash(), lbls)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.NotNil(t, ms)
@@ -5198,7 +5202,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	require.NoError(t, h.Init(0)) // Replay happens here.
 
 	// Get the ooo samples from the Head.
-	ms, ok, err := h.getOrCreate(l.Hash(), l)
+	ms, ok, err := getOrCreateAndCommit(h, l.Hash(), l)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.NotNil(t, ms)
@@ -5268,7 +5272,7 @@ func testOOOMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		appendSample(mins)
 	}
 
-	ms, ok, err := h.getOrCreate(l.Hash(), l)
+	ms, ok, err := getOrCreateAndCommit(h, l.Hash(), l)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.NotNil(t, ms)
@@ -5296,7 +5300,7 @@ func testOOOMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	require.NoError(t, h.Init(0)) // Replay happens here.
 
 	// Get the mmap chunks from the Head.
-	ms, ok, err = h.getOrCreate(l.Hash(), l)
+	ms, ok, err = getOrCreateAndCommit(h, l.Hash(), l)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.NotNil(t, ms)
@@ -5351,7 +5355,7 @@ func TestHeadInit_DiscardChunksWithUnsupportedEncoding(t *testing.T) {
 	require.NoError(t, app.Commit())
 	require.Greater(t, prom_testutil.ToFloat64(h.metrics.chunksCreated), 4.0)
 
-	series, created, err := h.getOrCreate(seriesLabels.Hash(), seriesLabels)
+	series, created, err := getOrCreateAndCommit(h, seriesLabels.Hash(), seriesLabels)
 	require.NoError(t, err)
 	require.False(t, created, "should already exist")
 	require.NotNil(t, series, "should return the series we created above")
@@ -5368,7 +5372,7 @@ func TestHeadInit_DiscardChunksWithUnsupportedEncoding(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, h.Init(0))
 
-	series, created, err = h.getOrCreate(seriesLabels.Hash(), seriesLabels)
+	series, created, err = getOrCreateAndCommit(h, seriesLabels.Hash(), seriesLabels)
 	require.NoError(t, err)
 	require.False(t, created, "should already exist")
 	require.NotNil(t, series, "should return the series we created above")
@@ -5566,7 +5570,7 @@ func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Ap
 	}
 
 	verifyOOOSamples := func(lbls labels.Labels, expSamples int) {
-		ms, created, err := h.getOrCreate(lbls.Hash(), lbls)
+		ms, created, err := getOrCreateAndCommit(h, lbls.Hash(), lbls)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.NotNil(t, ms)
@@ -5577,7 +5581,7 @@ func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Ap
 	}
 
 	verifyInOrderSamples := func(lbls labels.Labels, expSamples int) {
-		ms, created, err := h.getOrCreate(lbls.Hash(), lbls)
+		ms, created, err := getOrCreateAndCommit(h, lbls.Hash(), lbls)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.NotNil(t, ms)
@@ -5706,7 +5710,7 @@ func TestGaugeHistogramWALAndChunkHeader(t *testing.T) {
 
 	checkHeaders := func() {
 		head.mmapHeadChunks()
-		ms, _, err := head.getOrCreate(l.Hash(), l)
+		ms, _, err := getOrCreateAndCommit(head, l.Hash(), l)
 		require.NoError(t, err)
 		require.Len(t, ms.mmappedChunks, 3)
 		expHeaders := []chunkenc.CounterResetHeader{
@@ -5781,7 +5785,7 @@ func TestGaugeFloatHistogramWALAndChunkHeader(t *testing.T) {
 	appendHistogram(hists[4])
 
 	checkHeaders := func() {
-		ms, _, err := head.getOrCreate(l.Hash(), l)
+		ms, _, err := getOrCreateAndCommit(head, l.Hash(), l)
 		require.NoError(t, err)
 		head.mmapHeadChunks()
 		require.Len(t, ms.mmappedChunks, 3)
@@ -6363,9 +6367,11 @@ func TestPostingsCardinalityStats(t *testing.T) {
 	head := &Head{postings: index.NewMemPostings()}
 	head.postings.Add(1, labels.FromStrings(labels.MetricName, "t", "n", "v1"))
 	head.postings.Add(2, labels.FromStrings(labels.MetricName, "t", "n", "v2"))
+	head.postings.Commit()
 
 	statsForMetricName := head.PostingsCardinalityStats(labels.MetricName, 10)
 	head.postings.Add(3, labels.FromStrings(labels.MetricName, "t", "n", "v3"))
+	head.postings.Commit()
 	// Using cache.
 	require.Equal(t, statsForMetricName, head.PostingsCardinalityStats(labels.MetricName, 10))
 
@@ -6373,6 +6379,7 @@ func TestPostingsCardinalityStats(t *testing.T) {
 	// Cache should be evicted because of the change of label name.
 	require.NotEqual(t, statsForMetricName, statsForSomeLabel)
 	head.postings.Add(4, labels.FromStrings(labels.MetricName, "t", "n", "v4"))
+	head.postings.Commit()
 	// Using cache.
 	require.Equal(t, statsForSomeLabel, head.PostingsCardinalityStats("n", 10))
 	// Cache should be evicted because of the change of limit parameter.
@@ -6572,4 +6579,11 @@ func testHeadAppendHistogramAndCommitConcurrency(t *testing.T, appendFn func(sto
 	}()
 
 	wg.Wait()
+}
+
+// getOrCreateAndCommit is a helper wrapper around Head.getOrCreate() that commits the postings list after the call.
+// This is what the appender would do.
+func getOrCreateAndCommit(head *Head, hash uint64, lbls labels.Labels) (*memSeries, bool, error) {
+	defer head.postings.Commit()
+	return head.getOrCreate(hash, lbls)
 }

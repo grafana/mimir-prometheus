@@ -58,6 +58,16 @@ type MemPostings struct {
 	mtx     sync.RWMutex
 	m       map[string]map[string][]storage.SeriesRef
 	ordered bool
+
+	// pendingMtx protects pending.
+	// If both pendingMtx and mtx need to be taken, mtx should be locked first.
+	pendingMtx sync.Mutex
+	pending    []pendingMemPostings
+}
+
+type pendingMemPostings struct {
+	id   storage.SeriesRef
+	lset labels.Labels
 }
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
@@ -290,7 +300,11 @@ func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
 
 // Delete removes all ids in the given map from the postings lists.
 // affectedLabels contains all the labels that are affected by the deletion, there's no need to check other labels.
-func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected map[labels.Label]struct{}) {
+func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected map[labels.Label]struct{}) { // Commit first.
+	// We could instead iterate through the pending postings and see if one of them is deleted,
+	// but in reality we don't expect pending postings to be deleted, so committing them wastes less resources.
+	p.Commit()
+
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -356,16 +370,39 @@ func (p *MemPostings) Iter(f func(labels.Label, Postings) error) error {
 	return nil
 }
 
-// Add a label set to the postings index.
+// Add a pending to be committed label set to the postings index.
+// Callers of Add should expect Commit to be called at any time by other goroutines,
+// and they should call Commit themselves to ensure that all pending entries are committed.
 func (p *MemPostings) Add(id storage.SeriesRef, lset labels.Labels) {
+	p.pendingMtx.Lock()
+	defer p.pendingMtx.Unlock()
+
+	p.pending = append(p.pending, pendingMemPostings{id: id, lset: lset})
+}
+
+// Commit will create the entries for all series pending to be committed.
+// Commit is a noop if there are no pending entries.
+func (p *MemPostings) Commit() {
+	p.pendingMtx.Lock()
+	defer p.pendingMtx.Unlock()
+
 	p.mtx.Lock()
+	defer p.mtx.Unlock()
 
-	lset.Range(func(l labels.Label) {
-		p.addFor(id, l)
-	})
-	p.addFor(id, allPostingsKey)
+	for i := range p.pending {
+		p.pending[i].lset.Range(func(l labels.Label) {
+			p.addFor(p.pending[i].id, l)
+		})
+		p.addFor(p.pending[i].id, allPostingsKey)
+		p.pending[i] = pendingMemPostings{} // don't retain any kind of references, like labels.Labels.
+	}
 
-	p.mtx.Unlock()
+	// If the pending list is too large, discard it, otherwise just reset.
+	if cap(p.pending) > 1e6 {
+		p.pending = nil
+	} else {
+		p.pending = p.pending[:0]
+	}
 }
 
 func appendWithExponentialGrowth[T any](a []T, v T) []T {

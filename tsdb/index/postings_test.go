@@ -923,6 +923,7 @@ func BenchmarkPostings_Stats(b *testing.B) {
 			p.Add(seriesID, labels.FromStrings(name, value))
 			seriesID++
 		}
+		p.Commit()
 	}
 	createPostingsLabelValues("__name__", "metrics_name_can_be_very_big_and_bad", 1e3)
 	for i := 0; i < 20; i++ {
@@ -952,6 +953,7 @@ func TestMemPostingsStats(t *testing.T) {
 	p.Add(1, labels.FromStrings("label", "value2"))
 	p.Add(1, labels.FromStrings("label", "value3"))
 	p.Add(2, labels.FromStrings("label", "value1"))
+	p.Commit()
 
 	// call the Stats method to calculate the cardinality statistics
 	stats := p.Stats("label", 10)
@@ -972,12 +974,25 @@ func TestMemPostingsStats(t *testing.T) {
 	require.Equal(t, 3, stats.NumLabelPairs)
 }
 
-func TestMemPostings_Delete(t *testing.T) {
+func TestMemPostings_Delete_AllCommitted(t *testing.T) {
 	p := NewMemPostings()
 	p.Add(1, labels.FromStrings("lbl1", "a"))
 	p.Add(2, labels.FromStrings("lbl1", "b"))
 	p.Add(3, labels.FromStrings("lbl2", "a"))
+	p.Commit()
+	testMemPostingsDelete(t, p, []storage.SeriesRef{1, 2, 3})
+}
 
+func TestMemPostings_Delete_Pending(t *testing.T) {
+	p := NewMemPostings()
+	p.Add(1, labels.FromStrings("lbl1", "a"))
+	p.Commit()
+	p.Add(2, labels.FromStrings("lbl1", "b"))
+	p.Add(3, labels.FromStrings("lbl2", "a"))
+	testMemPostingsDelete(t, p, []storage.SeriesRef{1})
+}
+
+func testMemPostingsDelete(t *testing.T, p *MemPostings, committed []storage.SeriesRef) {
 	before := p.Get(allPostingsKey.Name, allPostingsKey.Value)
 	deletedRefs := map[storage.SeriesRef]struct{}{
 		2: {},
@@ -986,13 +1001,16 @@ func TestMemPostings_Delete(t *testing.T) {
 		{Name: "lbl1", Value: "b"}: {},
 	}
 	p.Delete(deletedRefs, affectedLabels)
+
+	// Commit after deleting.
+	p.Commit()
 	after := p.Get(allPostingsKey.Name, allPostingsKey.Value)
 
 	// Make sure postings gotten before the delete have the old data when
 	// iterated over.
 	expanded, err := ExpandPostings(before)
 	require.NoError(t, err)
-	require.Equal(t, []storage.SeriesRef{1, 2, 3}, expanded)
+	require.Equal(t, committed, expanded)
 
 	// Make sure postings gotten after the delete have the new data when
 	// iterated over.
@@ -1058,6 +1076,7 @@ func BenchmarkMemPostings_Delete(b *testing.B) {
 					for i := range allSeries {
 						p.Add(storage.SeriesRef(i), allSeries[i])
 					}
+					p.Commit()
 
 					stop := make(chan struct{})
 					wg := sync.WaitGroup{}
@@ -1527,6 +1546,7 @@ func BenchmarkMemPostings_PostingsForLabelMatching(b *testing.B) {
 			for i := 0; i < labelValueCount; i++ {
 				mp.Add(storage.SeriesRef(i), labels.FromStrings("label", strconv.Itoa(i)))
 			}
+			mp.Commit()
 
 			fp, err := ExpandPostings(mp.PostingsForLabelMatching(context.Background(), "label", fast.MatchString))
 			require.NoError(b, err)
@@ -1555,6 +1575,7 @@ func TestMemPostings_PostingsForLabelMatching(t *testing.T) {
 	mp.Add(2, labels.FromStrings("foo", "2"))
 	mp.Add(3, labels.FromStrings("foo", "3"))
 	mp.Add(4, labels.FromStrings("foo", "4"))
+	mp.Commit()
 
 	isEven := func(v string) bool {
 		iv, err := strconv.Atoi(v)
@@ -1577,6 +1598,7 @@ func TestMemPostings_PostingsForLabelMatchingHonorsContextCancel(t *testing.T) {
 	for i := 1; i <= seriesCount; i++ {
 		memP.Add(storage.SeriesRef(i), labels.FromStrings("__name__", fmt.Sprintf("%4d", i)))
 	}
+	memP.Commit()
 
 	failAfter := uint64(seriesCount / 2 / checkContextEveryNIterations)
 	ctx := &testutil.MockContextErrAfter{FailAfter: failAfter}

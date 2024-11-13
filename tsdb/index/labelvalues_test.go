@@ -226,6 +226,7 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 	mp.Add(4, labels.FromStrings("a", "1", "b", "4"))
 	mp.Add(5, labels.FromStrings("a", "2", "b", "5"))
 	mp.Add(6, labels.FromStrings("d", "1"))
+	mp.Commit()
 
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
 		p := mp.Get("a", "1")
@@ -294,6 +295,7 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 	// This should be the only value of 5 found, since a!=1
 	mp.Add(6, labels.FromStrings("a", "2", "b", "5"))
 	mp.Add(7, labels.FromStrings("d", "1"))
+	mp.Commit()
 
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
 		p := mp.Get("a", "1")
