@@ -24,7 +24,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bboreham/go-loser"
 
@@ -56,14 +55,70 @@ var ensureOrderBatchPool = sync.Pool{
 // unordered batch fills on startup.
 type MemPostings struct {
 	mtx     sync.RWMutex
-	m       map[string]map[string][]storage.SeriesRef
+	m       map[string]*labelNameValues
 	ordered bool
+}
+
+type labelNameValues struct {
+	sync.RWMutex
+	index map[string]int
+
+	// values can be accessed holding only the valuesMtx mutex,
+	// but labelNameValues mutex should be also held for writes.
+	// This also implies that if labelNameValues mutex is held,
+	// valuesSlice can be read without holding the valuesMtx,
+	// but storeValues() should still be used to replace valuesSlice.
+	valuesMtx   sync.RWMutex
+	valuesSlice []*labelValuePostings
+
+	// deleted indicates that Delete() has removed this entry from MemPostings.m.
+	deleted bool
+}
+
+func (lnv *labelNameValues) values() []*labelValuePostings {
+	lnv.valuesMtx.RLock()
+	defer lnv.valuesMtx.RUnlock()
+
+	return lnv.valuesSlice
+}
+
+func (lnv *labelNameValues) store(values []*labelValuePostings) {
+	lnv.valuesMtx.Lock()
+	defer lnv.valuesMtx.Unlock()
+
+	lnv.valuesSlice = values
+}
+
+type labelValuePostings struct {
+	// postings can be accessed holding only the postingsMtx mutex,
+	// but labelNameValues mutex should be also held for writes.
+	// This also implies that if labelNameValues mutex is held,
+	// postingsSlice can be read without holding the postingsMtx,
+	// but store() should still be used to replace postingsSlice.
+	postingsMtx   sync.RWMutex
+	postingsSlice []storage.SeriesRef
+
+	// value can be accessed without holding the mutex
+	value string
+}
+
+func (lvp *labelValuePostings) postings() []storage.SeriesRef {
+	lvp.postingsMtx.RLock()
+	defer lvp.postingsMtx.RUnlock()
+
+	return lvp.postingsSlice
+}
+
+func (lvp *labelValuePostings) store(postings []storage.SeriesRef) {
+	lvp.postingsMtx.Lock()
+	defer lvp.postingsMtx.Unlock()
+	lvp.postingsSlice = postings
 }
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
 func NewMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, 512),
+		m:       make(map[string]*labelNameValues, 512),
 		ordered: true,
 	}
 }
@@ -72,7 +127,7 @@ func NewMemPostings() *MemPostings {
 // until EnsureOrder() was called once.
 func NewUnorderedMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, 512),
+		m:       make(map[string]*labelNameValues, 512),
 		ordered: false,
 	}
 }
@@ -83,10 +138,11 @@ func (p *MemPostings) Symbols() StringIter {
 
 	// Add all the strings to a map to de-duplicate.
 	symbols := make(map[string]struct{}, 512)
-	for n, e := range p.m {
+	for n, ln := range p.m {
 		symbols[n] = struct{}{}
-		for v := range e {
-			symbols[v] = struct{}{}
+		values := ln.values()
+		for _, v := range values {
+			symbols[v.value] = struct{}{}
 		}
 	}
 	p.mtx.RUnlock()
@@ -105,9 +161,10 @@ func (p *MemPostings) SortedKeys() []labels.Label {
 	p.mtx.RLock()
 	keys := make([]labels.Label, 0, len(p.m))
 
-	for n, e := range p.m {
-		for v := range e {
-			keys = append(keys, labels.Label{Name: n, Value: v})
+	for n, ln := range p.m {
+		values := ln.values()
+		for _, v := range values {
+			keys = append(keys, labels.Label{Name: n, Value: v.value})
 		}
 	}
 	p.mtx.RUnlock()
@@ -145,12 +202,18 @@ func (p *MemPostings) LabelNames() []string {
 // LabelValues returns label values for the given name.
 func (p *MemPostings) LabelValues(_ context.Context, name string) []string {
 	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-
-	values := make([]string, 0, len(p.m[name]))
-	for v := range p.m[name] {
-		values = append(values, v)
+	nameValues, ok := p.m[name]
+	p.mtx.RUnlock()
+	if !ok {
+		return nil
 	}
+
+	valuePostings := nameValues.values()
+	values := make([]string, 0, len(valuePostings))
+	for _, v := range valuePostings {
+		values = append(values, v.value)
+	}
+
 	return values
 }
 
@@ -165,7 +228,6 @@ type PostingsStats struct {
 
 // Stats calculates the cardinality statistics from postings.
 func (p *MemPostings) Stats(label string, limit int) *PostingsStats {
-	var size uint64
 	p.mtx.RLock()
 
 	metrics := &maxHeap{}
@@ -183,16 +245,17 @@ func (p *MemPostings) Stats(label string, limit int) *PostingsStats {
 		if n == "" {
 			continue
 		}
-		labels.push(Stat{Name: n, Count: uint64(len(e))})
-		numLabelPairs += len(e)
-		size = 0
-		for name, values := range e {
+		values := e.values()
+		labels.push(Stat{Name: n, Count: uint64(len(values))})
+		numLabelPairs += len(values)
+		size := uint64(0)
+		for _, v := range values {
 			if n == label {
-				metrics.push(Stat{Name: name, Count: uint64(len(values))})
+				metrics.push(Stat{Name: v.value, Count: uint64(len(v.postings()))})
 			}
-			seriesCnt := uint64(len(values))
-			labelValuePairs.push(Stat{Name: n + "=" + name, Count: seriesCnt})
-			size += uint64(len(name)) * seriesCnt
+			seriesCnt := uint64(len(v.postings()))
+			labelValuePairs.push(Stat{Name: n + "=" + v.value, Count: seriesCnt})
+			size += uint64(len(v.value)) * seriesCnt // TODO @colega: double check this
 		}
 		labelValueLength.push(Stat{Name: n, Count: size})
 	}
@@ -210,18 +273,27 @@ func (p *MemPostings) Stats(label string, limit int) *PostingsStats {
 
 // Get returns a postings list for the given label pair.
 func (p *MemPostings) Get(name, value string) Postings {
-	var lp []storage.SeriesRef
 	p.mtx.RLock()
-	l := p.m[name]
-	if l != nil {
-		lp = l[value]
-	}
+	nameValues := p.m[name]
 	p.mtx.RUnlock()
-
-	if lp == nil {
+	if nameValues == nil {
 		return EmptyPostings()
 	}
-	return newListPostings(lp...)
+
+	nameValues.RLock()
+	idx, ok := nameValues.index[value]
+	if !ok {
+		nameValues.RUnlock()
+		return EmptyPostings()
+	}
+	valuePostings := nameValues.values()[idx]
+	nameValues.RUnlock()
+
+	postings := valuePostings.postings()
+	if len(postings) == 0 {
+		return EmptyPostings()
+	}
+	return newListPostings(postings...)
 }
 
 // All returns a postings list over all documents ever added.
@@ -234,10 +306,9 @@ func (p *MemPostings) All() Postings {
 // Parameter numberOfConcurrentProcesses is used to specify the maximal number of
 // CPU cores used for this operation. If it is <= 0, GOMAXPROCS is used.
 // GOMAXPROCS was the default before introducing this parameter.
+//
+// This method isn't thread safe, it shouldn't be called concurrently with reads or appends.
 func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
-
 	if p.ordered {
 		return
 	}
@@ -267,8 +338,8 @@ func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
 
 	nextJob := ensureOrderBatchPool.Get().(*[][]storage.SeriesRef)
 	for _, e := range p.m {
-		for _, l := range e {
-			*nextJob = append(*nextJob, l)
+		for i := range e.valuesSlice {
+			*nextJob = append(*nextJob, e.valuesSlice[i].postingsSlice)
 
 			if len(*nextJob) >= ensureOrderBatchSize {
 				workc <- nextJob
@@ -291,11 +362,30 @@ func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
 // Delete removes all ids in the given map from the postings lists.
 // affectedLabels contains all the labels that are affected by the deletion, there's no need to check other labels.
 func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected map[labels.Label]struct{}) {
-	p.mtx.Lock()
-	defer p.mtx.Unlock()
+	p.mtx.RLock()
+	empty := len(p.m) == 0
+	p.mtx.RUnlock()
+	if empty {
+		return
+	}
 
+	recalculate := map[string]struct{}{}
 	process := func(l labels.Label) {
-		orig := p.m[l.Name][l.Value]
+		p.mtx.RLock()
+		nameValues := p.m[l.Name]
+		p.mtx.RUnlock()
+
+		nameValues.Lock()
+		defer nameValues.Unlock()
+		idx, ok := nameValues.index[l.Value]
+		if !ok {
+			panic(fmt.Errorf("delete called for affected label-value pair that doesn't exist: %v", l))
+		}
+		// We can read valuesSlice because we're holding nameValues.Lock()
+		value := nameValues.valuesSlice[idx]
+		// We can read postingsSlice because we're holding nameValues.Lock()
+		orig := value.postingsSlice
+
 		repl := make([]storage.SeriesRef, 0, len(orig))
 		for _, id := range orig {
 			if _, ok := deleted[id]; !ok {
@@ -303,42 +393,53 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected ma
 			}
 		}
 		if len(repl) > 0 {
-			p.m[l.Name][l.Value] = repl
+			value.store(repl)
 		} else {
-			delete(p.m[l.Name], l.Value)
-			// Delete the key if we removed all values.
-			if len(p.m[l.Name]) == 0 {
-				delete(p.m, l.Name)
-			}
+			delete(nameValues.index, l.Value)
+			recalculate[l.Name] = struct{}{}
 		}
 	}
 
-	i := 0
 	for l := range affected {
-		i++
 		process(l)
-
-		// From time to time we want some readers to go through and read their postings.
-		// It takes around 50ms to process a 1K series batch, and 120ms to process a 10K series batch (local benchmarks on an M3).
-		// Note that a read query will most likely want to read multiple postings lists, say 5, 10 or 20 (depending on the number of matchers)
-		// And that read query will most likely evaluate only one of those matchers before we unpause here, so we want to pause often.
-		if i%512 == 0 {
-			p.mtx.Unlock()
-			// While it's tempting to just do a `time.Sleep(time.Millisecond)` here,
-			// it wouldn't ensure use that readers actually were able to get the read lock,
-			// because if there are writes waiting on same mutex, readers won't be able to get it.
-			// So we just grab one RLock ourselves.
-			p.mtx.RLock()
-			// We shouldn't wait here, because we would be blocking a potential write for no reason.
-			// Note that if there's a writer waiting for us to unlock, no reader will be able to get the read lock.
-			p.mtx.RUnlock() //nolint:staticcheck // SA2001: this is an intentionally empty critical section.
-			// Now we can wait a little bit just to increase the chance of a reader getting the lock.
-			// If we were deleting 100M series here, pausing every 512 with 1ms sleeps would be an extra of 200s, which is negligible.
-			time.Sleep(time.Millisecond)
-			p.mtx.Lock()
-		}
 	}
 	process(allPostingsKey)
+
+	processValues := func(name string) {
+		p.mtx.RLock()
+		nameValues := p.m[name]
+		p.mtx.RUnlock()
+
+		nameValues.Lock()
+		if len(nameValues.index) == 0 {
+			// Careful! We can't just take p.postingsMtx.Lock here, as that could deadlock
+			// with someone having it and waiting on nameValues.Lock()
+			nameValues.Unlock()
+
+			p.mtx.Lock()
+			nameValues = p.m[name]
+			nameValues.Lock()
+			if len(nameValues.index) == 0 {
+				delete(p.m, name)
+				nameValues.deleted = true
+				nameValues.Unlock()
+				p.mtx.Unlock()
+				return
+			}
+
+			repl := make([]*labelValuePostings, 0, len(nameValues.index))
+			for _, i := range nameValues.index {
+				// Yes, this copies a mutex. We don't care.
+				repl = append(repl, nameValues.valuesSlice[i])
+			}
+			nameValues.store(repl)
+		}
+		nameValues.Unlock()
+	}
+
+	for name := range recalculate {
+		processValues(name)
+	}
 }
 
 // Iter calls f for each postings list. It aborts if f returns an error and returns it.
@@ -347,8 +448,9 @@ func (p *MemPostings) Iter(f func(labels.Label, Postings) error) error {
 	defer p.mtx.RUnlock()
 
 	for n, e := range p.m {
-		for v, p := range e {
-			if err := f(labels.Label{Name: n, Value: v}, newListPostings(p...)); err != nil {
+		values := e.values()
+		for _, v := range values {
+			if err := f(labels.Label{Name: n, Value: v.value}, newListPostings(v.postings()...)); err != nil {
 				return err
 			}
 		}
@@ -358,14 +460,14 @@ func (p *MemPostings) Iter(f func(labels.Label, Postings) error) error {
 
 // Add a label set to the postings index.
 func (p *MemPostings) Add(id storage.SeriesRef, lset labels.Labels) {
-	p.mtx.Lock()
+	p.mtx.RLock()
 
 	lset.Range(func(l labels.Label) {
 		p.addFor(id, l)
 	})
 	p.addFor(id, allPostingsKey)
 
-	p.mtx.Unlock()
+	p.mtx.RUnlock()
 }
 
 func appendWithExponentialGrowth[T any](a []T, v T) []T {
@@ -377,15 +479,30 @@ func appendWithExponentialGrowth[T any](a []T, v T) []T {
 	return append(a, v)
 }
 
+// addFor is called with p.postingsMtx.RLock held (RLock!!, not Lock!)
 func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
-	nm, ok := p.m[l.Name]
-	if !ok {
-		nm = map[string][]storage.SeriesRef{}
-		p.m[l.Name] = nm
+	nameValues := p.getOrCreateNameValues(l.Name)
+	nameValues.Lock()
+	if nameValues.deleted {
+		// There was a race between Delete(), and it removed this nameValues from MemPostings.m
+		nameValues = p.getOrCreateNameValues(l.Name)
 	}
-	list := appendWithExponentialGrowth(nm[l.Value], id)
-	nm[l.Value] = list
 
+	// No need to call values() because we're holding nameValues.Lock()
+	values := nameValues.valuesSlice
+	var valuePostings *labelValuePostings
+	if idx, ok := nameValues.index[l.Value]; ok {
+		valuePostings = values[idx]
+	} else {
+		nameValues.index[l.Value] = len(values)
+		valuePostings = &labelValuePostings{value: l.Value}
+		values = append(values, valuePostings)
+		nameValues.store(values)
+	}
+	list := valuePostings.postings()
+	list = appendWithExponentialGrowth(list, id)
+	valuePostings.store(list)
+	nameValues.Unlock()
 	if !p.ordered {
 		return
 	}
@@ -401,71 +518,52 @@ func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 	}
 }
 
+func (p *MemPostings) getOrCreateNameValues(name string) *labelNameValues {
+	nameValues, ok := p.m[name]
+	if !ok {
+		p.mtx.RUnlock()
+		p.mtx.Lock()
+		nameValues, ok = p.m[name]
+		if !ok {
+			nameValues = &labelNameValues{index: make(map[string]int, 512)}
+			p.m[name] = nameValues
+		}
+		p.mtx.Unlock()
+		p.mtx.RLock()
+	}
+	return nameValues
+}
+
 func (p *MemPostings) PostingsForLabelMatching(ctx context.Context, name string, match func(string) bool) Postings {
-	// We'll copy the values into a slice and then match over that,
+	// We'll take the label values slice and then match over that,
 	// this way we don't need to hold the mutex while we're matching,
 	// which can be slow (seconds) if the match function is a huge regex.
 	// Holding this lock prevents new series from being added (slows down the write path)
 	// and blocks the compaction process.
-	vals := p.labelValues(name)
-	for i, count := 0, 1; i < len(vals); count++ {
-		if count%checkContextEveryNIterations == 0 && ctx.Err() != nil {
+	// We just need to make sure we don't modify the slice we took,
+	// so we'll append matching values to a different one.
+	p.mtx.RLock()
+	nameValues := p.m[name]
+	p.mtx.RUnlock()
+	values := nameValues.values()
+
+	its := make([]Postings, 0, len(values))
+	for i, v := range values {
+		if i%checkContextEveryNIterations == 0 && ctx.Err() != nil {
 			return ErrPostings(ctx.Err())
 		}
 
-		if match(vals[i]) {
-			i++
-			continue
+		if match(v.value) {
+			its = append(its, NewListPostings(v.postings()))
 		}
-
-		// Didn't match, bring the last value to this position, make the slice shorter and check again.
-		// The order of the slice doesn't matter as it comes from a map iteration.
-		vals[i], vals = vals[len(vals)-1], vals[:len(vals)-1]
 	}
 
 	// If none matched (or this label had no values), no need to grab the lock again.
-	if len(vals) == 0 {
+	if len(its) == 0 {
 		return EmptyPostings()
 	}
 
-	// Now `vals` only contains the values that matched, get their postings.
-	its := make([]Postings, 0, len(vals))
-	p.mtx.RLock()
-	e := p.m[name]
-	for _, v := range vals {
-		if refs, ok := e[v]; ok {
-			// Some of the values may have been garbage-collected in the meantime this is fine, we'll just skip them.
-			// If we didn't let the mutex go, we'd have these postings here, but they would be pointing nowhere
-			// because there would be a `MemPostings.Delete()` call waiting for the lock to delete these labels,
-			// because the series were deleted already.
-			its = append(its, NewListPostings(refs))
-		}
-	}
-	// Let the mutex go before merging.
-	p.mtx.RUnlock()
-
 	return Merge(ctx, its...)
-}
-
-// labelValues returns a slice of label values for the given label name.
-// It will take the read lock.
-func (p *MemPostings) labelValues(name string) []string {
-	p.mtx.RLock()
-	defer p.mtx.RUnlock()
-
-	e := p.m[name]
-	if len(e) == 0 {
-		return nil
-	}
-
-	vals := make([]string, 0, len(e))
-	for v, srs := range e {
-		if len(srs) > 0 {
-			vals = append(vals, v)
-		}
-	}
-
-	return vals
 }
 
 // ExpandPostings returns the postings expanded as a slice.
@@ -1024,4 +1122,21 @@ func (h *postingsWithIndexHeap) Pop() interface{} {
 	x := old[n-1]
 	*h = old[0 : n-1]
 	return x
+}
+
+type atomicishValue[T any] struct {
+	mtx      sync.RWMutex
+	elements T
+}
+
+func (a *atomicishValue[T]) Load() T {
+	a.mtx.RLock()
+	defer a.mtx.RUnlock()
+	return a.elements
+}
+
+func (a *atomicishValue[T]) Store(v T) {
+	a.mtx.Lock()
+	defer a.mtx.Unlock()
+	a.elements = v
 }

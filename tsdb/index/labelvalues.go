@@ -221,20 +221,22 @@ func (p *MemPostings) LabelValuesExcluding(postings Postings, name string) stora
 func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatches bool) storage.LabelValues {
 	p.mtx.RLock()
 
-	e := p.m[name]
-	if len(e) == 0 {
+	e, ok := p.m[name]
+	if !ok {
 		p.mtx.RUnlock()
 		return storage.EmptyLabelValues()
 	}
 
+	values := e.values()
+
 	// With thread safety in mind and due to random key ordering in map, we have to construct the array in memory
-	vals := make([]string, 0, len(e))
-	candidates := make([]Postings, 0, len(e))
+	vals := make([]string, 0, len(values))
+	candidates := make([]Postings, 0, len(values))
 	// Allocate a slice for all needed ListPostings, so no need to allocate them one by one.
-	lps := make([]ListPostings, 0, len(e))
-	for val, srs := range e {
-		vals = append(vals, val)
-		lps = append(lps, ListPostings{list: srs})
+	lps := make([]ListPostings, 0, len(values))
+	for _, v := range values {
+		vals = append(vals, v.value)
+		lps = append(lps, ListPostings{list: v.postings()})
 		candidates = append(candidates, &lps[len(lps)-1])
 	}
 

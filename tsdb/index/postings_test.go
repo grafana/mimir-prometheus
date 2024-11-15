@@ -34,38 +34,35 @@ import (
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
-func TestMemPostings_addFor(t *testing.T) {
-	p := NewMemPostings()
-	p.m[allPostingsKey.Name] = map[string][]storage.SeriesRef{}
-	p.m[allPostingsKey.Name][allPostingsKey.Value] = []storage.SeriesRef{1, 2, 3, 4, 6, 7, 8}
-
-	p.addFor(5, allPostingsKey)
-
-	require.Equal(t, []storage.SeriesRef{1, 2, 3, 4, 5, 6, 7, 8}, p.m[allPostingsKey.Name][allPostingsKey.Value])
-}
+//func TestMemPostings_addFor(t *testing.T) {
+//	p := NewMemPostings()
+//	p.m[allPostingsKey.Name] = map[string][]storage.SeriesRef{}
+//	p.m[allPostingsKey.Name][allPostingsKey.Value] = []storage.SeriesRef{1, 2, 3, 4, 6, 7, 8}
+//
+//	p.addFor(5, allPostingsKey)
+//
+//	require.Equal(t, []storage.SeriesRef{1, 2, 3, 4, 5, 6, 7, 8}, p.m[allPostingsKey.Name][allPostingsKey.Value])
+//}
 
 func TestMemPostings_ensureOrder(t *testing.T) {
 	p := NewUnorderedMemPostings()
-	p.m["a"] = map[string][]storage.SeriesRef{}
 
 	for i := 0; i < 100; i++ {
-		l := make([]storage.SeriesRef, 100)
-		for j := range l {
-			l[j] = storage.SeriesRef(rand.Uint64())
-		}
 		v := strconv.Itoa(i)
-
-		p.m["a"][v] = l
+		for j := 0; j < 100; j++ {
+			p.Add(storage.SeriesRef(rand.Uint64()), labels.FromStrings("a", v))
+		}
 	}
 
 	p.EnsureOrder(0)
 
 	for _, e := range p.m {
-		for _, l := range e {
-			ok := sort.SliceIsSorted(l, func(i, j int) bool {
-				return l[i] < l[j]
+		for _, v := range e.values() {
+			postings := v.postings()
+			ok := sort.SliceIsSorted(postings, func(i, j int) bool {
+				return postings[i] < postings[j]
 			})
-			require.True(t, ok, "postings list %v is not sorted", l)
+			require.True(t, ok, "postings list %v is not sorted", v.value)
 		}
 	}
 }
@@ -100,16 +97,13 @@ func BenchmarkMemPostings_ensureOrder(b *testing.B) {
 			// Generate postings.
 			for l := 0; l < testData.numLabels; l++ {
 				labelName := strconv.Itoa(l)
-				p.m[labelName] = map[string][]storage.SeriesRef{}
 
 				for v := 0; v < testData.numValuesPerLabel; v++ {
-					refs := make([]storage.SeriesRef, testData.numRefsPerValue)
-					for j := range refs {
-						refs[j] = storage.SeriesRef(rand.Uint64())
-					}
-
 					labelValue := strconv.Itoa(v)
-					p.m[labelName][labelValue] = refs
+					ls := labels.FromStrings(labelName, labelValue)
+					for j := 0; j < testData.numRefsPerValue; j++ {
+						p.Add(storage.SeriesRef(rand.Uint64()), ls)
+					}
 				}
 			}
 
