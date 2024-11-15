@@ -385,7 +385,7 @@ func TestPersistence_index_e2e(t *testing.T) {
 			valset[l.Value] = struct{}{}
 		})
 		postings.Add(storage.SeriesRef(i), s.labels)
-		postings.Commit()
+		postings.Commit(storage.SeriesRef(i))
 	}
 
 	for p := range mi.postings {
