@@ -1309,7 +1309,7 @@ func (db *DB) Compact(ctx context.Context) (returnErr error) {
 		}
 	}()
 
-	lastBlockMaxt := int64(math.MinInt64)
+	lastBlockMaxt, firstBlockMint := int64(math.MinInt64), int64(math.MaxInt64)
 	defer func() {
 		errs := tsdb_errors.NewMulti(returnErr)
 		if err := db.head.truncateWAL(lastBlockMaxt); err != nil {
@@ -1367,6 +1367,9 @@ func (db *DB) Compact(ctx context.Context) (returnErr error) {
 		}
 		// Consider only successful compactions for WAL truncation.
 		lastBlockMaxt = maxt
+		if firstBlockMint != math.MaxInt64 {
+			firstBlockMint = mint
+		}
 	}
 
 	// Clear some disk space before compacting blocks, especially important
@@ -1386,7 +1389,7 @@ func (db *DB) Compact(ctx context.Context) (returnErr error) {
 
 	if lastBlockMaxt != math.MinInt64 {
 		// The head was compacted, so we compact OOO head as well.
-		if err := db.compactOOOHead(ctx); err != nil {
+		if err := db.compactOOOHead(ctx, firstBlockMint); err != nil {
 			return fmt.Errorf("compact ooo head: %w", err)
 		}
 	}
@@ -1422,17 +1425,17 @@ func (db *DB) CompactHeadWithoutTruncation(head *RangeHead) error {
 }
 
 // CompactOOOHead compacts the OOO Head.
-func (db *DB) CompactOOOHead(ctx context.Context) error {
+func (db *DB) CompactOOOHead(ctx context.Context, currDayTime time.Time) error {
 	db.cmtx.Lock()
 	defer db.cmtx.Unlock()
 
-	return db.compactOOOHead(ctx)
+	return db.compactOOOHead(ctx, currDayTime.UnixMilli())
 }
 
 // Callback for testing.
 var compactOOOHeadTestingCallback func()
 
-func (db *DB) compactOOOHead(ctx context.Context) error {
+func (db *DB) compactOOOHead(ctx context.Context, firstBlockMint int64) error {
 	if !db.oooWasEnabled.Load() {
 		return nil
 	}
@@ -1446,7 +1449,7 @@ func (db *DB) compactOOOHead(ctx context.Context) error {
 		compactOOOHeadTestingCallback = nil
 	}
 
-	ulids, err := db.compactOOO(db.dir, oooHead)
+	ulids, err := db.compactOOO(db.dir, oooHead, firstBlockMint)
 	if err != nil {
 		return fmt.Errorf("compact ooo head: %w", err)
 	}
@@ -1486,7 +1489,7 @@ func (db *DB) compactOOOHead(ctx context.Context) error {
 
 // compactOOO creates a new block per possible block range in the compactor's directory from the OOO Head given.
 // Each ULID in the result corresponds to a block in a unique time range.
-func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead) (_ []ulid.ULID, err error) {
+func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead, firstBlockMint int64) (_ []ulid.ULID, err error) {
 	start := time.Now()
 
 	blockSize := oooHead.ChunkRange()
@@ -1503,14 +1506,34 @@ func (db *DB) compactOOO(dest string, oooHead *OOOCompactionHead) (_ []ulid.ULID
 
 	meta := &BlockMeta{}
 	meta.Compaction.SetOutOfOrder()
-	for t := blockSize * (oooHeadMint / blockSize); t <= oooHeadMaxt; t += blockSize {
-		mint, maxt := t, t+blockSize
+	runCompaction := func(mint, maxt int64) error {
 		// Block intervals are half-open: [b.MinTime, b.MaxTime). Block intervals are always +1 than the total samples it includes.
 		uids, err := db.compactor.Write(dest, oooHead.CloneForTimeRange(mint, maxt-1), mint, maxt, meta)
 		if err != nil {
-			return nil, err
+			return err
 		}
 		ulids = append(ulids, uids...)
+		return nil
+	}
+
+	day := 24 * time.Hour.Milliseconds()
+	maxtFor24hBlock := day * (firstBlockMint / day)
+
+	// 24h blocks for data that is for the previous days
+	for t := day * (oooHeadMint / day); t < maxtFor24hBlock; t += day {
+		if err := runCompaction(t, t+day); err != nil {
+			return nil, err
+		}
+	}
+
+	oooStart := oooHeadMint
+	if oooStart < maxtFor24hBlock {
+		oooStart = maxtFor24hBlock
+	}
+	for t := blockSize * (oooStart / blockSize); t <= oooHeadMaxt; t += blockSize {
+		if err := runCompaction(t, t+blockSize); err != nil {
+			return nil, err
+		}
 	}
 
 	if len(ulids) == 0 {
