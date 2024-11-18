@@ -431,7 +431,9 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected ma
 		}
 
 		repl := make([]*labelValuePostings, 0, len(nameValues.index))
-		for _, i := range nameValues.index {
+		for k, i := range nameValues.index {
+			// Update the index.
+			nameValues.index[k] = len(repl)
 			// Yes, this copies a mutex. We don't care.
 			repl = append(repl, nameValues.valuesSlice[i])
 		}
