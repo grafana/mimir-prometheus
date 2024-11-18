@@ -485,9 +485,15 @@ func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 	nameValues := p.getOrCreateNameValues(l.Name)
 	nameValues.Lock()
 	if nameValues.deleted {
+		nameValues.Unlock()
 		// There was a race between Delete(), and it removed this nameValues from MemPostings.m
 		nameValues = p.getOrCreateNameValues(l.Name)
+		nameValues.Lock()
+		if nameValues.deleted {
+			panic(fmt.Errorf("nameValues should not be deleted for %q after retrieving it for second time", l.Name))
+		}
 	}
+	defer nameValues.Unlock()
 
 	// No need to call values() because we're holding nameValues.Lock()
 	values := nameValues.valuesSlice
@@ -503,7 +509,6 @@ func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
 	list := valuePostings.postings()
 	list = appendWithExponentialGrowth(list, id)
 	valuePostings.store(list)
-	nameValues.Unlock()
 	if !p.ordered {
 		return
 	}
