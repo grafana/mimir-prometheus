@@ -362,18 +362,15 @@ func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
 // Delete removes all ids in the given map from the postings lists.
 // affectedLabels contains all the labels that are affected by the deletion, there's no need to check other labels.
 func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected map[labels.Label]struct{}) {
-	p.mtx.RLock()
-	empty := len(p.m) == 0
-	p.mtx.RUnlock()
-	if empty {
-		return
-	}
-
 	recalculate := map[string]struct{}{}
 	process := func(l labels.Label) {
 		p.mtx.RLock()
-		nameValues := p.m[l.Name]
+		nameValues, ok := p.m[l.Name]
 		p.mtx.RUnlock()
+		if !ok {
+			// This should not happen, but let's not panic.
+			return
+		}
 
 		nameValues.Lock()
 		defer nameValues.Unlock()
@@ -407,8 +404,12 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected ma
 
 	processValues := func(name string) {
 		p.mtx.RLock()
-		nameValues := p.m[name]
+		nameValues, ok := p.m[name]
 		p.mtx.RUnlock()
+		if !ok {
+			// This should not happen, but let's not panic.
+			return
+		}
 
 		nameValues.Lock()
 		if len(nameValues.index) == 0 {
