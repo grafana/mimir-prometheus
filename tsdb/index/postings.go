@@ -543,8 +543,11 @@ func (p *MemPostings) PostingsForLabelMatching(ctx context.Context, name string,
 	// We just need to make sure we don't modify the slice we took,
 	// so we'll append matching values to a different one.
 	p.mtx.RLock()
-	nameValues := p.m[name]
+	nameValues, ok := p.m[name]
 	p.mtx.RUnlock()
+	if !ok {
+		return EmptyPostings()
+	}
 	values := nameValues.values()
 
 	its := make([]Postings, 0, len(values))
