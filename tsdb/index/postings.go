@@ -1123,20 +1123,3 @@ func (h *postingsWithIndexHeap) Pop() interface{} {
 	*h = old[0 : n-1]
 	return x
 }
-
-type atomicishValue[T any] struct {
-	mtx      sync.RWMutex
-	elements T
-}
-
-func (a *atomicishValue[T]) Load() T {
-	a.mtx.RLock()
-	defer a.mtx.RUnlock()
-	return a.elements
-}
-
-func (a *atomicishValue[T]) Store(v T) {
-	a.mtx.Lock()
-	defer a.mtx.Unlock()
-	a.elements = v
-}

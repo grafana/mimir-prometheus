@@ -34,15 +34,46 @@ import (
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
-//func TestMemPostings_addFor(t *testing.T) {
-//	p := NewMemPostings()
-//	p.m[allPostingsKey.Name] = map[string][]storage.SeriesRef{}
-//	p.m[allPostingsKey.Name][allPostingsKey.Value] = []storage.SeriesRef{1, 2, 3, 4, 6, 7, 8}
-//
-//	p.addFor(5, allPostingsKey)
-//
-//	require.Equal(t, []storage.SeriesRef{1, 2, 3, 4, 5, 6, 7, 8}, p.m[allPostingsKey.Name][allPostingsKey.Value])
-//}
+func TestMemPostings_Add(t *testing.T) {
+	p := NewMemPostings()
+	for i := 1; i <= 4; i++ {
+		p.Add(storage.SeriesRef(i), labels.FromStrings("a", "1"))
+	}
+	for i := 5; i <= 8; i++ {
+		p.Add(storage.SeriesRef(i), labels.FromStrings("b", "1"))
+	}
+
+	{
+		ps := p.Get(allPostingsKey.Name, allPostingsKey.Value)
+		ep, err := ExpandPostings(ps)
+		require.NoError(t, err)
+		require.Equal(t, []storage.SeriesRef{1, 2, 3, 4, 5, 6, 7, 8}, ep)
+	}
+
+	{
+		ps := p.Get("a", "1")
+		ep, err := ExpandPostings(ps)
+		require.NoError(t, err)
+		require.Equal(t, []storage.SeriesRef{1, 2, 3, 4}, ep)
+	}
+
+	{
+		ps := p.Get("b", "1")
+		ep, err := ExpandPostings(ps)
+		require.NoError(t, err)
+		require.Equal(t, []storage.SeriesRef{5, 6, 7, 8}, ep)
+	}
+
+	{
+		ps := p.Get("c", "1")
+		require.True(t, IsEmptyPostingsType(ps))
+	}
+
+	{
+		ps := p.Get("a", "2")
+		require.True(t, IsEmptyPostingsType(ps))
+	}
+}
 
 func TestMemPostings_ensureOrder(t *testing.T) {
 	p := NewUnorderedMemPostings()
