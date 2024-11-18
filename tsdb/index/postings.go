@@ -413,7 +413,7 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected ma
 
 		nameValues.Lock()
 		if len(nameValues.index) == 0 {
-			// Careful! We can't just take p.postingsMtx.Lock here, as that could deadlock
+			// Careful! We can't just take p.mtx.Lock here, as that could deadlock
 			// with someone having it and waiting on nameValues.Lock()
 			nameValues.Unlock()
 
@@ -427,14 +427,15 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected ma
 				p.mtx.Unlock()
 				return
 			}
-
-			repl := make([]*labelValuePostings, 0, len(nameValues.index))
-			for _, i := range nameValues.index {
-				// Yes, this copies a mutex. We don't care.
-				repl = append(repl, nameValues.valuesSlice[i])
-			}
-			nameValues.store(repl)
+			p.mtx.Unlock()
 		}
+
+		repl := make([]*labelValuePostings, 0, len(nameValues.index))
+		for _, i := range nameValues.index {
+			// Yes, this copies a mutex. We don't care.
+			repl = append(repl, nameValues.valuesSlice[i])
+		}
+		nameValues.store(repl)
 		nameValues.Unlock()
 	}
 
