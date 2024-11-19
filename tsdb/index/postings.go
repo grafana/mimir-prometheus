@@ -471,7 +471,17 @@ func (p *MemPostings) PostingsForLabelMatching(ctx context.Context, name string,
 	its := make([]Postings, 0, len(vals))
 	p.mtx.RLock()
 	e := p.m[name]
+	iter := 0
 	for _, v := range vals {
+		iter++
+		if iter%1024 == 0 && p.writersWaiting() {
+			// There are writers waiting, so unlock the mutex, and use this opportunity to check the context.
+			p.mtx.RUnlock()
+			if ctx.Err() != nil {
+				return ErrPostings(ctx.Err())
+			}
+			p.mtx.RLock()
+		}
 		if refs, ok := e[v]; ok {
 			// Some of the values may have been garbage-collected in the meantime this is fine, we'll just skip them.
 			// If we didn't let the mutex go, we'd have these postings here, but they would be pointing nowhere
@@ -484,6 +494,15 @@ func (p *MemPostings) PostingsForLabelMatching(ctx context.Context, name string,
 	p.mtx.RUnlock()
 
 	return Merge(ctx, its...)
+}
+
+// writersWaiting can be called from an RLock()ed-goroutine to check whether there are other goroutines waiting on Lock().
+func (p *MemPostings) writersWaiting() bool {
+	if !p.mtx.TryRLock() {
+		return true
+	}
+	p.mtx.RUnlock()
+	return false
 }
 
 // ExpandPostings returns the postings expanded as a slice.
