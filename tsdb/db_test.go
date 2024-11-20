@@ -7528,7 +7528,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		require.Positive(t, size)
 
 		require.Empty(t, db.Blocks())
-		require.NoError(t, db.compactOOOHead(ctx))
+		require.NoError(t, db.CompactOOOHead(ctx))
 		require.NotEmpty(t, db.Blocks())
 
 		// WBL is empty.
@@ -9086,4 +9086,77 @@ func TestBlockClosingBlockedDuringRemoteRead(t *testing.T) {
 		require.Fail(t, "Closing the block timed out.")
 	case <-blockClosed:
 	}
+}
+
+func TestBiggerBlocksForOldOOOData(t *testing.T) {
+	var (
+		ctx  = context.Background()
+		lbls = labels.FromStrings("foo", "bar")
+
+		day  = 24 * time.Hour.Milliseconds()
+		hour = time.Hour.Milliseconds()
+
+		currTs       = time.Now().UnixMilli()
+		currDayStart = day * (currTs / day)
+
+		expOOOSamples []chunks.Sample
+	)
+
+	opts := DefaultOptions()
+	opts.OutOfOrderTimeWindow = 10 * day
+	db := openTestDB(t, opts, nil)
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	// 1 in-order sample.
+	app := db.Appender(ctx)
+	inOrderTs := currDayStart + (6 * hour)
+	ref, err := app.Append(0, lbls, inOrderTs, float64(inOrderTs))
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// OOO samples till 5 days ago.
+	for ts := currDayStart - (5 * day); ts < inOrderTs; ts += hour {
+		app = db.Appender(ctx)
+		_, err := app.Append(ref, lbls, ts, float64(ts))
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		expOOOSamples = append(expOOOSamples, sample{t: ts, f: float64(ts)})
+	}
+
+	require.Empty(t, db.Blocks())
+	require.NoError(t, db.CompactOOOHead(ctx))
+	// 5 OOO blocks from the last 5 days + 3 OOO blocks for the 6h of curr day (2h blocks)
+	require.Len(t, db.Blocks(), 8)
+
+	// Check that blocks are alright.
+	// Move all the blocks to a new DB and check for all OOO samples
+	// getting into the new DB and the old DB only has the in-order sample.
+	newDB := openTestDB(t, opts, nil)
+	t.Cleanup(func() {
+		require.NoError(t, newDB.Close())
+	})
+	for _, b := range db.Blocks() {
+		err := os.Rename(b.Dir(), path.Join(newDB.Dir(), b.Meta().ULID.String()))
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, db.reloadBlocks())
+	require.NoError(t, newDB.reloadBlocks())
+	require.Empty(t, db.Blocks())
+	require.Len(t, newDB.Blocks(), 8)
+
+	// Only in-order sample in the old DB.
+	querier, err := db.Querier(inOrderTs-6*day, inOrderTs+1)
+	require.NoError(t, err)
+	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
+	require.Equal(t, map[string][]chunks.Sample{`{foo="bar"}`: {sample{t: inOrderTs, f: float64(inOrderTs)}}}, seriesSet)
+
+	// All OOO samples in the new DB.
+	querier, err = newDB.Querier(inOrderTs-6*day, inOrderTs+1)
+	require.NoError(t, err)
+	seriesSet = query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
+	require.Equal(t, map[string][]chunks.Sample{`{foo="bar"}`: expOOOSamples}, seriesSet)
 }
