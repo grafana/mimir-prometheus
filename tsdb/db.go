@@ -1432,7 +1432,6 @@ func (db *DB) CompactOOOHead(ctx context.Context) error {
 // Callback for testing.
 var compactOOOHeadTestingCallback func()
 
-// firstBlockMint is in milliseconds.
 func (db *DB) compactOOOHead(ctx context.Context) error {
 	if !db.oooWasEnabled.Load() {
 		return nil
