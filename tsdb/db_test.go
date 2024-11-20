@@ -9126,7 +9126,7 @@ func TestBiggerBlocksForOldOOOData(t *testing.T) {
 		expOOOSamples = append(expOOOSamples, sample{t: ts, f: float64(ts)})
 	}
 
-	require.Len(t, db.Blocks(), 0)
+	require.Empty(t, db.Blocks())
 	require.NoError(t, db.CompactOOOHead(ctx))
 	// 5 OOO blocks from the last 5 days + 3 OOO blocks for the 6h of curr day (2h blocks)
 	require.Len(t, db.Blocks(), 8)
@@ -9145,7 +9145,7 @@ func TestBiggerBlocksForOldOOOData(t *testing.T) {
 
 	require.NoError(t, db.reloadBlocks())
 	require.NoError(t, newDB.reloadBlocks())
-	require.Len(t, db.Blocks(), 0)
+	require.Empty(t, db.Blocks())
 	require.Len(t, newDB.Blocks(), 8)
 
 	// Only in-order sample in the old DB.
