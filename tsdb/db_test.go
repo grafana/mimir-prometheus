@@ -3772,7 +3772,7 @@ func TestQuerierShouldNotFailIfOOOCompactionOccursAfterRetrievingQuerier(t *test
 	go func() {
 		defer compactionComplete.Store(true)
 
-		require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+		require.NoError(t, db.CompactOOOHead(ctx))
 		require.Equal(t, float64(1), prom_testutil.ToFloat64(db.Head().metrics.chunksRemoved))
 	}()
 
@@ -3870,7 +3870,7 @@ func TestQuerierShouldNotFailIfOOOCompactionOccursAfterSelecting(t *testing.T) {
 	go func() {
 		defer compactionComplete.Store(true)
 
-		require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+		require.NoError(t, db.CompactOOOHead(ctx))
 		require.Equal(t, float64(1), prom_testutil.ToFloat64(db.Head().metrics.chunksRemoved))
 	}()
 
@@ -3961,7 +3961,7 @@ func TestQuerierShouldNotFailIfOOOCompactionOccursAfterRetrievingIterators(t *te
 	go func() {
 		defer compactionComplete.Store(true)
 
-		require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+		require.NoError(t, db.CompactOOOHead(ctx))
 		require.Equal(t, float64(1), prom_testutil.ToFloat64(db.Head().metrics.chunksRemoved))
 	}()
 
@@ -4993,7 +4993,7 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario, addExtraSample
 	}
 
 	// OOO compaction happens here.
-	require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+	require.NoError(t, db.CompactOOOHead(ctx))
 
 	// 3 blocks exist now. [0, 120), [120, 240), [240, 360)
 	require.Len(t, db.Blocks(), 3)
@@ -5399,7 +5399,7 @@ func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sa
 
 	// Compaction should also work fine.
 	require.Empty(t, db.Blocks())
-	require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+	require.NoError(t, db.CompactOOOHead(ctx))
 	require.Len(t, db.Blocks(), 1) // One block from OOO data.
 	require.Equal(t, int64(0), db.Blocks()[0].MinTime())
 	require.Equal(t, 120*time.Minute.Milliseconds(), db.Blocks()[0].MaxTime())
@@ -6907,7 +6907,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 		require.Greater(t, f.Size(), int64(100))
 
 		// OOO compaction happens here.
-		require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+		require.NoError(t, db.CompactOOOHead(ctx))
 
 		// Check that blocks are created after compaction.
 		require.Len(t, db.Blocks(), 5)
@@ -7097,7 +7097,7 @@ func testOOOCompactionFailure(t *testing.T, scenario sampleTypeScenario) {
 	originalCompactor := db.compactor
 	db.compactor = &mockCompactorFailing{t: t}
 	for i := 0; i < 5; i++ {
-		require.Error(t, db.CompactOOOHead(ctx, time.Now()))
+		require.Error(t, db.CompactOOOHead(ctx))
 	}
 	require.Empty(t, db.Blocks())
 
@@ -7108,7 +7108,7 @@ func testOOOCompactionFailure(t *testing.T, scenario sampleTypeScenario) {
 	verifyFirstWBLFileIs0(6)
 
 	db.compactor = originalCompactor
-	require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+	require.NoError(t, db.CompactOOOHead(ctx))
 	oldBlocks := db.Blocks()
 	require.Len(t, db.Blocks(), 3)
 
@@ -7120,7 +7120,7 @@ func testOOOCompactionFailure(t *testing.T, scenario sampleTypeScenario) {
 
 	// The failed compaction should not have left the ooo Head corrupted.
 	// Hence, expect no new blocks with another OOO compaction call.
-	require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+	require.NoError(t, db.CompactOOOHead(ctx))
 	require.Len(t, db.Blocks(), 3)
 	require.Equal(t, oldBlocks, db.Blocks())
 
@@ -7528,7 +7528,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		require.Positive(t, size)
 
 		require.Empty(t, db.Blocks())
-		require.NoError(t, db.CompactOOOHead(ctx, time.Now()))
+		require.NoError(t, db.CompactOOOHead(ctx))
 		require.NotEmpty(t, db.Blocks())
 
 		// WBL is empty.
