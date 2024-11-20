@@ -1480,6 +1480,7 @@ func (db *DB) compactOOOHead(ctx context.Context) error {
 			return fmt.Errorf("truncate ooo wbl: %w", err)
 		}
 	}
+
 	return nil
 }
 
