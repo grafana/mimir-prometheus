@@ -8983,6 +8983,7 @@ func TestBiggerBlocksForOldOOOData(t *testing.T) {
 	)
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 10 * day
+	opts.EnableBiggerOOOBlockForOldSamples = true
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
 	t.Cleanup(func() {
