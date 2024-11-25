@@ -52,23 +52,23 @@ require (
 	github.com/prometheus/alertmanager v0.27.0
 	github.com/prometheus/client_golang v1.20.5
 	github.com/prometheus/client_model v0.6.1
-	github.com/prometheus/common v0.60.0
+	github.com/prometheus/common v0.60.1
 	github.com/prometheus/common/assets v0.2.0
 	github.com/prometheus/common/sigv4 v0.1.0
-	github.com/prometheus/exporter-toolkit v0.13.0
+	github.com/prometheus/exporter-toolkit v0.13.1
 	github.com/scaleway/scaleway-sdk-go v1.0.0-beta.30
 	github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c
 	github.com/stretchr/testify v1.9.0
 	github.com/vultr/govultr/v2 v2.17.2
-	go.opentelemetry.io/collector/pdata v1.16.0
-	go.opentelemetry.io/collector/semconv v0.110.0
+	go.opentelemetry.io/collector/pdata v1.18.0
+	go.opentelemetry.io/collector/semconv v0.112.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.56.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.56.0
 	go.opentelemetry.io/otel v1.31.0
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.30.0
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.30.0
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.30.0
-	go.opentelemetry.io/otel/sdk v1.30.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.31.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.31.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.31.0
+	go.opentelemetry.io/otel/sdk v1.31.0
 	go.opentelemetry.io/otel/trace v1.31.0
 	go.uber.org/atomic v1.11.0
 	go.uber.org/automaxprocs v1.6.0
