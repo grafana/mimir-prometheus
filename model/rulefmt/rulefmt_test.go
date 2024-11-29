@@ -18,7 +18,9 @@ import (
 	"io"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 )
@@ -348,6 +350,138 @@ func TestErrorUnwrap(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.wrappedError.Error(), func(t *testing.T) {
 			require.ErrorIs(t, tt.wrappedError, tt.unwrappedError)
+		})
+	}
+}
+
+func TestRuleGroup_UnmarshalYaml(t *testing.T) {
+	ruleStringWithEvalDelay := `
+groups:
+- name: example
+  interval: 1m
+  evaluation_delay: 5m
+`
+
+	ruleStringWithQueryOffset := `
+groups:
+- name: example
+  interval: 1m
+  query_offset: 2m
+`
+
+	ruleStringwithBoth := `
+groups:
+- name: example
+  interval: 1m
+  evaluation_delay: 5m
+  query_offset: 2m
+`
+
+	dur5m := model.Duration(5 * time.Minute)
+	dur2m := model.Duration(2 * time.Minute)
+
+	tc := []struct {
+		name       string
+		ruleString string
+		output     RuleGroup
+	}{
+		{
+			name:       "with evaluation delay",
+			ruleString: ruleStringWithEvalDelay,
+			output: RuleGroup{
+				Name:            "example",
+				Interval:        model.Duration(1 * time.Minute),
+				EvaluationDelay: &dur5m,
+			},
+		},
+		{
+			name:       "with query offset",
+			ruleString: ruleStringWithQueryOffset,
+			output: RuleGroup{
+				Name:        "example",
+				Interval:    model.Duration(1 * time.Minute),
+				QueryOffset: &dur2m,
+			},
+		},
+		{
+			name:       "with query offset and evaluation delay",
+			ruleString: ruleStringwithBoth,
+			output: RuleGroup{
+				Name:            "example",
+				Interval:        model.Duration(1 * time.Minute),
+				EvaluationDelay: &dur5m,
+				QueryOffset:     &dur2m,
+			},
+		},
+	}
+	for _, tt := range tc {
+		t.Run(tt.name, func(t *testing.T) {
+			rgs, errs := Parse([]byte(tt.ruleString))
+			require.Empty(t, errs)
+
+			require.Equal(t, tt.output, rgs.Groups[0])
+		})
+	}
+}
+
+func TestRuleGroup_MarshalYaml(t *testing.T) {
+	dur5m := model.Duration(5 * time.Minute)
+	dur2m := model.Duration(2 * time.Minute)
+
+	tc := []struct {
+		name       string
+		input      RuleGroup
+		ruleString string
+	}{
+		{
+			name: "with evaluation delay",
+			input: RuleGroup{
+				Name:            "example",
+				Interval:        model.Duration(1 * time.Minute),
+				EvaluationDelay: &dur5m,
+			},
+			ruleString: `name: example
+interval: 1m
+evaluation_delay: 5m
+rules: []
+`,
+		},
+		{
+			name: "with query offset",
+			input: RuleGroup{
+				Name:        "example",
+				Interval:    model.Duration(1 * time.Minute),
+				QueryOffset: &dur2m,
+			},
+			ruleString: `name: example
+interval: 1m
+query_offset: 2m
+rules: []
+`,
+		},
+		{
+			name: "with query offset and evaluation delay",
+			input: RuleGroup{
+				Name:            "example",
+				Interval:        model.Duration(1 * time.Minute),
+				EvaluationDelay: &dur5m,
+				QueryOffset:     &dur2m,
+			},
+			ruleString: `name: example
+interval: 1m
+evaluation_delay: 5m
+query_offset: 2m
+rules: []
+`,
+		},
+	}
+
+	for _, tt := range tc {
+		t.Run(tt.name, func(t *testing.T) {
+			out, err := yaml.Marshal(&tt.input)
+			require.NoError(t, err)
+
+			require.Equal(t, tt.ruleString, string(out))
 		})
 	}
 }

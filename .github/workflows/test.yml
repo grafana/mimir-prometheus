@@ -1,0 +1,53 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        buildtags:
+          - slicelabels # there's no such tag when this is being written, but it makes the CI job name more obvious.
+          - stringlabels
+          - dedupelabels
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '~1.23.0'
+
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Run Tests
+        run: GOOPTS=-tags=${{ matrix.buildtags }} make common-test
+
+  fuzz:
+    strategy:
+      matrix:
+        include:
+          - package: ./model/labels
+            fuzz: FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions
+          - package: ./model/labels
+            fuzz: FuzzFastRegexMatcher_WithFuzzyRegularExpressions
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '~1.23.0'
+
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
+      - name: Set -fuzztime=10m for 'main' branch
+        if: github.ref == 'refs/heads/main'
+        run: echo "fuzztime=10m" >> $GITHUB_ENV
+
+      - name: Set -fuzztime=1m for non-'main' branches
+        if: github.ref != 'refs/heads/main'
+        run: echo "fuzztime=1m" >> $GITHUB_ENV
+
+      - name: Fuzz
+        run: go test -run=NOTHING -fuzz=${{ matrix.fuzz }} -fuzztime=$fuzztime  ${{ matrix.package }}

@@ -14,13 +14,18 @@
 package labels
 
 import (
+	"bufio"
 	"fmt"
 	"math/rand"
+	"os"
+	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
 
+	"github.com/DmitriyVTitov/size"
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
 	"github.com/stretchr/testify/require"
@@ -30,7 +35,9 @@ var (
 	asciiRunes = []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_")
 	regexes    = []string{
 		"",
+		"()",
 		"foo",
+		"foo()",
 		"^foo",
 		"(foo|bar)",
 		"foo.*",
@@ -39,7 +46,11 @@ var (
 		"^.+foo$",
 		".?",
 		".*",
+		"().*",
+		".*()",
+		"().*()",
 		".+",
+		".+()",
 		"foo.+",
 		".+foo",
 		"foo\n.+",
@@ -125,6 +136,115 @@ func TestFastRegexMatcher_MatchString(t *testing.T) {
 				require.Equal(t, re.MatchString(v), m.MatchString(v))
 			})
 		}
+	}
+}
+
+func TestNewFastRegexMatcher_CacheSizeLimit(t *testing.T) {
+	// Start with an empty cache.
+	fastRegexMatcherCache.Clear()
+
+	// Init the random seed with a constant, so that it doesn't change between runs.
+	randGenerator := rand.New(rand.NewSource(1))
+
+	// Generate a very expensive regex.
+	alternates := make([]string, 1000)
+	for i := 0; i < len(alternates); i++ {
+		alternates[i] = randString(randGenerator, 100) + fmt.Sprintf(".%d", i)
+	}
+	expensiveRegexp := strings.Join(alternates, "|")
+
+	// Utility function to get a unique expensive regexp.
+	getExpensiveRegexp := func(id int) string {
+		return expensiveRegexp + strconv.Itoa(id)
+	}
+
+	// Estimate the size of the matcher with the expensive regexp.
+	m, err := newFastRegexMatcherWithoutCache(expensiveRegexp)
+	require.NoError(t, err)
+	expensiveRegexpSizeBytes := size.Of(m)
+	t.Logf("expensive regexp estimated size (bytes): %d", expensiveRegexpSizeBytes)
+
+	// Estimate the max number of items in the cache.
+	estimatedMaxItemsInCache := fastRegexMatcherCacheMaxSizeBytes / expensiveRegexpSizeBytes
+
+	// Fill the cache.
+	for i := 0; i < estimatedMaxItemsInCache; i++ {
+		_, err := NewFastRegexMatcher(getExpensiveRegexp(i))
+		require.NoError(t, err)
+	}
+
+	// Ensure all regexp matchers are still in the cache.
+	fastRegexMatcherCache.Wait()
+
+	for i := 0; i < estimatedMaxItemsInCache; i++ {
+		_, ok := fastRegexMatcherCache.Get(getExpensiveRegexp(i))
+		require.True(t, ok, "checking if regexp matcher #%d is still in the cache", i)
+	}
+
+	// Add one more regexp matcher to the cache.
+	_, err = NewFastRegexMatcher(getExpensiveRegexp(estimatedMaxItemsInCache + 1))
+	require.NoError(t, err)
+
+	// Ensure one item has been evicted from the cache to make room for the new entry.
+	fastRegexMatcherCache.Wait()
+
+	numEvicted := 0
+	for i := 0; i < estimatedMaxItemsInCache; i++ {
+		if _, ok := fastRegexMatcherCache.Get(getExpensiveRegexp(i)); !ok {
+			t.Logf("the regexp matcher #%d has been evicted from the cache", i)
+			numEvicted++
+		}
+	}
+
+	require.Equal(t, 1, numEvicted)
+}
+
+func BenchmarkNewFastRegexMatcher(b *testing.B) {
+	runBenchmark := func(newFunc func(v string) (*FastRegexMatcher, error)) func(b *testing.B) {
+		return func(b *testing.B) {
+			for _, r := range regexes {
+				b.Run(getTestNameFromRegexp(r), func(b *testing.B) {
+					for n := 0; n < b.N; n++ {
+						_, err := newFunc(r)
+						if err != nil {
+							b.Fatal(err)
+						}
+					}
+				})
+			}
+		}
+	}
+
+	b.Run("with cache", runBenchmark(NewFastRegexMatcher))
+	b.Run("without cache", runBenchmark(newFastRegexMatcherWithoutCache))
+}
+
+func BenchmarkNewFastRegexMatcher_CacheMisses(b *testing.B) {
+	// Init the random seed with a constant, so that it doesn't change between runs.
+	randGenerator := rand.New(rand.NewSource(1))
+
+	tests := map[string]string{
+		"simple regexp":  randString(randGenerator, 10),
+		"complex regexp": strings.Join(randStrings(randGenerator, 100, 10), "|"),
+	}
+
+	for testName, regexpPrefix := range tests {
+		b.Run(testName, func(b *testing.B) {
+			// Ensure the cache is empty.
+			fastRegexMatcherCache.Clear()
+
+			b.ResetTimer()
+
+			for n := 0; n < b.N; n++ {
+				// Unique regexp to emulate 100% cache misses.
+				regexp := regexpPrefix + strconv.Itoa(n)
+
+				_, err := NewFastRegexMatcher(regexp)
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
 	}
 }
 
@@ -251,22 +371,22 @@ func TestFindSetMatches(t *testing.T) {
 			parsed, err := syntax.Parse(c.pattern, syntax.Perl|syntax.DotNL)
 			require.NoError(t, err)
 			matches, actualCaseSensitive := findSetMatches(parsed)
-			require.Equal(t, c.expMatches, matches)
+			require.ElementsMatch(t, c.expMatches, matches)
 			require.Equal(t, c.expCaseSensitive, actualCaseSensitive)
 
 			if c.expCaseSensitive {
 				// When the regexp is case sensitive, we want to ensure that the
 				// set matches are maintained in the final matcher.
-				r, err := NewFastRegexMatcher(c.pattern)
+				r, err := newFastRegexMatcherWithoutCache(c.pattern)
 				require.NoError(t, err)
-				require.Equal(t, c.expMatches, r.SetMatches())
+				require.ElementsMatch(t, c.expMatches, r.SetMatches())
 			}
 		})
 	}
 }
 
 func TestFastRegexMatcher_SetMatches_ShouldReturnACopy(t *testing.T) {
-	m, err := NewFastRegexMatcher("a|b")
+	m, err := newFastRegexMatcherWithoutCache("a|b")
 	require.NoError(t, err)
 	require.Equal(t, []string{"a", "b"}, m.SetMatches())
 
@@ -349,6 +469,9 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		exp     StringMatcher
 	}{
 		{".*", trueMatcher{}},
+		{"().*", trueMatcher{}},
+		{".*()", trueMatcher{}},
+		{"().*()", trueMatcher{}},
 		{".*?", trueMatcher{}},
 		{"(?s:.*)", trueMatcher{}},
 		{"(.*)", trueMatcher{}},
@@ -358,14 +481,17 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		{"^.+$", &anyNonEmptyStringMatcher{matchNL: true}},
 		{"(.+)", &anyNonEmptyStringMatcher{matchNL: true}},
 		{"", emptyStringMatcher{}},
+		{"()", emptyStringMatcher{}},
 		{"^$", emptyStringMatcher{}},
 		{"^foo$", &equalStringMatcher{s: "foo", caseSensitive: true}},
+		{"^foo()$", &equalStringMatcher{s: "foo", caseSensitive: true}},
+		{"^()foo$", &equalStringMatcher{s: "foo", caseSensitive: true}},
 		{"^(?i:foo)$", &equalStringMatcher{s: "FOO", caseSensitive: false}},
 		{"^((?i:foo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
 		{`(?i:((foo|bar)))`, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "BAR", caseSensitive: false}})},
-		{`(?i:((foo1|foo2|bar)))`, orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}}), &equalStringMatcher{s: "BAR", caseSensitive: false}})},
+		{`(?i:((foo1|foo2|bar)))`, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "BAR", caseSensitive: false}, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}})})},
 		{"^((?i:foo|oo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "OO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
-		{"(?i:(foo1|foo2|bar))", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}}), &equalStringMatcher{s: "BAR", caseSensitive: false}})},
+		{"(?i:(foo1|foo2|bar))", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "BAR", caseSensitive: false}, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}})})},
 		{".*foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: trueMatcher{}, right: trueMatcher{}}},
 		{"(.*)foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: trueMatcher{}, right: trueMatcher{}}},
 		{"(.*)foo(.*)", &containsStringMatcher{substrings: []string{"foo"}, left: trueMatcher{}, right: trueMatcher{}}},
@@ -382,7 +508,7 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		{"(prometheus|api_prom)_api_v1_.+", &containsStringMatcher{substrings: []string{"prometheus_api_v1_", "api_prom_api_v1_"}, left: nil, right: &anyNonEmptyStringMatcher{matchNL: true}}},
 		{"^((.*)(bar|b|buzz)(.+)|foo)$", orStringMatcher([]StringMatcher{&containsStringMatcher{substrings: []string{"bar", "b", "buzz"}, left: trueMatcher{}, right: &anyNonEmptyStringMatcher{matchNL: true}}, &equalStringMatcher{s: "foo", caseSensitive: true}})},
 		{"((fo(bar))|.+foo)", orStringMatcher([]StringMatcher{orStringMatcher([]StringMatcher{&equalStringMatcher{s: "fobar", caseSensitive: true}}), &literalSuffixStringMatcher{suffix: "foo", suffixCaseSensitive: true, left: &anyNonEmptyStringMatcher{matchNL: true}}})},
-		{"(.+)/(gateway|cortex-gw|cortex-gw-internal)", &containsStringMatcher{substrings: []string{"/gateway", "/cortex-gw", "/cortex-gw-internal"}, left: &anyNonEmptyStringMatcher{matchNL: true}, right: nil}},
+		{"(.+)/(gateway|cortex-gw|cortex-gw-internal)", &containsStringMatcher{substrings: []string{"/cortex-gw", "/cortex-gw-internal", "/gateway"}, left: &anyNonEmptyStringMatcher{matchNL: true}, right: nil}},
 		// we don't support case insensitive matching for contains.
 		// This is because there's no strings.IndexOfFold function.
 		// We can revisit later if this is really popular by using strings.ToUpper.
@@ -686,6 +812,248 @@ func randStrings(randGenerator *rand.Rand, many, length int) []string {
 		out = append(out, randString(randGenerator, length))
 	}
 	return out
+}
+
+func FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions(f *testing.F) {
+	// Create all matchers.
+	matchers := make([]*FastRegexMatcher, 0, len(regexes))
+	res := make([]*regexp.Regexp, 0, len(regexes))
+	for _, re := range regexes {
+		m, err := NewFastRegexMatcher(re)
+		require.NoError(f, err)
+		r := regexp.MustCompile("^(?s:" + re + ")$")
+		matchers = append(matchers, m)
+		res = append(res, r)
+	}
+
+	// Add known values to seed corpus.
+	for _, v := range values {
+		f.Add(v)
+	}
+
+	f.Fuzz(func(t *testing.T, text string) {
+		for i, m := range matchers {
+			require.Equalf(t, res[i].MatchString(text), m.MatchString(text), "regexp: %s text: %s", res[i].String(), text)
+		}
+	})
+}
+
+func FuzzFastRegexMatcher_WithFuzzyRegularExpressions(f *testing.F) {
+	for _, re := range regexes {
+		for _, text := range values {
+			f.Add(re, text)
+		}
+	}
+
+	f.Fuzz(func(t *testing.T, re, text string) {
+		m, err := NewFastRegexMatcher(re)
+		if err != nil {
+			// Ignore invalid regexes.
+			return
+		}
+
+		reg, err := regexp.Compile("^(?s:" + re + ")$")
+		if err != nil {
+			// Ignore invalid regexes.
+			return
+		}
+
+		require.Equalf(t, reg.MatchString(text), m.MatchString(text), "regexp: %s text: %s", reg.String(), text)
+	})
+}
+
+// This test can be used to analyze real queries from Mimir logs. You can extract real queries with a regexp matcher
+// running the following command:
+//
+// logcli --addr=XXX --username=YYY --password=ZZZ query '{namespace=~"(cortex|mimir).*",name="query-frontend"} |= "query stats" |= "=~" --limit=100000 > logs.txt
+//
+// against Loki.
+func TestAnalyzeRealQueries(t *testing.T) {
+	t.Skip("Decomment this test only to manually analyze real queries")
+
+	type labelValueInfo struct {
+		numMatchingQueries       int
+		numShardedQueries        int
+		numSplitQueries          int
+		optimized                bool
+		averageParsingTimeMillis float64
+
+		// Sorted list of timestamps when the queries have been received.
+		queryStartTimes []time.Time
+
+		// List of all queries execution wall times.
+		wallTimes []time.Duration
+	}
+
+	labelValueRE := regexp.MustCompile(`[=!]~(?:\\"|')([^"']*)(?:\\"|')`)
+	tsRE := regexp.MustCompile(`ts=([^ ]+)`)
+	shardedQueriesRE := regexp.MustCompile(`sharded_queries=(\d+)`)
+	splitQueriesRE := regexp.MustCompile(`split_queries=(\d+)`)
+	wallTimeSecondsRE := regexp.MustCompile(`query_wall_time_seconds=([0-9.]+)`)
+
+	labelValues := make(map[string]*labelValueInfo)
+
+	// Read the logs file line-by-line, and find all values for regex label matchers.
+	readFile, err := os.Open("logs.txt")
+	require.NoError(t, err)
+
+	fileScanner := bufio.NewScanner(readFile)
+	fileScanner.Split(bufio.ScanLines)
+
+	numQueries := 0
+
+	for fileScanner.Scan() {
+		line := fileScanner.Text()
+		matches := labelValueRE.FindAllStringSubmatch(line, -1)
+		if len(matches) == 0 {
+			continue
+		}
+
+		// Look up query stats.
+		tsRaw := tsRE.FindStringSubmatch(line)
+		shardedQueriesRaw := shardedQueriesRE.FindStringSubmatch(line)
+		splitQueriesRaw := splitQueriesRE.FindStringSubmatch(line)
+		wallTimeSecondsRaw := wallTimeSecondsRE.FindStringSubmatch(line)
+		shardedQueries := 0
+		splitQueries := 0
+		wallTimeSeconds := 0.
+		var ts time.Time
+
+		if len(tsRaw) > 0 {
+			ts, _ = time.Parse(time.RFC3339Nano, tsRaw[1])
+		}
+		if len(shardedQueriesRaw) > 0 {
+			shardedQueries, _ = strconv.Atoi(shardedQueriesRaw[1])
+		}
+		if len(splitQueriesRaw) > 0 {
+			splitQueries, _ = strconv.Atoi(splitQueriesRaw[1])
+		}
+		if len(wallTimeSecondsRaw) > 0 {
+			wallTimeSeconds, _ = strconv.ParseFloat(wallTimeSecondsRaw[1], 64)
+		}
+
+		numQueries++
+
+		for _, match := range matches {
+			info := labelValues[match[1]]
+			if info == nil {
+				info = &labelValueInfo{}
+				labelValues[match[1]] = info
+			}
+
+			info.numMatchingQueries++
+			info.numShardedQueries += shardedQueries
+			info.numSplitQueries += splitQueries
+
+			if !ts.IsZero() {
+				info.queryStartTimes = append(info.queryStartTimes, ts)
+			}
+
+			if wallTimeSeconds > 0 {
+				info.wallTimes = append(info.wallTimes, time.Duration(wallTimeSeconds*float64(time.Second)))
+			}
+		}
+	}
+
+	// Sort query start times.
+	for _, info := range labelValues {
+		sort.Slice(info.queryStartTimes, func(i, j int) bool {
+			return info.queryStartTimes[i].Before(info.queryStartTimes[j])
+		})
+	}
+
+	require.NoError(t, readFile.Close())
+	t.Logf("Found %d unique regexp matchers out of %d queries", len(labelValues), numQueries)
+
+	// Analyze each regexp matcher found.
+	numChecked := 0
+	numOptimized := 0
+
+	for re, info := range labelValues {
+		m, err := NewFastRegexMatcher(re)
+		if err != nil {
+			// Ignore it, because we may have failed to extract the label matcher.
+			continue
+		}
+
+		numChecked++
+
+		// Check if each regexp matcher is supported by our optimization.
+		if m.IsOptimized() {
+			numOptimized++
+			info.optimized = true
+		}
+
+		// Estimate the parsing complexity.
+		startTime := time.Now()
+		const numParsingRuns = 1000
+
+		for i := 0; i < numParsingRuns; i++ {
+			NewFastRegexMatcher(re)
+		}
+
+		info.averageParsingTimeMillis = float64(time.Since(startTime).Milliseconds()) / float64(numParsingRuns)
+	}
+
+	t.Logf("Found %d out of %d (%.2f%%) regexp matchers optimized by FastRegexMatcher", numOptimized, numChecked, (float64(numOptimized)/float64(numChecked))*100)
+
+	// Print some statistics.
+	for labelValue, info := range labelValues {
+		// Find the min/avg/max difference between query start times.
+		var (
+			minQueryStartTimeDiff time.Duration
+			maxQueryStartTimeDiff time.Duration
+			avgQueryStartTimeDiff time.Duration
+			sumQueryStartTime     time.Duration
+			countQueryStartTime   int
+
+			minWallTime time.Duration
+			maxWallTime time.Duration
+			avgWallTime time.Duration
+			sumWallTime time.Duration
+		)
+
+		// Compute min/max/avg query start times diff.
+		for i := 1; i < len(info.queryStartTimes); i++ {
+			diff := info.queryStartTimes[i].Sub(info.queryStartTimes[i-1])
+
+			sumQueryStartTime += diff
+			countQueryStartTime++
+
+			if minQueryStartTimeDiff == 0 || diff < minQueryStartTimeDiff {
+				minQueryStartTimeDiff = diff
+			}
+			if diff > maxQueryStartTimeDiff {
+				maxQueryStartTimeDiff = diff
+			}
+		}
+
+		if countQueryStartTime > 0 {
+			avgQueryStartTimeDiff = sumQueryStartTime / time.Duration(countQueryStartTime)
+		}
+
+		// Compute min/max/avg query execution time.
+		for i := 0; i < len(info.wallTimes); i++ {
+			sumWallTime += info.wallTimes[i]
+
+			if minWallTime == 0 || info.wallTimes[i] < minWallTime {
+				minWallTime = info.wallTimes[i]
+			}
+			if info.wallTimes[i] > maxWallTime {
+				maxWallTime = info.wallTimes[i]
+			}
+		}
+
+		if len(info.wallTimes) > 0 {
+			avgWallTime = sumWallTime / time.Duration(len(info.wallTimes))
+		}
+
+		t.Logf("num queries: %d\t num split queries: %d\t num sharded queries: %d\t optimized: %t\t parsing time: %.0fms\t min/avg/max query start time diff (sec): %.2f/%.2f/%.2f min/avg/max query wall time (sec): %.2f/%.2f/%.2f regexp: %s",
+			info.numMatchingQueries, info.numSplitQueries, info.numShardedQueries, info.optimized, info.averageParsingTimeMillis,
+			minQueryStartTimeDiff.Seconds(), avgQueryStartTimeDiff.Seconds(), maxQueryStartTimeDiff.Seconds(),
+			minWallTime.Seconds(), avgWallTime.Seconds(), maxWallTime.Seconds(),
+			labelValue)
+	}
 }
 
 func randStringsWithSuffix(randGenerator *rand.Rand, many, length int, suffix string) []string {
