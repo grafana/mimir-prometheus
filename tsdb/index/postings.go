@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/bboreham/go-loser"
+	"go.uber.org/atomic"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -61,6 +62,17 @@ type MemPostings struct {
 	m       map[string]map[string][]storage.SeriesRef
 	lvs     map[string][]string
 	ordered bool
+
+	// pendingMtx protects pending.
+	// If both pendingMtx and mtx need to be taken, mtx should be locked first.
+	pendingMtx       sync.Mutex
+	pending          []pendingMemPostings
+	pendingWatermark *atomic.Uint64 // min(p.id for p in pending)
+}
+
+type pendingMemPostings struct {
+	id   storage.SeriesRef
+	lset labels.Labels
 }
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
@@ -69,6 +81,8 @@ func NewMemPostings() *MemPostings {
 		m:       make(map[string]map[string][]storage.SeriesRef, 512),
 		lvs:     make(map[string][]string, 512),
 		ordered: true,
+
+		pendingWatermark: atomic.NewUint64(math.MaxUint64),
 	}
 }
 
@@ -79,6 +93,8 @@ func NewUnorderedMemPostings() *MemPostings {
 		m:       make(map[string]map[string][]storage.SeriesRef, 512),
 		lvs:     make(map[string][]string, 512),
 		ordered: false,
+
+		pendingWatermark: atomic.NewUint64(math.MaxUint64),
 	}
 }
 
@@ -296,7 +312,11 @@ func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
 
 // Delete removes all ids in the given map from the postings lists.
 // affectedLabels contains all the labels that are affected by the deletion, there's no need to check other labels.
-func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected map[labels.Label]struct{}) {
+func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected map[labels.Label]struct{}) { // Commit first.
+	// We could instead iterate through the pending postings and see if one of them is deleted,
+	// but in reality we don't expect pending postings to be deleted, so committing them wastes less resources.
+	p.CommitAll()
+
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 
@@ -389,16 +409,103 @@ func (p *MemPostings) Iter(f func(labels.Label, Postings) error) error {
 	return nil
 }
 
-// Add a label set to the postings index.
+// Add a pending to be committed label set to the postings index.
+// Callers of Add should expect Commit to be called at any time by other goroutines,
+// and they should call Commit themselves to ensure that all pending entries are committed.
 func (p *MemPostings) Add(id storage.SeriesRef, lset labels.Labels) {
+	p.pendingMtx.Lock()
+	defer p.pendingMtx.Unlock()
+	if storage.SeriesRef(p.pendingWatermark.Load()) > id {
+		p.pendingWatermark.Store(uint64(id))
+	}
+	p.pending = append(p.pending, pendingMemPostings{id: id, lset: lset})
+}
+
+// CommitAll is just a shorthand for Commit(math.MaxUint64).
+// It will commit all pending entries.
+// It's here to make sure no caller accidentally does it for `math.MaxInt64` instead.
+func (p *MemPostings) CommitAll() {
+	p.Commit(math.MaxUint64)
+}
+
+// TryCommit is like Commit but it won't block on pendingMtx,
+// i.e. if some other goroutine might already be committing.
+// It returns true if commit succeeded or if no commit needed to be done (if pendingWatermark is higher than the commitWatermark).
+func (p *MemPostings) TryCommit(commitWatermark storage.SeriesRef) bool {
+	// Do we need to commit anything?
+	if commitWatermark == 0 || storage.SeriesRef(p.pendingWatermark.Load()) > commitWatermark {
+		// No need to commit anything for the watermark provided.
+		return true
+	}
+
+	if !p.pendingMtx.TryLock() {
+		// Can't lock, try again later.
+		return false
+	}
+
+	p.commitPendingMtxLocked(commitWatermark)
+	p.pendingMtx.Unlock()
+
+	// Everything was committed.
+	return true
+}
+
+// Commit will create the entries for all pending series with IDs lower or equal than the watermark provided.
+// Commit is a noop if there are no pending entries with IDs lower or equal than the watermark.
+// In particular, Commit is a noop if the watermark is 0.
+func (p *MemPostings) Commit(commitWatermark storage.SeriesRef) {
+	// Do we need to commit anything?
+	if commitWatermark == 0 || storage.SeriesRef(p.pendingWatermark.Load()) > commitWatermark {
+		return
+	}
+
+	// Okay, we need to commit.
+	p.pendingMtx.Lock()
+	p.commitPendingMtxLocked(commitWatermark)
+	p.pendingMtx.Unlock()
+}
+
+// commitPendingMtxLocked will commit assuming that pendingMtx already locked.
+func (p *MemPostings) commitPendingMtxLocked(commitWatermark storage.SeriesRef) {
+	// Someone was Add-ing or Commit-ting, that's why we were waiting for the mutex.
+	// Maybe they were Commit-ing? In that case, we probably don't need to take p.mtx
+	// if we check the watermark again.
+	// Note that we're not checking len(p.pending)==0 here,
+	// because there might be pending entries added by someone else while we were waiting.
+	if storage.SeriesRef(p.pendingWatermark.Load()) > commitWatermark {
+		return
+	}
+
+	// Okay, there are series pending to be committed,
+	// and we have the pendingMtx so nobody else is committing right now.
 	p.mtx.Lock()
+	defer p.mtx.Unlock()
 
-	lset.Range(func(l labels.Label) {
-		p.addFor(id, l)
-	})
-	p.addFor(id, allPostingsKey)
+	// Sort pending.
+	// If they're sorted, this is fast.
+	// If they're not, this is faster and safer than sorting individual postings lists after appending.
+	slices.SortFunc(p.pending, func(a, b pendingMemPostings) int { return int(a.id - b.id) })
 
-	p.mtx.Unlock()
+	// We already have the lock, so let's commit them all,
+	// instead of committing partially and letting someone else fight for the lock.
+	for i := range p.pending {
+		// TODO: consider doing p.pendingWatermark.Store(int64(p.pending[i].id)) here
+		p.pending[i].lset.Range(func(l labels.Label) {
+			p.addFor(p.pending[i].id, l)
+		})
+		p.addFor(p.pending[i].id, allPostingsKey)
+		p.pending[i] = pendingMemPostings{} // don't retain any kind of references, like labels.Labels.
+	}
+
+	// If the pending list is too large, discard it, otherwise just reset.
+	if cap(p.pending) > 1e6 {
+		p.pending = nil
+	} else {
+		p.pending = p.pending[:0]
+	}
+
+	// Everything is committed, so nothing is pending.
+	p.pendingWatermark.Store(math.MaxUint64)
 }
 
 func appendWithExponentialGrowth[T any](a []T, v T) []T {

@@ -316,6 +316,8 @@ type headAppender struct {
 	metadataSeries       []*memSeries                     // Series corresponding to the metadata held by this appender.
 	exemplars            []exemplarWithSeriesRef          // New exemplars held by this appender.
 
+	highestCreatedSeriesRef chunks.HeadSeriesRef
+
 	appendID, cleanupAppendIDsBelow uint64
 	closed                          bool
 }
@@ -442,6 +444,7 @@ func (a *headAppender) getOrCreate(lset labels.Labels) (s *memSeries, created bo
 		return nil, false, err
 	}
 	if created {
+		a.highestCreatedSeriesRef = s.ref
 		a.series = append(a.series, record.RefSeries{
 			Ref:    s.ref,
 			Labels: lset,
@@ -906,6 +909,17 @@ func (a *headAppender) Commit() (err error) {
 	defer a.head.putFloatHistogramBuffer(a.floatHistograms)
 	defer a.head.putMetadataBuffer(a.metadata)
 	defer a.head.iso.closeAppend(a.appendID)
+
+	// Try to commit the series refs we might have created.
+	if !a.head.postings.TryCommit(storage.SeriesRef(a.highestCreatedSeriesRef)) {
+		// We can't commit right now, but it's okay, we have a lot of things to do here.
+		// We can commit samples, etc. in the meantime, and then commit the index:
+		// if we're lucky enough, someone would've committed them for us in the meantime,
+		// and we won't need to do anything at all.
+		//
+		// The important bit is that we should commit before the head.iso.closeAppend() call deferred above.
+		defer a.head.postings.Commit(storage.SeriesRef(a.highestCreatedSeriesRef))
+	}
 
 	var (
 		floatsAppended     = len(a.samples)
@@ -1813,7 +1827,8 @@ func (a *headAppender) Rollback() (err error) {
 	a.histograms = nil
 	a.metadata = nil
 
-	// Series are created in the head memory regardless of rollback. Thus we have
-	// to log them to the WAL in any case.
+	// Series are created in the head memory regardless of rollback.
+	// Thus we have to commit them in the postings and to log them to the WAL in any case.
+	a.head.postings.Commit(storage.SeriesRef(a.highestCreatedSeriesRef))
 	return a.log()
 }
