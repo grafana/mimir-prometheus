@@ -14,6 +14,7 @@
 * [ENHANCEMENT] OTLP receiver: If the feature flag `--created-timestamp-zero-ingestion` is true, convert OTel start timestamps to Prometheus zero samples. #14759
 * [BUGFIX] PromQL: Fix stddev+stdvar aggregations to always ignore native histograms. #14941
 * [BUGFIX] PromQL: Fix stddev+stdvar aggregations to treat Infinity consistently. #14941
+* [BUGFIX] OTLP receiver: Preserve colons when generating metric names in suffix adding mode (this mode is always enabled, unless one uses Prometheus as a library). #15251
 
 ## 3.0.0-beta.1 / 2024-10-09
 
@@ -62,6 +63,10 @@ As is traditional with a beta release, we do **not** recommend users install 3.0
 * [ENHANCEMENT] Move AM discovery page from "Monitoring status" to "Server status". #14875
 * [FEATURE] Support config reload automatically - feature flag `auto-reload-config`. #14769
 * [BUGFIX] Scrape: Do not override target parameter labels with config params. #11029
+
+## 2.55.1 / 2024-01-04
+
+* [BUGFIX] `round()` function did not remove `__name__` label. #15250
 
 ## 2.55.0 / 2024-10-22
 
