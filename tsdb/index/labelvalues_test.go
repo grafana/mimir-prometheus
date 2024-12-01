@@ -44,7 +44,7 @@ func TestReader_LabelValuesFor(t *testing.T) {
 	}
 	require.NoError(t, iw.Close())
 
-	ir, err := NewFileReader(fn)
+	ir, err := NewFileReader(fn, DecodePostingsRaw)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, ir.Close())
@@ -144,7 +144,7 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 	}
 	require.NoError(t, iw.Close())
 
-	ir, err := NewFileReader(fn)
+	ir, err := NewFileReader(fn, DecodePostingsRaw)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, ir.Close())

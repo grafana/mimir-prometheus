@@ -2070,7 +2070,7 @@ func TestPopulateWithDelSeriesIterator_NextWithMinTime(t *testing.T) {
 // TODO(bwplotka): Merge with storage merged series set benchmark.
 func BenchmarkMergedSeriesSet(b *testing.B) {
 	sel := func(sets []storage.SeriesSet) storage.SeriesSet {
-		return storage.NewMergeSeriesSet(sets, storage.ChainedSeriesMerge)
+		return storage.NewMergeSeriesSet(sets, 0, storage.ChainedSeriesMerge)
 	}
 
 	for _, k := range []int{
@@ -2522,7 +2522,7 @@ func BenchmarkQueryIterator(b *testing.B) {
 					} else {
 						generatedSeries = populateSeries(prefilledLabels, mint, maxt)
 					}
-					block, err := OpenBlock(nil, createBlock(b, dir, generatedSeries), nil)
+					block, err := OpenBlock(nil, createBlock(b, dir, generatedSeries), nil, nil)
 					require.NoError(b, err)
 					blocks = append(blocks, block)
 					defer block.Close()
@@ -2585,7 +2585,7 @@ func BenchmarkQuerySeek(b *testing.B) {
 					} else {
 						generatedSeries = populateSeries(prefilledLabels, mint, maxt)
 					}
-					block, err := OpenBlock(nil, createBlock(b, dir, generatedSeries), nil)
+					block, err := OpenBlock(nil, createBlock(b, dir, generatedSeries), nil, nil)
 					require.NoError(b, err)
 					blocks = append(blocks, block)
 					defer block.Close()
@@ -2720,7 +2720,7 @@ func BenchmarkSetMatcher(b *testing.B) {
 			} else {
 				generatedSeries = populateSeries(prefilledLabels, mint, maxt)
 			}
-			block, err := OpenBlock(nil, createBlock(b, dir, generatedSeries), nil)
+			block, err := OpenBlock(nil, createBlock(b, dir, generatedSeries), nil, nil)
 			require.NoError(b, err)
 			blocks = append(blocks, block)
 			defer block.Close()
@@ -3288,7 +3288,7 @@ func BenchmarkQueries(b *testing.B) {
 
 				qs := make([]storage.Querier, 0, 10)
 				for x := 0; x <= 10; x++ {
-					block, err := OpenBlock(nil, createBlock(b, dir, series), nil)
+					block, err := OpenBlock(nil, createBlock(b, dir, series), nil, nil)
 					require.NoError(b, err)
 					q, err := NewBlockQuerier(block, 1, nSamples)
 					require.NoError(b, err)
@@ -3407,7 +3407,7 @@ func (m mockMatcherIndex) LabelNames(context.Context, ...*labels.Matcher) ([]str
 }
 
 func (m mockMatcherIndex) PostingsForLabelMatching(context.Context, string, func(string) bool) index.Postings {
-	return index.ErrPostings(fmt.Errorf("PostingsForLabelMatching called"))
+	return index.ErrPostings(errors.New("PostingsForLabelMatching called"))
 }
 
 func (m mockMatcherIndex) PostingsForAllLabelValues(context.Context, string) index.Postings {
@@ -4014,7 +4014,7 @@ func (m mockReaderOfLabels) PostingsForMatchers(context.Context, bool, ...*label
 // https://github.com/prometheus/prometheus/issues/14723, when one of the queriers (blockQuerier in this case)
 // alters the passed matchers.
 func TestMergeQuerierConcurrentSelectMatchers(t *testing.T) {
-	block, err := OpenBlock(nil, createBlock(t, t.TempDir(), genSeries(1, 1, 0, 1)), nil)
+	block, err := OpenBlock(nil, createBlock(t, t.TempDir(), genSeries(1, 1, 0, 1)), nil, nil)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, block.Close())

@@ -525,7 +525,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 		var openBlocks []*Block
 
 		for _, r := range ranges {
-			block, err := OpenBlock(nil, createBlock(t, dir, genSeries(series, 10, r[0], r[1])), nil)
+			block, err := OpenBlock(nil, createBlock(t, dir, genSeries(series, 10, r[0], r[1])), nil, nil)
 			require.NoError(t, err)
 			defer func() {
 				require.NoError(t, block.Close())
@@ -572,7 +572,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 					// Our splitting compaction preserves it too.
 					seriesSymbols[""] = struct{}{}
 
-					block, err := OpenBlock(promslog.NewNopLogger(), filepath.Join(dir, blockID.String()), nil)
+					block, err := OpenBlock(promslog.NewNopLogger(), filepath.Join(dir, blockID.String()), nil, nil)
 					require.NoError(t, err)
 
 					defer func() {
@@ -1355,7 +1355,7 @@ func BenchmarkCompaction(b *testing.B) {
 			blockDirs := make([]string, 0, len(c.ranges))
 			var blocks []*Block
 			for _, r := range c.ranges {
-				block, err := OpenBlock(nil, createBlock(b, dir, genSeries(nSeries, 10, r[0], r[1])), nil)
+				block, err := OpenBlock(nil, createBlock(b, dir, genSeries(nSeries, 10, r[0], r[1])), nil, nil)
 				require.NoError(b, err)
 				blocks = append(blocks, block)
 				defer func() {
@@ -1659,7 +1659,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 
 	// Open subset of blocks first.
 	const blocksToOpen = 2
-	opened, toClose, err := openBlocksForCompaction(blockDirs[:blocksToOpen], nil, promslog.NewNopLogger(), nil, 10)
+	opened, toClose, err := openBlocksForCompaction(blockDirs[:blocksToOpen], nil, promslog.NewNopLogger(), nil, nil, 10)
 	for _, b := range toClose {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1669,7 +1669,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 	checkBlocks(t, toClose, blockDirs[:blocksToOpen]...)
 
 	// Open all blocks, but provide previously opened blocks.
-	opened2, toClose2, err := openBlocksForCompaction(blockDirs, opened, promslog.NewNopLogger(), nil, 10)
+	opened2, toClose2, err := openBlocksForCompaction(blockDirs, opened, promslog.NewNopLogger(), nil, nil, 10)
 	for _, b := range toClose2 {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1695,11 +1695,11 @@ func TestOpenBlocksForCompactionErrorsNoMeta(t *testing.T) {
 	}
 
 	// open block[0]
-	b0, err := OpenBlock(promslog.NewNopLogger(), blockDirs[0], nil)
+	b0, err := OpenBlock(promslog.NewNopLogger(), blockDirs[0], nil, nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b0.Close()) }()
 
-	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b0}, promslog.NewNopLogger(), nil, 10)
+	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b0}, promslog.NewNopLogger(), nil, nil, 10)
 
 	require.Error(t, err)
 	// We didn't get to opening more blocks, because we found invalid dir, so there is nothing to close.
@@ -1722,7 +1722,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	}
 
 	// open block[1]
-	b1, err := OpenBlock(promslog.NewNopLogger(), blockDirs[1], nil)
+	b1, err := OpenBlock(promslog.NewNopLogger(), blockDirs[1], nil, nil)
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b1.Close()) }()
 
@@ -1732,7 +1732,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	// Block[2] will be opened correctly.
 	// Block[3] is invalid and will cause error.
 	// Block[4] will not be opened at all.
-	opened, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, promslog.NewNopLogger(), nil, 1)
+	opened, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, promslog.NewNopLogger(), nil, nil, 1)
 	for _, b := range toClose {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1866,7 +1866,7 @@ func TestHeadCompactionWithHistograms(t *testing.T) {
 			require.Len(t, ids, 1)
 
 			// Open the block and query it and check the histograms.
-			block, err := OpenBlock(nil, path.Join(head.opts.ChunkDirRoot, ids[0].String()), nil)
+			block, err := OpenBlock(nil, path.Join(head.opts.ChunkDirRoot, ids[0].String()), nil, nil)
 			require.NoError(t, err)
 			t.Cleanup(func() {
 				require.NoError(t, block.Close())
@@ -2506,7 +2506,7 @@ func TestAsyncBlockWriterFailure(t *testing.T) {
 	// Wait for result, this time we get error due to missing symbols.
 	_, err = abw.waitFinished()
 	require.Error(t, err)
-	require.ErrorContains(t, err, "unknown symbol")
+	require.ErrorContains(t, err, `symbol entry for "__name__" does not exist`)
 
 	// We get the same error on each repeated call to waitFinished.
 	for i := 0; i < 5; i++ {
@@ -2533,7 +2533,7 @@ func TestCompactEmptyResultBlockWithTombstone(t *testing.T) {
 	ctx := context.Background()
 	tmpdir := t.TempDir()
 	blockDir := createBlock(t, tmpdir, genSeries(1, 1, 0, 10))
-	block, err := OpenBlock(nil, blockDir, nil)
+	block, err := OpenBlock(nil, blockDir, nil, nil)
 	require.NoError(t, err)
 	// Write tombstone covering the whole block.
 	err = block.Delete(ctx, 0, 10, labels.MustNewMatcher(labels.MatchEqual, defaultLabelName, "0"))

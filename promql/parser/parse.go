@@ -447,10 +447,10 @@ func (p *parser) newAggregateExpr(op Item, modifier, args Node) (ret *AggregateE
 
 	desiredArgs := 1
 	if ret.Op.IsAggregatorWithParam() {
-		if !EnableExperimentalFunctions && (ret.Op == LIMITK || ret.Op == LIMIT_RATIO) {
+		if !EnableExperimentalFunctions && ret.Op.IsExperimentalAggregator() {
 			// In mimir we return a custom message which doesn't mention the CLI flag that should be used to enable
 			// experimental functions, given it's different (and in SaaS customers don't even have access to it).
-			p.addParseErrf(ret.PositionRange(), "limitk() and limit_ratio() functions are not enabled")
+			p.addParseErrf(ret.PositionRange(), "%s() is experimental and is not enabled", ret.Op)
 			return
 		}
 		desiredArgs = 2

@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	goregexp "regexp" //nolint:depguard // The Prometheus client library requires us to pass a regexp from this package.
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -190,19 +191,19 @@ type flagConfig struct {
 	queryConcurrency            int
 	queryMaxSamples             int
 	RemoteFlushDeadline         model.Duration
-	nameEscapingScheme          string
 	maxNotificationsSubscribers int
 
 	enableAutoReload   bool
 	autoReloadInterval model.Duration
 
-	featureList   []string
-	memlimitRatio float64
+	maxprocsEnable bool
+	memlimitEnable bool
+	memlimitRatio  float64
+
+	featureList []string
 	// These options are extracted from featureList
 	// for ease of use.
 	enablePerStepStats       bool
-	enableAutoGOMAXPROCS     bool
-	enableAutoGOMEMLIMIT     bool
 	enableConcurrentRuleEval bool
 
 	prometheusURL   string
@@ -234,18 +235,12 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 			case "promql-per-step-stats":
 				c.enablePerStepStats = true
 				logger.Info("Experimental per-step statistics reporting")
-			case "auto-gomaxprocs":
-				c.enableAutoGOMAXPROCS = true
-				logger.Info("Automatically set GOMAXPROCS to match Linux container CPU quota")
 			case "auto-reload-config":
 				c.enableAutoReload = true
 				if s := time.Duration(c.autoReloadInterval).Seconds(); s > 0 && s < 1 {
 					c.autoReloadInterval, _ = model.ParseDuration("1s")
 				}
 				logger.Info("Enabled automatic configuration file reloading. Checking for configuration changes every", "interval", c.autoReloadInterval)
-			case "auto-gomemlimit":
-				c.enableAutoGOMEMLIMIT = true
-				logger.Info("Automatically set GOMEMLIMIT to match Linux container or system memory limit")
 			case "concurrent-rule-eval":
 				c.enableConcurrentRuleEval = true
 				logger.Info("Experimental concurrent rule evaluation enabled.")
@@ -302,6 +297,7 @@ func main() {
 				collectors.WithGoCollectorRuntimeMetrics(
 					collectors.MetricsGC,
 					collectors.MetricsScheduler,
+					collectors.GoRuntimeMetricsRule{Matcher: goregexp.MustCompile(`^/sync/mutex/wait/total:seconds$`)},
 				),
 			),
 		)
@@ -333,6 +329,10 @@ func main() {
 	a.Flag("web.listen-address", "Address to listen on for UI, API, and telemetry. Can be repeated.").
 		Default("0.0.0.0:9090").StringsVar(&cfg.web.ListenAddresses)
 
+	a.Flag("auto-gomaxprocs", "Automatically set GOMAXPROCS to match Linux container CPU quota").
+		Default("true").BoolVar(&cfg.maxprocsEnable)
+	a.Flag("auto-gomemlimit", "Automatically set GOMEMLIMIT to match Linux container or system memory limit").
+		Default("true").BoolVar(&cfg.memlimitEnable)
 	a.Flag("auto-gomemlimit.ratio", "The ratio of reserved GOMEMLIMIT memory to the detected maximum container or system memory").
 		Default("0.9").FloatVar(&cfg.memlimitRatio)
 
@@ -516,7 +516,7 @@ func main() {
 	a.Flag("scrape.discovery-reload-interval", "Interval used by scrape manager to throttle target groups updates.").
 		Hidden().Default("5s").SetValue(&cfg.scrape.DiscoveryReloadInterval)
 
-	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: auto-gomemlimit, exemplar-storage, expand-external-labels, memory-snapshot-on-shutdown, promql-per-step-stats, promql-experimental-functions, extra-scrape-metrics, auto-gomaxprocs, native-histograms, created-timestamp-zero-ingestion, concurrent-rule-eval, delayed-compaction, old-ui. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
+	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: exemplar-storage, expand-external-labels, memory-snapshot-on-shutdown, promql-per-step-stats, promql-experimental-functions, extra-scrape-metrics, auto-gomaxprocs, native-histograms, created-timestamp-zero-ingestion, concurrent-rule-eval, delayed-compaction, old-ui. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
 		Default("").StringsVar(&cfg.featureList)
 
 	a.Flag("agent", "Run Prometheus in 'Agent mode'.").BoolVar(&agentMode)
@@ -550,15 +550,6 @@ func main() {
 	if err := cfg.setFeatureListOptions(logger); err != nil {
 		fmt.Fprintln(os.Stderr, fmt.Errorf("Error parsing feature list: %w", err))
 		os.Exit(1)
-	}
-
-	if cfg.nameEscapingScheme != "" {
-		scheme, err := model.ToEscapingScheme(cfg.nameEscapingScheme)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, `Invalid name escaping scheme: %q; Needs to be one of "values", "underscores", or "dots"`, cfg.nameEscapingScheme)
-			os.Exit(1)
-		}
-		model.NameEscapingScheme = scheme
 	}
 
 	if agentMode && len(serverOnlyFlags) > 0 {
@@ -767,7 +758,7 @@ func main() {
 		ruleManager *rules.Manager
 	)
 
-	if cfg.enableAutoGOMAXPROCS {
+	if cfg.maxprocsEnable {
 		l := func(format string, a ...interface{}) {
 			logger.Info(fmt.Sprintf(strings.TrimPrefix(format, "maxprocs: "), a...), "component", "automaxprocs")
 		}
@@ -776,7 +767,7 @@ func main() {
 		}
 	}
 
-	if cfg.enableAutoGOMEMLIMIT {
+	if cfg.memlimitEnable {
 		if _, err := memlimit.SetGoMemLimitWithOpts(
 			memlimit.WithRatio(cfg.memlimitRatio),
 			memlimit.WithProvider(
@@ -1154,9 +1145,8 @@ func main() {
 						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, logger, noStepSubqueryInterval, callback, reloaders...); err != nil {
 							logger.Error("Error reloading config", "err", err)
 						} else if cfg.enableAutoReload {
-							if currentChecksum, err := config.GenerateChecksum(cfg.configFile); err == nil {
-								checksum = currentChecksum
-							} else {
+							checksum, err = config.GenerateChecksum(cfg.configFile)
+							if err != nil {
 								logger.Error("Failed to generate checksum during configuration reload", "err", err)
 							}
 						}
@@ -1167,9 +1157,8 @@ func main() {
 						} else {
 							rc <- nil
 							if cfg.enableAutoReload {
-								if currentChecksum, err := config.GenerateChecksum(cfg.configFile); err == nil {
-									checksum = currentChecksum
-								} else {
+								checksum, err = config.GenerateChecksum(cfg.configFile)
+								if err != nil {
 									logger.Error("Failed to generate checksum during configuration reload", "err", err)
 								}
 							}
@@ -1180,6 +1169,7 @@ func main() {
 						}
 						currentChecksum, err := config.GenerateChecksum(cfg.configFile)
 						if err != nil {
+							checksum = currentChecksum
 							logger.Error("Failed to generate checksum during configuration reload", "err", err)
 						} else if currentChecksum == checksum {
 							continue
@@ -1380,10 +1370,12 @@ func main() {
 			},
 		)
 	}
-	if err := g.Run(); err != nil {
-		logger.Error("Error running goroutines from run.Group", "err", err)
-		os.Exit(1)
-	}
+	func() { // This function exists so the top of the stack is named 'main.main.funcxxx' and not 'oklog'.
+		if err := g.Run(); err != nil {
+			logger.Error("Fatal error", "err", err)
+			os.Exit(1)
+		}
+	}()
 	logger.Info("See you next time!")
 }
 

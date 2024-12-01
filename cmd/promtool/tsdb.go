@@ -405,7 +405,7 @@ func openBlock(path, blockID string) (*tsdb.DBReadOnly, tsdb.BlockReader, error)
 		}
 	}
 
-	b, err := db.Block(blockID)
+	b, err := db.Block(blockID, tsdb.DefaultPostingsDecoderFactory)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -589,7 +589,10 @@ func analyzeBlock(ctx context.Context, path, blockID string, limit int, runExten
 		if err != nil {
 			return err
 		}
-		postings = index.Intersect(postings, index.NewListPostings(refs))
+		// Only intersect postings if matchers are specified.
+		if len(matchers) > 0 {
+			postings = index.Intersect(postings, index.NewListPostings(refs))
+		}
 		count := 0
 		for postings.Next() {
 			count++
@@ -662,7 +665,7 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 				histogramChunkSize = append(histogramChunkSize, len(chk.Bytes()))
 				fhchk, ok := chk.(*chunkenc.FloatHistogramChunk)
 				if !ok {
-					return fmt.Errorf("chunk is not FloatHistogramChunk")
+					return errors.New("chunk is not FloatHistogramChunk")
 				}
 				it := fhchk.Iterator(nil)
 				bucketCount := 0
@@ -677,7 +680,7 @@ func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.
 				histogramChunkSize = append(histogramChunkSize, len(chk.Bytes()))
 				hchk, ok := chk.(*chunkenc.HistogramChunk)
 				if !ok {
-					return fmt.Errorf("chunk is not HistogramChunk")
+					return errors.New("chunk is not HistogramChunk")
 				}
 				it := hchk.Iterator(nil)
 				bucketCount := 0
@@ -733,7 +736,7 @@ func dumpSamples(ctx context.Context, dbDir, sandboxDirRoot string, mint, maxt i
 		for _, mset := range matcherSets {
 			sets = append(sets, q.Select(ctx, true, nil, mset...))
 		}
-		ss = storage.NewMergeSeriesSet(sets, storage.ChainedSeriesMerge)
+		ss = storage.NewMergeSeriesSet(sets, 0, storage.ChainedSeriesMerge)
 	} else {
 		ss = q.Select(ctx, false, nil, matcherSets[0]...)
 	}
