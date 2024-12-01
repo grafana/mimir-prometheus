@@ -1204,7 +1204,7 @@ func TestPostingsCloner(t *testing.T) {
 	}
 
 	t.Run("cloning an err postings", func(t *testing.T) {
-		expectedErr := fmt.Errorf("foobar")
+		expectedErr := errors.New("foobar")
 		pc := NewPostingsCloner(ErrPostings(expectedErr))
 		p := pc.Clone()
 		require.False(t, p.Next())

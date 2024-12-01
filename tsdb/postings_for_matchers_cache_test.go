@@ -37,7 +37,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		for _, concurrent := range []bool{true, false} {
 			t.Run(fmt.Sprintf("concurrent=%t", concurrent), func(t *testing.T) {
 				expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
-				expectedPostingsErr := fmt.Errorf("failed successfully")
+				expectedPostingsErr := errors.New("failed successfully")
 
 				c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 					require.IsType(t, indexForPostingsMock{}, ix, "Incorrect IndexPostingsReader was provided to PostingsForMatchers, expected the mock, was given %v (%T)", ix, ix)
@@ -55,7 +55,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 	t.Run("err returned", func(t *testing.T) {
 		expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
-		expectedErr := fmt.Errorf("failed successfully")
+		expectedErr := errors.New("failed successfully")
 
 		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			return nil, expectedErr
