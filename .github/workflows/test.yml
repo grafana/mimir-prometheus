@@ -14,12 +14,12 @@ jobs:
           - dedupelabels
     runs-on: ubuntu-20.04
     steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version: '~1.23.0'
-
-      - name: Checkout Repo
-        uses: actions/checkout@v4
 
       - name: Run Tests
         run: GOOPTS=-tags=${{ matrix.buildtags }} make common-test
@@ -34,12 +34,12 @@ jobs:
             fuzz: FuzzFastRegexMatcher_WithFuzzyRegularExpressions
     runs-on: ubuntu-20.04
     steps:
+      - name: Checkout Repo
+        uses: actions/checkout@v4
+
       - uses: actions/setup-go@v5
         with:
           go-version: '~1.23.0'
-
-      - name: Checkout Repo
-        uses: actions/checkout@v4
 
       - name: Set -fuzztime=10m for 'main' branch
         if: github.ref == 'refs/heads/main'
