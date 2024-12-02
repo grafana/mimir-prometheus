@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"fmt"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -49,7 +49,7 @@ func TestListLabelValues(t *testing.T) {
 
 func TestErrLabelValues(t *testing.T) {
 	t.Run("is initialized with an error", func(t *testing.T) {
-		it := ErrLabelValues(fmt.Errorf("test"))
+		it := ErrLabelValues(errors.New("test"))
 		t.Cleanup(func() {
 			require.NoError(t, it.Close())
 		})

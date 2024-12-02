@@ -2433,11 +2433,11 @@ func (m mockIndex) ShardedPostings(p index.Postings, shardIndex, shardCount uint
 }
 
 func (mockIndex) LabelValuesFor(index.Postings, string) storage.LabelValues {
-	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
+	return storage.ErrLabelValues(errors.New("not implemented"))
 }
 
 func (mockIndex) LabelValuesExcluding(index.Postings, string) storage.LabelValues {
-	return storage.ErrLabelValues(fmt.Errorf("not implemented"))
+	return storage.ErrLabelValues(errors.New("not implemented"))
 }
 
 func (m mockIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
@@ -3407,7 +3407,7 @@ func (m mockMatcherIndex) LabelNames(context.Context, ...*labels.Matcher) ([]str
 }
 
 func (m mockMatcherIndex) PostingsForLabelMatching(context.Context, string, func(string) bool) index.Postings {
-	return index.ErrPostings(fmt.Errorf("PostingsForLabelMatching called"))
+	return index.ErrPostings(errors.New("PostingsForLabelMatching called"))
 }
 
 func (m mockMatcherIndex) PostingsForAllLabelValues(context.Context, string) index.Postings {
@@ -3765,7 +3765,7 @@ func TestPrependPostings(t *testing.T) {
 	})
 
 	t.Run("err", func(t *testing.T) {
-		err := fmt.Errorf("error")
+		err := errors.New("error")
 		p := newPrependPostings([]storage.SeriesRef{10, 20, 30}, index.ErrPostings(err))
 
 		for _, s := range []storage.SeriesRef{10, 20, 30} {
