@@ -238,6 +238,10 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 			"unique", fmt.Sprintf("value%d", i),
 		), []chunks.Sample{sample{100, 0, nil, nil}}))
 	}
+	// Add another series with an overlapping unique label, but leaving out the tens label
+	seriesEntries = append(seriesEntries, storage.NewListSeries(labels.FromStrings(
+		"unique", "value99",
+	), []chunks.Sample{sample{100, 0, nil, nil}}))
 
 	blockDir := createBlock(t, tmpdir, seriesEntries)
 	files, err := sequenceFiles(chunkDir(blockDir))
@@ -294,6 +298,15 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 				labels.MustNewMatcher(labels.MatchNotEqual, "tens", ""),
 			},
 			expectedValues: uniqueWithout30s,
+		}, {
+			// In this case, we query for the "unique" label where the "tens" label is absent.
+			// We have one series where "tens" is empty (unique="value99"), but also another with
+			// the same value for "unique" and "tens" present. Make sure that unique="value99" is
+			// still found.
+			name:           "get unique ID where tens is empty",
+			labelName:      "unique",
+			matchers:       []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "tens", "")},
+			expectedValues: []string{"value99"},
 		},
 	}
 
@@ -410,6 +423,9 @@ func TestReadIndexFormatV1(t *testing.T) {
 	blockDir := filepath.Join("testdata", "index_format_v1")
 	block, err := OpenBlock(nil, blockDir, nil)
 	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, block.Close())
+	})
 
 	q, err := NewBlockQuerier(block, 0, 1000)
 	require.NoError(t, err)

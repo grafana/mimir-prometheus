@@ -760,7 +760,8 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				metric.ExponentialHistogram().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric: true,
+					ExportCreatedMetric:                 true,
+					EnableCreatedTimestampZeroIngestion: true,
 				},
 				prometheustranslator.BuildCompliantName(metric, "", true),
 			)

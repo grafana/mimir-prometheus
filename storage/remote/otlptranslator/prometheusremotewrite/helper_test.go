@@ -18,16 +18,22 @@ package prometheusremotewrite
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
 	"github.com/prometheus/common/model"
+	"github.com/prometheus/common/promslog"
 
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestCreateAttributes(t *testing.T) {
@@ -187,22 +193,27 @@ func Test_convertTimeStamp(t *testing.T) {
 }
 
 func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
-	ts := pcommon.Timestamp(time.Now().UnixNano())
+	now := time.Now()
+	nowUnixNano := pcommon.Timestamp(now.UnixNano())
+	nowMinus2m30s := pcommon.Timestamp(now.Add(-2 * time.Minute).Add(-30 * time.Second).UnixNano())
+	nowMinus6m := pcommon.Timestamp(now.Add(-20 * time.Second).UnixNano())
+	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
 	tests := []struct {
-		name   string
-		metric func() pmetric.Metric
-		want   func() map[uint64]*prompb.TimeSeries
+		name                  string
+		overrideValidInterval time.Duration
+		metric                func() pmetric.Metric
+		want                  func() map[uint64]*prompb.TimeSeries
 	}{
 		{
-			name: "summary with start time",
+			name: "summary with start time equal to sample timestamp",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_summary")
 				metric.SetEmptySummary()
 
 				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(ts)
-				dp.SetStartTimestamp(ts)
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowUnixNano)
 
 				return metric
 			},
@@ -220,19 +231,159 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 					timeSeriesSignature(createdLabels): {
 						Labels: createdLabels,
 						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(ts)), Timestamp: convertTimeStamp(ts)},
+							{Value: float64(convertTimeStamp(nowUnixNano)), Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "summary with start time within default valid interval to sample timestamp",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_summary")
+				metric.SetEmptySummary()
+
+				dp := metric.Summary().DataPoints().AppendEmpty()
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowMinus2m30s)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
+				}
+				createdLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
+				}
+				sumLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Samples: []prompb.Sample{
+							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus2m30s)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(sumLabels): {
+						Labels: sumLabels,
+						Samples: []prompb.Sample{
+							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus2m30s)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(createdLabels): {
+						Labels: createdLabels,
+						Samples: []prompb.Sample{
+							{Value: float64(convertTimeStamp(nowMinus2m30s)), Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+				}
+			},
+			overrideValidInterval: 10 * time.Minute,
+		},
+		{
+			name: "summary with start time within overiden valid interval to sample timestamp",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_summary")
+				metric.SetEmptySummary()
+
+				dp := metric.Summary().DataPoints().AppendEmpty()
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowMinus6m)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
+				}
+				createdLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
+				}
+				sumLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Samples: []prompb.Sample{
+							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus6m)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(sumLabels): {
+						Labels: sumLabels,
+						Samples: []prompb.Sample{
+							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus6m)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(createdLabels): {
+						Labels: createdLabels,
+						Samples: []prompb.Sample{
+							{Value: float64(convertTimeStamp(nowMinus6m)), Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "summary with start time older than default valid interval to sample timestamp",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_summary")
+				metric.SetEmptySummary()
+
+				dp := metric.Summary().DataPoints().AppendEmpty()
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowMinus1h)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
+				}
+				createdLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
+				}
+				sumLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(sumLabels): {
+						Labels: sumLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(createdLabels): {
+						Labels: createdLabels,
+						Samples: []prompb.Sample{
+							{Value: float64(convertTimeStamp(nowMinus1h)), Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -246,7 +397,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				metric.SetEmptySummary()
 
 				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(ts)
+				dp.SetTimestamp(nowUnixNano)
 
 				return metric
 			},
@@ -261,13 +412,13 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(ts)},
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -279,20 +430,29 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 			metric := tt.metric()
 			converter := NewPrometheusConverter()
 
-			converter.addSummaryDataPoints(
+			err := converter.addSummaryDataPoints(
 				context.Background(),
 				metric.Summary().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric: true,
+					ExportCreatedMetric:                        true,
+					EnableCreatedTimestampZeroIngestion:        true,
+					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
 				metric.Name(),
+				promslog.NewNopLogger(),
 			)
+			require.NoError(t, err)
 
-			assert.Equal(t, tt.want(), converter.unique)
+			testutil.RequireEqualWithOptions(t, tt.want(), converter.unique, []cmp.Option{cmp.Comparer(equalSamples)})
 			assert.Empty(t, converter.conflicts)
 		})
 	}
+}
+
+func equalSamples(a, b prompb.Sample) bool {
+	// Compare Float64bits so NaN values which are exactly the same will compare equal.
+	return a.Timestamp == b.Timestamp && math.Float64bits(a.Value) == math.Float64bits(b.Value)
 }
 
 func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
@@ -390,15 +550,243 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 			metric := tt.metric()
 			converter := NewPrometheusConverter()
 
-			converter.addHistogramDataPoints(
+			err := converter.addHistogramDataPoints(
 				context.Background(),
 				metric.Histogram().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric: true,
+					ExportCreatedMetric:                 true,
+					EnableCreatedTimestampZeroIngestion: true,
+				},
+				metric.Name(),
+				promslog.NewNopLogger(),
+			)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.want(), converter.unique)
+			assert.Empty(t, converter.conflicts)
+		})
+	}
+}
+
+func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
+	now := time.Now()
+	nowUnixNano := pcommon.Timestamp(now.UnixNano())
+	// nowMinus2m30s := pcommon.Timestamp(now.Add(-2 * time.Minute).Add(-30 * time.Second).UnixNano())
+	// nowMinus6m := pcommon.Timestamp(now.Add(-6 * time.Minute).UnixNano())
+	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
+	tests := []struct {
+		overrideValidInterval time.Duration
+		metric                func() pmetric.Metric
+		want                  func() map[uint64]*prompb.TimeSeries
+		name                  string
+	}{
+		{
+			name: "histogram with start time",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_exponential_hist")
+				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+				pt.SetTimestamp(nowUnixNano)
+				pt.SetStartTimestamp(nowUnixNano)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Histograms: []prompb.Histogram{
+							{
+								Timestamp: convertTimeStamp(nowUnixNano),
+								Count: &prompb.Histogram_CountInt{
+									CountInt: 0,
+								},
+								ZeroCount: &prompb.Histogram_ZeroCountInt{
+									ZeroCountInt: 0,
+								},
+								ZeroThreshold: defaultZeroThreshold,
+							},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "histogram without start time",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_exponential_hist")
+				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+				pt.SetTimestamp(nowUnixNano)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Histograms: []prompb.Histogram{
+							{
+								Timestamp: convertTimeStamp(nowUnixNano),
+								Count: &prompb.Histogram_CountInt{
+									CountInt: 0,
+								},
+								ZeroCount: &prompb.Histogram_ZeroCountInt{
+									ZeroCountInt: 0,
+								},
+								ZeroThreshold: defaultZeroThreshold,
+							},
+						},
+					},
+				}
+			},
+		},
+		//  TODO(@jesusvazquez) Reenable after OOO NH is stable
+		// {
+		// 	name: "histogram with start time within default valid interval to sample timestamp",
+		// 	metric: func() pmetric.Metric {
+		// 		metric := pmetric.NewMetric()
+		// 		metric.SetName("test_exponential_hist")
+		// 		metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+		// 		pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+		// 		pt.SetTimestamp(nowUnixNano)
+		// 		pt.SetStartTimestamp(nowMinus2m30s)
+
+		// 		return metric
+		// 	},
+		// 	want: func() map[uint64]*prompb.TimeSeries {
+		// 		labels := []prompb.Label{
+		// 			{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+		// 		}
+		// 		return map[uint64]*prompb.TimeSeries{
+		// 			timeSeriesSignature(labels): {
+		// 				Labels: labels,
+		// 				Histograms: []prompb.Histogram{
+		// 					{
+		// 						Timestamp: convertTimeStamp(nowMinus2m30s),
+		// 					},
+		// 					{
+		// 						Timestamp: convertTimeStamp(nowUnixNano),
+		// 						Count: &prompb.Histogram_CountInt{
+		// 							CountInt: 0,
+		// 						},
+		// 						ZeroCount: &prompb.Histogram_ZeroCountInt{
+		// 							ZeroCountInt: 0,
+		// 						},
+		// 						ZeroThreshold: defaultZeroThreshold,
+		// 					},
+		// 				},
+		// 			},
+		// 		}
+		// 	},
+		// },
+		// {
+		// 	name: "histogram with start time within overiden valid interval to sample timestamp",
+		// 	metric: func() pmetric.Metric {
+		// 		metric := pmetric.NewMetric()
+		// 		metric.SetName("test_exponential_hist")
+		// 		metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+		// 		pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+		// 		pt.SetTimestamp(nowUnixNano)
+		// 		pt.SetStartTimestamp(nowMinus6m)
+
+		// 		return metric
+		// 	},
+		// 	want: func() map[uint64]*prompb.TimeSeries {
+		// 		labels := []prompb.Label{
+		// 			{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+		// 		}
+		// 		return map[uint64]*prompb.TimeSeries{
+		// 			timeSeriesSignature(labels): {
+		// 				Labels: labels,
+		// 				Histograms: []prompb.Histogram{
+		// 					{
+		// 						Timestamp: convertTimeStamp(nowMinus6m),
+		// 					},
+		// 					{
+		// 						Timestamp: convertTimeStamp(nowUnixNano),
+		// 						Count: &prompb.Histogram_CountInt{
+		// 							CountInt: 0,
+		// 						},
+		// 						ZeroCount: &prompb.Histogram_ZeroCountInt{
+		// 							ZeroCountInt: 0,
+		// 						},
+		// 						ZeroThreshold: defaultZeroThreshold,
+		// 					},
+		// 				},
+		// 			},
+		// 		}
+		// 	},
+		// 	overrideValidInterval: 10 * time.Minute,
+		// },
+		{
+			name: "histogram with start time older than default valid interval to sample timestamp",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_exponential_hist")
+				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
+				pt.SetTimestamp(nowUnixNano)
+				pt.SetStartTimestamp(nowMinus1h)
+
+				return metric
+			},
+			want: func() map[uint64]*prompb.TimeSeries {
+				labels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(labels): {
+						Labels: labels,
+						Histograms: []prompb.Histogram{
+							{
+								Timestamp: convertTimeStamp(nowUnixNano),
+								Count: &prompb.Histogram_CountInt{
+									CountInt: 0,
+								},
+								ZeroCount: &prompb.Histogram_ZeroCountInt{
+									ZeroCountInt: 0,
+								},
+								ZeroThreshold: defaultZeroThreshold,
+							},
+						},
+					},
+				}
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			metric := tt.metric()
+			converter := NewPrometheusConverter()
+
+			annot, err := converter.addExponentialHistogramDataPoints(
+				context.Background(),
+				metric.ExponentialHistogram().DataPoints(),
+				pcommon.NewResource(),
+				Settings{
+					ExportCreatedMetric:                        true,
+					EnableCreatedTimestampZeroIngestion:        true,
+					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
 				metric.Name(),
 			)
+			require.NoError(t, err)
+			require.Empty(t, annot)
 
 			assert.Equal(t, tt.want(), converter.unique)
 			assert.Empty(t, converter.conflicts)

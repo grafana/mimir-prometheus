@@ -518,6 +518,7 @@ func (ng *Engine) NewRangeQuery(ctx context.Context, q storage.Queryable, opts Q
 }
 
 func (ng *Engine) newQuery(q storage.Queryable, qs string, opts QueryOpts, start, end time.Time, interval time.Duration) (*parser.Expr, *query) {
+	// Default to empty QueryOpts if not provided.
 	if opts == nil {
 		opts = NewPrometheusQueryOpts(false, 0)
 	}
@@ -1524,7 +1525,7 @@ func (ev *evaluator) evalSubquery(ctx context.Context, subq *parser.SubqueryExpr
 	// Avoid double counting samples when running a subquery, those samples will be counted in later stage.
 	ev.samplesStats = ev.samplesStats.NewChild()
 	val, ws := ev.eval(ctx, subq)
-	// But do incorporate the peak from the subquery
+	// But do incorporate the peak from the subquery.
 	samplesStats.UpdatePeakFromSubquery(ev.samplesStats)
 	ev.samplesStats = samplesStats
 	mat := val.(Matrix)
@@ -1989,7 +1990,7 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 		// Start with the first timestamp after (ev.startTimestamp - offset - range)
 		// that is aligned with the step (multiple of 'newEv.interval').
 		newEv.startTimestamp = newEv.interval * ((ev.startTimestamp - offsetMillis - rangeMillis) / newEv.interval)
-		if newEv.startTimestamp < (ev.startTimestamp - offsetMillis - rangeMillis) {
+		if newEv.startTimestamp <= (ev.startTimestamp - offsetMillis - rangeMillis) {
 			newEv.startTimestamp += newEv.interval
 		}
 
@@ -2607,9 +2608,11 @@ func (ev *evaluator) VectorBinop(op parser.ItemType, lhs, rhs Vector, matching *
 		floatValue, histogramValue, keep, err := vectorElemBinop(op, fl, fr, hl, hr, pos)
 		if err != nil {
 			lastErr = err
+			continue
 		}
 		switch {
 		case returnBool:
+			histogramValue = nil
 			if keep {
 				floatValue = 1.0
 			} else {
@@ -2728,6 +2731,7 @@ func (ev *evaluator) VectorscalarBinop(op parser.ItemType, lhs Vector, rhs Scala
 		float, histogram, keep, err := vectorElemBinop(op, lf, rf, lh, rh, pos)
 		if err != nil {
 			lastErr = err
+			continue
 		}
 		// Catch cases where the scalar is the LHS in a scalar-vector comparison operation.
 		// We want to always keep the vector element value as the output value, even if it's on the RHS.
@@ -2793,77 +2797,84 @@ func scalarBinop(op parser.ItemType, lhs, rhs float64) float64 {
 
 // vectorElemBinop evaluates a binary operation between two Vector elements.
 func vectorElemBinop(op parser.ItemType, lhs, rhs float64, hlhs, hrhs *histogram.FloatHistogram, pos posrange.PositionRange) (float64, *histogram.FloatHistogram, bool, error) {
-	switch op {
-	case parser.ADD:
-		if hlhs != nil && hrhs != nil {
-			res, err := hlhs.Copy().Add(hrhs)
-			if err != nil {
-				return 0, nil, false, err
+	opName := parser.ItemTypeStr[op]
+	switch {
+	case hlhs == nil && hrhs == nil:
+		{
+			switch op {
+			case parser.ADD:
+				return lhs + rhs, nil, true, nil
+			case parser.SUB:
+				return lhs - rhs, nil, true, nil
+			case parser.MUL:
+				return lhs * rhs, nil, true, nil
+			case parser.DIV:
+				return lhs / rhs, nil, true, nil
+			case parser.POW:
+				return math.Pow(lhs, rhs), nil, true, nil
+			case parser.MOD:
+				return math.Mod(lhs, rhs), nil, true, nil
+			case parser.EQLC:
+				return lhs, nil, lhs == rhs, nil
+			case parser.NEQ:
+				return lhs, nil, lhs != rhs, nil
+			case parser.GTR:
+				return lhs, nil, lhs > rhs, nil
+			case parser.LSS:
+				return lhs, nil, lhs < rhs, nil
+			case parser.GTE:
+				return lhs, nil, lhs >= rhs, nil
+			case parser.LTE:
+				return lhs, nil, lhs <= rhs, nil
+			case parser.ATAN2:
+				return math.Atan2(lhs, rhs), nil, true, nil
 			}
-			return 0, res.Compact(0), true, nil
 		}
-		if hlhs == nil && hrhs == nil {
-			return lhs + rhs, nil, true, nil
-		}
-		if hlhs != nil {
-			return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("histogram", "+", "float", pos)
-		}
-		return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("float", "+", "histogram", pos)
-	case parser.SUB:
-		if hlhs != nil && hrhs != nil {
-			res, err := hlhs.Copy().Sub(hrhs)
-			if err != nil {
-				return 0, nil, false, err
+	case hlhs == nil && hrhs != nil:
+		{
+			switch op {
+			case parser.MUL:
+				return 0, hrhs.Copy().Mul(lhs).Compact(0), true, nil
+			case parser.ADD, parser.SUB, parser.DIV, parser.POW, parser.MOD, parser.EQLC, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE, parser.ATAN2:
+				return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("float", opName, "histogram", pos)
 			}
-			return 0, res.Compact(0), true, nil
 		}
-		if hlhs == nil && hrhs == nil {
-			return lhs - rhs, nil, true, nil
-		}
-		if hlhs != nil {
-			return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("histogram", "-", "float", pos)
-		}
-		return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("float", "-", "histogram", pos)
-	case parser.MUL:
-		if hlhs != nil && hrhs == nil {
-			return 0, hlhs.Copy().Mul(rhs), true, nil
-		}
-		if hlhs == nil && hrhs != nil {
-			return 0, hrhs.Copy().Mul(lhs), true, nil
-		}
-		if hlhs != nil && hrhs != nil {
-			return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("histogram", "*", "histogram", pos)
-		}
-		return lhs * rhs, nil, true, nil
-	case parser.DIV:
-		if hlhs != nil && hrhs == nil {
-			return 0, hlhs.Copy().Div(rhs), true, nil
-		}
-		if hrhs != nil {
-			if hlhs != nil {
-				return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("histogram", "/", "histogram", pos)
+	case hlhs != nil && hrhs == nil:
+		{
+			switch op {
+			case parser.MUL:
+				return 0, hlhs.Copy().Mul(rhs).Compact(0), true, nil
+			case parser.DIV:
+				return 0, hlhs.Copy().Div(rhs).Compact(0), true, nil
+			case parser.ADD, parser.SUB, parser.POW, parser.MOD, parser.EQLC, parser.NEQ, parser.GTR, parser.LSS, parser.GTE, parser.LTE, parser.ATAN2:
+				return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("histogram", opName, "float", pos)
 			}
-			return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("float", "/", "histogram", pos)
 		}
-		return lhs / rhs, nil, true, nil
-	case parser.POW:
-		return math.Pow(lhs, rhs), nil, true, nil
-	case parser.MOD:
-		return math.Mod(lhs, rhs), nil, true, nil
-	case parser.EQLC:
-		return lhs, nil, lhs == rhs, nil
-	case parser.NEQ:
-		return lhs, nil, lhs != rhs, nil
-	case parser.GTR:
-		return lhs, nil, lhs > rhs, nil
-	case parser.LSS:
-		return lhs, nil, lhs < rhs, nil
-	case parser.GTE:
-		return lhs, nil, lhs >= rhs, nil
-	case parser.LTE:
-		return lhs, nil, lhs <= rhs, nil
-	case parser.ATAN2:
-		return math.Atan2(lhs, rhs), nil, true, nil
+	case hlhs != nil && hrhs != nil:
+		{
+			switch op {
+			case parser.ADD:
+				res, err := hlhs.Copy().Add(hrhs)
+				if err != nil {
+					return 0, nil, false, err
+				}
+				return 0, res.Compact(0), true, nil
+			case parser.SUB:
+				res, err := hlhs.Copy().Sub(hrhs)
+				if err != nil {
+					return 0, nil, false, err
+				}
+				return 0, res.Compact(0), true, nil
+			case parser.EQLC:
+				// This operation expects that both histograms are compacted.
+				return 0, hlhs, hlhs.Equals(hrhs), nil
+			case parser.NEQ:
+				// This operation expects that both histograms are compacted.
+				return 0, hlhs, !hlhs.Equals(hrhs), nil
+			case parser.MUL, parser.DIV, parser.POW, parser.MOD, parser.GTR, parser.LSS, parser.GTE, parser.LTE, parser.ATAN2:
+				return 0, nil, false, annotations.NewIncompatibleTypesInBinOpInfo("histogram", opName, "histogram", pos)
+			}
+		}
 	}
 	panic(fmt.Errorf("operator %q not allowed for operations between Vectors", op))
 }
@@ -2925,16 +2936,34 @@ func (ev *evaluator) aggregation(e *parser.AggregateExpr, q float64, inputMatrix
 				case h != nil:
 					// Ignore histograms for STDVAR and STDDEV.
 					group.seen = false
+					if op == parser.STDVAR {
+						annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("stdvar", e.Expr.PositionRange()))
+					} else {
+						annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("stddev", e.Expr.PositionRange()))
+					}
 				case math.IsNaN(f), math.IsInf(f, 0):
 					group.floatValue = math.NaN()
 				default:
 					group.floatValue = 0
 				}
 			case parser.QUANTILE:
+				if h != nil {
+					group.seen = false
+					annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("quantile", e.Expr.PositionRange()))
+				}
 				group.heap = make(vectorByValueHeap, 1)
 				group.heap[0] = Sample{F: f}
 			case parser.GROUP:
 				group.floatValue = 1
+			case parser.MIN, parser.MAX:
+				if h != nil {
+					group.seen = false
+					if op == parser.MIN {
+						annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("min", e.Expr.PositionRange()))
+					} else {
+						annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("max", e.Expr.PositionRange()))
+					}
+				}
 			}
 			continue
 		}
@@ -3033,11 +3062,19 @@ func (ev *evaluator) aggregation(e *parser.AggregateExpr, q float64, inputMatrix
 			// Do nothing. Required to avoid the panic in `default:` below.
 
 		case parser.MAX:
+			if h != nil {
+				annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("max", e.Expr.PositionRange()))
+				continue
+			}
 			if group.floatValue < f || math.IsNaN(group.floatValue) {
 				group.floatValue = f
 			}
 
 		case parser.MIN:
+			if h != nil {
+				annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("min", e.Expr.PositionRange()))
+				continue
+			}
 			if group.floatValue > f || math.IsNaN(group.floatValue) {
 				group.floatValue = f
 			}
@@ -3051,9 +3088,19 @@ func (ev *evaluator) aggregation(e *parser.AggregateExpr, q float64, inputMatrix
 				delta := f - group.floatMean
 				group.floatMean += delta / group.groupCount
 				group.floatValue += delta * (f - group.floatMean)
+			} else {
+				if op == parser.STDVAR {
+					annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("stdvar", e.Expr.PositionRange()))
+				} else {
+					annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("stddev", e.Expr.PositionRange()))
+				}
 			}
 
 		case parser.QUANTILE:
+			if h != nil {
+				annos.Add(annotations.NewHistogramIgnoredInAggregationInfo("quantile", e.Expr.PositionRange()))
+				continue
+			}
 			group.heap = append(group.heap, Sample{F: f})
 
 		default:
