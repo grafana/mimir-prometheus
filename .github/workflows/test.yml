@@ -17,9 +17,31 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5.1.0
         with:
           go-version: '~1.23.0'
+          cache: false # We do this ourselves below to avoid conflicts between the different jobs.
+
+      - name: Get Go paths
+        id: gopaths
+        run: |
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache dependencies
+        uses: actions/cache@v4.1.2
+        with:
+          path: ${{ steps.gopaths.outputs.GOMODCACHE }}
+          # Use the same dependencies cache for all instances of this 'test' job, given each will use the same dependencies.
+          # We don't share this cache with the 'fuzz' job below because it only uses (and therefore downloads) a subset of dependencies.
+          key: ci-test-dependencies-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Cache build cache
+        uses: actions/cache@v4.1.2
+        with:
+          path: ${{ steps.gopaths.outputs.GOCACHE }}
+          # Use a unique build cache for each instance of this 'test' job, given each will be built with different build tags.
+          key: ci-test-build-cache-${{ runner.os }}-${{ matrix.buildtags }}-${{ hashFiles('**/go.sum') }}
 
       - name: Run Tests
         run: GOOPTS=-tags=${{ matrix.buildtags }} make common-test
@@ -37,9 +59,30 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5.1.0
         with:
           go-version: '~1.23.0'
+          cache: false # We do this ourselves below to avoid conflicts between the different jobs.
+
+      - name: Get Go paths
+        id: gopaths
+        run: |
+          echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache dependencies
+        uses: actions/cache@v4.1.2
+        with:
+          path: ${{ steps.gopaths.outputs.GOMODCACHE }}
+          # Use the same dependencies cache for all instances of this 'fuzz' job, given each will use the same dependencies.
+          key: ci-fuzz-dependencies-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
+
+      - name: Cache build cache
+        uses: actions/cache@v4.1.2
+        with:
+          path: ${{ steps.gopaths.outputs.GOCACHE }}
+          # Use the same build cache for each instance of this 'fuzz' job, given each will build the same package (model/labels) with the same build tags.
+          key: ci-fuzz-build-cache-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
       - name: Set -fuzztime=10m for 'main' branch
         if: github.ref == 'refs/heads/main'
