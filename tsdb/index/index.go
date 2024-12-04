@@ -1181,7 +1181,7 @@ func NewFileReader(path string, decoder PostingsDecoder) (*Reader, error) {
 	return NewFileReaderWithOptions(path, decoder, nil)
 }
 
-// NewFileReaderWithOptions is like NewFileReader but allows to pass a cache provider and sharding function.
+// NewFileReaderWithOptions is like NewFileReader but allows to pass a cache provider.
 func NewFileReaderWithOptions(path string, decoder PostingsDecoder, cacheProvider ReaderCacheProvider) (*Reader, error) {
 	f, err := fileutil.OpenMmapFile(path)
 	if err != nil {
