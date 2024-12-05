@@ -2,6 +2,9 @@
 
 ## unreleased
 
+* [CHANGE] Notifier: Increment the prometheus_notifications_errors_total metric by the number of affected alerts rather than by one per batch of affected alerts. #15428
+* [ENHANCEMENT] OTLP receiver: Convert also metric metadata. #15416
+
 ## 3.0.0 / 2024-11-14
 
 This release includes new features such as a brand new UI and UTF-8 support enabled by default. As this marks the first new major version in seven years, several breaking changes are introduced. The breaking changes are mainly around the removal of deprecated feature flags and CLI arguments, and the full list can be found below. For users that want to upgrade we recommend to read through our [migration guide](https://prometheus.io/docs/prometheus/3.0/migration/).
@@ -72,7 +75,18 @@ This release includes new features such as a brand new UI and UTF-8 support enab
 * [BUGFIX] Autoreload: Reload invalid yaml files. #14947
 * [BUGFIX] Scrape: Do not override target parameter labels with config params. #11029
 
-## 2.55.1 / 2024-01-04
+## 2.53.3 / 2024-11-04
+
+* [BUGFIX] Scraping: allow multiple samples on same series, with explicit timestamps. #14685, #14740
+
+## 2.53.2 / 2024-08-09
+
+Fix a bug where Prometheus would crash with a segmentation fault if a remote-read
+request accessed a block on disk at about the same time as TSDB created a new block.
+
+[BUGFIX] Remote-Read: Resolve occasional segmentation fault on query. #14515,#14523
+
+## 2.55.1 / 2024-11-04
 
 * [BUGFIX] `round()` function did not remove `__name__` label. #15250
 
@@ -112,7 +126,7 @@ This release includes new features such as a brand new UI and UTF-8 support enab
 
 ## 2.54.1 / 2024-08-27
 
-* [BUGFIX] Scraping: allow multiple samples on same series, with explicit timestamps. #14685
+* [BUGFIX] Scraping: allow multiple samples on same series, with explicit timestamps (mixing samples of the same series with and without timestamps is still rejected). #14685
 * [BUGFIX] Docker SD: fix crash in `match_first_network` mode when container is reconnected to a new network. #14654
 * [BUGFIX] PromQL: fix experimental native histograms getting corrupted due to vector selector bug in range queries. #14538
 * [BUGFIX] PromQL: fix experimental native histogram counter reset detection on stale samples. #14514
@@ -194,6 +208,7 @@ This release changes the default for GOGC, the Go runtime control for the trade-
 ## 2.52.0 / 2024-05-07
 
 * [CHANGE] TSDB: Fix the predicate checking for blocks which are beyond the retention period to include the ones right at the retention boundary. #9633
+* [CHANGE] Scrape: Multiple samples (even with different timestamps) are treated as duplicates during one scrape.
 * [FEATURE] Kubernetes SD: Add a new metric `prometheus_sd_kubernetes_failures_total` to track failed requests to Kubernetes API. #13554
 * [FEATURE] Kubernetes SD: Add node and zone metadata labels when using the endpointslice role. #13935
 * [FEATURE] Azure SD/Remote Write: Allow usage of Azure authorization SDK. #13099
