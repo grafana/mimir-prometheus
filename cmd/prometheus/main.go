@@ -27,6 +27,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	goregexp "regexp" //nolint:depguard // The Prometheus client library requires us to pass a regexp from this package.
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -296,6 +297,7 @@ func main() {
 				collectors.WithGoCollectorRuntimeMetrics(
 					collectors.MetricsGC,
 					collectors.MetricsScheduler,
+					collectors.GoRuntimeMetricsRule{Matcher: goregexp.MustCompile(`^/sync/mutex/wait/total:seconds$`)},
 				),
 			),
 		)
@@ -1368,10 +1370,12 @@ func main() {
 			},
 		)
 	}
-	if err := g.Run(); err != nil {
-		logger.Error("Error running goroutines from run.Group", "err", err)
-		os.Exit(1)
-	}
+	func() { // This function exists so the top of the stack is named 'main.main.funcxxx' and not 'oklog'.
+		if err := g.Run(); err != nil {
+			logger.Error("Fatal error", "err", err)
+			os.Exit(1)
+		}
+	}()
 	logger.Info("See you next time!")
 }
 
