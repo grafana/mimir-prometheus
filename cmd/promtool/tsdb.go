@@ -589,7 +589,10 @@ func analyzeBlock(ctx context.Context, path, blockID string, limit int, runExten
 		if err != nil {
 			return err
 		}
-		postings = index.Intersect(postings, index.NewListPostings(refs))
+		// Only intersect postings if matchers are specified.
+		if len(matchers) > 0 {
+			postings = index.Intersect(postings, index.NewListPostings(refs))
+		}
 		count := 0
 		for postings.Next() {
 			count++
@@ -733,7 +736,7 @@ func dumpSamples(ctx context.Context, dbDir, sandboxDirRoot string, mint, maxt i
 		for _, mset := range matcherSets {
 			sets = append(sets, q.Select(ctx, true, nil, mset...))
 		}
-		ss = storage.NewMergeSeriesSet(sets, storage.ChainedSeriesMerge)
+		ss = storage.NewMergeSeriesSet(sets, 0, storage.ChainedSeriesMerge)
 	} else {
 		ss = q.Select(ctx, false, nil, matcherSets[0]...)
 	}

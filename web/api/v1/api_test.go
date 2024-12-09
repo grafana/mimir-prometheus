@@ -2899,6 +2899,14 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 			errType:  errorBadData,
 			zeroFunc: rulesZeroFunc,
 		},
+		{ // groupNextToken should not be in empty response
+			endpoint: api.rules,
+			query: url.Values{
+				"match[]":     []string{`{testlabel="abc-cannot-find"}`},
+				"group_limit": []string{"1"},
+			},
+			responseAsJSON: `{"groups":[]}`,
+		},
 		{
 			endpoint: api.queryExemplars,
 			query: url.Values{
@@ -3862,7 +3870,7 @@ func TestRespondSuccess_DefaultCodecCannotEncodeResponse(t *testing.T) {
 
 	require.Equal(t, http.StatusNotAcceptable, resp.StatusCode)
 	require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
-	require.Equal(t, `{"status":"error","errorType":"not_acceptable","error":"cannot encode response as application/default-format"}`, string(body))
+	require.JSONEq(t, `{"status":"error","errorType":"not_acceptable","error":"cannot encode response as application/default-format"}`, string(body))
 }
 
 func TestRespondError(t *testing.T) {
