@@ -2506,7 +2506,7 @@ func TestAsyncBlockWriterFailure(t *testing.T) {
 	// Wait for result, this time we get error due to missing symbols.
 	_, err = abw.waitFinished()
 	require.Error(t, err)
-	require.ErrorContains(t, err, "unknown symbol")
+	require.ErrorContains(t, err, "symbol entry for \"__name__\" does not exist")
 
 	// We get the same error on each repeated call to waitFinished.
 	for i := 0; i < 5; i++ {
