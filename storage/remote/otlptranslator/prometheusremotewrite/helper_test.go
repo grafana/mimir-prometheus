@@ -18,11 +18,9 @@ package prometheusremotewrite
 
 import (
 	"context"
-	"math"
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -31,9 +29,7 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
 
-	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestCreateAttributes(t *testing.T) {
@@ -276,14 +272,14 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
-							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus2m30s)},
+							{Value: 0, Timestamp: convertTimeStamp(nowMinus2m30s)},
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus2m30s)},
+							{Value: 0, Timestamp: convertTimeStamp(nowMinus2m30s)},
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
@@ -324,14 +320,14 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(labels): {
 						Labels: labels,
 						Samples: []prompb.Sample{
-							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus6m)},
+							{Value: 0, Timestamp: convertTimeStamp(nowMinus6m)},
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus6m)},
+							{Value: 0, Timestamp: convertTimeStamp(nowMinus6m)},
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
@@ -444,15 +440,10 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 			)
 			require.NoError(t, err)
 
-			testutil.RequireEqualWithOptions(t, tt.want(), converter.unique, []cmp.Option{cmp.Comparer(equalSamples)})
+			assert.Equal(t, tt.want(), converter.unique)
 			assert.Empty(t, converter.conflicts)
 		})
 	}
-}
-
-func equalSamples(a, b prompb.Sample) bool {
-	// Compare Float64bits so NaN values which are exactly the same will compare equal.
-	return a.Timestamp == b.Timestamp && math.Float64bits(a.Value) == math.Float64bits(b.Value)
 }
 
 func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
