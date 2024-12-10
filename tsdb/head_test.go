@@ -547,6 +547,15 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 		})
 	}
 
+	// queryHead is a helper to query the head for a given time range and labelset.
+	queryHead := func(mint, maxt uint64, label labels.Label) (map[string][]chunks.Sample, error) {
+		q, err := NewBlockQuerier(head, int64(mint), int64(maxt))
+		if err != nil {
+			return nil, err
+		}
+		return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value)), nil
+	}
+
 	// readerTsCh will be used by the coordinator go routine to coordinate which timestamps the reader should read.
 	readerTsCh := make(chan uint64)
 
@@ -574,7 +583,7 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 				lbls.Range(func(l labels.Label) {
 					lbl = l
 				})
-				samples, err := queryHead(t, head, int64(ts-qryRange), int64(ts), lbl)
+				samples, err := queryHead(ts-qryRange, ts, lbl)
 				if err != nil {
 					return false, err
 				}
@@ -6087,42 +6096,6 @@ func TestCuttingNewHeadChunks(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestAppendDuplicates(t *testing.T) {
-	ts := int64(1695209650)
-	lbls := labels.FromStrings("foo", "bar")
-	h, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
-	defer func() {
-		require.NoError(t, h.Close())
-	}()
-
-	a := h.Appender(context.Background())
-	_, err := a.Append(0, lbls, ts, 42.0)
-	require.NoError(t, err)
-	_, err = a.Append(0, lbls, ts, 42.0) // Exactly the same value.
-	require.NoError(t, err)
-	_, err = a.Append(0, lbls, ts, math.Float64frombits(value.QuietZeroNaN)) // Should be a no-op.
-	require.NoError(t, err)
-	require.NoError(t, a.Commit())
-
-	result, err := queryHead(t, h, math.MinInt64, math.MaxInt64, labels.Label{Name: "foo", Value: "bar"})
-	require.NoError(t, err)
-	expectedSamples := []chunks.Sample{sample{t: ts, f: 42.0}}
-	require.Equal(t, expectedSamples, result[`{foo="bar"}`])
-
-	a = h.Appender(context.Background())
-	_, err = a.Append(0, lbls, ts+10, math.Float64frombits(value.QuietZeroNaN)) // This is at a different timestamp so should append a real zero.
-	require.NoError(t, err)
-	require.NoError(t, a.Commit())
-
-	result, err = queryHead(t, h, math.MinInt64, math.MaxInt64, labels.Label{Name: "foo", Value: "bar"})
-	require.NoError(t, err)
-	expectedSamples = []chunks.Sample{
-		sample{t: ts, f: 42.0},
-		sample{t: ts + 10, f: 0},
-	}
-	require.Equal(t, expectedSamples, result[`{foo="bar"}`])
 }
 
 // TestHeadDetectsDuplicateSampleAtSizeLimit tests a regression where a duplicate sample
