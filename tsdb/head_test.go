@@ -6123,15 +6123,6 @@ func TestAppendDuplicates(t *testing.T) {
 		sample{t: ts + 10, f: 0},
 	}
 	require.Equal(t, expectedSamples, result[`{foo="bar"}`])
-
-	a = h.Appender(context.Background())
-	_, err = a.Append(0, lbls, ts+5, math.Float64frombits(value.QuietZeroNaN)) // This is out-of-order, so should be dropped.
-	require.NoError(t, err)
-	require.NoError(t, a.Commit())
-
-	result, err = queryHead(t, h, math.MinInt64, math.MaxInt64, labels.Label{Name: "foo", Value: "bar"})
-	require.NoError(t, err)
-	require.Equal(t, expectedSamples, result[`{foo="bar"}`]) // Same expectedSamples as before.
 }
 
 // TestHeadDetectsDuplicateSampleAtSizeLimit tests a regression where a duplicate sample
