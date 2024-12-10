@@ -104,15 +104,6 @@ func openTestDB(t testing.TB, opts *Options, rngs []int64) (db *DB) {
 	return db
 }
 
-// queryHead is a helper to query the head for a given time range and labelset.
-func queryHead(t testing.TB, head *Head, mint, maxt int64, label labels.Label) (map[string][]chunks.Sample, error) {
-	q, err := NewBlockQuerier(head, mint, maxt)
-	if err != nil {
-		return nil, err
-	}
-	return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value)), nil
-}
-
 // query runs a matcher query against the querier and fully expands its data.
 func query(t testing.TB, q storage.Querier, matchers ...*labels.Matcher) map[string][]chunks.Sample {
 	ss := q.Select(context.Background(), false, nil, matchers...)
