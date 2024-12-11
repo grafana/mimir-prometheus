@@ -1197,7 +1197,7 @@ func (a *headAppender) commitSamples(acc *appenderCommitContext) {
 			}
 		default:
 			if math.Float64bits(s.V) == value.QuietZeroNaN {
-				s.V = 0
+				s.V = 0 // Note that this is modifying the copy which is what will be appended but the WAL got the NaN already.
 			}
 			ok, chunkCreated = series.append(s.T, s.V, a.appendID, acc.appendChunkOpts)
 			if ok {
