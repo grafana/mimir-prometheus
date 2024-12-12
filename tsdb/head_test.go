@@ -6089,7 +6089,7 @@ func TestCuttingNewHeadChunks(t *testing.T) {
 	}
 }
 
-func TestAppendDuplicates(t *testing.T) {
+func TestAppendQuietZeroDuplicates(t *testing.T) {
 	ts := int64(1695209650)
 	lbls := labels.FromStrings("foo", "bar")
 	h, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
@@ -6132,6 +6132,70 @@ func TestAppendDuplicates(t *testing.T) {
 	result, err = queryHead(t, h, math.MinInt64, math.MaxInt64, labels.Label{Name: "foo", Value: "bar"})
 	require.NoError(t, err)
 	require.Equal(t, expectedSamples, result[`{foo="bar"}`]) // Same expectedSamples as before.
+}
+
+func TestQuietZeroWALReplay(t *testing.T) {
+	ts := int64(1695209650)
+	lbls := labels.FromStrings("foo", "bar")
+	h, w := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, true)
+
+	a := h.Appender(context.Background())
+	_, err := a.Append(0, lbls, ts, 42.0)
+	require.NoError(t, err)
+	_, err = a.Append(0, lbls, ts, 42.0) // Exactly the same value.
+	require.NoError(t, err)
+	_, err = a.Append(0, lbls, ts, math.Float64frombits(value.QuietZeroNaN)) // Should be a no-op.
+	require.NoError(t, err)
+	_, err = a.Append(0, lbls, ts+10, math.Float64frombits(value.QuietZeroNaN)) // This is at a different timestamp so should append a real zero.
+	require.NoError(t, err)
+	_, err = a.Append(0, lbls, ts+5, math.Float64frombits(value.QuietZeroNaN)) // This is out-of-order, so should be dropped.
+	require.NoError(t, err)
+	require.NoError(t, a.Commit())
+
+	result, err := queryHead(t, h, math.MinInt64, math.MaxInt64, labels.Label{Name: "foo", Value: "bar"})
+	require.NoError(t, err)
+	expectedSamples := []chunks.Sample{
+		sample{t: ts, f: 42.0},
+		sample{t: ts + 10, f: 0},
+	}
+	require.Equal(t, expectedSamples, result[`{foo="bar"}`])
+
+	require.NoError(t, h.Close())
+
+	// Next we replay the WAL by creating a new head and then verify that previous samples are there as we expect them.
+	w, err = wlog.New(nil, nil, w.Dir(), wlog.CompressionNone)
+	require.NoError(t, err)
+	opts := DefaultHeadOptions()
+	opts.ChunkRange = 1000
+	opts.ChunkDirRoot = w.Dir()
+	h, err = NewHead(nil, nil, w, nil, opts, nil)
+	require.NoError(t, err)
+	require.NoError(t, h.Init(0))
+	defer func() {
+		require.NoError(t, h.Close())
+	}()
+
+	result, err = queryHead(t, h, math.MinInt64, math.MaxInt64, labels.Label{Name: "foo", Value: "bar"})
+	require.NoError(t, err)
+	require.Equal(t, expectedSamples, result[`{foo="bar"}`])
+
+	// For correctness, we also verify that the WAL contains the expected records.
+	recs := readTestWAL(t, h.wal.Dir())
+	require.NotEmpty(t, recs, "WAL should contain records")
+
+	if samples, ok := recs[1].([]record.RefSample); ok {
+		require.Len(t, samples, 5)
+		require.Equal(t, record.RefSample{Ref: 1, T: ts, V: 42.0}, samples[0])
+		require.Equal(t, record.RefSample{Ref: 1, T: ts, V: 42.0}, samples[1])
+		require.True(t, math.IsNaN(samples[2].V))
+		require.Equal(t, ts, samples[2].T)
+		require.True(t, math.IsNaN(samples[3].V))
+		require.Equal(t, ts+10, samples[3].T)
+		require.True(t, math.IsNaN(samples[4].V))
+		require.Equal(t, ts+5, samples[4].T)
+	} else {
+		t.Fatalf("unexpected record type: %T", recs[1])
+	}
 }
 
 // TestHeadDetectsDuplicateSampleAtSizeLimit tests a regression where a duplicate sample
