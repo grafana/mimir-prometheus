@@ -622,7 +622,11 @@ func (c *PrometheusConverter) handleStartTime(startTs, ts int64, labels []prompb
 
 	logger.Debug("adding zero value at start_ts", "type", typ, "labels", labelsStringer(labels), "start_ts", startTs, "sample_ts", ts, "sample_value", val)
 
-	c.addSample(&prompb.Sample{Timestamp: startTs, Value: math.Float64frombits(value.QuietZeroNaN)}, labels)
+	var createdTimeValue float64
+	if settings.EnableStartTimeQuietZero {
+		createdTimeValue = math.Float64frombits(value.QuietZeroNaN)
+	}
+	c.addSample(&prompb.Sample{Timestamp: startTs, Value: createdTimeValue}, labels)
 }
 
 // handleHistogramStartTime similar to the method above but for native histograms..

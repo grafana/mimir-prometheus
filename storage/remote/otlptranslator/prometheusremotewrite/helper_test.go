@@ -478,6 +478,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				Settings{
 					ExportCreatedMetric:                        true,
 					EnableCreatedTimestampZeroIngestion:        true,
+					EnableStartTimeQuietZero:                   true,
 					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
 				metric.Name(),
