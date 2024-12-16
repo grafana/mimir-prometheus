@@ -20,6 +20,20 @@ updates:
     open-pull-requests-limit: 0
   - package-ecosystem: "npm"
     directory: "/web/ui"
+    labels:
+      - dependencies
+      - javascript
+      - manteen-ui
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 20
+  # Old react-app packages.
+  - package-ecosystem: "npm"
+    directory: "/web/ui/react-app"
+    labels:
+      - dependencies
+      - javascript
+      - old-react-ui
     schedule:
       interval: "monthly"
     open-pull-requests-limit: 0
