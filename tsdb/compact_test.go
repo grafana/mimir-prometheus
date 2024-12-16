@@ -1219,12 +1219,14 @@ func TestCompaction_populateBlock(t *testing.T) {
 				},
 			},
 		},
+		// TODO: populate block with NaNs to be removed
 	} {
 		t.Run(tc.title, func(t *testing.T) {
 			blocks := make([]BlockReader, 0, len(tc.inputSeriesSamples))
 			for _, b := range tc.inputSeriesSamples {
 				ir, cr, mint, maxt := createIdxChkReaders(t, b)
 				blocks = append(blocks, &mockBReader{ir: ir, cr: cr, mint: mint, maxt: maxt})
+				// TODO: add hints
 			}
 
 			c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, nil, []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
@@ -1303,6 +1305,8 @@ func TestCompaction_populateBlock(t *testing.T) {
 				}
 			}
 			require.Equal(t, s, meta.Stats)
+
+			// TODO: check hint is set
 		})
 	}
 }

@@ -20,11 +20,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/prometheus/prometheus/model/value"
 
 	"github.com/oklog/ulid"
 	"github.com/prometheus/client_golang/prometheus"
@@ -1152,6 +1155,16 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 		set = storage.NewMergeChunkSeriesSet(sets, mergeFunc)
 	}
 
+	// If any input blocks contain a hint to remove quiet zero NaNs, remove them from samples merged from all blocks.
+	// The meta.json of corrupted blocks should have this hint added.
+	shouldRemoveQuietZeroNaNs := false
+	for _, b := range blocks {
+		compaction := b.Meta().Compaction
+		if (&compaction).containsHint(" remove-quiet-zero-nans") {
+			shouldRemoveQuietZeroNaNs = true
+		}
+	}
+
 	// Iterate over all sorted chunk series.
 	for set.Next() {
 		select {
@@ -1167,7 +1180,15 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 			// We are not iterating in a streaming way over chunks as
 			// it's more efficient to do bulk write for index and
 			// chunk file purposes.
-			chks = append(chks, chksIter.At())
+			chk := chksIter.At()
+			if shouldRemoveQuietZeroNaNs {
+				chk, err = removeQuietZeroNaNs(chk)
+				if err != nil {
+					return err // TODO: better error message
+				}
+			}
+
+			chks = append(chks, chk)
 		}
 		if err := chksIter.Err(); err != nil {
 			return fmt.Errorf("chunk iter: %w", err)
@@ -1205,9 +1226,38 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 		}
 
 		outBlocks[ix].meta.Stats = stats
+		if shouldRemoveQuietZeroNaNs {
+			// TODO: better naming - the pre and post hints are very similar
+			outBlocks[ix].meta.Compaction.AddHint("quiet-zero-nans-removed")
+		}
 	}
 
 	return nil
+}
+
+var QuietZeroNaNFloat = math.Float64frombits(value.QuietZeroNaN)
+
+func removeQuietZeroNaNs(c chunks.Meta) (chunks.Meta, error) {
+	// TODO: assert c.Chunk is not nil?
+	if c.Chunk.Encoding() != chunkenc.EncXOR {
+		return c, nil
+	}
+	it := c.Chunk.Iterator(nil)
+
+	newChunk := chunkenc.NewXORChunk()
+	app, err := newChunk.Appender()
+	if err != nil {
+		return chunks.Meta{}, err
+	}
+	for vt := it.Next(); vt != chunkenc.ValNone; vt = it.Next() {
+		t, v := it.At()
+		if v != QuietZeroNaNFloat {
+			app.Append(t, v)
+		}
+	}
+	c.Chunk = newChunk
+	// TODO: do we need to change anything else in chunks.Meta?
+	return c, nil
 }
 
 // How many symbols we buffer in memory per output block.
