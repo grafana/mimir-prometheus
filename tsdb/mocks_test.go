@@ -55,10 +55,11 @@ func (mockIndexWriter) WriteLabelIndex([]string, []string) error { return nil }
 func (mockIndexWriter) Close() error                             { return nil }
 
 type mockBReader struct {
-	ir   IndexReader
-	cr   ChunkReader
-	mint int64
-	maxt int64
+	ir              IndexReader
+	cr              ChunkReader
+	mint            int64
+	maxt            int64
+	withRemovalHint bool
 }
 
 func (r *mockBReader) Index() (IndexReader, error)  { return r.ir, nil }
@@ -66,5 +67,12 @@ func (r *mockBReader) Chunks() (ChunkReader, error) { return r.cr, nil }
 func (r *mockBReader) Tombstones() (tombstones.Reader, error) {
 	return tombstones.NewMemTombstones(), nil
 }
-func (r *mockBReader) Meta() BlockMeta { return BlockMeta{MinTime: r.mint, MaxTime: r.maxt} }
-func (r *mockBReader) Size() int64     { return 0 }
+
+func (r *mockBReader) Meta() BlockMeta {
+	bm := BlockMeta{MinTime: r.mint, MaxTime: r.maxt}
+	if r.withRemovalHint {
+		bm.Compaction.AddHint("remove-quiet-zero-nans")
+	}
+	return bm
+}
+func (r *mockBReader) Size() int64 { return 0 }

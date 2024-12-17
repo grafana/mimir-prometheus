@@ -1182,10 +1182,14 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 			// chunk file purposes.
 			chk := chksIter.At()
 			if shouldRemoveQuietZeroNaNs {
-				chk, err = removeQuietZeroNaNs(chk)
+				updatedChunk, chunkCreated, err := removeQuietZeroNaNs(chk)
 				if err != nil {
 					return err // TODO: better error message
 				}
+				if !chunkCreated {
+					continue
+				}
+				chk = updatedChunk
 			}
 
 			chks = append(chks, chk)
@@ -1235,29 +1239,38 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 	return nil
 }
 
-var QuietZeroNaNFloat = math.Float64frombits(value.QuietZeroNaN)
-
-func removeQuietZeroNaNs(c chunks.Meta) (chunks.Meta, error) {
+func removeQuietZeroNaNs(c chunks.Meta) (chunks.Meta, bool, error) {
 	// TODO: assert c.Chunk is not nil?
 	if c.Chunk.Encoding() != chunkenc.EncXOR {
-		return c, nil
+		return c, false, nil
 	}
 	it := c.Chunk.Iterator(nil)
 
+	minTime, maxTime := int64(math.MinInt64), int64(math.MinInt64)
 	newChunk := chunkenc.NewXORChunk()
 	app, err := newChunk.Appender()
 	if err != nil {
-		return chunks.Meta{}, err
+		return chunks.Meta{}, false, err
 	}
+	chunkCreated := false
 	for vt := it.Next(); vt != chunkenc.ValNone; vt = it.Next() {
 		t, v := it.At()
-		if v != QuietZeroNaNFloat {
+		if value.QuietZeroNaN != math.Float64bits(v) {
 			app.Append(t, v)
+			if !chunkCreated {
+				minTime = t
+				chunkCreated = true
+			}
+			maxTime = t
 		}
 	}
+	if !chunkCreated {
+		return chunks.Meta{}, false, nil
+	}
+	c.MinTime = minTime
+	c.MaxTime = maxTime
 	c.Chunk = newChunk
-	// TODO: do we need to change anything else in chunks.Meta?
-	return c, nil
+	return c, true, nil
 }
 
 // How many symbols we buffer in memory per output block.

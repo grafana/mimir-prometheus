@@ -29,6 +29,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/prometheus/model/value"
+
 	"github.com/oklog/ulid"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/promslog"
@@ -1311,6 +1313,178 @@ func TestCompaction_populateBlock(t *testing.T) {
 	}
 }
 
+type seriesSamplesWithHint struct {
+	ss              []seriesSamples
+	withRemovalHint bool
+}
+
+func TestCompaction_populateBlockWithNaNRemoval(t *testing.T) {
+	for _, tc := range []struct {
+		title                string
+		inputSeriesSamples   []seriesSamplesWithHint
+		compactMinTime       int64
+		compactMaxTime       int64 // When not defined the test runner sets a default of math.MaxInt64.
+		irPostingsFunc       IndexReaderPostingsFunc
+		expSeriesSamples     []seriesSamples
+		expErr               error
+		outputBlocksHaveHint bool
+	}{
+		{
+			title: "Populate with QuietZeroNaNs without removal hint",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: 1}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+						},
+					},
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 0, f: 1}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+				},
+			},
+		},
+		{
+			title: "Populate with QuietZeroNaNs with removal hint",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: 1}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 0, f: 1}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+				},
+			},
+		},
+
+		// TODO: populate block with NaNs to be removed
+		// TODO: with hint
+		// TODO: multiple and overlapping blocks
+		// TODO: other NaNs aren't removed
+	} {
+		t.Run(tc.title, func(t *testing.T) {
+			blocks := make([]BlockReader, 0, len(tc.inputSeriesSamples))
+			for _, b := range tc.inputSeriesSamples {
+				ir, cr, mint, maxt := createIdxChkReaders(t, b.ss)
+				blocks = append(blocks, &mockBReader{ir: ir, cr: cr, mint: mint, maxt: maxt, withRemovalHint: b.withRemovalHint})
+			}
+
+			c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, nil, []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+			require.NoError(t, err)
+
+			meta := &BlockMeta{
+				MinTime: tc.compactMinTime,
+				MaxTime: tc.compactMaxTime,
+			}
+			if meta.MaxTime == 0 {
+				meta.MaxTime = math.MaxInt64
+			}
+
+			iw := &mockIndexWriter{}
+			ob := shardedBlock{meta: meta, indexw: iw, chunkw: nopChunkWriter{}}
+			blockPopulator := DefaultBlockPopulator{}
+			irPostingsFunc := AllSortedPostings
+			if tc.irPostingsFunc != nil {
+				irPostingsFunc = tc.irPostingsFunc
+			}
+			err = blockPopulator.PopulateBlock(c.ctx, c.metrics, c.logger, c.chunkPool, c.mergeFunc, c.concurrencyOpts, blocks, meta.MinTime, meta.MaxTime, []shardedBlock{ob}, irPostingsFunc)
+			if tc.expErr != nil {
+				require.EqualError(t, err, tc.expErr.Error())
+				return
+			}
+			require.NoError(t, err)
+
+			// Check if response is expected and chunk is valid.
+			var raw []seriesSamples
+			for _, s := range iw.seriesChunks {
+				ss := seriesSamples{lset: s.l.Map()}
+				var iter chunkenc.Iterator
+				for _, chk := range s.chunks {
+					var (
+						samples       = make([]sample, 0, chk.Chunk.NumSamples())
+						iter          = chk.Chunk.Iterator(iter)
+						firstTs int64 = math.MaxInt64
+						s       sample
+					)
+					for vt := iter.Next(); vt != chunkenc.ValNone; vt = iter.Next() {
+						switch vt {
+						case chunkenc.ValFloat:
+							s.t, s.f = iter.At()
+							samples = append(samples, s)
+						case chunkenc.ValHistogram:
+							s.t, s.h = iter.AtHistogram(nil)
+							samples = append(samples, s)
+						case chunkenc.ValFloatHistogram:
+							s.t, s.fh = iter.AtFloatHistogram(nil)
+							samples = append(samples, s)
+						default:
+							require.Fail(t, "unexpected value type")
+						}
+						if firstTs == math.MaxInt64 {
+							firstTs = s.t
+						}
+					}
+
+					// Check if chunk has correct min, max times.
+					require.Equal(t, firstTs, chk.MinTime, "chunk Meta %v does not match the first encoded sample timestamp: %v", chk, firstTs)
+					require.Equal(t, s.t, chk.MaxTime, "chunk Meta %v does not match the last encoded sample timestamp %v", chk, s.t)
+
+					require.NoError(t, iter.Err())
+					ss.chunks = append(ss.chunks, samples)
+				}
+				raw = append(raw, ss)
+			}
+			requireEqualWithNaNs(t, tc.expSeriesSamples, raw)
+
+			// Check if stats are calculated properly.
+			s := BlockStats{NumSeries: uint64(len(tc.expSeriesSamples))}
+			for _, series := range tc.expSeriesSamples {
+				s.NumChunks += uint64(len(series.chunks))
+				for _, chk := range series.chunks {
+					s.NumSamples += uint64(len(chk))
+				}
+			}
+			require.Equal(t, s, meta.Stats)
+
+			// TODO: check hint is set
+		})
+	}
+}
+
+var QuietZeroNaNFloat = math.Float64frombits(value.QuietZeroNaN)
+
+func requireEqualWithNaNs(t *testing.T, actual, expected []seriesSamples) {
+	require.Equal(t, len(actual), len(expected))
+	for i := range actual {
+		require.Equal(t, actual[i].lset, expected[i].lset, "lset at [%d] not equal", i)
+		for j := range actual[i].chunks {
+			require.Equal(t, len(actual[i].chunks[j]), len(expected[i].chunks[j]))
+			require.Equal(t, actual[i].lset, expected[i].lset, "chunk length at [%d][%d] not equal", i, j)
+			for k := range actual[i].chunks[j] {
+				if math.IsNaN(expected[i].chunks[j][k].f) {
+					require.True(t, math.IsNaN(actual[i].chunks[j][k].f), "expected NaN for sample ay [%d][%d][%d]", i, j, k)
+					require.Equal(t, math.Float64bits(expected[i].chunks[j][k].f), math.Float64bits(actual[i].chunks[j][k].f), "expected equal NaN bits for sample ay [%d][%d][%d]", i, j, k)
+				} else {
+					require.True(t, actual[i].chunks[j][k].f == expected[i].chunks[j][k].f, "expected equal value for sample ay [%d][%d][%d]", i, j, k)
+				}
+			}
+		}
+	}
+}
+
+// var QuietZeroNaNFloat = math.Float64frombits(value.QuietZeroNaN)
 func BenchmarkCompaction(b *testing.B) {
 	cases := []struct {
 		ranges         [][2]int64
