@@ -1160,7 +1160,7 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 	shouldRemoveQuietZeroNaNs := false
 	for _, b := range blocks {
 		compaction := b.Meta().Compaction
-		if (&compaction).containsHint(" remove-quiet-zero-nans") {
+		if (&compaction).containsHint("remove-quiet-zero-nans") {
 			shouldRemoveQuietZeroNaNs = true
 		}
 	}
