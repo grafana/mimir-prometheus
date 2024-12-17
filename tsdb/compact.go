@@ -1184,7 +1184,7 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 			if shouldRemoveQuietZeroNaNs {
 				updatedChunk, chunkCreated, err := removeQuietZeroNaNs(chk)
 				if err != nil {
-					return err // TODO: better error message
+					return fmt.Errorf("error when removing quiet zero NaNs: %w", err)
 				}
 				if !chunkCreated {
 					continue
@@ -1240,7 +1240,11 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 }
 
 func removeQuietZeroNaNs(c chunks.Meta) (chunks.Meta, bool, error) {
-	// TODO: assert c.Chunk is not nil?
+	if c.Chunk == nil {
+		// c.Chunk should never be nil at this point as the block writer used afterward always expected a non-nil
+		// Chunk field. But returning an error just in case.
+		return chunks.Meta{}, false, errors.New("unexpected nil chunk when removing quiet zero NaNs")
+	}
 	if c.Chunk.Encoding() != chunkenc.EncXOR {
 		return c, true, nil
 	}
