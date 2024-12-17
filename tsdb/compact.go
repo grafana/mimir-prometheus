@@ -1242,7 +1242,7 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 func removeQuietZeroNaNs(c chunks.Meta) (chunks.Meta, bool, error) {
 	// TODO: assert c.Chunk is not nil?
 	if c.Chunk.Encoding() != chunkenc.EncXOR {
-		return c, false, nil
+		return c, true, nil
 	}
 	it := c.Chunk.Iterator(nil)
 

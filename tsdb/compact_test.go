@@ -1330,7 +1330,7 @@ func TestCompaction_populateBlockWithNaNRemoval(t *testing.T) {
 		outputBlocksHaveHint bool
 	}{
 		{
-			title: "Populate with QuietZeroNaNs without removal hint",
+			title: "No removal hint doesn't remove NaNs",
 			inputSeriesSamples: []seriesSamplesWithHint{
 				{
 					ss: []seriesSamples{
@@ -1349,7 +1349,7 @@ func TestCompaction_populateBlockWithNaNRemoval(t *testing.T) {
 			},
 		},
 		{
-			title: "Populate with QuietZeroNaNs with removal hint",
+			title: "With removal hint",
 			inputSeriesSamples: []seriesSamplesWithHint{
 				{
 					ss: []seriesSamples{
@@ -1367,12 +1367,171 @@ func TestCompaction_populateBlockWithNaNRemoval(t *testing.T) {
 					chunks: [][]sample{{{t: 0, f: 1}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
 				},
 			},
+			outputBlocksHaveHint: true,
 		},
-
-		// TODO: populate block with NaNs to be removed
-		// TODO: with hint
-		// TODO: multiple and overlapping blocks
-		// TODO: other NaNs aren't removed
+		{
+			title: "Start and end samples removed",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: QuietZeroNaNFloat}, {t: 1, f: 0}, {t: 11, f: 10}, {t: 20, f: QuietZeroNaNFloat}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 1, f: 0}, {t: 11, f: 10}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "All samples removed",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: QuietZeroNaNFloat}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: QuietZeroNaNFloat}, {t: 20, f: QuietZeroNaNFloat}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples:     []seriesSamples{},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "Other NaNs aren't removed",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: 1}, {t: 2, f: math.Float64frombits(value.NormalNaN)}, {t: 3, f: QuietZeroNaNFloat}}, {{t: 11, f: math.Float64frombits(value.NormalNaN)}, {t: 20, f: 11}, {t: 21, f: math.Float64frombits(value.StaleNaN)}, {t: 24, f: 1324}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 0, f: 1}, {t: 2, f: math.Float64frombits(value.NormalNaN)}}, {{t: 11, f: math.Float64frombits(value.NormalNaN)}, {t: 20, f: 11}, {t: 21, f: math.Float64frombits(value.StaleNaN)}, {t: 24, f: 1324}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "Overlapping blocks",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 0}, {t: 6902464}}, {{t: 6961968, f: QuietZeroNaNFloat}, {t: 7080976}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 3600000}, {t: 13953696}}, {{t: 14042952}, {t: 14221464}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 10800000, f: QuietZeroNaNFloat}, {t: 14251232}}, {{t: 14280984}, {t: 14340488}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "1", "b": "2"},
+					chunks: [][]sample{{{t: 0}, {t: 3600000}, {t: 6902464}, {t: 7080976}, {t: 13953696}, {t: 14042952}, {t: 14221464}, {t: 14251232}}, {{t: 14280984}, {t: 14340488}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "Histogram chunks unaffected",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: 1}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+						},
+						{
+							lset:   map[string]string{"a": "c"},
+							chunks: [][]sample{{{t: 0, h: tsdbutil.GenerateTestHistogram(0)}, {t: 1, h: tsdbutil.GenerateTestHistogram(23)}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 0, f: 1}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+				},
+				{
+					lset:   map[string]string{"a": "c"},
+					chunks: [][]sample{{{t: 0, h: tsdbutil.GenerateTestHistogram(0)}, {t: 1, h: tsdbutil.GenerateTestHistogram(23)}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "All blocks have NaNs removed when a single block has hint set",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 0}, {t: 6902464}}, {{t: 6961968, f: QuietZeroNaNFloat}, {t: 7080976}}},
+						},
+					},
+				},
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 3600000}, {t: 13953696}}, {{t: 14042952}, {t: 14221464}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 10800000, f: QuietZeroNaNFloat}, {t: 14251232}}, {{t: 14280984}, {t: 14340488}}},
+						},
+					},
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "1", "b": "2"},
+					chunks: [][]sample{{{t: 0}, {t: 3600000}, {t: 6902464}, {t: 7080976}, {t: 13953696}, {t: 14042952}, {t: 14221464}, {t: 14251232}}, {{t: 14280984}, {t: 14340488}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
 	} {
 		t.Run(tc.title, func(t *testing.T) {
 			blocks := make([]BlockReader, 0, len(tc.inputSeriesSamples))
@@ -1457,8 +1616,7 @@ func TestCompaction_populateBlockWithNaNRemoval(t *testing.T) {
 				}
 			}
 			require.Equal(t, s, meta.Stats)
-
-			// TODO: check hint is set
+			require.Equal(t, tc.outputBlocksHaveHint, meta.Compaction.containsHint("quiet-zero-nans-removed"))
 		})
 	}
 }
@@ -1466,7 +1624,7 @@ func TestCompaction_populateBlockWithNaNRemoval(t *testing.T) {
 var QuietZeroNaNFloat = math.Float64frombits(value.QuietZeroNaN)
 
 func requireEqualWithNaNs(t *testing.T, actual, expected []seriesSamples) {
-	require.Equal(t, len(actual), len(expected))
+	require.Equal(t, len(actual), len(expected), "length of actual and expected seriesSamples is not equal")
 	for i := range actual {
 		require.Equal(t, actual[i].lset, expected[i].lset, "lset at [%d] not equal", i)
 		for j := range actual[i].chunks {
@@ -1484,7 +1642,6 @@ func requireEqualWithNaNs(t *testing.T, actual, expected []seriesSamples) {
 	}
 }
 
-// var QuietZeroNaNFloat = math.Float64frombits(value.QuietZeroNaN)
 func BenchmarkCompaction(b *testing.B) {
 	cases := []struct {
 		ranges         [][2]int64
