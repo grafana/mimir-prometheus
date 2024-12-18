@@ -1187,11 +1187,11 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 			// chunk file purposes.
 			chk := chksIter.At()
 			if shouldRemoveQuietZeroNaNs {
-				updatedChunk, chunkCreated, err := removeQuietZeroNaNs(chk)
+				updatedChunk, chunkHasData, err := removeQuietZeroNaNs(chk)
 				if err != nil {
 					return fmt.Errorf("error when removing quiet zero NaNs: %w", err)
 				}
-				if !chunkCreated {
+				if !chunkHasData {
 					continue
 				}
 				chk = updatedChunk
@@ -1245,7 +1245,7 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 
 func removeQuietZeroNaNs(c chunks.Meta) (chunks.Meta, bool, error) {
 	if c.Chunk == nil {
-		// c.Chunk should never be nil at this point as the block writer used afterward always expected a non-nil
+		// c.Chunk should never be nil at this point as the block writer used afterward always expects a non-nil
 		// Chunk field. But returning an error just in case.
 		return chunks.Meta{}, false, errors.New("unexpected nil chunk when removing quiet zero NaNs")
 	}
