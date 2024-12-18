@@ -3109,7 +3109,7 @@ func TestDelayedCompactionDoesNotBlockUnrelatedOps(t *testing.T) {
 	}
 }
 
-func TestHeadCompactionWithQuietNaNs(t *testing.T) {
+func TestHeadCompactionWithQuietZeroNaNs(t *testing.T) {
 	head, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
 	require.NoError(t, head.Init(0))
 	t.Cleanup(func() {
@@ -3121,14 +3121,28 @@ func TestHeadCompactionWithQuietNaNs(t *testing.T) {
 	app := head.Appender(ctx)
 	series1 := labels.FromStrings("foo", "bar1")
 
-	// TODO: check error
-	app.Append(0, series1, 0, float64(0))
-	app.Append(0, series1, 1, math.Float64frombits(value.QuietZeroNaN))
+	_, err := app.Append(0, series1, 0, float64(0))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 1, math.Float64frombits(value.QuietZeroNaN))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 2, math.Float64frombits(value.QuietZeroNaN))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 3, float64(7))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 4, math.Float64frombits(value.NormalNaN))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 5, float64(1))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 6, math.Float64frombits(value.StaleNaN))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 7, float64(8))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 8, math.Float64frombits(value.QuietZeroNaN))
+	require.NoError(t, err)
 
-	// TODO: append more stuff inc NaNs
 	require.NoError(t, app.Commit())
 
-	// Restart head so WAL is replayed and NaNs preserved
+	// Restart head so WAL is replayed. This triggers the bug that keeps the NaNs in the series.
 	require.NoError(t, head.Close())
 	startHead := func() {
 		w, err := wlog.NewSize(nil, nil, head.wal.Dir(), 32768, wlog.CompressionNone)
@@ -3152,14 +3166,14 @@ func TestHeadCompactionWithQuietNaNs(t *testing.T) {
 		require.NoError(t, os.RemoveAll(compactDir))
 	}()
 
-	bm := &BlockMeta{}
-	bm.Compaction.AddHint("remove-quiet-zero-nans") // cheeky way of doing fixed compaction later //TODO: just rewrite file
-	ids, err := compactor.Write(compactDir, head, mint, maxt, bm)
+	ids, err := compactor.Write(compactDir, head, mint, maxt, nil)
 	require.NoError(t, err)
 	require.Len(t, ids, 1)
 
+	blockDir := path.Join(compactDir, ids[0].String())
+
 	// Open the block and query it and check the samples.
-	block, err := OpenBlock(nil, path.Join(compactDir, ids[0].String()), nil, nil)
+	block, err := OpenBlock(nil, blockDir, nil, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, block.Close())
@@ -3171,35 +3185,39 @@ func TestHeadCompactionWithQuietNaNs(t *testing.T) {
 	actHists := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
 	// First compaction keeps the NaNs
 	require.Equal(t, map[string][]chunks.Sample{
+		// Note: ExpandSamples turns NaNs into -42
 		series1.String(): {
 			sample{t: 0, f: 0},
-			sample{t: 1, f: -42}, // ExpandSamples turns NaNs into -42 so equality comparison works
-			// sample{t: 1, f: math.Float64frombits(value.QuietZeroNaN)},
+			sample{t: 1, f: -42},
+			sample{t: 2, f: -42},
+			sample{t: 3, f: 7},
+			sample{t: 4, f: -42},
+			sample{t: 5, f: 1},
+			sample{t: 6, f: -42},
+			sample{t: 7, f: 8},
+			sample{t: 8, f: -42},
 		},
 	}, actHists)
 
-	// Create dummy block
-	s2 := storage.NewListSeries(labels.FromStrings("a", "b"), []chunks.Sample{sample{1, 1, nil, nil}})
-	dummyBlockDir := createBlock(t, compactDir, []storage.Series{s2})
-
-	compactDir2, err := os.MkdirTemp("", "compact-2")
+	// Add remove NaN hint to block
+	bm, _, err := readMetaFile(blockDir)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, os.RemoveAll(compactDir2))
-	}()
-
-	// compact dummy block with original
-	ids2, err := compactor.Compact(compactDir2, []string{path.Join(compactDir, ids[0].String()), dummyBlockDir}, nil) // TODO: compact with splitting?
+	bm.Compaction.AddHint("remove-quiet-zero-nans")
+	_, err = writeMetaFile(promslog.NewNopLogger(), blockDir, bm)
 	require.NoError(t, err)
 
-	// Open the block and query it and check the samples.
-	block2, err := OpenBlock(nil, path.Join(compactDir2, ids2[0].String()), nil, nil)
+	// Recompact block
+	ids2, err := compactor.Compact(compactDir, []string{blockDir}, nil)
+	require.NoError(t, err)
+
+	// Open the new block and query it and check the samples.
+	recompactedBlock, err := OpenBlock(nil, path.Join(compactDir, ids2[0].String()), nil, nil)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		require.NoError(t, block2.Close())
+		require.NoError(t, recompactedBlock.Close())
 	})
 
-	q, err = NewBlockQuerier(block2, block2.MinTime(), block2.MaxTime())
+	q, err = NewBlockQuerier(recompactedBlock, recompactedBlock.MinTime(), recompactedBlock.MaxTime())
 	require.NoError(t, err)
 
 	act2 := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
@@ -3207,7 +3225,11 @@ func TestHeadCompactionWithQuietNaNs(t *testing.T) {
 	require.Equal(t, map[string][]chunks.Sample{
 		series1.String(): {
 			sample{t: 0, f: 0},
+			sample{t: 3, f: 7},
+			sample{t: 4, f: -42},
+			sample{t: 5, f: 1},
+			sample{t: 6, f: -42},
+			sample{t: 7, f: 8},
 		},
 	}, act2)
-	// TODO: test more samples, other NaN types should still exist
 }

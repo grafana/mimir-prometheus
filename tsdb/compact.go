@@ -760,10 +760,6 @@ func (c *LeveledCompactor) Write(dest string, b BlockReader, mint, maxt int64, b
 		if base.Compaction.FromOutOfOrder() {
 			meta.Compaction.SetOutOfOrder()
 		}
-		// TODO: this is just for testing!!! remove and do in test properly
-		if base.Compaction.containsHint("remove-quiet-zero-nans") {
-			meta.Compaction.AddHint("remove-quiet-zero-nans")
-		}
 	}
 
 	err := c.write(dest, []shardedBlock{{meta: meta}}, DefaultBlockPopulator{}, b)
