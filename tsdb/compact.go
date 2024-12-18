@@ -1023,6 +1023,11 @@ func AllSortedPostings(ctx context.Context, reader IndexReader) index.Postings {
 
 type DefaultBlockPopulator struct{}
 
+const (
+	RemoveQuietZeroNaNsHint  = "remove-quiet-zero-nans"
+	QuietZeroNaNsRemovedHint = "quiet-zero-nans-removed"
+)
+
 // PopulateBlock fills the index and chunk writers with new data gathered as the union
 // of the provided blocks. It returns meta information for the new block.
 // It expects sorted blocks input by mint.
@@ -1160,7 +1165,7 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 	shouldRemoveQuietZeroNaNs := false
 	for _, b := range blocks {
 		compaction := b.Meta().Compaction
-		if (&compaction).containsHint("remove-quiet-zero-nans") {
+		if (&compaction).containsHint(RemoveQuietZeroNaNsHint) {
 			shouldRemoveQuietZeroNaNs = true
 		}
 	}
@@ -1231,8 +1236,7 @@ func (c DefaultBlockPopulator) PopulateBlock(ctx context.Context, metrics *Compa
 
 		outBlocks[ix].meta.Stats = stats
 		if shouldRemoveQuietZeroNaNs {
-			// TODO: better naming - the pre and post hints are very similar
-			outBlocks[ix].meta.Compaction.AddHint("quiet-zero-nans-removed")
+			outBlocks[ix].meta.Compaction.AddHint(QuietZeroNaNsRemovedHint)
 		}
 	}
 

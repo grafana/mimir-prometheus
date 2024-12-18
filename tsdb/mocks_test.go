@@ -71,7 +71,7 @@ func (r *mockBReader) Tombstones() (tombstones.Reader, error) {
 func (r *mockBReader) Meta() BlockMeta {
 	bm := BlockMeta{MinTime: r.mint, MaxTime: r.maxt}
 	if r.withRemovalHint {
-		bm.Compaction.AddHint("remove-quiet-zero-nans")
+		bm.Compaction.AddHint(RemoveQuietZeroNaNsHint)
 	}
 	return bm
 }

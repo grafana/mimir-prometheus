@@ -1616,7 +1616,7 @@ func TestCompaction_populateBlockWithNaNRemoval(t *testing.T) {
 				}
 			}
 			require.Equal(t, s, meta.Stats)
-			require.Equal(t, tc.outputBlocksHaveHint, meta.Compaction.containsHint("quiet-zero-nans-removed"))
+			require.Equal(t, tc.outputBlocksHaveHint, meta.Compaction.containsHint(QuietZeroNaNsRemovedHint))
 		})
 	}
 }
@@ -1635,7 +1635,7 @@ func requireEqualWithNaNs(t *testing.T, actual, expected []seriesSamples) {
 					require.True(t, math.IsNaN(actual[i].chunks[j][k].f), "expected NaN for sample ay [%d][%d][%d]", i, j, k)
 					require.Equal(t, math.Float64bits(expected[i].chunks[j][k].f), math.Float64bits(actual[i].chunks[j][k].f), "expected equal NaN bits for sample ay [%d][%d][%d]", i, j, k)
 				} else {
-					require.True(t, actual[i].chunks[j][k].f == expected[i].chunks[j][k].f, "expected equal value for sample ay [%d][%d][%d]", i, j, k)
+					require.Equal(t, actual[i].chunks[j][k].f, expected[i].chunks[j][k].f, "expected equal value for sample ay [%d][%d][%d]", i, j, k)
 				}
 			}
 		}
@@ -3202,7 +3202,7 @@ func TestHeadCompactionWithQuietZeroNaNs(t *testing.T) {
 	// Add remove NaN hint to block
 	bm, _, err := readMetaFile(blockDir)
 	require.NoError(t, err)
-	bm.Compaction.AddHint("remove-quiet-zero-nans")
+	bm.Compaction.AddHint(RemoveQuietZeroNaNsHint)
 	_, err = writeMetaFile(promslog.NewNopLogger(), blockDir, bm)
 	require.NoError(t, err)
 
