@@ -29,6 +29,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/prometheus/model/value"
+
 	"github.com/oklog/ulid"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/promslog"
@@ -1304,6 +1306,335 @@ func TestCompaction_populateBlock(t *testing.T) {
 			}
 			require.Equal(t, s, meta.Stats)
 		})
+	}
+}
+
+type seriesSamplesWithHint struct {
+	ss              []seriesSamples
+	withRemovalHint bool
+}
+
+func TestCompaction_populateBlockWithNaNRemoval(t *testing.T) {
+	for _, tc := range []struct {
+		title                string
+		inputSeriesSamples   []seriesSamplesWithHint
+		compactMinTime       int64
+		compactMaxTime       int64 // When not defined the test runner sets a default of math.MaxInt64.
+		irPostingsFunc       IndexReaderPostingsFunc
+		expSeriesSamples     []seriesSamples
+		expErr               error
+		outputBlocksHaveHint bool
+	}{
+		{
+			title: "No removal hint doesn't remove NaNs",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: 1}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+						},
+					},
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 0, f: 1}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+				},
+			},
+		},
+		{
+			title: "With removal hint",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: 1}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 0, f: 1}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "Start and end samples removed",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: QuietZeroNaNFloat}, {t: 1, f: 0}, {t: 11, f: 10}, {t: 20, f: QuietZeroNaNFloat}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 1, f: 0}, {t: 11, f: 10}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "All samples removed",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: QuietZeroNaNFloat}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: QuietZeroNaNFloat}, {t: 20, f: QuietZeroNaNFloat}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples:     []seriesSamples{},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "Other NaNs aren't removed",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: 1}, {t: 2, f: math.Float64frombits(value.NormalNaN)}, {t: 3, f: QuietZeroNaNFloat}}, {{t: 11, f: math.Float64frombits(value.NormalNaN)}, {t: 20, f: 11}, {t: 21, f: math.Float64frombits(value.StaleNaN)}, {t: 24, f: 1324}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 0, f: 1}, {t: 2, f: math.Float64frombits(value.NormalNaN)}}, {{t: 11, f: math.Float64frombits(value.NormalNaN)}, {t: 20, f: 11}, {t: 21, f: math.Float64frombits(value.StaleNaN)}, {t: 24, f: 1324}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "Overlapping blocks",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 0}, {t: 6902464}}, {{t: 6961968, f: QuietZeroNaNFloat}, {t: 7080976}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 3600000}, {t: 13953696}}, {{t: 14042952}, {t: 14221464}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 10800000, f: QuietZeroNaNFloat}, {t: 14251232}}, {{t: 14280984}, {t: 14340488}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "1", "b": "2"},
+					chunks: [][]sample{{{t: 0}, {t: 3600000}, {t: 6902464}, {t: 7080976}, {t: 13953696}, {t: 14042952}, {t: 14221464}, {t: 14251232}}, {{t: 14280984}, {t: 14340488}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "Histogram chunks unaffected",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "b"},
+							chunks: [][]sample{{{t: 0, f: 1}, {t: 1, f: QuietZeroNaNFloat}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+						},
+						{
+							lset:   map[string]string{"a": "c"},
+							chunks: [][]sample{{{t: 0, h: tsdbutil.GenerateTestHistogram(0)}, {t: 1, h: tsdbutil.GenerateTestHistogram(23)}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "b"},
+					chunks: [][]sample{{{t: 0, f: 1}}, {{t: 11, f: 10}, {t: 20, f: 11}}},
+				},
+				{
+					lset:   map[string]string{"a": "c"},
+					chunks: [][]sample{{{t: 0, h: tsdbutil.GenerateTestHistogram(0)}, {t: 1, h: tsdbutil.GenerateTestHistogram(23)}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+		{
+			title: "All blocks have NaNs removed when a single block has hint set",
+			inputSeriesSamples: []seriesSamplesWithHint{
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 0}, {t: 6902464}}, {{t: 6961968, f: QuietZeroNaNFloat}, {t: 7080976}}},
+						},
+					},
+				},
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 3600000}, {t: 13953696}}, {{t: 14042952}, {t: 14221464}}},
+						},
+					},
+					withRemovalHint: true,
+				},
+				{
+					ss: []seriesSamples{
+						{
+							lset:   map[string]string{"a": "1", "b": "2"},
+							chunks: [][]sample{{{t: 10800000, f: QuietZeroNaNFloat}, {t: 14251232}}, {{t: 14280984}, {t: 14340488}}},
+						},
+					},
+				},
+			},
+			expSeriesSamples: []seriesSamples{
+				{
+					lset:   map[string]string{"a": "1", "b": "2"},
+					chunks: [][]sample{{{t: 0}, {t: 3600000}, {t: 6902464}, {t: 7080976}, {t: 13953696}, {t: 14042952}, {t: 14221464}, {t: 14251232}}, {{t: 14280984}, {t: 14340488}}},
+				},
+			},
+			outputBlocksHaveHint: true,
+		},
+	} {
+		t.Run(tc.title, func(t *testing.T) {
+			blocks := make([]BlockReader, 0, len(tc.inputSeriesSamples))
+			for _, b := range tc.inputSeriesSamples {
+				ir, cr, mint, maxt := createIdxChkReaders(t, b.ss)
+				blocks = append(blocks, &mockBReader{ir: ir, cr: cr, mint: mint, maxt: maxt, withRemovalHint: b.withRemovalHint})
+			}
+
+			c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, nil, []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+			require.NoError(t, err)
+
+			meta := &BlockMeta{
+				MinTime: tc.compactMinTime,
+				MaxTime: tc.compactMaxTime,
+			}
+			if meta.MaxTime == 0 {
+				meta.MaxTime = math.MaxInt64
+			}
+
+			iw := &mockIndexWriter{}
+			ob := shardedBlock{meta: meta, indexw: iw, chunkw: nopChunkWriter{}}
+			blockPopulator := DefaultBlockPopulator{}
+			irPostingsFunc := AllSortedPostings
+			if tc.irPostingsFunc != nil {
+				irPostingsFunc = tc.irPostingsFunc
+			}
+			err = blockPopulator.PopulateBlock(c.ctx, c.metrics, c.logger, c.chunkPool, c.mergeFunc, c.concurrencyOpts, blocks, meta.MinTime, meta.MaxTime, []shardedBlock{ob}, irPostingsFunc)
+			if tc.expErr != nil {
+				require.EqualError(t, err, tc.expErr.Error())
+				return
+			}
+			require.NoError(t, err)
+
+			// Check if response is expected and chunk is valid.
+			var raw []seriesSamples
+			for _, s := range iw.seriesChunks {
+				ss := seriesSamples{lset: s.l.Map()}
+				var iter chunkenc.Iterator
+				for _, chk := range s.chunks {
+					var (
+						samples       = make([]sample, 0, chk.Chunk.NumSamples())
+						iter          = chk.Chunk.Iterator(iter)
+						firstTs int64 = math.MaxInt64
+						s       sample
+					)
+					for vt := iter.Next(); vt != chunkenc.ValNone; vt = iter.Next() {
+						switch vt {
+						case chunkenc.ValFloat:
+							s.t, s.f = iter.At()
+							samples = append(samples, s)
+						case chunkenc.ValHistogram:
+							s.t, s.h = iter.AtHistogram(nil)
+							samples = append(samples, s)
+						case chunkenc.ValFloatHistogram:
+							s.t, s.fh = iter.AtFloatHistogram(nil)
+							samples = append(samples, s)
+						default:
+							require.Fail(t, "unexpected value type")
+						}
+						if firstTs == math.MaxInt64 {
+							firstTs = s.t
+						}
+					}
+
+					// Check if chunk has correct min, max times.
+					require.Equal(t, firstTs, chk.MinTime, "chunk Meta %v does not match the first encoded sample timestamp: %v", chk, firstTs)
+					require.Equal(t, s.t, chk.MaxTime, "chunk Meta %v does not match the last encoded sample timestamp %v", chk, s.t)
+
+					require.NoError(t, iter.Err())
+					ss.chunks = append(ss.chunks, samples)
+				}
+				raw = append(raw, ss)
+			}
+			requireEqualWithNaNs(t, tc.expSeriesSamples, raw)
+
+			// Check if stats are calculated properly.
+			s := BlockStats{NumSeries: uint64(len(tc.expSeriesSamples))}
+			for _, series := range tc.expSeriesSamples {
+				s.NumChunks += uint64(len(series.chunks))
+				for _, chk := range series.chunks {
+					s.NumSamples += uint64(len(chk))
+				}
+			}
+			require.Equal(t, s, meta.Stats)
+			require.Equal(t, tc.outputBlocksHaveHint, meta.Compaction.containsHint(QuietZeroNaNsRemovedHint))
+		})
+	}
+}
+
+var QuietZeroNaNFloat = math.Float64frombits(value.QuietZeroNaN)
+
+func requireEqualWithNaNs(t *testing.T, actual, expected []seriesSamples) {
+	require.Equal(t, len(actual), len(expected), "length of actual and expected seriesSamples is not equal")
+	for i := range actual {
+		require.Equal(t, actual[i].lset, expected[i].lset, "lset at [%d] not equal", i)
+		for j := range actual[i].chunks {
+			require.Equal(t, len(actual[i].chunks[j]), len(expected[i].chunks[j]))
+			require.Equal(t, actual[i].lset, expected[i].lset, "chunk length at [%d][%d] not equal", i, j)
+			for k := range actual[i].chunks[j] {
+				if math.IsNaN(expected[i].chunks[j][k].f) {
+					require.True(t, math.IsNaN(actual[i].chunks[j][k].f), "expected NaN for sample ay [%d][%d][%d]", i, j, k)
+					require.Equal(t, math.Float64bits(expected[i].chunks[j][k].f), math.Float64bits(actual[i].chunks[j][k].f), "expected equal NaN bits for sample ay [%d][%d][%d]", i, j, k)
+				} else {
+					require.Equal(t, actual[i].chunks[j][k].f, expected[i].chunks[j][k].f, "expected equal value for sample ay [%d][%d][%d]", i, j, k)
+				}
+			}
+		}
 	}
 }
 
@@ -2772,4 +3103,129 @@ func TestDelayedCompactionDoesNotBlockUnrelatedOps(t *testing.T) {
 			require.Len(t, db.Blocks(), 2)
 		})
 	}
+}
+
+func TestHeadCompactionWithQuietZeroNaNs(t *testing.T) {
+	head, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
+	require.NoError(t, head.Init(0))
+	t.Cleanup(func() {
+		require.NoError(t, head.Close())
+	})
+
+	ctx := context.Background()
+
+	app := head.Appender(ctx)
+	series1 := labels.FromStrings("foo", "bar1")
+
+	_, err := app.Append(0, series1, 0, float64(0))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 1, math.Float64frombits(value.QuietZeroNaN))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 2, math.Float64frombits(value.QuietZeroNaN))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 3, float64(7))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 4, math.Float64frombits(value.NormalNaN))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 5, float64(1))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 6, math.Float64frombits(value.StaleNaN))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 7, float64(8))
+	require.NoError(t, err)
+	_, err = app.Append(0, series1, 8, math.Float64frombits(value.QuietZeroNaN))
+	require.NoError(t, err)
+
+	require.NoError(t, app.Commit())
+
+	// Restart head so WAL is replayed. This triggers the bug that keeps the NaNs in the series.
+	require.NoError(t, head.Close())
+	startHead := func() {
+		w, err := wlog.NewSize(nil, nil, head.wal.Dir(), 32768, wlog.CompressionNone)
+		require.NoError(t, err)
+		head, err = NewHead(nil, nil, w, nil, head.opts, nil)
+		require.NoError(t, err)
+		require.NoError(t, head.Init(0))
+	}
+	startHead()
+
+	// Compaction.
+	mint := head.MinTime()
+	maxt := head.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
+
+	compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), nil)
+	require.NoError(t, err)
+
+	compactDir, err := os.MkdirTemp("", "compact")
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, os.RemoveAll(compactDir))
+	}()
+
+	ids, err := compactor.Write(compactDir, head, mint, maxt, nil)
+	require.NoError(t, err)
+	require.Len(t, ids, 1)
+
+	blockDir := path.Join(compactDir, ids[0].String())
+
+	// Open the block and query it and check the samples.
+	block, err := OpenBlock(nil, blockDir, nil, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, block.Close())
+	})
+
+	q, err := NewBlockQuerier(block, block.MinTime(), block.MaxTime())
+	require.NoError(t, err)
+
+	actHists := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+	// First compaction keeps the NaNs
+	require.Equal(t, map[string][]chunks.Sample{
+		// Note: ExpandSamples turns NaNs into -42
+		series1.String(): {
+			sample{t: 0, f: 0},
+			sample{t: 1, f: -42},
+			sample{t: 2, f: -42},
+			sample{t: 3, f: 7},
+			sample{t: 4, f: -42},
+			sample{t: 5, f: 1},
+			sample{t: 6, f: -42},
+			sample{t: 7, f: 8},
+			sample{t: 8, f: -42},
+		},
+	}, actHists)
+
+	// Add remove NaN hint to block
+	bm, _, err := readMetaFile(blockDir)
+	require.NoError(t, err)
+	bm.Compaction.AddHint(RemoveQuietZeroNaNsHint)
+	_, err = writeMetaFile(promslog.NewNopLogger(), blockDir, bm)
+	require.NoError(t, err)
+
+	// Recompact block
+	ids2, err := compactor.Compact(compactDir, []string{blockDir}, nil)
+	require.NoError(t, err)
+
+	// Open the new block and query it and check the samples.
+	recompactedBlock, err := OpenBlock(nil, path.Join(compactDir, ids2[0].String()), nil, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		require.NoError(t, recompactedBlock.Close())
+	})
+
+	q, err = NewBlockQuerier(recompactedBlock, recompactedBlock.MinTime(), recompactedBlock.MaxTime())
+	require.NoError(t, err)
+
+	act2 := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "foo", "bar.*"))
+	// NaNs removed in second pass
+	require.Equal(t, map[string][]chunks.Sample{
+		series1.String(): {
+			sample{t: 0, f: 0},
+			sample{t: 3, f: 7},
+			sample{t: 4, f: -42},
+			sample{t: 5, f: 1},
+			sample{t: 6, f: -42},
+			sample{t: 7, f: 8},
+		},
+	}, act2)
 }
