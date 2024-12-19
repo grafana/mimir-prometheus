@@ -35,6 +35,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/encoding"
 	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
+	"github.com/prometheus/prometheus/tsdb/hashcache"
 )
 
 const (
@@ -1091,6 +1092,10 @@ type StringIter interface {
 	Err() error
 }
 
+type ReaderCacheProvider interface {
+	SeriesHashCache() *hashcache.BlockSeriesHashCache
+}
+
 type Reader struct {
 	b   ByteSlice
 	toc *TOC
@@ -1112,6 +1117,9 @@ type Reader struct {
 	dec *Decoder
 
 	version int
+
+	// Provides a cache mapping series labels hash by series ID.
+	cacheProvider ReaderCacheProvider
 }
 
 type postingOffset struct {
@@ -1142,16 +1150,26 @@ func (b realByteSlice) Sub(start, end int) ByteSlice {
 // NewReader returns a new index reader on the given byte slice. It automatically
 // handles different format versions.
 func NewReader(b ByteSlice, decoder PostingsDecoder) (*Reader, error) {
-	return newReader(b, io.NopCloser(nil), decoder)
+	return newReader(b, io.NopCloser(nil), decoder, nil)
+}
+
+// NewReaderWithCache is like NewReader but allows to pass a cache provider.
+func NewReaderWithCache(b ByteSlice, decoder PostingsDecoder, cacheProvider ReaderCacheProvider) (*Reader, error) {
+	return newReader(b, io.NopCloser(nil), decoder, cacheProvider)
 }
 
 // NewFileReader returns a new index reader against the given index file.
 func NewFileReader(path string, decoder PostingsDecoder) (*Reader, error) {
+	return NewFileReaderWithOptions(path, decoder, nil)
+}
+
+// NewFileReaderWithOptions is like NewFileReader but allows to pass a cache provider.
+func NewFileReaderWithOptions(path string, decoder PostingsDecoder, cacheProvider ReaderCacheProvider) (*Reader, error) {
 	f, err := fileutil.OpenMmapFile(path)
 	if err != nil {
 		return nil, err
 	}
-	r, err := newReader(realByteSlice(f.Bytes()), f, decoder)
+	r, err := newReader(realByteSlice(f.Bytes()), f, decoder, cacheProvider)
 	if err != nil {
 		return nil, tsdb_errors.NewMulti(
 			err,
@@ -1162,12 +1180,13 @@ func NewFileReader(path string, decoder PostingsDecoder) (*Reader, error) {
 	return r, nil
 }
 
-func newReader(b ByteSlice, c io.Closer, postingsDecoder PostingsDecoder) (*Reader, error) {
+func newReader(b ByteSlice, c io.Closer, postingsDecoder PostingsDecoder, cacheProvider ReaderCacheProvider) (*Reader, error) {
 	r := &Reader{
-		b:        b,
-		c:        c,
-		postings: map[string][]postingOffset{},
-		st:       labels.NewSymbolTable(),
+		b:             b,
+		c:             c,
+		postings:      map[string][]postingOffset{},
+		cacheProvider: cacheProvider,
+		st:            labels.NewSymbolTable(),
 	}
 
 	// Verify header.
@@ -1846,17 +1865,41 @@ func (r *Reader) ShardedPostings(p Postings, shardIndex, shardCount uint64) Post
 		bufLbls = labels.ScratchBuilder{}
 	)
 
+	// Request the cache each time because the cache implementation requires
+	// that the cache reference is retained for a short period.
+	var seriesHashCache *hashcache.BlockSeriesHashCache
+	if r.cacheProvider != nil {
+		seriesHashCache = r.cacheProvider.SeriesHashCache()
+	}
+
 	for p.Next() {
 		id := p.At()
 
-		// Get the series labels (no chunks).
-		err := r.Series(id, &bufLbls, nil)
-		if err != nil {
-			return ErrPostings(fmt.Errorf("series %d not found", id))
+		var (
+			hash uint64
+			ok   bool
+		)
+
+		// Check if the hash is cached.
+		if seriesHashCache != nil {
+			hash, ok = seriesHashCache.Fetch(id)
+		}
+
+		if !ok {
+			// Get the series labels (no chunks).
+			err := r.Series(id, &bufLbls, nil)
+			if err != nil {
+				return ErrPostings(fmt.Errorf("series %d not found", id))
+			}
+
+			hash = labels.StableHash(bufLbls.Labels())
+			if seriesHashCache != nil {
+				seriesHashCache.Store(id, hash)
+			}
 		}
 
 		// Check if the series belong to the shard.
-		if labels.StableHash(bufLbls.Labels())%shardCount != shardIndex {
+		if hash%shardCount != shardIndex {
 			continue
 		}
 

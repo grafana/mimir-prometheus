@@ -17,6 +17,16 @@ This release includes new features such as a brand new UI and UTF-8 support enab
 * [CHANGE] Scraping: config `scrape_classic_histograms` was renamed to `always_scrape_classic_histograms`. #15178
 * [CHANGE] Config: remove expand-external-labels flag, expand external labels env vars by default. #14657
 * [CHANGE] Disallow configuring AM with the v1 api. #13883
+* [ENHANCEMENT] Scraping, rules: handle targets reappearing, or rules moving group, when out-of-order is enabled. #14710
+* [ENHANCEMENT] Tools: add debug printouts to promtool rules unit testing #15196
+* [ENHANCEMENT] Scraping: support Created-Timestamp feature on native histograms. #14694
+* [ENHANCEMENT] OTLP receiver: If the feature flag `--created-timestamp-zero-ingestion` is true, convert OTel start timestamps to Prometheus zero samples. #14759
+* [BUGFIX] PromQL: Fix stddev+stdvar aggregations to always ignore native histograms. #14941
+* [BUGFIX] PromQL: Fix stddev+stdvar aggregations to treat Infinity consistently. #14941
+* [BUGFIX] OTLP receiver: Preserve colons when generating metric names in suffix adding mode (this mode is always enabled, unless one uses Prometheus as a library). #15251
+
+## 3.0.0-beta.1 / 2024-10-09
+
 * [CHANGE] regexp `.` now matches all characters (performance improvement). #14505
 * [CHANGE] `holt_winters` is now called `double_exponential_smoothing` and moves behind the [experimental-promql-functions feature flag](https://prometheus.io/docs/prometheus/latest/feature_flags/#experimental-promql-functions). #14930
 * [CHANGE] API: The OTLP receiver endpoint can now be enabled using `--web.enable-otlp-receiver` instead of `--enable-feature=otlp-write-receiver`. #14894

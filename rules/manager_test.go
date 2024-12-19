@@ -846,6 +846,231 @@ func TestUpdate(t *testing.T) {
 		}
 	}
 	reloadAndValidate(rgs, t, tmpFile, ruleManager, ogs)
+
+	// Change group source tenants and reload.
+	for i := range rgs.Groups {
+		rgs.Groups[i].SourceTenants = []string{"tenant-2"}
+	}
+	reloadAndValidate(rgs, t, tmpFile, ruleManager, ogs)
+}
+
+func TestUpdate_AlwaysRestore(t *testing.T) {
+	st := teststorage.New(t)
+	defer st.Close()
+
+	ruleManager := NewManager(&ManagerOptions{
+		Appendable:              st,
+		Queryable:               st,
+		Context:                 context.Background(),
+		Logger:                  promslog.NewNopLogger(),
+		AlwaysRestoreAlertState: true,
+	})
+	ruleManager.start()
+	defer ruleManager.Stop()
+
+	err := ruleManager.Update(10*time.Second, []string{"fixtures/rules_alerts.yaml"}, labels.EmptyLabels(), "", nil)
+	require.NoError(t, err)
+
+	for _, g := range ruleManager.groups {
+		require.True(t, g.shouldRestore)
+		g.shouldRestore = false // set to false to check if Update will set it to true again
+	}
+
+	// Use different file, so groups haven't changed, therefore, we expect state restoration
+	err = ruleManager.Update(10*time.Second, []string{"fixtures/rules_alerts2.yaml"}, labels.EmptyLabels(), "", nil)
+	for _, g := range ruleManager.groups {
+		require.True(t, g.shouldRestore)
+	}
+
+	require.NoError(t, err)
+}
+
+func TestUpdate_AlwaysRestoreDoesntAffectUnchangedGroups(t *testing.T) {
+	files := []string{"fixtures/rules_alerts.yaml"}
+	st := teststorage.New(t)
+	defer st.Close()
+
+	ruleManager := NewManager(&ManagerOptions{
+		Appendable:              st,
+		Queryable:               st,
+		Context:                 context.Background(),
+		Logger:                  promslog.NewNopLogger(),
+		AlwaysRestoreAlertState: true,
+	})
+	ruleManager.start()
+	defer ruleManager.Stop()
+
+	err := ruleManager.Update(10*time.Second, files, labels.EmptyLabels(), "", nil)
+	require.NoError(t, err)
+
+	for _, g := range ruleManager.groups {
+		require.True(t, g.shouldRestore)
+		g.shouldRestore = false // set to false to check if Update will set it to true again
+	}
+
+	// Use the same file, so groups haven't changed, therefore, we don't expect state restoration
+	err = ruleManager.Update(10*time.Second, files, labels.EmptyLabels(), "", nil)
+	for _, g := range ruleManager.groups {
+		require.False(t, g.shouldRestore)
+	}
+
+	require.NoError(t, err)
+}
+
+func TestUpdateSetsSourceTenants(t *testing.T) {
+	st := teststorage.New(t)
+	defer st.Close()
+
+	opts := promql.EngineOpts{
+		Logger:     nil,
+		Reg:        nil,
+		MaxSamples: 10,
+		Timeout:    10 * time.Second,
+	}
+	engine := promql.NewEngine(opts)
+	ruleManager := NewManager(&ManagerOptions{
+		Appendable: st,
+		Queryable:  st,
+		QueryFunc:  EngineQueryFunc(engine, st),
+		Context:    context.Background(),
+		Logger:     promslog.NewNopLogger(),
+	})
+	ruleManager.start()
+	defer ruleManager.Stop()
+
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml")
+	require.Empty(t, errs, "file parsing failures")
+
+	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	reloadRules(rgs, t, tmpFile, ruleManager, 0)
+
+	// check that all source tenants were actually set
+	require.Len(t, ruleManager.groups, len(rgs.Groups))
+
+	for _, expectedGroup := range rgs.Groups {
+		actualGroup, ok := ruleManager.groups[GroupKey(tmpFile.Name(), expectedGroup.Name)]
+
+		require.True(t, ok, "actual groups don't contain at one of the expected groups")
+		require.ElementsMatch(t, expectedGroup.SourceTenants, actualGroup.SourceTenants())
+	}
+}
+
+func TestAlignEvaluationTimeOnInterval(t *testing.T) {
+	st := teststorage.New(t)
+	defer st.Close()
+
+	opts := promql.EngineOpts{
+		Logger:     nil,
+		Reg:        nil,
+		MaxSamples: 10,
+		Timeout:    10 * time.Second,
+	}
+	engine := promql.NewEngine(opts)
+	ruleManager := NewManager(&ManagerOptions{
+		Appendable: st,
+		Queryable:  st,
+		QueryFunc:  EngineQueryFunc(engine, st),
+		Context:    context.Background(),
+		Logger:     promslog.NewNopLogger(),
+	})
+	ruleManager.start()
+	defer ruleManager.Stop()
+
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_alignment.yaml")
+	require.Empty(t, errs, "file parsing failures")
+
+	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	reloadRules(rgs, t, tmpFile, ruleManager, 0)
+
+	// Verify that all groups are loaded, and let's check their evaluation times.
+	loadedGroups := ruleManager.RuleGroups()
+	require.Len(t, loadedGroups, len(rgs.Groups))
+
+	assertGroupEvalTimeAlignedOnIntervalIsHonored := func(groupName string, expectedAligned bool) {
+		g := (*Group)(nil)
+		for _, lg := range loadedGroups {
+			if lg.name == groupName {
+				g = lg
+				break
+			}
+		}
+		require.NotNil(t, g, "group not found: %s", groupName)
+
+		// When "g.hash() % g.interval == 0" alignment cannot be checked, because aligned and unaligned eval timestamps
+		// would be the same. This can happen because g.hash() depends on path passed to ruleManager.Update function,
+		// and this test uses temporary directory for storing rule group files.
+		if g.hash()%uint64(g.interval) == 0 {
+			t.Skip("skipping test, because rule group hash is divisible by interval, which makes eval timestamp always aligned to the interval")
+		}
+
+		now := time.Now()
+		ts := g.EvalTimestamp(now.UnixNano())
+
+		aligned := ts.UnixNano()%g.interval.Nanoseconds() == 0
+		require.Equal(t, expectedAligned, aligned, "group: %s, hash: %d, now: %d", groupName, g.hash(), now.UnixNano())
+	}
+
+	assertGroupEvalTimeAlignedOnIntervalIsHonored("aligned", true)
+	assertGroupEvalTimeAlignedOnIntervalIsHonored("aligned_with_crazy_interval", true)
+	assertGroupEvalTimeAlignedOnIntervalIsHonored("unaligned_default", false)
+	assertGroupEvalTimeAlignedOnIntervalIsHonored("unaligned_explicit", false)
+}
+
+func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
+	type testContextKeyType string
+	var testContextKey testContextKeyType = "TestGroupEvaluationContextFuncIsCalledWhenSupplied"
+	oldContextTestValue := context.Background().Value(testContextKey)
+
+	contextTestValueChannel := make(chan interface{})
+	mockQueryFunc := func(ctx context.Context, qs string, t time.Time) (promql.Vector, error) {
+		contextTestValueChannel <- ctx.Value(testContextKey)
+		return promql.Vector{}, nil
+	}
+
+	mockContextWrapFunc := func(ctx context.Context, g *Group) context.Context {
+		return context.WithValue(ctx, testContextKey, 42)
+	}
+
+	st := teststorage.New(t)
+	defer st.Close()
+
+	ruleManager := NewManager(&ManagerOptions{
+		Appendable:                 st,
+		Queryable:                  st,
+		QueryFunc:                  mockQueryFunc,
+		Context:                    context.Background(),
+		Logger:                     promslog.NewNopLogger(),
+		GroupEvaluationContextFunc: mockContextWrapFunc,
+	})
+
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml")
+	require.Empty(t, errs, "file parsing failures")
+
+	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+	defer tmpFile.Close()
+
+	// no filesystem is harmed when running this test, set the interval low
+	reloadRules(rgs, t, tmpFile, ruleManager, 10*time.Millisecond)
+
+	ruleManager.start()
+	defer ruleManager.Stop()
+
+	// check that all source tenants were actually set
+	require.Len(t, ruleManager.groups, len(rgs.Groups))
+
+	require.Nil(t, oldContextTestValue, "Context contained test key before the test, impossible")
+	newContextTestValue := <-contextTestValueChannel
+	require.Equal(t, 42, newContextTestValue, "Context does not contain the correct value that should be injected")
 }
 
 // ruleGroupsTest for running tests over rules.
@@ -855,11 +1080,13 @@ type ruleGroupsTest struct {
 
 // ruleGroupTest forms a testing struct for running tests over rules.
 type ruleGroupTest struct {
-	Name     string            `yaml:"name"`
-	Interval model.Duration    `yaml:"interval,omitempty"`
-	Limit    int               `yaml:"limit,omitempty"`
-	Rules    []rulefmt.Rule    `yaml:"rules"`
-	Labels   map[string]string `yaml:"labels,omitempty"`
+	Name                          string            `yaml:"name"`
+	Interval                      model.Duration    `yaml:"interval,omitempty"`
+	Limit                         int               `yaml:"limit,omitempty"`
+	Rules                         []rulefmt.Rule    `yaml:"rules"`
+	Labels                        map[string]string `yaml:"labels,omitempty"`
+	SourceTenants                 []string          `yaml:"source_tenants,omitempty"`
+	AlignEvaluationTimeOnInterval bool              `yaml:"align_evaluation_time_on_interval,omitempty"`
 }
 
 func formatRules(r *rulefmt.RuleGroups) ruleGroupsTest {
@@ -878,11 +1105,13 @@ func formatRules(r *rulefmt.RuleGroups) ruleGroupsTest {
 			})
 		}
 		tmp = append(tmp, ruleGroupTest{
-			Name:     g.Name,
-			Interval: g.Interval,
-			Limit:    g.Limit,
-			Rules:    rtmp,
-			Labels:   g.Labels,
+			Name:                          g.Name,
+			Interval:                      g.Interval,
+			Limit:                         g.Limit,
+			Rules:                         rtmp,
+			Labels:                        g.Labels,
+			SourceTenants:                 g.SourceTenants,
+			AlignEvaluationTimeOnInterval: g.AlignEvaluationTimeOnInterval,
 		})
 	}
 	return ruleGroupsTest{
@@ -890,14 +1119,22 @@ func formatRules(r *rulefmt.RuleGroups) ruleGroupsTest {
 	}
 }
 
-func reloadAndValidate(rgs *rulefmt.RuleGroups, t *testing.T, tmpFile *os.File, ruleManager *Manager, ogs map[string]*Group) {
+func reloadRules(rgs *rulefmt.RuleGroups, t *testing.T, tmpFile *os.File, ruleManager *Manager, interval time.Duration) {
+	if interval == 0 {
+		interval = 10 * time.Second
+	}
+
 	bs, err := yaml.Marshal(formatRules(rgs))
 	require.NoError(t, err)
-	tmpFile.Seek(0, 0)
+	_, _ = tmpFile.Seek(0, 0)
 	_, err = tmpFile.Write(bs)
 	require.NoError(t, err)
-	err = ruleManager.Update(10*time.Second, []string{tmpFile.Name()}, labels.EmptyLabels(), "", nil)
+	err = ruleManager.Update(interval, []string{tmpFile.Name()}, labels.EmptyLabels(), "", nil)
 	require.NoError(t, err)
+}
+
+func reloadAndValidate(rgs *rulefmt.RuleGroups, t *testing.T, tmpFile *os.File, ruleManager *Manager, ogs map[string]*Group) {
+	reloadRules(rgs, t, tmpFile, ruleManager, 0)
 	for h, g := range ruleManager.groups {
 		if ogs[h] == g {
 			t.Fail()
@@ -2210,6 +2447,41 @@ func TestUpdateWhenStopped(t *testing.T) {
 	// Updates following a stop are no-op.
 	err = ruleManager.Update(10*time.Second, []string{}, labels.EmptyLabels(), "", nil)
 	require.NoError(t, err)
+}
+
+func TestGroup_Eval_RaceConditionOnStoppingGroupEvaluationWhileRulesAreEvaluatedConcurrently(t *testing.T) {
+	storage := teststorage.New(t)
+	t.Cleanup(func() { storage.Close() })
+
+	var (
+		inflightQueries atomic.Int32
+		maxInflight     atomic.Int32
+		maxConcurrency  int64 = 10
+	)
+
+	files := []string{"fixtures/rules_multiple_groups.yaml"}
+	files2 := []string{"fixtures/rules.yaml"}
+
+	ruleManager := NewManager(optsFactory(storage, &maxInflight, &inflightQueries, maxConcurrency))
+	go func() {
+		ruleManager.Run()
+	}()
+	<-ruleManager.block
+
+	// Update the group a decent number of times to simulate start and stopping in the middle of an evaluation.
+	for i := 0; i < 10; i++ {
+		err := ruleManager.Update(time.Second, files, labels.EmptyLabels(), "", nil)
+		require.NoError(t, err)
+
+		// Wait half of the query execution duration and then change the rule groups loaded by the manager
+		// so that the previous rule group will be interrupted while the query is executing.
+		time.Sleep(artificialDelay / 2)
+
+		err = ruleManager.Update(time.Second, files2, labels.EmptyLabels(), "", nil)
+		require.NoError(t, err)
+	}
+
+	ruleManager.Stop()
 }
 
 const artificialDelay = 250 * time.Millisecond

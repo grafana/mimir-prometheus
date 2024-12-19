@@ -27,13 +27,13 @@ import (
 	client_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/goleak"
 
 	"github.com/prometheus/prometheus/tsdb/fileutil"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	testutil.TolerantVerifyLeak(m)
 }
 
 // TestWALRepair_ReadingError ensures that a repair is run for an error

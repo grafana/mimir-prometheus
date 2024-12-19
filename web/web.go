@@ -296,6 +296,10 @@ type Options struct {
 
 	Gatherer   prometheus.Gatherer
 	Registerer prometheus.Registerer
+
+	// Our Grafana Cloud additions. Leaving them separately for the updates with upstream.
+	EnableCreatedTimestampZeroIngestion        bool
+	ValidIntervalCreatedTimestampZeroIngestion time.Duration
 }
 
 // New initializes a new web Handler.
@@ -386,6 +390,8 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.EnableRemoteWriteReceiver,
 		o.AcceptRemoteWriteProtoMsgs,
 		o.EnableOTLPWriteReceiver,
+		o.EnableCreatedTimestampZeroIngestion,
+		o.ValidIntervalCreatedTimestampZeroIngestion,
 	)
 
 	if o.RoutePrefix != "/" {

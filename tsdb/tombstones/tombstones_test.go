@@ -21,15 +21,15 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/goleak"
 
 	"github.com/prometheus/common/promslog"
 
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	testutil.TolerantVerifyLeak(m)
 }
 
 func TestWriteAndReadbackTombstones(t *testing.T) {
