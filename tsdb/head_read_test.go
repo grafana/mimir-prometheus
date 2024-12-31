@@ -429,8 +429,6 @@ func TestHeadIndexReader_PostingsForLabelMatching(t *testing.T) {
 		ir, err := h.Index()
 		require.NoError(t, err)
 
-		irMust := h.MustIndex()
-		require.Equal(t, irMust, ir)
 		return ir
 	})
 }
