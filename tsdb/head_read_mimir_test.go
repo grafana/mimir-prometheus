@@ -4,8 +4,9 @@ import (
 	"context"
 	"testing"
 
-	"github.com/prometheus/prometheus/model/labels"
 	"github.com/stretchr/testify/require"
+
+	"github.com/prometheus/prometheus/model/labels"
 )
 
 func TestHead_MustIndex(t *testing.T) {
