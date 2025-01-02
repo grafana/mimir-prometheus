@@ -6114,6 +6114,8 @@ func TestAppendQuietZeroDuplicates(t *testing.T) {
 	a = h.Appender(context.Background())
 	_, err = a.Append(0, lbls, ts+10, math.Float64frombits(value.QuietZeroNaN)) // This is at a different timestamp so should append a real zero.
 	require.NoError(t, err)
+	_, err = a.Append(0, lbls, ts+15, 5.0) // We append a normal value to reflect what would happen in reality.
+	require.NoError(t, err)
 	require.NoError(t, a.Commit())
 
 	result, err = queryHead(t, h, math.MinInt64, math.MaxInt64, labels.Label{Name: "foo", Value: "bar"})
@@ -6121,6 +6123,7 @@ func TestAppendQuietZeroDuplicates(t *testing.T) {
 	expectedSamples = []chunks.Sample{
 		sample{t: ts, f: 42.0},
 		sample{t: ts + 10, f: 0},
+		sample{t: ts + 15, f: 5},
 	}
 	require.Equal(t, expectedSamples, result[`{foo="bar"}`])
 
