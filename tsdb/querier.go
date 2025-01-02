@@ -18,12 +18,18 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"os"
 	"slices"
+	"time"
 
+	"github.com/go-kit/log"
+	"github.com/go-kit/log/level"
 	"github.com/oklog/ulid"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
@@ -192,6 +198,20 @@ func selectChunkSeriesSet(ctx context.Context, sortSeries bool, hints *storage.S
 // PostingsForMatchers assembles a single postings iterator against the index reader
 // based on the given matchers. The resulting postings are not ordered by series.
 func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+	shouldLog := false
+	for _, m := range ms {
+		if m.Name == labels.MetricName {
+			shouldLog = m.Type == labels.MatchEqual && m.Value == "tempo_request_duration_seconds_bucket"
+			break
+		}
+	}
+
+	var originalMatchers []*labels.Matcher
+	if shouldLog {
+		var matchersCopyArr [128]*labels.Matcher
+		originalMatchers = append(matchersCopyArr[:0], ms...)
+	}
+
 	var its, notIts []index.Postings
 	// See which label must be non-empty.
 	// Optimization for case like {l=~".", l!="1"}.
@@ -317,7 +337,55 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		it = index.Without(it, n)
 	}
 
+	if shouldLog {
+		matchersUnchanged := sameMatchers(ms, originalMatchers)
+		slices.SortStableFunc(originalMatchers, func(i, j *labels.Matcher) int {
+			if !isSubtractingMatcher(i) && isSubtractingMatcher(j) {
+				return -1
+			}
+
+			return +1
+		})
+		matchersSorted := sameMatchers(ms, originalMatchers)
+		matchersChanged := !matchersUnchanged && !matchersSorted
+
+		traceID := trace.SpanFromContext(ctx).SpanContext().TraceID().String()
+		level.Info(globalLogger).Log(
+			"msg", "PostingsForMatchers",
+			"type", fmt.Sprintf("%T", ix),
+			"traceID", traceID,
+			"matchers", formatMatchers(ms),
+			"original_matchers", formatMatchers(originalMatchers),
+			"matchersUnchanged", matchersUnchanged,
+			"matchersSorted", matchersSorted,
+			"matchersChanged", matchersChanged,
+		)
+	}
+
 	return it, nil
+}
+
+var globalLogger = log.NewSyncLogger(
+	log.With(log.NewLogfmtLogger(log.NewSyncWriter(os.Stderr)),
+		"ts", log.Timestamp(time.Now),
+		"logger_sourrce", "tsdb",
+	),
+)
+
+func sameMatchers(a, b []*labels.Matcher) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, m := range a {
+		if m.Type != b[i].Type || m.Name != b[i].Name || m.Value != b[i].Value {
+			return false
+		}
+	}
+	return true
+}
+
+func formatMatchers(ms []*labels.Matcher) string {
+	return (&parser.VectorSelector{LabelMatchers: ms}).String()
 }
 
 func postingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *labels.Matcher) (index.Postings, error) {
