@@ -486,6 +486,22 @@ func (p *MemPostings) PostingsForLabelMatching(ctx context.Context, name string,
 	return Merge(ctx, its...)
 }
 
+func (p *MemPostings) PostingsForAllLabelValues(ctx context.Context, name string) Postings {
+	p.mtx.RLock()
+
+	e := p.m[name]
+	its := make([]Postings, 0, len(e))
+	for _, refs := range e {
+		if len(refs) > 0 {
+			its = append(its, NewListPostings(refs))
+		}
+	}
+
+	// Let the mutex go before merging.
+	p.mtx.RUnlock()
+	return Merge(ctx, its...)
+}
+
 // ExpandPostings returns the postings expanded as a slice.
 func ExpandPostings(p Postings) (res []storage.SeriesRef, err error) {
 	for p.Next() {
