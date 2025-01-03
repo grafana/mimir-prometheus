@@ -205,12 +205,11 @@ func (s MatchersStringer) String() string {
 	return b.String()
 }
 
-
 // PostingsForMatchers assembles a single postings iterator against the index reader
 // based on the given matchers. The resulting postings are not ordered by series.
 func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 	// Ensure the matchers are the expected ones.
-	if expectedMatchersAny := ctx.Value(OriginalMatchersCtxKey); expectedMatchersAny != nil	{
+	if expectedMatchersAny := ctx.Value(OriginalMatchersCtxKey); expectedMatchersAny != nil {
 		expectedMatchers := expectedMatchersAny.([]*labels.Matcher)
 
 		// Make a copy of the actual matchers and then sort them for a stable comparison.
@@ -223,6 +222,14 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		// Ensure they're the same.
 		if !SameMatchers(expectedMatchers, actualMatchers) {
 			fmt.Println("PostingsForMatchers() received matchers different than the expected ones, expected:", MatchersStringer(expectedMatchers).String(), "actual:", MatchersStringer(actualMatchers).String())
+		} else {
+			// Check whether it's matching the metric we mostly use for debugging.
+			for _, m := range expectedMatchers {
+				if m.Type == labels.MatchEqual && m.Name == labels.MetricName && m.Value == "tempo_request_duration_seconds_bucket" {
+					fmt.Println("PostingsForMatchers() received matchers equal to the expected ones, matchers:", MatchersStringer(expectedMatchers).String())
+					break
+				}
+			}
 		}
 	}
 
