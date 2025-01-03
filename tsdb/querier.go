@@ -214,13 +214,17 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		}
 		return fmt.Sprintf("%T", p)
 	}
+	if hr, ok := ix.(*headIndexReader); ok {
+		debug("h.maxt=%d, h.mint=%d", hr.maxt, hr.mint)
+		debug("h.head.MaxTime=%d, h.head.MinTime=%d", hr.head.MaxTime(), hr.head.MinTime())
+	}
 
 	var its, notIts []index.Postings
 	if troubleshoot {
 		defer func() {
 			selector := (&parser.VectorSelector{LabelMatchers: ms}).String()
 			traceID := trace.SpanFromContext(ctx).SpanContext().TraceID().String()
-			fmt.Printf("PostingsForMatchers(ix=%T, ms=%s, traceID=%s): %s", ix, selector, traceID, strings.Join(troubleshootData, ", "))
+			fmt.Printf("PostingsForMatchers(ix=%T, ms=%s, traceID=%s): %s\n", ix, selector, traceID, strings.Join(troubleshootData, ", "))
 		}()
 	}
 	// See which label must be non-empty.

@@ -76,7 +76,10 @@ func (h *headIndexReader) SortedLabelValues(ctx context.Context, name string, ma
 // If matchers are specified the returned result set is reduced
 // to label values of metrics matching the matchers.
 func (h *headIndexReader) LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error) {
-	if h.maxt < h.head.MinTime() || h.mint > h.head.MaxTime() {
+	headMinTime := h.head.MinTime()
+	headMaxTime := h.head.MaxTime()
+	if h.maxt < headMinTime || h.mint > headMaxTime {
+		fmt.Println("Returning empty label values for ", name, "because out of range:", "h.maxt=", h.maxt, "<", headMinTime, "=headMinTime ||  h.mint=", h.mint, " > ", headMaxTime, "=headMaxTime")
 		return []string{}, nil
 	}
 
