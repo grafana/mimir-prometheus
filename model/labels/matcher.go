@@ -16,6 +16,8 @@ package labels
 import (
 	"bytes"
 	"strconv"
+
+	"github.com/grafana/regexp"
 )
 
 // MatchType is an enum for label matching types.
@@ -49,7 +51,7 @@ type Matcher struct {
 	Name  string
 	Value string
 
-	re *FastRegexMatcher
+	re *regexp.Regexp
 }
 
 // NewMatcher returns a matcher object.
@@ -60,7 +62,8 @@ func NewMatcher(t MatchType, n, v string) (*Matcher, error) {
 		Value: v,
 	}
 	if t == MatchRegexp || t == MatchNotRegexp {
-		re, err := NewFastRegexMatcher(v)
+		// re, err := NewFastRegexMatcher(v)
+		re, err := regexp.Compile("^(?:" + v + ")$")
 		if err != nil {
 			return nil, err
 		}
@@ -136,35 +139,35 @@ func (m *Matcher) Inverse() (*Matcher, error) {
 
 // GetRegexString returns the regex string.
 func (m *Matcher) GetRegexString() string {
-	if m.re == nil {
-		return ""
-	}
-	return m.re.GetRegexString()
+	//if m.re == nil {
+	return ""
+	//}
+	//return m.re.GetRegexString()
 }
 
 // SetMatches returns a set of equality matchers for the current regex matchers if possible.
 // For examples the regexp `a(b|f)` will returns "ab" and "af".
 // Returns nil if we can't replace the regexp by only equality matchers.
 func (m *Matcher) SetMatches() []string {
-	if m.re == nil {
-		return nil
-	}
-	return m.re.SetMatches()
+	//if m.re == nil {
+	return nil
+	//}
+	//return m.re.SetMatches()
 }
 
 // Prefix returns the required prefix of the value to match, if possible.
 // It will be empty if it's an equality matcher or if the prefix can't be determined.
 func (m *Matcher) Prefix() string {
-	if m.re == nil {
-		return ""
-	}
-	return m.re.prefix
+	//if m.re == nil {
+	return ""
+	//}
+	//return m.re.prefix
 }
 
 // IsRegexOptimized returns whether regex is optimized.
 func (m *Matcher) IsRegexOptimized() bool {
-	if m.re == nil {
-		return false
-	}
-	return m.re.IsOptimized()
+	//if m.re == nil {
+	return false
+	//}
+	//return m.re.IsOptimized()
 }
