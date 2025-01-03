@@ -21,6 +21,7 @@ import (
 	"slices"
 
 	"github.com/oklog/ulid"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
@@ -363,7 +364,7 @@ func inversePostingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *l
 		return nil, err
 	}
 
-	res := vals[:0]
+	res := make([]string, 0, len(vals))
 	// If the match before inversion was !="" or !~"", we just want all the values.
 	if m.Value == "" && (m.Type == labels.MatchRegexp || m.Type == labels.MatchEqual) {
 		res = vals
@@ -377,6 +378,12 @@ func inversePostingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *l
 			if !m.Matches(val) {
 				res = append(res, val)
 			}
+		}
+	}
+
+	for _, val := range res {
+		if m.Matches(val) {
+			fmt.Println("UNEXPECTED MATCH", m.String(), "SHOULD NOT MATCH", val, "BUT DOES. TOTAL RES", len(res), "VALS", len(vals), "TRACE", trace.SpanFromContext(ctx).SpanContext().TraceID().String())
 		}
 	}
 
