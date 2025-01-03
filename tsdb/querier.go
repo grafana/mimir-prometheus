@@ -19,11 +19,14 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 
 	"github.com/oklog/ulid"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
@@ -192,7 +195,34 @@ func selectChunkSeriesSet(ctx context.Context, sortSeries bool, hints *storage.S
 // PostingsForMatchers assembles a single postings iterator against the index reader
 // based on the given matchers. The resulting postings are not ordered by series.
 func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+	troubleshoot := false
+	for _, m := range ms {
+		if m.Type == labels.MatchNotRegexp && len(m.SetMatches()) == 0 {
+			troubleshoot = true
+			break
+		}
+	}
+
+	var troubleshootData []string
+	debug := func(msg string, args ...any) { troubleshootData = append(troubleshootData, fmt.Sprintf(msg, args...)) }
+	describe := func(p index.Postings) string {
+		if index.IsEmptyPostingsType(p) {
+			return "empty"
+		}
+		if lp, ok := p.(*index.ListPostings); ok {
+			return fmt.Sprintf("lp(%d)", lp.Len())
+		}
+		return fmt.Sprintf("%T", p)
+	}
+
 	var its, notIts []index.Postings
+	if troubleshoot {
+		defer func() {
+			selector := (&parser.VectorSelector{LabelMatchers: ms}).String()
+			traceID := trace.SpanFromContext(ctx).SpanContext().TraceID().String()
+			fmt.Printf("PostingsForMatchers(ix=%T, ms=%s, traceID=%s): %s", ix, selector, traceID, strings.Join(troubleshootData, ", "))
+		}()
+	}
 	// See which label must be non-empty.
 	// Optimization for case like {l=~".", l!="1"}.
 	labelMustBeSet := make(map[string]bool, len(ms))
@@ -252,6 +282,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 			if err != nil {
 				return nil, err
 			}
+			debug("its: AllPostings")
 			its = append(its, allPostings)
 		case labelMustBeSet[m.Name]:
 			// If this matcher must be non-empty, we can be smarter.
@@ -270,6 +301,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 				if err != nil {
 					return nil, err
 				}
+				debug("%s: notIts=%s", m.Name, describe(it))
 				notIts = append(notIts, it)
 			case isNot && !matchesEmpty: // l!=""
 				// If the label can't be empty and is a Not, but the inner matcher can
@@ -284,6 +316,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 					return nil, err
 				}
 				if index.IsEmptyPostingsType(it) {
+					debug("%s: empty shortcut", m.Name)
 					return index.EmptyPostings(), nil
 				}
 				its = append(its, it)
@@ -294,6 +327,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 					return nil, err
 				}
 				if index.IsEmptyPostingsType(it) {
+					debug("%s: empty shortcut (default)", m.Name)
 					return index.EmptyPostings(), nil
 				}
 				its = append(its, it)
@@ -307,6 +341,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 			if err != nil {
 				return nil, err
 			}
+			debug("%s: notIts=%s", m.Name, describe(it))
 			notIts = append(notIts, it)
 		}
 	}

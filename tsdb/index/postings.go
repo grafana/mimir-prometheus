@@ -781,6 +781,10 @@ func newListPostings(list ...storage.SeriesRef) *ListPostings {
 	return &ListPostings{list: list}
 }
 
+func (it *ListPostings) Len() int {
+	return len(it.list)
+}
+
 func (it *ListPostings) At() storage.SeriesRef {
 	return it.cur
 }
