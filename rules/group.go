@@ -75,8 +75,6 @@ type Group struct {
 	// defaults to DefaultEvalIterationFunc.
 	evalIterationFunc GroupEvalIterationFunc
 
-	// concurrencyController controls the rules evaluation concurrency.
-	concurrencyController         RuleConcurrencyController
 	appOpts                       *storage.AppendOptions
 	alignEvaluationTimeOnInterval bool
 }
@@ -130,11 +128,6 @@ func NewGroup(o GroupOptions) *Group {
 		evalIterationFunc = DefaultEvalIterationFunc
 	}
 
-	concurrencyController := opts.RuleConcurrencyController
-	if concurrencyController == nil {
-		concurrencyController = sequentialRuleEvalController{}
-	}
-
 	if opts.Logger == nil {
 		opts.Logger = promslog.NewNopLogger()
 	}
@@ -156,7 +149,6 @@ func NewGroup(o GroupOptions) *Group {
 		logger:                        opts.Logger.With("file", o.File, "group", o.Name),
 		metrics:                       metrics,
 		evalIterationFunc:             evalIterationFunc,
-		concurrencyController:         concurrencyController,
 		appOpts:                       &storage.AppendOptions{DiscardOutOfOrder: true},
 		alignEvaluationTimeOnInterval: o.AlignEvaluationTimeOnInterval,
 	}
@@ -660,25 +652,33 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 	}
 
 	var wg sync.WaitGroup
-	for i, rule := range g.rules {
-		select {
-		case <-g.done:
-			return
-		default:
-		}
-
-		if ctrl := g.concurrencyController; ctrl.Allow(ctx, g, rule) {
-			wg.Add(1)
-
-			go eval(i, rule, func() {
-				wg.Done()
-				ctrl.Done(ctx)
-			})
-		} else {
-			eval(i, rule, nil)
-		}
+	ctrl := g.opts.RuleConcurrencyController
+	if ctrl == nil {
+		ctrl = sequentialRuleEvalController{}
 	}
-	wg.Wait()
+	for _, batch := range ctrl.SplitGroupIntoBatches(ctx, g) {
+		for _, ruleIndex := range batch {
+			select {
+			case <-g.done:
+				return
+			default:
+			}
+
+			rule := g.rules[ruleIndex]
+			if len(batch) > 1 && ctrl.Allow(ctx, g, rule) {
+				wg.Add(1)
+
+				go eval(ruleIndex, rule, func() {
+					wg.Done()
+					ctrl.Done(ctx)
+				})
+			} else {
+				eval(ruleIndex, rule, nil)
+			}
+		}
+		// It is important that we finish processing any rules in this current batch - before we move into the next one.
+		wg.Wait()
+	}
 
 	g.metrics.GroupSamples.WithLabelValues(GroupKey(g.File(), g.Name())).Set(samplesTotal.Load())
 	g.cleanupStaleSeries(ctx, ts)
