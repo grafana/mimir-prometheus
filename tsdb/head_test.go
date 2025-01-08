@@ -187,11 +187,11 @@ func readTestWAL(t testing.TB, dir string) (recs []interface{}) {
 			samples, err := dec.Samples(rec, nil)
 			require.NoError(t, err)
 			recs = append(recs, samples)
-		case record.HistogramSamples:
+		case record.HistogramSamples, record.CustomBucketsHistogramSamples:
 			samples, err := dec.HistogramSamples(rec, nil)
 			require.NoError(t, err)
 			recs = append(recs, samples)
-		case record.FloatHistogramSamples:
+		case record.FloatHistogramSamples, record.CustomBucketsFloatHistogramSamples:
 			samples, err := dec.FloatHistogramSamples(rec, nil)
 			require.NoError(t, err)
 			recs = append(recs, samples)
@@ -953,12 +953,12 @@ func TestHead_Truncate(t *testing.T) {
 	require.Nil(t, h.series.getByID(s3.ref))
 	require.Nil(t, h.series.getByID(s4.ref))
 
-	postingsA1, _ := index.ExpandPostings(h.postings.Get("a", "1"))
-	postingsA2, _ := index.ExpandPostings(h.postings.Get("a", "2"))
-	postingsB1, _ := index.ExpandPostings(h.postings.Get("b", "1"))
-	postingsB2, _ := index.ExpandPostings(h.postings.Get("b", "2"))
-	postingsC1, _ := index.ExpandPostings(h.postings.Get("c", "1"))
-	postingsAll, _ := index.ExpandPostings(h.postings.Get("", ""))
+	postingsA1, _ := index.ExpandPostings(h.postings.Postings(ctx, "a", "1"))
+	postingsA2, _ := index.ExpandPostings(h.postings.Postings(ctx, "a", "2"))
+	postingsB1, _ := index.ExpandPostings(h.postings.Postings(ctx, "b", "1"))
+	postingsB2, _ := index.ExpandPostings(h.postings.Postings(ctx, "b", "2"))
+	postingsC1, _ := index.ExpandPostings(h.postings.Postings(ctx, "c", "1"))
+	postingsAll, _ := index.ExpandPostings(h.postings.Postings(ctx, "", ""))
 
 	require.Equal(t, []storage.SeriesRef{storage.SeriesRef(s1.ref)}, postingsA1)
 	require.Equal(t, []storage.SeriesRef{storage.SeriesRef(s2.ref)}, postingsA2)
@@ -4794,7 +4794,7 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 
 			// OOO histogram
 			for i := 1; i <= 5; i++ {
-				appendHistogram(100+int64(i), tsdbutil.GenerateTestHistogram(1000+i))
+				appendHistogram(100+int64(i), tsdbutil.GenerateTestHistogram(1000+int64(i)))
 			}
 			// Nothing mmapped yet.
 			checkOOOExpCounterResetHeader()
@@ -4882,7 +4882,7 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 			appendHistogram(300, tsdbutil.SetHistogramCounterReset(tsdbutil.GenerateTestHistogram(3000)))
 
 			for i := 1; i <= 4; i++ {
-				appendHistogram(300+int64(i), tsdbutil.GenerateTestHistogram(3000+i))
+				appendHistogram(300+int64(i), tsdbutil.GenerateTestHistogram(3000+int64(i)))
 			}
 
 			// One mmapped chunk with (ts, val) [(300, 3000), (301, 3001), (302, 3002), (303, 3003), (350, 4000)].

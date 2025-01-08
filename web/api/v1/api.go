@@ -144,6 +144,8 @@ type PrometheusVersion struct {
 type RuntimeInfo struct {
 	StartTime           time.Time `json:"startTime"`
 	CWD                 string    `json:"CWD"`
+	Hostname            string    `json:"hostname"`
+	ServerTime          time.Time `json:"serverTime"`
 	ReloadConfigSuccess bool      `json:"reloadConfigSuccess"`
 	LastConfigTime      time.Time `json:"lastConfigTime"`
 	CorruptionCount     int64     `json:"corruptionCount"`
@@ -303,7 +305,7 @@ func NewAPI(
 	}
 
 	if rwEnabled {
-		a.remoteWriteHandler = remote.NewWriteHandler(logger, registerer, ap, acceptRemoteWriteProtoMsgs)
+		a.remoteWriteHandler = remote.NewWriteHandler(logger, registerer, ap, acceptRemoteWriteProtoMsgs, ctZeroIngestionEnabled)
 	}
 	if otlpEnabled {
 		a.otlpWriteHandler = remote.NewOTLPWriteHandler(logger, ap, configFunc, enableCTZeroIngestion, validIntervalCTZeroIngestion)
@@ -1085,12 +1087,12 @@ func (api *API) targets(r *http.Request) apiFuncResult {
 	showActive := state == "" || state == "any" || state == "active"
 	showDropped := state == "" || state == "any" || state == "dropped"
 	res := &TargetDiscovery{}
+	builder := labels.NewBuilder(labels.EmptyLabels())
 
 	if showActive {
 		targetsActive := api.targetRetriever(r.Context()).TargetsActive()
 		activeKeys, numTargets := sortKeys(targetsActive)
 		res.ActiveTargets = make([]*Target, 0, numTargets)
-		builder := labels.NewScratchBuilder(0)
 
 		for _, key := range activeKeys {
 			if scrapePool != "" && key != scrapePool {
@@ -1106,8 +1108,8 @@ func (api *API) targets(r *http.Request) apiFuncResult {
 				globalURL, err := getGlobalURL(target.URL(), api.globalURLOptions)
 
 				res.ActiveTargets = append(res.ActiveTargets, &Target{
-					DiscoveredLabels: target.DiscoveredLabels(),
-					Labels:           target.Labels(&builder),
+					DiscoveredLabels: target.DiscoveredLabels(builder),
+					Labels:           target.Labels(builder),
 					ScrapePool:       key,
 					ScrapeURL:        target.URL().String(),
 					GlobalURL:        globalURL.String(),
@@ -1145,7 +1147,7 @@ func (api *API) targets(r *http.Request) apiFuncResult {
 			}
 			for _, target := range targetsDropped[key] {
 				res.DroppedTargets = append(res.DroppedTargets, &DroppedTarget{
-					DiscoveredLabels: target.DiscoveredLabels(),
+					DiscoveredLabels: target.DiscoveredLabels(builder),
 				})
 			}
 		}
@@ -1183,7 +1185,7 @@ func (api *API) targetMetadata(r *http.Request) apiFuncResult {
 		}
 	}
 
-	builder := labels.NewScratchBuilder(0)
+	builder := labels.NewBuilder(labels.EmptyLabels())
 	metric := r.FormValue("metric")
 	res := []metricMetadata{}
 	for _, tt := range api.targetRetriever(r.Context()).TargetsActive() {
@@ -1191,7 +1193,7 @@ func (api *API) targetMetadata(r *http.Request) apiFuncResult {
 			if limit >= 0 && len(res) >= limit {
 				break
 			}
-			targetLabels := t.Labels(&builder)
+			targetLabels := t.Labels(builder)
 			// Filter targets that don't satisfy the label matchers.
 			if matchTarget != "" && !matchLabels(targetLabels, matchers) {
 				continue

@@ -260,6 +260,7 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 			case "created-timestamp-zero-ingestion":
 				c.scrape.EnableCreatedTimestampZeroIngestion = true
 				c.web.EnableCreatedTimestampZeroIngestion = true
+				c.web.CTZeroIngestionEnabled = true
 				// Change relevant global variables. Hacky, but it's hard to pass a new option or default to unmarshallers.
 				config.DefaultConfig.GlobalConfig.ScrapeProtocols = config.DefaultProtoFirstScrapeProtocols
 				config.DefaultGlobalConfig.ScrapeProtocols = config.DefaultProtoFirstScrapeProtocols
@@ -989,18 +990,12 @@ func main() {
 	listeners, err := webHandler.Listeners()
 	if err != nil {
 		logger.Error("Unable to start web listener", "err", err)
-		if err := queryEngine.Close(); err != nil {
-			logger.Warn("Closing query engine failed", "err", err)
-		}
 		os.Exit(1)
 	}
 
 	err = toolkit_web.Validate(*webConfig)
 	if err != nil {
 		logger.Error("Unable to validate web configuration file", "err", err)
-		if err := queryEngine.Close(); err != nil {
-			logger.Warn("Closing query engine failed", "err", err)
-		}
 		os.Exit(1)
 	}
 
@@ -1021,9 +1016,6 @@ func main() {
 					logger.Warn("Received termination request via web service, exiting gracefully...")
 				case <-cancel:
 					reloadReady.Close()
-				}
-				if err := queryEngine.Close(); err != nil {
-					logger.Warn("Closing query engine failed", "err", err)
 				}
 				return nil
 			},
