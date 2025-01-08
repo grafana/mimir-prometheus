@@ -228,7 +228,7 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 	mp.Add(6, labels.FromStrings("d", "1"))
 
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
-		p := mp.Get("a", "1")
+		p := mp.Postings(context.Background(), "a", "1")
 
 		it := mp.LabelValuesFor(p, "b")
 		t.Cleanup(func() {
@@ -246,7 +246,7 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 	})
 
 	t.Run("requesting a non-existent label value", func(t *testing.T) {
-		p := mp.Get("a", "1")
+		p := mp.Postings(context.Background(), "a", "1")
 
 		it := mp.LabelValuesFor(p, "c")
 		t.Cleanup(func() {
@@ -270,7 +270,7 @@ func TestMemPostings_LabelValuesFor(t *testing.T) {
 	})
 
 	t.Run("filtering based on a postings set missing the label", func(t *testing.T) {
-		p := mp.Get("d", "1")
+		p := mp.Postings(context.Background(), "d", "1")
 
 		it := mp.LabelValuesFor(p, "a")
 		t.Cleanup(func() {
@@ -296,7 +296,7 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 	mp.Add(7, labels.FromStrings("d", "1"))
 
 	t.Run("filtering based on non-empty postings", func(t *testing.T) {
-		p := mp.Get("a", "1")
+		p := mp.Postings(context.Background(), "a", "1")
 
 		it := mp.LabelValuesExcluding(p, "b")
 		t.Cleanup(func() {
@@ -314,7 +314,7 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 	})
 
 	t.Run("requesting a non-existent label value", func(t *testing.T) {
-		p := mp.Get("a", "1")
+		p := mp.Postings(context.Background(), "a", "1")
 
 		it := mp.LabelValuesExcluding(p, "c")
 		t.Cleanup(func() {
@@ -342,7 +342,7 @@ func TestMemPostings_LabelValuesExcluding(t *testing.T) {
 	})
 
 	t.Run("filtering based on a postings set missing the label", func(t *testing.T) {
-		p := mp.Get("d", "1")
+		p := mp.Postings(context.Background(), "d", "1")
 
 		it := mp.LabelValuesExcluding(p, "a")
 		t.Cleanup(func() {
