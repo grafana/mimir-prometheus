@@ -290,6 +290,7 @@ type Options struct {
 	EnableRemoteWriteReceiver  bool
 	EnableOTLPWriteReceiver    bool
 	IsAgent                    bool
+	CTZeroIngestionEnabled     bool
 	AppName                    string
 
 	AcceptRemoteWriteProtoMsgs []config.RemoteWriteProtoMsg
@@ -298,7 +299,6 @@ type Options struct {
 	Registerer prometheus.Registerer
 
 	// Our Grafana Cloud additions. Leaving them separately for the updates with upstream.
-	EnableCreatedTimestampZeroIngestion        bool
 	ValidIntervalCreatedTimestampZeroIngestion time.Duration
 }
 
@@ -390,7 +390,7 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.EnableRemoteWriteReceiver,
 		o.AcceptRemoteWriteProtoMsgs,
 		o.EnableOTLPWriteReceiver,
-		o.EnableCreatedTimestampZeroIngestion,
+		o.CTZeroIngestionEnabled,
 		o.ValidIntervalCreatedTimestampZeroIngestion,
 	)
 
