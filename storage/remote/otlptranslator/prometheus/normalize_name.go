@@ -22,7 +22,6 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/prometheus/prometheus/util/strutil"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 )
 
@@ -120,18 +119,19 @@ func BuildCompliantName(metric pmetric.Metric, namespace string, addMetricSuffix
 	return metricName
 }
 
+var nonMetricNameCharRE = regexp.MustCompile(`[^a-zA-Z0-9:]`)
+
 // Build a normalized name for the specified metric.
 func normalizeName(metric pmetric.Metric, namespace string, allowUTF8 bool) string {
 	var nameTokens []string
 	var separators []string
 	if !allowUTF8 {
-		nonTokenMetricCharRE := regexp.MustCompile(`[^a-zA-Z0-9:]`)
 		// Split metric name into "tokens" (of supported metric name runes).
 		// Note that this has the side effect of replacing multiple consecutive underscores with a single underscore.
 		// This is part of the OTel to Prometheus specification: https://github.com/open-telemetry/opentelemetry-specification/blob/v1.38.0/specification/compatibility/prometheus_and_openmetrics.md#otlp-metric-points-to-prometheus.
 		nameTokens = strings.FieldsFunc(
 			metric.Name(),
-			func(r rune) bool { return nonTokenMetricCharRE.MatchString(string(r)) },
+			func(r rune) bool { return nonMetricNameCharRE.MatchString(string(r)) },
 		)
 	} else {
 		translationFunc := func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) && r != ':' }
@@ -223,73 +223,13 @@ func normalizeName(metric pmetric.Metric, namespace string, allowUTF8 bool) stri
 	return normalizedName
 }
 
-// TrimPromSuffixes trims type and unit prometheus suffixes from a metric name.
-// Following the [OpenTelemetry specs] for converting Prometheus Metric points to OTLP.
-//
-// [OpenTelemetry specs]: https://github.com/open-telemetry/opentelemetry-specification/blob/main/specification/metrics/data-model.md#metric-metadata
-func TrimPromSuffixes(promName string, metricType pmetric.MetricType, unit string) string {
-	nameTokens := strings.Split(promName, "_")
-	if len(nameTokens) == 1 {
-		return promName
-	}
-
-	nameTokens = removeTypeSuffixes(nameTokens, metricType)
-	nameTokens = removeUnitSuffixes(nameTokens, unit)
-
-	return strings.Join(nameTokens, "_")
-}
-
-func removeTypeSuffixes(tokens []string, metricType pmetric.MetricType) []string {
-	switch metricType {
-	case pmetric.MetricTypeSum:
-		// Only counters are expected to have a type suffix at this point.
-		// for other types, suffixes are removed during scrape.
-		return removeSuffix(tokens, "total")
-	default:
-		return tokens
-	}
-}
-
-func removeUnitSuffixes(nameTokens []string, unit string) []string {
-	l := len(nameTokens)
-	unitTokens := strings.Split(unit, "_")
-	lu := len(unitTokens)
-
-	if lu == 0 || l <= lu {
-		return nameTokens
-	}
-
-	suffixed := true
-	for i := range unitTokens {
-		if nameTokens[l-i-1] != unitTokens[lu-i-1] {
-			suffixed = false
-			break
-		}
-	}
-
-	if suffixed {
-		return nameTokens[:l-lu]
-	}
-
-	return nameTokens
-}
-
-func removeSuffix(tokens []string, suffix string) []string {
-	l := len(tokens)
-	if tokens[l-1] == suffix {
-		return tokens[:l-1]
-	}
-
-	return tokens
-}
-
 // cleanUpUnit cleans up unit so it matches model.LabelNameRE.
 func cleanUpUnit(unit string) string {
 	// Multiple consecutive underscores are replaced with a single underscore.
 	// This is part of the OTel to Prometheus specification: https://github.com/open-telemetry/opentelemetry-specification/blob/v1.38.0/specification/compatibility/prometheus_and_openmetrics.md#otlp-metric-points-to-prometheus.
 	multipleUnderscoresRE := regexp.MustCompile(`__+`)
 	return strings.TrimPrefix(multipleUnderscoresRE.ReplaceAllString(
-		strutil.SanitizeLabelName(unit),
+		nonMetricNameCharRE.ReplaceAllString(unit, "_"),
 		"_",
 	), "_")
 }
