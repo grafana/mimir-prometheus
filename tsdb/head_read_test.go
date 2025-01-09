@@ -453,7 +453,7 @@ func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 		t.Cleanup(func() {
 			require.NoError(t, r.Close())
 		})
-		p := mp.Get("a", "1")
+		p := mp.Postings(context.Background(), "a", "1")
 
 		it := r.LabelValuesFor(p, "b")
 		t.Cleanup(func() {
@@ -501,7 +501,7 @@ func TestHeadIndexReader_LabelValuesFor(t *testing.T) {
 		t.Cleanup(func() {
 			require.NoError(t, r.Close())
 		})
-		p := mp.Get("a", "1")
+		p := mp.Postings(context.Background(), "a", "1")
 
 		it := r.LabelValuesFor(p, "c")
 		t.Cleanup(func() {
@@ -539,7 +539,7 @@ func TestHeadIndexReader_LabelValuesExcluding(t *testing.T) {
 			require.NoError(t, r.Close())
 		})
 
-		p := mp.Get("a", "1")
+		p := mp.Postings(context.Background(), "a", "1")
 		it := r.LabelValuesExcluding(p, "b")
 		t.Cleanup(func() {
 			require.NoError(t, it.Close())

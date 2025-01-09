@@ -763,7 +763,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 					ExportCreatedMetric:                 true,
 					EnableCreatedTimestampZeroIngestion: true,
 				},
-				prometheustranslator.BuildCompliantName(metric, "", true, true),
+				prometheustranslator.BuildCompliantMetricName(metric, "", true),
 			)
 			require.NoError(t, err)
 			require.Empty(t, annots)
