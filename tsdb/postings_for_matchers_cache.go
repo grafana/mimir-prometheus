@@ -146,6 +146,10 @@ type postingsForMatcherPromise struct {
 	done   chan struct{}
 	cloner *index.PostingsCloner
 	err    error
+
+	// Keep track of the time this promise completed evaluation.
+	// Do not access this field until the done channel is closed.
+	evaluationCompletedAt time.Time
 }
 
 func (p *postingsForMatcherPromise) result(ctx context.Context) (index.Postings, error) {
@@ -195,6 +199,26 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 
 		oldPromise := oldPromiseValue.(*postingsForMatcherPromise)
 
+		// Check if the promise already completed the execution and its TTL has not expired yet.
+		// If the TTL has expired, we don't want to return it, so we just recompute the postings
+		// on-the-fly, bypassing the cache logic. It's less performant, but more accurate, because
+		// avoids returning stale data.
+		if c.ttl > 0 {
+			select {
+			case <-oldPromise.done:
+				if c.timeNow().Sub(oldPromise.evaluationCompletedAt) >= c.ttl {
+					// The cached promise already expired, but it has not been evicted.
+					// TODO trace + metric
+					return func(ctx context.Context) (index.Postings, error) {
+						return c.postingsForMatchers(ctx, ix, ms...)
+					}
+				}
+
+			default:
+				// The evaluation is still in-flight. We wait for it.
+			}
+		}
+
 		// Add the caller context to the ones tracked by the old promise (currently in-flight).
 		if err := oldPromise.callersCtxTracker.add(ctx); err != nil && errors.Is(err, errContextsTrackerCanceled{}) {
 			// We've hit a race condition happening when the "loaded" promise execution was just canceled,
@@ -235,13 +259,16 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		promise.cloner = index.NewPostingsCloner(postings)
 	}
 
+	// Keep track of when the evaluation completed.
+	promise.evaluationCompletedAt = c.timeNow()
+
 	// The execution terminated (or has been canceled). We have to close the tracker to release resources.
 	// It's important to close it before computing the promise size, so that the actual size is smaller.
 	promise.callersCtxTracker.close()
 
 	sizeBytes := int64(len(key) + size.Of(promise))
 
-	c.onPromiseExecutionDone(ctx, key, c.timeNow(), sizeBytes, promise.err)
+	c.onPromiseExecutionDone(ctx, key, promise.evaluationCompletedAt, sizeBytes, promise.err)
 	return promise.result
 }
 
@@ -309,7 +336,7 @@ func (c *PostingsForMatchersCache) evictHead() {
 // onPromiseExecutionDone must be called once the execution of PostingsForMatchers promise has done.
 // The input err contains details about any error that could have occurred when executing it.
 // The input ts is the function call time.
-func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, key string, ts time.Time, sizeBytes int64, err error) {
+func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, key string, completedAt time.Time, sizeBytes int64, err error) {
 	span := trace.SpanFromContext(ctx)
 
 	// Call the registered hook, if any. It's used only for testing purposes.
@@ -339,7 +366,7 @@ func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, k
 
 		c.cached.PushBack(&postingsForMatchersCachedCall{
 			key:       key,
-			ts:        ts,
+			ts:        completedAt,
 			sizeBytes: sizeBytes,
 		})
 		c.cachedBytes += sizeBytes
@@ -349,7 +376,7 @@ func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, k
 	}
 
 	span.AddEvent("added cached value to expiry queue", trace.WithAttributes(
-		attribute.Stringer("timestamp", ts),
+		attribute.Stringer("evaluation completed at", completedAt),
 		attribute.Int64("size in bytes", sizeBytes),
 		attribute.Int64("cached bytes", lastCachedBytes),
 	))
