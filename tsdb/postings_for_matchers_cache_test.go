@@ -270,7 +270,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 	t.Run("cached value is evicted because cache exceeds max bytes", func(t *testing.T) {
 		const (
 			maxItems         = 100 // Never hit it.
-			maxBytes         = 1250
+			maxBytes         = 1300
 			numMatchers      = 5
 			postingsListSize = 30 // 8 bytes per posting ref, so 30 x 8 = 240 bytes.
 		)
