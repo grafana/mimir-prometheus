@@ -101,6 +101,9 @@ type PostingsForMatchersCache struct {
 	// beginning of onPromiseExecutionDone() execution.
 	onPromiseExecutionDoneBeforeHook func()
 
+	// evictHeadBeforeHook is used for testing purposes. It allows to hook before calls to evictHead().
+	evictHeadBeforeHook func()
+
 	tracer trace.Tracer
 	// Preallocated for performance
 	ttlAttrib   attribute.KeyValue
@@ -299,6 +302,11 @@ func (c *PostingsForMatchersCache) expire() {
 		return
 	}
 	c.cachedMtx.RUnlock()
+
+	// Call the registered hook, if any. It's used only for testing purposes.
+	if c.evictHeadBeforeHook != nil {
+		c.evictHeadBeforeHook()
+	}
 
 	c.cachedMtx.Lock()
 	defer c.cachedMtx.Unlock()

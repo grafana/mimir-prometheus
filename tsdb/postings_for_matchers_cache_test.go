@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/DmitriyVTitov/size"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
@@ -270,7 +271,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 	t.Run("cached value is evicted because cache exceeds max bytes", func(t *testing.T) {
 		const (
 			maxItems         = 100 // Never hit it.
-			maxBytes         = 1250
+			maxBytes         = 1300
 			numMatchers      = 5
 			postingsListSize = 30 // 8 bytes per posting ref, so 30 x 8 = 240 bytes.
 		)
@@ -520,6 +521,77 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 		require.Equal(t, int32(1), callsCount.Load())
 	})
+}
+
+func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGoroutineIsEvictingTheCache(t *testing.T) {
+	var (
+		matchers   = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
+		ttl        = time.Second
+		ctx        = context.Background()
+		nextCallID = atomic.NewUint64(0)
+	)
+
+	c := NewPostingsForMatchersCache(ttl, 1000, 1024*1024, true)
+
+	// Issue a first call to cache the postings.
+	c.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		return index.ErrPostings(fmt.Errorf("result from call %d", nextCallID.Inc())), nil
+	}
+
+	postings, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, matchers...)
+	require.NoError(t, err)
+	require.EqualError(t, postings.Err(), "result from call 1")
+
+	// Wait until the ttl expires.
+	time.Sleep(ttl)
+
+	// Run 2 concurrent requests. One will expire the items from the cache, while the other one will
+	// skip the expiration check. We expect none of them to return the stale entry from the cache.
+	firstCall := atomic.NewBool(true)
+	firstCallReceived := make(chan struct{})
+
+	c.evictHeadBeforeHook = func() {
+		// Wait until the other goroutine called the downstream PostingsForMatchers() because the cached entry is expired
+		// even if it has not been removed from the cache yet.
+		select {
+		case <-firstCallReceived:
+		case <-time.After(5 * time.Second):
+			// Use "assert" instead of "require" so that the execution continues.
+			assert.Fail(t, "Expected a downstream PostingsForMatchers call but never arrived")
+		}
+	}
+
+	c.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		if firstCall.CompareAndSwap(true, false) {
+			close(firstCallReceived)
+		}
+
+		return index.ErrPostings(fmt.Errorf("result from call %d", nextCallID.Inc())), nil
+	}
+
+	results := make([]string, 2)
+	callersWg := sync.WaitGroup{}
+	callersWg.Add(2)
+
+	go func() {
+		defer callersWg.Done()
+
+		postings, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, matchers...)
+		require.NoError(t, err)
+		results[0] = postings.Err().Error()
+	}()
+
+	go func() {
+		defer callersWg.Done()
+
+		postings, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, matchers...)
+		require.NoError(t, err)
+		results[1] = postings.Err().Error()
+	}()
+
+	callersWg.Wait()
+
+	require.ElementsMatch(t, []string{"result from call 2", "result from call 3"}, results)
 }
 
 func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellationAndNewRequest(t *testing.T) {
