@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/DmitriyVTitov/size"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -52,7 +54,7 @@ type IndexPostingsReader interface {
 // NewPostingsForMatchersCache creates a new PostingsForMatchersCache.
 // If `ttl` is 0, then it only deduplicates in-flight requests.
 // If `force` is true, then all requests go through cache, regardless of the `concurrent` param provided to the PostingsForMatchers method.
-func NewPostingsForMatchersCache(ttl time.Duration, maxItems int, maxBytes int64, force bool) *PostingsForMatchersCache {
+func NewPostingsForMatchersCache(ttl time.Duration, maxItems int, maxBytes int64, force bool, metrics *PostingsForMatchersCacheMetrics) *PostingsForMatchersCache {
 	b := &PostingsForMatchersCache{
 		calls:            &sync.Map{},
 		cached:           list.New(),
@@ -62,6 +64,7 @@ func NewPostingsForMatchersCache(ttl time.Duration, maxItems int, maxBytes int64
 		maxItems: maxItems,
 		maxBytes: maxBytes,
 		force:    force,
+		metrics:  metrics,
 
 		timeNow:             time.Now,
 		postingsForMatchers: PostingsForMatchers,
@@ -86,6 +89,7 @@ type PostingsForMatchersCache struct {
 	maxItems int
 	maxBytes int64
 	force    bool
+	metrics  *PostingsForMatchersCacheMetrics
 
 	// Signal whether there's already a call to expire() in progress, in order to avoid multiple goroutines
 	// cleaning up expired entries at the same time (1 at a time is enough).
@@ -111,6 +115,8 @@ type PostingsForMatchersCache struct {
 }
 
 func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	c.metrics.requests.Inc()
+
 	span := trace.SpanFromContext(ctx)
 	defer func(startTime time.Time) {
 		span.AddEvent(
@@ -120,7 +126,9 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 	}(time.Now())
 
 	if !concurrent && !c.force {
+		c.metrics.skipsBecauseIneligible.Inc()
 		span.AddEvent("cache not used")
+
 		p, err := c.postingsForMatchers(ctx, ix, ms...)
 		if err != nil {
 			span.SetStatus(codes.Error, "getting postings for matchers without cache failed")
@@ -211,7 +219,9 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 			case <-oldPromise.done:
 				if c.timeNow().Sub(oldPromise.evaluationCompletedAt) >= c.ttl {
 					// The cached promise already expired, but it has not been evicted.
-					// TODO trace + metric
+					// TODO trace
+					c.metrics.skipsBecauseStale.Inc()
+
 					return func(ctx context.Context) (index.Postings, error) {
 						return c.postingsForMatchers(ctx, ix, ms...)
 					}
@@ -229,6 +239,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 			//
 			// We expect this race condition to be infrequent. In this case we simply skip the cache and
 			// pass through the execution to the underlying postingsForMatchers().
+			c.metrics.skipsBecauseCanceled.Inc()
 			span.AddEvent("looked up in-flight postingsForMatchers promise, but the promise was just canceled due to a race condition: skipping the cache", trace.WithAttributes(
 				attribute.String("cache_key", key),
 			))
@@ -238,6 +249,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 			}
 		}
 
+		c.metrics.hits.Inc()
 		span.AddEvent("using cached postingsForMatchers promise", trace.WithAttributes(
 			attribute.String("cache_key", key),
 		))
@@ -245,6 +257,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		return oldPromise.result
 	}
 
+	c.metrics.misses.Inc()
 	span.AddEvent("no postingsForMatchers promise in cache, executing query", trace.WithAttributes(attribute.String("cache_key", key)))
 
 	// promise was stored, close its channel after fulfilment
@@ -533,4 +546,50 @@ func (t *contextsTracker) trackedContextsCount() int {
 	defer t.mx.Unlock()
 
 	return t.trackedCount
+}
+
+type PostingsForMatchersCacheMetrics struct {
+	requests               prometheus.Counter
+	hits                   prometheus.Counter
+	misses                 prometheus.Counter
+	skipsBecauseIneligible prometheus.Counter
+	skipsBecauseStale      prometheus.Counter
+	skipsBecauseCanceled   prometheus.Counter
+}
+
+func NewPostingsForMatchersCacheMetrics(reg prometheus.Registerer) *PostingsForMatchersCacheMetrics {
+	const (
+		skipsMetric = "postings_for_matchers_cache_skips_total"
+		skipsHelp   = "Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached."
+	)
+
+	return &PostingsForMatchersCacheMetrics{
+		requests: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+			Name: "postings_for_matchers_cache_requests_total",
+			Help: "Total number of requests to the PostingsForMatchers cache.",
+		}),
+		hits: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+			Name: "postings_for_matchers_cache_hits_total",
+			Help: "Total number of postings lists returned from the PostingsForMatchers cache.",
+		}),
+		misses: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+			Name: "postings_for_matchers_cache_misses_total",
+			Help: "Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.",
+		}),
+		skipsBecauseIneligible: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+			Name:        skipsMetric,
+			Help:        skipsHelp,
+			ConstLabels: map[string]string{"reason": "ineligible"},
+		}),
+		skipsBecauseStale: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+			Name:        skipsMetric,
+			Help:        skipsHelp,
+			ConstLabels: map[string]string{"reason": "stale-cached-entry"},
+		}),
+		skipsBecauseCanceled: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+			Name:        skipsMetric,
+			Help:        skipsHelp,
+			ConstLabels: map[string]string{"reason": "canceled-cached-entry"},
+		}),
+	}
 }

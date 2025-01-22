@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/DmitriyVTitov/size"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
@@ -22,8 +24,8 @@ import (
 
 func TestPostingsForMatchersCache(t *testing.T) {
 	// newPostingsForMatchersCache tests the NewPostingsForMatcherCache constructor, but overrides the postingsForMatchers func
-	newPostingsForMatchersCache := func(ttl time.Duration, maxItems int, maxBytes int64, pfm func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error), timeMock *timeNowMock, force bool) *PostingsForMatchersCache {
-		c := NewPostingsForMatchersCache(ttl, maxItems, maxBytes, force)
+	newPostingsForMatchersCache := func(ttl time.Duration, maxItems int, maxBytes int64, pfm func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error), timeMock *timeNowMock, force bool, reg prometheus.Registerer) *PostingsForMatchersCache {
+		c := NewPostingsForMatchersCache(ttl, maxItems, maxBytes, force, NewPostingsForMatchersCacheMetrics(reg))
 		if c.postingsForMatchers == nil {
 			t.Fatalf("NewPostingsForMatchersCache() didn't assign postingsForMatchers func")
 		}
@@ -39,17 +41,46 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			t.Run(fmt.Sprintf("concurrent=%t", concurrent), func(t *testing.T) {
 				expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 				expectedPostingsErr := errors.New("failed successfully")
+				reg := prometheus.NewRegistry()
 
 				c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 					require.IsType(t, indexForPostingsMock{}, ix, "Incorrect IndexPostingsReader was provided to PostingsForMatchers, expected the mock, was given %v (%T)", ix, ix)
 					require.Equal(t, expectedMatchers, ms, "Wrong label matchers provided, expected %v, got %v", expectedMatchers, ms)
 					return index.ErrPostings(expectedPostingsErr), nil
-				}, &timeNowMock{}, false)
+				}, &timeNowMock{}, false, reg)
 
 				p, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, concurrent, expectedMatchers...)
 				require.NoError(t, err)
 				require.NotNil(t, p)
 				require.Equal(t, expectedPostingsErr, p.Err(), "Expected ErrPostings with err %q, got %T with err %q", expectedPostingsErr, p, p.Err())
+
+				expectedMisses := 0
+				expectedDisabled := 0
+				if concurrent {
+					expectedMisses = 1
+				} else {
+					expectedDisabled = 1
+				}
+
+				require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
+					# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+					# TYPE postings_for_matchers_cache_requests_total counter
+					postings_for_matchers_cache_requests_total 1
+
+					# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+					# TYPE postings_for_matchers_cache_hits_total counter
+					postings_for_matchers_cache_hits_total 0
+
+					# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+					# TYPE postings_for_matchers_cache_misses_total counter
+					postings_for_matchers_cache_misses_total %d
+
+					# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+					# TYPE postings_for_matchers_cache_skips_total counter
+					postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+					postings_for_matchers_cache_skips_total{reason="ineligible"} %d
+					postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+				`, expectedMisses, expectedDisabled))))
 			})
 		}
 	})
@@ -57,13 +88,34 @@ func TestPostingsForMatchersCache(t *testing.T) {
 	t.Run("err returned", func(t *testing.T) {
 		expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 		expectedErr := errors.New("failed successfully")
+		reg := prometheus.NewRegistry()
 
 		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			return nil, expectedErr
-		}, &timeNowMock{}, false)
+		}, &timeNowMock{}, false, reg)
 
 		_, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, expectedMatchers...)
 		require.ErrorIs(t, err, expectedErr)
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 1
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 0
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 1
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 
 	t.Run("happy case multiple concurrent calls: two same one different", func(t *testing.T) {
@@ -113,7 +165,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 							}
 							<-release
 							return nil, fmt.Errorf("%s", matchersString(ms))
-						}, &timeNowMock{}, forced)
+						}, &timeNowMock{}, forced, nil)
 
 						results := make([]error, len(calls))
 						resultsWg := sync.WaitGroup{}
@@ -151,12 +203,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 	t.Run("with concurrent==false, result is not cached", func(t *testing.T) {
 		expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
+		reg := prometheus.NewRegistry()
 
 		var call int
 		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			call++
 			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
-		}, &timeNowMock{}, false)
+		}, &timeNowMock{}, false, reg)
 
 		// first call, fills the cache
 		p, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, false, expectedMatchers...)
@@ -167,16 +220,37 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		p, err = c.PostingsForMatchers(ctx, indexForPostingsMock{}, false, expectedMatchers...)
 		require.NoError(t, err)
 		require.EqualError(t, p.Err(), "result from call 2")
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 2
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 0
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 0
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 2
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 
 	t.Run("with cache disabled, result is not cached", func(t *testing.T) {
 		expectedMatchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
+		reg := prometheus.NewRegistry()
 
 		var call int
 		c := newPostingsForMatchersCache(0, 1000, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			call++
 			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
-		}, &timeNowMock{}, false)
+		}, &timeNowMock{}, false, reg)
 
 		// first call, fills the cache
 		p, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, expectedMatchers...)
@@ -187,6 +261,26 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		p, err = c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, expectedMatchers...)
 		require.NoError(t, err)
 		require.EqualError(t, p.Err(), "result from call 2")
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 2
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 0
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 2
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 
 	t.Run("cached value is returned, then it expires", func(t *testing.T) {
@@ -194,12 +288,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		expectedMatchers := []*labels.Matcher{
 			labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"),
 		}
+		reg := prometheus.NewRegistry()
 
 		var call int
 		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			call++
 			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
-		}, timeNow, false)
+		}, timeNow, false, reg)
 
 		// first call, fills the cache
 		p, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, expectedMatchers...)
@@ -219,12 +314,34 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		p, err = c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, expectedMatchers...)
 		require.NoError(t, err)
 		require.EqualError(t, p.Err(), "result from call 2")
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 3
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 1
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 2
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 
 	t.Run("cached value is evicted because cache exceeds max items", func(t *testing.T) {
 		const maxItems = 5
 
 		timeNow := &timeNowMock{}
+		reg := prometheus.NewRegistry()
+
 		calls := make([][]*labels.Matcher, maxItems)
 		for i := range calls {
 			calls[i] = []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "matchers", strconv.Itoa(i))}
@@ -235,7 +352,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			k := matchersKey(ms)
 			callsPerMatchers[k]++
 			return index.ErrPostings(fmt.Errorf("result from call %d", callsPerMatchers[k])), nil
-		}, timeNow, false)
+		}, timeNow, false, reg)
 
 		// each one of the first testCacheSize calls is cached properly
 		for _, matchers := range calls {
@@ -266,6 +383,26 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		p, err = c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, calls[0]...)
 		require.NoError(t, err)
 		require.EqualError(t, p.Err(), "result from call 2")
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 13
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 6
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 7
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 
 	t.Run("cached value is evicted because cache exceeds max bytes", func(t *testing.T) {
@@ -275,6 +412,8 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			numMatchers      = 5
 			postingsListSize = 30 // 8 bytes per posting ref, so 30 x 8 = 240 bytes.
 		)
+
+		reg := prometheus.NewRegistry()
 
 		// Generate some matchers.
 		matchersLists := make([][]*labels.Matcher, numMatchers)
@@ -298,7 +437,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			k := matchersKey(ms)
 			callsPerMatchers[k]++
 			return index.NewListPostings(refsLists[k]), nil
-		}, &timeNowMock{}, false)
+		}, &timeNowMock{}, false, reg)
 
 		// We expect to cache 3 items. So we're going to call PostingsForMatchers for 3 matchers
 		// and then double check they're all cached. To do it, we iterate twice.
@@ -340,11 +479,32 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.Equal(t, 1, callsPerMatchers[matchersKey(matchersLists[1])])
 		require.Equal(t, 1, callsPerMatchers[matchersKey(matchersLists[2])])
 		require.Equal(t, 1, callsPerMatchers[matchersKey(matchersLists[3])])
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 9
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 4
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 5
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 
 	t.Run("initial request context is canceled, no other in-flight requests", func(t *testing.T) {
 		matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 		expectedPostings := index.NewPostingsCloner(index.NewListPostings([]storage.SeriesRef{1, 2, 3}))
+		reg := prometheus.NewRegistry()
 
 		var reqCtx context.Context
 		var cancelReqCtx context.CancelFunc
@@ -369,7 +529,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			case <-time.After(time.Second):
 				return expectedPostings.Clone(), nil
 			}
-		}, &timeNowMock{}, false)
+		}, &timeNowMock{}, false, reg)
 
 		// Run PostingsForMatchers() a first time, cancelling the context while it's executing.
 		reqCtx, cancelReqCtx = context.WithCancel(context.Background())
@@ -387,11 +547,32 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, expectedPostings.Clone(), actualPostings)
 		require.Equal(t, int32(2), callsCount.Load())
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 2
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 0
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 2
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 
 	t.Run("initial request context is cancelled, second request is not cancelled", func(t *testing.T) {
 		matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 		expectedPostings := index.NewPostingsCloner(index.NewListPostings([]storage.SeriesRef{1, 2, 3}))
+		reg := prometheus.NewRegistry()
 
 		reqCtx1, cancelReqCtx1 := context.WithCancel(context.Background())
 		waitBeforeCancelReqCtx1 := make(chan struct{})
@@ -419,7 +600,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			case <-time.After(time.Second):
 				return expectedPostings.Clone(), nil
 			}
-		}, &timeNowMock{}, false)
+		}, &timeNowMock{}, false, reg)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
@@ -457,11 +638,32 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, expectedPostings.Clone(), actualPostings)
 		require.Equal(t, int32(1), callsCount.Load())
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 3
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 2
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 1
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 
 	t.Run("initial and subsequent requests are canceled during execution", func(t *testing.T) {
 		matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 		postings := index.NewPostingsCloner(index.NewListPostings([]storage.SeriesRef{1, 2, 3}))
+		reg := prometheus.NewRegistry()
 
 		reqCtx1, cancelReqCtx1 := context.WithCancel(context.Background())
 		reqCtx2, cancelReqCtx2 := context.WithCancel(context.Background())
@@ -491,7 +693,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			case <-time.After(time.Second):
 				return postings.Clone(), nil
 			}
-		}, &timeNowMock{}, false)
+		}, &timeNowMock{}, false, reg)
 
 		wg := sync.WaitGroup{}
 		wg.Add(2)
@@ -520,6 +722,26 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.Equal(t, 0, c.cached.Len())
 
 		require.Equal(t, int32(1), callsCount.Load())
+
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 2
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 1
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 1
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 	})
 }
 
@@ -529,9 +751,10 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 		ttl        = time.Second
 		ctx        = context.Background()
 		nextCallID = atomic.NewUint64(0)
+		reg        = prometheus.NewRegistry()
 	)
 
-	c := NewPostingsForMatchersCache(ttl, 1000, 1024*1024, true)
+	c := NewPostingsForMatchersCache(ttl, 1000, 1024*1024, true, NewPostingsForMatchersCacheMetrics(reg))
 
 	// Issue a first call to cache the postings.
 	c.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
@@ -592,11 +815,32 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 	callersWg.Wait()
 
 	require.ElementsMatch(t, []string{"result from call 2", "result from call 3"}, results)
+
+	require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+		# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+		# TYPE postings_for_matchers_cache_requests_total counter
+		postings_for_matchers_cache_requests_total 3
+
+		# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+		# TYPE postings_for_matchers_cache_hits_total counter
+		postings_for_matchers_cache_hits_total 0
+
+		# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+		# TYPE postings_for_matchers_cache_misses_total counter
+		postings_for_matchers_cache_misses_total 2
+
+		# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+		# TYPE postings_for_matchers_cache_skips_total counter
+		postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
+		postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+		postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 1
+	`)))
 }
 
 func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellationAndNewRequest(t *testing.T) {
 	matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "foo", "bar")}
 	expectedPostings := index.NewPostingsCloner(index.NewListPostings([]storage.SeriesRef{1, 2, 3}))
+	reg := prometheus.NewRegistry()
 
 	reqCtx1, cancelReqCtx1 := context.WithCancel(context.Background())
 	callsCount := atomic.NewInt32(0)
@@ -604,7 +848,7 @@ func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellati
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
-	c := NewPostingsForMatchersCache(time.Hour, 5, 1000, true)
+	c := NewPostingsForMatchersCache(time.Hour, 5, 1000, true, NewPostingsForMatchersCacheMetrics(reg))
 
 	c.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 		callsCount.Inc()
@@ -655,6 +899,26 @@ func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellati
 
 	// When the race condition is detected, we bypass the cache, and so we don't expect the result to be cached.
 	require.Equal(t, 0, c.cached.Len())
+
+	require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_requests_total counter
+			postings_for_matchers_cache_requests_total 2
+
+			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_hits_total counter
+			postings_for_matchers_cache_hits_total 0
+
+			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
+			# TYPE postings_for_matchers_cache_misses_total counter
+			postings_for_matchers_cache_misses_total 1
+
+			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
+			# TYPE postings_for_matchers_cache_skips_total counter
+			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 1
+			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
+			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+		`)))
 }
 
 func BenchmarkPostingsForMatchersCache(b *testing.B) {
@@ -682,7 +946,7 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 
 	b.Run("no evictions", func(b *testing.B) {
 		// Configure the cache to never evict.
-		cache := NewPostingsForMatchersCache(time.Hour, 1000000, 1024*1024*1024, true)
+		cache := NewPostingsForMatchersCache(time.Hour, 1000000, 1024*1024*1024, true, NewPostingsForMatchersCacheMetrics(nil))
 		cache.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			return index.NewListPostings(refs), nil
 		}
@@ -699,7 +963,7 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 
 	b.Run("high eviction rate", func(b *testing.B) {
 		// Configure the cache to evict continuously.
-		cache := NewPostingsForMatchersCache(time.Hour, 0, 0, true)
+		cache := NewPostingsForMatchersCache(time.Hour, 0, 0, true, NewPostingsForMatchersCacheMetrics(nil))
 		cache.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			return index.NewListPostings(refs), nil
 		}
@@ -742,7 +1006,7 @@ func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.
 	}
 
 	// Configure the cache to evict continuously.
-	cache := NewPostingsForMatchersCache(time.Hour, 0, 0, true)
+	cache := NewPostingsForMatchersCache(time.Hour, 0, 0, true, NewPostingsForMatchersCacheMetrics(nil))
 	cache.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 		return index.NewListPostings(refs), nil
 	}
