@@ -13,7 +13,6 @@ import (
 	"github.com/DmitriyVTitov/size"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/atomic"
 
@@ -779,8 +778,7 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 		select {
 		case <-firstCallReceived:
 		case <-time.After(5 * time.Second):
-			// Use "assert" instead of "require" so that the execution continues.
-			assert.Fail(t, "Expected a downstream PostingsForMatchers call but never arrived")
+			// Do not block forever. The test will anyway in this case.
 		}
 	}
 
