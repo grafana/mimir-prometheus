@@ -751,9 +751,11 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 		ctx        = context.Background()
 		nextCallID = atomic.NewUint64(0)
 		reg        = prometheus.NewRegistry()
+		timeMock   = &timeNowMock{}
 	)
 
 	c := NewPostingsForMatchersCache(ttl, 1000, 1024*1024, true, NewPostingsForMatchersCacheMetrics(reg))
+	c.timeNow = timeMock.timeNow
 
 	// Issue a first call to cache the postings.
 	c.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
@@ -764,8 +766,8 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 	require.NoError(t, err)
 	require.EqualError(t, postings.Err(), "result from call 1")
 
-	// Wait until the ttl expires.
-	time.Sleep(ttl)
+	// Progress time to make the TTL expiring.
+	timeMock.advance(ttl + 1)
 
 	// Run 2 concurrent requests. One will expire the items from the cache, while the other one will
 	// skip the expiration check. We expect none of them to return the stale entry from the cache.
