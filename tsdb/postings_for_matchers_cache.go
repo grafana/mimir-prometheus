@@ -223,6 +223,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 				if c.timeNow().Sub(oldPromise.evaluationCompletedAt) >= c.ttl {
 					// The cached promise already expired, but it has not been evicted.
 					span.AddEvent("skipping cached postingsForMatchers promise because its TTL already expired", trace.WithAttributes(
+						attribute.Stringer("cached promise evaluation completed at", oldPromise.evaluationCompletedAt),
 						attribute.String("cache_key", key),
 					))
 					c.metrics.skipsBecauseStale.Inc()

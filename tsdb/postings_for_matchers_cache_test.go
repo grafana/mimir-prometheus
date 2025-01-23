@@ -780,7 +780,7 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 		select {
 		case <-firstCallReceived:
 		case <-time.After(5 * time.Second):
-			// Do not block forever. The test will anyway in this case.
+			// Do not block forever. The test will fail anyway in this case.
 		}
 	}
 
