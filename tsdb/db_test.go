@@ -3118,11 +3118,13 @@ func TestCompactHead(t *testing.T) {
 
 	// Open a DB and append data to the WAL.
 	tsdbCfg := &Options{
-		RetentionDuration: int64(time.Hour * 24 * 15 / time.Millisecond),
-		NoLockfile:        true,
-		MinBlockDuration:  int64(time.Hour * 2 / time.Millisecond),
-		MaxBlockDuration:  int64(time.Hour * 2 / time.Millisecond),
-		WALCompression:    wlog.CompressionSnappy,
+		RetentionDuration:                    int64(time.Hour * 24 * 15 / time.Millisecond),
+		NoLockfile:                           true,
+		MinBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
+		MaxBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
+		WALCompression:                       wlog.CompressionSnappy,
+		HeadPostingsForMatchersCacheMetrics:  NewPostingsForMatchersCacheMetrics(nil),
+		BlockPostingsForMatchersCacheMetrics: NewPostingsForMatchersCacheMetrics(nil),
 	}
 
 	db, err := Open(dbDir, promslog.NewNopLogger(), prometheus.NewRegistry(), tsdbCfg, nil)
