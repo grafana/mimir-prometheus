@@ -220,6 +220,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		promise.callersCtxTracker.close()
 
 		oldPromise := oldPromiseValue.(*postingsForMatcherPromise)
+		oldPromiseEvaluationCompletedAt := time.Time{}
 
 		// Check if the promise already completed the execution and its TTL has not expired yet.
 		// If the TTL has expired, we don't want to return it, so we just recompute the postings
@@ -228,6 +229,10 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		if c.ttl > 0 {
 			select {
 			case <-oldPromise.done:
+				// Keep track of when the evaluation was completed. This field can be safely accessed only when
+				// the promise has done.
+				oldPromiseEvaluationCompletedAt = oldPromise.evaluationCompletedAt
+
 				if c.timeNow().Sub(oldPromise.evaluationCompletedAt) >= c.ttl {
 					// The cached promise already expired, but it has not been evicted.
 					span.AddEvent("skipping cached postingsForMatchers promise because its TTL already expired", trace.WithAttributes(
@@ -265,6 +270,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 
 		c.metrics.hits.Inc()
 		span.AddEvent("using cached postingsForMatchers promise", trace.WithAttributes(
+			attribute.Stringer("cached promise evaluation completed at", evaluationCompletedAtTime(oldPromiseEvaluationCompletedAt)),
 			attribute.String("cache_key", key),
 		))
 
@@ -300,6 +306,16 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 
 	c.onPromiseExecutionDone(ctx, key, promise.evaluationCompletedAt, sizeBytes, promise.err)
 	return promise.result
+}
+
+type evaluationCompletedAtTime time.Time
+
+func (t evaluationCompletedAtTime) String() string {
+	if time.Time(t).IsZero() {
+		return "not completed (in-flight)"
+	}
+
+	return time.Time(t).String()
 }
 
 type postingsForMatchersCachedCall struct {
