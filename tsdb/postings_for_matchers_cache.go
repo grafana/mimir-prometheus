@@ -387,6 +387,12 @@ func (c *PostingsForMatchersCache) evictHead(now time.Time) (reason int) {
 	oldest := front.Value.(*postingsForMatchersCachedCall)
 
 	// Detect the reason why we're evicting it.
+	//
+	// The checks order is:
+	// 1. TTL: if an item is expired, it should be tracked as such even if the cache was full.
+	// 2. Max bytes: "max items" is deprecated, and we expect to set it to a high value because
+	//    we want to primarily limit by bytes size.
+	// 3. Max items: the last one.
 	switch {
 	case now.Sub(oldest.ts) >= c.ttl:
 		reason = evictionReasonTTL
