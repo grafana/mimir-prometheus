@@ -79,6 +79,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 					postings_for_matchers_cache_skips_total{reason="ineligible"} %d
 					postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+					# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+					# TYPE postings_for_matchers_cache_evictions_total counter
+					postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+					postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+					postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+					postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 				`, expectedMisses, expectedDisabled))))
 			})
 		}
@@ -114,6 +121,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 
@@ -238,6 +252,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 2
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 
@@ -279,6 +300,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 
@@ -332,6 +360,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 1
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 
@@ -347,7 +382,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		}
 
 		callsPerMatchers := map[string]int{}
-		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, maxItems, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, maxItems, 100000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			k := matchersKey(ms)
 			callsPerMatchers[k]++
 			return index.ErrPostings(fmt.Errorf("result from call %d", callsPerMatchers[k])), nil
@@ -401,6 +436,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 1
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 
@@ -497,6 +539,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 1
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 
@@ -565,6 +614,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 
@@ -656,6 +712,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 
@@ -740,6 +803,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 	})
 }
@@ -834,6 +904,13 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 		postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 0
 		postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 		postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 1
+
+		# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+		# TYPE postings_for_matchers_cache_evictions_total counter
+		postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+		postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+		postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 1
+		postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 	`)))
 }
 
@@ -918,6 +995,13 @@ func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellati
 			postings_for_matchers_cache_skips_total{reason="canceled-cached-entry"} 1
 			postings_for_matchers_cache_skips_total{reason="ineligible"} 0
 			postings_for_matchers_cache_skips_total{reason="stale-cached-entry"} 0
+
+			# HELP postings_for_matchers_cache_evictions_total Total number of evictions from the PostingsForMatchers cache.
+			# TYPE postings_for_matchers_cache_evictions_total counter
+			postings_for_matchers_cache_evictions_total{reason="max-bytes-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
+			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
+			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
 		`)))
 }
 
