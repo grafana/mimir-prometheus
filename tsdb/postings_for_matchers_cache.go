@@ -351,18 +351,10 @@ func (c *PostingsForMatchersCache) expire() {
 	}
 
 	// Keep track of the reason why items where evicted.
-	if evictionReasons[evictionReasonTTL] > 0 {
-		c.metrics.evictionsBecauseTTL.Add(float64(evictionReasons[evictionReasonTTL]))
-	}
-	if evictionReasons[evictionReasonMaxBytes] > 0 {
-		c.metrics.evictionsBecauseMaxBytes.Add(float64(evictionReasons[evictionReasonMaxBytes]))
-	}
-	if evictionReasons[evictionReasonMaxItems] > 0 {
-		c.metrics.evictionsBecauseMaxItems.Add(float64(evictionReasons[evictionReasonMaxItems]))
-	}
-	if evictionReasons[evictionReasonUnknown] > 0 {
-		c.metrics.evictionsBecauseUnknown.Add(float64(evictionReasons[evictionReasonUnknown]))
-	}
+	c.metrics.evictionsBecauseTTL.Add(float64(evictionReasons[evictionReasonTTL]))
+	c.metrics.evictionsBecauseMaxBytes.Add(float64(evictionReasons[evictionReasonMaxBytes]))
+	c.metrics.evictionsBecauseMaxItems.Add(float64(evictionReasons[evictionReasonMaxItems]))
+	c.metrics.evictionsBecauseUnknown.Add(float64(evictionReasons[evictionReasonUnknown]))
 }
 
 // shouldEvictHead returns true if cache head should be evicted, either because it's too old,
