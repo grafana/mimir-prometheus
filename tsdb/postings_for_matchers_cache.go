@@ -187,6 +187,12 @@ func (p *postingsForMatcherPromise) result(ctx context.Context) (index.Postings,
 		if p.err != nil {
 			return nil, fmt.Errorf("postingsForMatchers promise completed with error: %w", p.err)
 		}
+
+		trace.SpanFromContext(ctx).AddEvent("completed postingsForMatchers promise", trace.WithAttributes(
+			// Do not format the timestamp to introduce a performance regression.
+			attribute.Int64("evaluation completed at (epoch seconds)", p.evaluationCompletedAt.Unix()),
+		))
+
 		return p.cloner.Clone(), nil
 	}
 }
@@ -264,7 +270,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 		}
 
 		c.metrics.hits.Inc()
-		span.AddEvent("using cached postingsForMatchers promise", trace.WithAttributes(
+		span.AddEvent("waiting cached postingsForMatchers promise", trace.WithAttributes(
 			attribute.String("cache_key", key),
 		))
 
