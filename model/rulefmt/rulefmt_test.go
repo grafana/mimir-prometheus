@@ -416,7 +416,7 @@ groups:
 	}
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			rgs, errs := Parse([]byte(tt.ruleString))
+			rgs, errs := Parse([]byte(tt.ruleString), false)
 			require.Empty(t, errs)
 
 			require.Equal(t, tt.output, rgs.Groups[0])

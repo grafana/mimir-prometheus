@@ -938,7 +938,7 @@ func TestUpdateSetsSourceTenants(t *testing.T) {
 	ruleManager.start()
 	defer ruleManager.Stop()
 
-	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml")
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml", false)
 	require.Empty(t, errs, "file parsing failures")
 
 	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
@@ -980,7 +980,7 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 	ruleManager.start()
 	defer ruleManager.Stop()
 
-	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_alignment.yaml")
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_alignment.yaml", false)
 	require.Empty(t, errs, "file parsing failures")
 
 	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
@@ -1051,7 +1051,7 @@ func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
 		GroupEvaluationContextFunc: mockContextWrapFunc,
 	})
 
-	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml")
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml", false)
 	require.Empty(t, errs, "file parsing failures")
 
 	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
