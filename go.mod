@@ -20,7 +20,7 @@ require (
 	github.com/digitalocean/godo v1.132.0
 	github.com/docker/docker v27.4.1+incompatible
 	github.com/edsrzf/mmap-go v1.2.0
-	github.com/envoyproxy/go-control-plane v0.13.1
+	github.com/envoyproxy/go-control-plane/envoy v1.32.2
 	github.com/envoyproxy/protoc-gen-validate v1.1.0
 	github.com/facette/natsort v0.0.0-20181210072756-2cd4dd1e2dcb
 	github.com/fsnotify/fsnotify v1.8.0
@@ -34,7 +34,7 @@ require (
 	github.com/gophercloud/gophercloud v1.14.1
 	github.com/grafana/regexp v0.0.0-20240607082908-2cb410fa05da
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0
-	github.com/hashicorp/consul/api v1.30.0
+	github.com/hashicorp/consul/api v1.31.0
 	github.com/hashicorp/nomad/api v0.0.0-20241218080744-e3ac00f30eec
 	github.com/hetznercloud/hcloud-go/v2 v2.17.1
 	github.com/ionos-cloud/sdk-go/v6 v6.3.0
