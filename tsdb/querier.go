@@ -206,6 +206,11 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		return p, nil, err
 	}
 
+	indexMatchers, pendingMatchers, err := planIndexLookup(ctx, ms, ix)
+	if err == nil {
+		ms = indexMatchers
+	}
+
 	var its, notIts []index.Postings
 	// See which label must be non-empty.
 	// Optimization for case like {l=~".", l!="1"}.
@@ -345,7 +350,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		it = index.Without(it, n)
 	}
 
-	return it, nil, nil
+	return it, pendingMatchers, nil
 }
 
 func postingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *labels.Matcher) (index.Postings, error) {
