@@ -1585,7 +1585,6 @@ func TestDelete_e2e(t *testing.T) {
 		for i := 0; i < numRanges; i++ {
 			q, err := NewBlockQuerier(hb, 0, 100000)
 			require.NoError(t, err)
-			defer q.Close()
 			ss := q.Select(context.Background(), true, nil, del.ms...)
 			// Build the mockSeriesSet.
 			matchedSeries := make([]storage.Series, 0, len(matched))
@@ -1626,6 +1625,7 @@ func TestDelete_e2e(t *testing.T) {
 			}
 			require.NoError(t, ss.Err())
 			require.Empty(t, ss.Warnings())
+			require.NoError(t, q.Close())
 		}
 	}
 }
