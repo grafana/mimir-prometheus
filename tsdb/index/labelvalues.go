@@ -25,7 +25,7 @@ func (r *Reader) labelValuesFor(postings Postings, name string, includeMatches b
 		return r.labelValuesForV1(postings, name, includeMatches)
 	}
 
-	e := r.postings[name]
+	e := r.postings[name].offsets
 	if len(e) == 0 {
 		return storage.EmptyLabelValues()
 	}
@@ -221,7 +221,7 @@ func (p *MemPostings) LabelValuesExcluding(postings Postings, name string) stora
 func (p *MemPostings) labelValuesFor(postings Postings, name string, includeMatches bool) storage.LabelValues {
 	p.mtx.RLock()
 
-	e := p.m[name]
+	e := p.m[name].valuePostings
 	if len(e) == 0 {
 		p.mtx.RUnlock()
 		return storage.EmptyLabelValues()

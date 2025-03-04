@@ -53,6 +53,12 @@ var ensureOrderBatchPool = sync.Pool{
 	},
 }
 
+// Add this type definition near the top of the file, after the imports
+type memLabelPostings struct {
+	valuePostings map[string][]storage.SeriesRef
+	totalSeries   int64
+}
+
 // MemPostings holds postings list for series ID per label pair. They may be written
 // to out of order.
 // EnsureOrder() must be called once before any reads are done. This allows for quick
@@ -60,14 +66,8 @@ var ensureOrderBatchPool = sync.Pool{
 type MemPostings struct {
 	mtx sync.RWMutex
 
-	// m holds the postings lists for each label-value pair, indexed first by label name, and then by label value.
-	//
-	// mtx must be held when interacting with m (the appropriate one for reading or writing).
-	// It is safe to retain a reference to a postings list after releasing the lock.
-	//
-	// BUG: There's currently a data race in addFor, which might modify the tail of the postings list:
-	// https://github.com/prometheus/prometheus/issues/15317
-	m map[string]map[string][]storage.SeriesRef
+	// m holds the postings lists for each label name
+	m map[string]memLabelPostings
 
 	// lvs holds the label values for each label name.
 	// lvs[name] is essentially an unsorted append-only list of all keys in m[name]
@@ -83,7 +83,7 @@ const defaultLabelNamesMapSize = 512
 // NewMemPostings returns a memPostings that's ready for reads and writes.
 func NewMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, defaultLabelNamesMapSize),
+		m:       make(map[string]memLabelPostings, defaultLabelNamesMapSize),
 		lvs:     make(map[string][]string, defaultLabelNamesMapSize),
 		ordered: true,
 	}
@@ -93,7 +93,7 @@ func NewMemPostings() *MemPostings {
 // until EnsureOrder() was called once.
 func NewUnorderedMemPostings() *MemPostings {
 	return &MemPostings{
-		m:       make(map[string]map[string][]storage.SeriesRef, defaultLabelNamesMapSize),
+		m:       make(map[string]memLabelPostings, defaultLabelNamesMapSize),
 		lvs:     make(map[string][]string, defaultLabelNamesMapSize),
 		ordered: false,
 	}
@@ -131,7 +131,7 @@ func (p *MemPostings) SortedKeys() []labels.Label {
 	keys := make([]labels.Label, 0, len(p.m))
 
 	for n, e := range p.m {
-		for v := range e {
+		for v := range e.valuePostings {
 			keys = append(keys, labels.Label{Name: n, Value: v})
 		}
 	}
@@ -182,11 +182,16 @@ func (p *MemPostings) LabelValues(_ context.Context, name string) []string {
 
 // PostingsStats contains cardinality based statistics for postings.
 type PostingsStats struct {
+	// CardinalityMetricsStats contains the number of series for each label value for the requested label name.
 	CardinalityMetricsStats []Stat
-	CardinalityLabelStats   []Stat
-	LabelValueStats         []Stat
-	LabelValuePairsStats    []Stat
-	NumLabelPairs           int
+	// CardinalityLabelStats contains the number of values for a label name.
+	CardinalityLabelStats []Stat
+	// LabelValueStats contains the space required to store the values for this label name
+	LabelValueStats []Stat
+	// LabelValuePairsStats contains the number of series for each label value pair.
+	LabelValuePairsStats []Stat
+	// NumLabelPairs is the sum of all unique label values for all label names.
+	NumLabelPairs int
 }
 
 // Stats calculates the cardinality statistics from postings.
@@ -206,22 +211,22 @@ func (p *MemPostings) Stats(label string, limit int, labelSizeFunc func(string, 
 	labelValueLength.init(limit)
 	labelValuePairs.init(limit)
 
-	for n, e := range p.m {
-		if n == "" {
+	for labelName, labelPostings := range p.m {
+		if labelName == "" {
 			continue
 		}
-		labels.push(Stat{Name: n, Count: uint64(len(e))})
-		numLabelPairs += len(e)
+		labels.push(Stat{Name: labelName, Count: uint64(len(labelPostings.valuePostings))})
+		numLabelPairs += len(labelPostings.valuePostings)
 		size = 0
-		for name, values := range e {
-			if n == label {
-				metrics.push(Stat{Name: name, Count: uint64(len(values))})
+		for labelValue, values := range labelPostings.valuePostings {
+			if labelName == label {
+				metrics.push(Stat{Name: labelValue, Count: uint64(len(values))})
 			}
 			seriesCnt := uint64(len(values))
-			labelValuePairs.push(Stat{Name: n + "=" + name, Count: seriesCnt})
-			size += labelSizeFunc(n, name, seriesCnt)
+			labelValuePairs.push(Stat{Name: labelName + "=" + labelValue, Count: seriesCnt})
+			size += labelSizeFunc(labelName, labelValue, seriesCnt)
 		}
-		labelValueLength.push(Stat{Name: n, Count: size})
+		labelValueLength.push(Stat{Name: labelName, Count: size})
 	}
 
 	p.mtx.RUnlock()
@@ -278,7 +283,7 @@ func (p *MemPostings) EnsureOrder(numberOfConcurrentProcesses int) {
 
 	nextJob := ensureOrderBatchPool.Get().(*[][]storage.SeriesRef)
 	for _, e := range p.m {
-		for _, l := range e {
+		for _, l := range e.valuePostings {
 			*nextJob = append(*nextJob, l)
 
 			if len(*nextJob) >= ensureOrderBatchSize {
@@ -307,19 +312,22 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected ma
 
 	affectedLabelNames := map[string]struct{}{}
 	process := func(l labels.Label) {
-		orig := p.m[l.Name][l.Value]
+		lp := p.m[l.Name]
+		orig := lp.valuePostings[l.Value]
 		repl := make([]storage.SeriesRef, 0, len(orig))
 		for _, id := range orig {
 			if _, ok := deleted[id]; !ok {
 				repl = append(repl, id)
 			}
 		}
-		if len(repl) > 0 {
-			p.m[l.Name][l.Value] = repl
+		lp.totalSeries -= int64(len(orig) - len(repl))
+		if len(repl) == 0 {
+			lp.valuePostings[l.Value] = repl
 		} else {
-			delete(p.m[l.Name], l.Value)
+			delete(lp.valuePostings, l.Value)
 			affectedLabelNames[l.Name] = struct{}{}
 		}
+		p.m[l.Name] = lp
 	}
 
 	i := 0
@@ -346,7 +354,7 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected ma
 			p.unlockWaitAndLockAgain()
 		}
 
-		if len(p.m[name]) == 0 {
+		if len(p.m[name].valuePostings) == 0 {
 			// Delete the label name key if we deleted all values.
 			delete(p.m, name)
 			delete(p.lvs, name)
@@ -355,8 +363,8 @@ func (p *MemPostings) Delete(deleted map[storage.SeriesRef]struct{}, affected ma
 
 		// Create the new slice with enough room to grow without reallocating.
 		// We have deleted values here, so there's definitely some churn, so be prepared for it.
-		lvs := make([]string, 0, exponentialSliceGrowthFactor*len(p.m[name]))
-		for v := range p.m[name] {
+		lvs := make([]string, 0, exponentialSliceGrowthFactor*len(p.m[name].valuePostings))
+		for v := range p.m[name].valuePostings {
 			lvs = append(lvs, v)
 		}
 		p.lvs[name] = lvs
@@ -386,7 +394,7 @@ func (p *MemPostings) Iter(f func(labels.Label, Postings) error) error {
 	defer p.mtx.RUnlock()
 
 	for n, e := range p.m {
-		for v, p := range e {
+		for v, p := range e.valuePostings {
 			if err := f(labels.Label{Name: n, Value: v}, newListPostings(p...)); err != nil {
 				return err
 			}
@@ -417,17 +425,23 @@ func appendWithExponentialGrowth[T any](a []T, v T) []T {
 }
 
 func (p *MemPostings) addFor(id storage.SeriesRef, l labels.Label) {
-	nm, ok := p.m[l.Name]
+	lp, ok := p.m[l.Name]
 	if !ok {
-		nm = map[string][]storage.SeriesRef{}
-		p.m[l.Name] = nm
+		lp = memLabelPostings{
+			valuePostings: map[string][]storage.SeriesRef{},
+			totalSeries:   0,
+		}
 	}
-	vm, ok := nm[l.Value]
+
+	vm, ok := lp.valuePostings[l.Value]
 	if !ok {
 		p.lvs[l.Name] = appendWithExponentialGrowth(p.lvs[l.Name], l.Value)
 	}
+
 	list := appendWithExponentialGrowth(vm, id)
-	nm[l.Value] = list
+	lp.valuePostings[l.Value] = list
+	lp.totalSeries++
+	p.m[l.Name] = lp
 
 	if !p.ordered {
 		return
@@ -479,7 +493,7 @@ func (p *MemPostings) PostingsForLabelMatching(ctx context.Context, name string,
 	p.mtx.RLock()
 	e := p.m[name]
 	for i, v := range vals {
-		if refs, ok := e[v]; ok {
+		if refs, ok := e.valuePostings[v]; ok {
 			// Some of the values may have been garbage-collected in the meantime this is fine, we'll just skip them.
 			// If we didn't let the mutex go, we'd have these postings here, but they would be pointing nowhere
 			// because there would be a `MemPostings.Delete()` call waiting for the lock to delete these labels,
@@ -499,7 +513,7 @@ func (p *MemPostings) Postings(ctx context.Context, name string, values ...strin
 	res := make([]*ListPostings, 0, len(values))
 	lps := make([]ListPostings, len(values))
 	p.mtx.RLock()
-	postingsMapForName := p.m[name]
+	postingsMapForName := p.m[name].valuePostings
 	for i, value := range values {
 		if lp := postingsMapForName[value]; lp != nil {
 			lps[i] = ListPostings{list: lp}
@@ -514,10 +528,10 @@ func (p *MemPostings) PostingsForAllLabelValues(ctx context.Context, name string
 	p.mtx.RLock()
 
 	e := p.m[name]
-	its := make([]*ListPostings, 0, len(e))
-	lps := make([]ListPostings, len(e))
+	its := make([]*ListPostings, 0, len(e.valuePostings))
+	lps := make([]ListPostings, len(e.valuePostings))
 	i := 0
-	for _, refs := range e {
+	for _, refs := range e.valuePostings {
 		if len(refs) > 0 {
 			lps[i] = ListPostings{list: refs}
 			its = append(its, &lps[i])
@@ -528,6 +542,18 @@ func (p *MemPostings) PostingsForAllLabelValues(ctx context.Context, name string
 	// Let the mutex go before merging.
 	p.mtx.RUnlock()
 	return Merge(ctx, its...)
+}
+
+func (p *MemPostings) LabelValuesCount(ctx context.Context, name string) int64 {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+	return int64(len(p.lvs[name]))
+}
+
+func (p *MemPostings) TotalSeriesWithLabel(ctx context.Context, name string) int64 {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+	return p.m[name].totalSeries
 }
 
 // ExpandPostings returns the postings expanded as a slice.

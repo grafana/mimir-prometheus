@@ -62,6 +62,8 @@ type IndexWriter interface {
 
 // IndexReader provides reading access of serialized index data.
 type IndexReader interface {
+	IndexStatistics
+
 	// Symbols return an iterator over sorted string symbols that may occur in
 	// series' labels and indices. It is not safe to use the returned strings
 	// beyond the lifetime of the index reader.
@@ -601,6 +603,18 @@ func (r blockIndexReader) LabelValueFor(ctx context.Context, id storage.SeriesRe
 // The names returned are sorted.
 func (r blockIndexReader) LabelNamesFor(ctx context.Context, postings index.Postings) ([]string, error) {
 	return r.ir.LabelNamesFor(ctx, postings)
+}
+
+func (r blockIndexReader) TotalSeries() int64 {
+	return r.ir.TotalSeries()
+}
+
+func (r blockIndexReader) LabelValuesCount(ctx context.Context, name string) (int64, error) {
+	return r.ir.LabelValuesCount(ctx, name)
+}
+
+func (r blockIndexReader) TotalSeriesWithLabel(ctx context.Context, name string) (int64, error) {
+	return r.ir.TotalSeriesWithLabel(ctx, name)
 }
 
 type blockTombstoneReader struct {

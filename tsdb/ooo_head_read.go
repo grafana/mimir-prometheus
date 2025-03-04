@@ -528,6 +528,18 @@ func (ir *OOOCompactionHeadIndexReader) Close() error {
 	return nil
 }
 
+func (ir *OOOCompactionHeadIndexReader) TotalSeries() int64 {
+	return int64(len(ir.ch.postings))
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelValuesCount(ctx context.Context, name string) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+
+func (ir *OOOCompactionHeadIndexReader) TotalSeriesWithLabel(ctx context.Context, name string) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+
 // HeadAndOOOQuerier queries both the head and the out-of-order head.
 type HeadAndOOOQuerier struct {
 	mint, maxt int64

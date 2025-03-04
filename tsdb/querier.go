@@ -208,7 +208,14 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 
 	indexMatchers, pendingMatchers, err := planIndexLookup(ctx, ms, ix)
 	if err == nil {
+		_ = indexMatchers
 		ms = indexMatchers
+	}
+
+	if len(ms) == 0 {
+		k, v := index.AllPostingsKey()
+		p, err := ix.Postings(ctx, k, v)
+		return p, pendingMatchers, err
 	}
 
 	var its, notIts []index.Postings
@@ -349,7 +356,8 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 	for _, n := range notIts {
 		it = index.Without(it, n)
 	}
-
+	_ = pendingMatchers
+	//return it, nil, nil
 	return it, pendingMatchers, nil
 }
 
