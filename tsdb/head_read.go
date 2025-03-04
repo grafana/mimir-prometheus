@@ -314,6 +314,18 @@ func (h *headIndexReader) LabelNamesFor(ctx context.Context, series index.Postin
 	return names, nil
 }
 
+func (h *headIndexReader) TotalSeries() int64 {
+	return int64(h.head.NumSeries())
+}
+
+func (h *headIndexReader) LabelValuesCount(ctx context.Context, name string) (int64, error) {
+	return h.head.postings.LabelValuesCount(ctx, name), nil
+}
+
+func (h *headIndexReader) TotalSeriesWithLabel(ctx context.Context, name string) (int64, error) {
+	return h.head.postings.TotalSeriesWithLabel(ctx, name), nil
+}
+
 // Chunks returns a ChunkReader against the block.
 func (h *Head) Chunks() (ChunkReader, error) {
 	return h.chunksRange(math.MinInt64, math.MaxInt64, h.iso.State(math.MinInt64, math.MaxInt64))
