@@ -205,8 +205,6 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		p, err := ix.Postings(ctx, k, v)
 		return p, nil, err
 	}
-
-	var its, notIts []index.Postings
 	// See which label must be non-empty.
 	// Optimization for case like {l=~".", l!="1"}.
 	labelMustBeSet := make(map[string]bool, len(ms))
@@ -221,6 +219,22 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		}
 		return (m.Type == labels.MatchNotEqual || m.Type == labels.MatchNotRegexp) && m.Matches("")
 	}
+	var pendingMatchers []*labels.Matcher
+	if tryOptimizing {
+		p, err := planIndexLookup(ctx, ms, ix, isSubtractingMatcher)
+		if err == nil {
+			pendingMatchers = p.pendingMatchers()
+			ms = p.indexMatchers()
+		}
+
+		if len(ms) == 0 {
+			k, v := index.AllPostingsKey()
+			p, err := ix.Postings(ctx, k, v)
+			return p, pendingMatchers, err
+		}
+	}
+	var its, notIts []index.Postings
+
 	hasSubtractingMatchers, hasIntersectingMatchers := false, false
 	for _, m := range ms {
 		if isSubtractingMatcher(m) {
@@ -345,7 +359,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		it = index.Without(it, n)
 	}
 
-	return it, nil, nil
+	return it, pendingMatchers, nil
 }
 
 func postingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *labels.Matcher) (index.Postings, error) {
