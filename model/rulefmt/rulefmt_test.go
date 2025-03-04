@@ -28,10 +28,15 @@ import (
 func TestParseFileSuccess(t *testing.T) {
 	_, errs := ParseFile("testdata/test.yaml", false)
 	require.Empty(t, errs, "unexpected errors parsing file")
+
+	_, errs = ParseFile("testdata/utf-8_lname.good.yaml", false)
+	require.Empty(t, errs, "unexpected errors parsing file")
+	_, errs = ParseFile("testdata/utf-8_annotation.good.yaml", false)
+	require.Empty(t, errs, "unexpected errors parsing file")
 }
 
 func TestParseFileFailure(t *testing.T) {
-	table := []struct {
+	for _, c := range []struct {
 		filename string
 		errMsg   string
 	}{
@@ -56,16 +61,8 @@ func TestParseFileFailure(t *testing.T) {
 			errMsg:   "field 'expr' must be set in rule",
 		},
 		{
-			filename: "bad_lname.bad.yaml",
-			errMsg:   "invalid label name",
-		},
-		{
-			filename: "bad_annotation.bad.yaml",
-			errMsg:   "invalid annotation name",
-		},
-		{
 			filename: "invalid_record_name.bad.yaml",
-			errMsg:   "invalid recording rule name",
+			errMsg:   "braces present in the recording rule name; should it be in expr?: strawberry{flavor=\"sweet\"}",
 		},
 		{
 			filename: "bad_field.bad.yaml",
@@ -83,12 +80,12 @@ func TestParseFileFailure(t *testing.T) {
 			filename: "record_and_keep_firing_for.bad.yaml",
 			errMsg:   "invalid field 'keep_firing_for' in recording rule",
 		},
-	}
-
-	for _, c := range table {
-		_, errs := ParseFile(filepath.Join("testdata", c.filename), false)
-		require.NotEmpty(t, errs, "Expected error parsing %s but got none", c.filename)
-		require.ErrorContainsf(t, errs[0], c.errMsg, "Expected error for %s.", c.filename)
+	} {
+		t.Run(c.filename, func(t *testing.T) {
+			_, errs := ParseFile(filepath.Join("testdata", c.filename), false)
+			require.NotEmpty(t, errs, "Expected error parsing %s but got none", c.filename)
+			require.ErrorContainsf(t, errs[0], c.errMsg, "Expected error for %s.", c.filename)
+		})
 	}
 }
 
