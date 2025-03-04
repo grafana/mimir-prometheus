@@ -91,7 +91,8 @@ type IndexReader interface {
 	// The resulting postings are not ordered by series.
 	// If concurrent hint is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
 	// avoiding same calculations twice, however this implementation may lead to a worse performance when called once.
-	PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error)
+	// The returned pendingMatchers are matchers that have not been applied to the returned postings yet.
+	PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error)
 
 	// SortedPostings returns a postings list that is reordered to be sorted
 	// by the label set of the underlying series.
@@ -554,8 +555,10 @@ func (r blockIndexReader) PostingsForAllLabelValues(ctx context.Context, name st
 	return r.ir.PostingsForAllLabelValues(ctx, name)
 }
 
-func (r blockIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return r.ir.PostingsForMatchers(ctx, concurrent, ms...)
+func (r blockIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
+	// For now, we're not implementing any pending matchers, returning an empty slice
+	p, pendingMatchers, err := PostingsForMatchers(ctx, r, ms...)
+	return p, pendingMatchers, err
 }
 
 func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {
@@ -629,10 +632,12 @@ func (pb *Block) Delete(ctx context.Context, mint, maxt int64, ms ...*labels.Mat
 		return ErrClosing
 	}
 
-	p, err := pb.indexr.PostingsForMatchers(ctx, false, ms...)
+	p, _, err := pb.indexr.PostingsForMatchers(ctx, false, ms...)
 	if err != nil {
 		return fmt.Errorf("select series: %w", err)
 	}
+
+	// TODO dimitarvdimitrov handle pending matchers
 
 	ir := pb.indexr
 

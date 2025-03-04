@@ -1540,10 +1540,11 @@ func (h *Head) Delete(ctx context.Context, mint, maxt int64, ms ...*labels.Match
 
 	ir := h.indexRange(mint, maxt)
 
-	p, err := ir.PostingsForMatchers(ctx, false, ms...)
+	p, _, err := ir.PostingsForMatchers(ctx, false, ms...)
 	if err != nil {
 		return fmt.Errorf("select series: %w", err)
 	}
+	// TODO dimitarvdimitrov handle pending matchers
 
 	var stones []tombstones.Stone
 	for p.Next() {

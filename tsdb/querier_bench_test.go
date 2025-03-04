@@ -177,8 +177,9 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := PostingsForMatchers(ctx, ir, c.matchers...)
+				_, pendingMatchers, err := PostingsForMatchers(ctx, ir, c.matchers...)
 				require.NoError(b, err)
+				require.Empty(b, pendingMatchers)
 			}
 		})
 	}

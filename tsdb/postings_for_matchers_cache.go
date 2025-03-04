@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -110,7 +111,7 @@ type PostingsForMatchersCache struct {
 	timeNow func() time.Time
 
 	// postingsForMatchers can be replaced for testing purposes
-	postingsForMatchers func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error)
+	postingsForMatchers func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error)
 
 	// onPromiseExecutionDoneBeforeHook is used for testing purposes. It allows to hook at the
 	// beginning of onPromiseExecutionDone() execution.
@@ -125,7 +126,7 @@ type PostingsForMatchersCache struct {
 	forceAttrib attribute.KeyValue
 }
 
-func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	c.metrics.requests.Inc()
 
 	span := trace.SpanFromContext(ctx)
@@ -140,22 +141,22 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 		c.metrics.skipsBecauseIneligible.Inc()
 		span.AddEvent("cache not used")
 
-		p, err := c.postingsForMatchers(ctx, ix, ms...)
+		p, pendingMatchers, err := c.postingsForMatchers(ctx, ix, ms...)
 		if err != nil {
 			span.SetStatus(codes.Error, "getting postings for matchers without cache failed")
 			span.RecordError(err)
 		}
-		return p, err
+		return p, pendingMatchers, err
 	}
 
 	span.AddEvent("using cache")
 	c.expire()
-	p, err := c.postingsForMatchersPromise(ctx, ix, ms)(ctx)
+	p, pendingMatchers, err := c.postingsForMatchersPromise(ctx, ix, ms)(ctx)
 	if err != nil {
 		span.SetStatus(codes.Error, "getting postings for matchers with cache failed")
 		span.RecordError(err)
 	}
-	return p, err
+	return p, pendingMatchers, err
 }
 
 type postingsForMatcherPromise struct {
@@ -165,27 +166,28 @@ type postingsForMatcherPromise struct {
 
 	// The result of the promise is stored either in cloner or err (only of the two is valued).
 	// Do not access these fields until the done channel is closed.
-	done   chan struct{}
-	cloner *index.PostingsCloner
-	err    error
+	done            chan struct{}
+	cloner          *index.PostingsCloner
+	pendingMatchers []*labels.Matcher
+	err             error
 
 	// Keep track of the time this promise completed evaluation.
 	// Do not access this field until the done channel is closed.
 	evaluationCompletedAt time.Time
 }
 
-func (p *postingsForMatcherPromise) result(ctx context.Context) (index.Postings, error) {
+func (p *postingsForMatcherPromise) result(ctx context.Context) (index.Postings, []*labels.Matcher, error) {
 	select {
 	case <-ctx.Done():
-		return nil, fmt.Errorf("interrupting wait on postingsForMatchers promise due to context error: %w", ctx.Err())
+		return nil, nil, fmt.Errorf("interrupting wait on postingsForMatchers promise due to context error: %w", ctx.Err())
 	case <-p.done:
 		// Checking context error is necessary for deterministic tests,
 		// as channel selection order is random
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("completed postingsForMatchers promise, but context has error: %w", ctx.Err())
+			return nil, nil, fmt.Errorf("completed postingsForMatchers promise, but context has error: %w", ctx.Err())
 		}
 		if p.err != nil {
-			return nil, fmt.Errorf("postingsForMatchers promise completed with error: %w", p.err)
+			return nil, nil, fmt.Errorf("postingsForMatchers promise completed with error: %w", p.err)
 		}
 
 		trace.SpanFromContext(ctx).AddEvent("completed postingsForMatchers promise", trace.WithAttributes(
@@ -193,11 +195,11 @@ func (p *postingsForMatcherPromise) result(ctx context.Context) (index.Postings,
 			attribute.Int64("evaluation completed at (epoch seconds)", p.evaluationCompletedAt.Unix()),
 		))
 
-		return p.cloner.Clone(), nil
+		return p.cloner.Clone(), slices.Clone(p.pendingMatchers), nil
 	}
 }
 
-func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Context, ix IndexPostingsReader, ms []*labels.Matcher) func(context.Context) (index.Postings, error) {
+func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Context, ix IndexPostingsReader, ms []*labels.Matcher) func(context.Context) (index.Postings, []*labels.Matcher, error) {
 	span := trace.SpanFromContext(ctx)
 
 	promiseCallersCtxTracker, promiseExecCtx := newContextsTracker()
@@ -242,7 +244,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 					))
 					c.metrics.skipsBecauseStale.Inc()
 
-					return func(ctx context.Context) (index.Postings, error) {
+					return func(ctx context.Context) (index.Postings, []*labels.Matcher, error) {
 						return c.postingsForMatchers(ctx, ix, ms...)
 					}
 				}
@@ -264,7 +266,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 				attribute.String("cache_key", key),
 			))
 
-			return func(ctx context.Context) (index.Postings, error) {
+			return func(ctx context.Context) (index.Postings, []*labels.Matcher, error) {
 				return c.postingsForMatchers(ctx, ix, ms...)
 			}
 		}
@@ -289,10 +291,11 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 	// 2. Cancel postingsForMatchers() once all callers contexts have been canceled, so that we don't waist
 	//    resources computing postingsForMatchers() is all requests have been canceled (this is particularly
 	//    important if the postingsForMatchers() is very slow due to expensive regexp matchers).
-	if postings, err := c.postingsForMatchers(promiseExecCtx, ix, ms...); err != nil {
+	if postings, pendingMatchers, err := c.postingsForMatchers(promiseExecCtx, ix, ms...); err != nil {
 		promise.err = err
 	} else {
 		promise.cloner = index.NewPostingsCloner(postings)
+		promise.pendingMatchers = pendingMatchers
 	}
 
 	// Keep track of when the evaluation completed.
@@ -489,7 +492,7 @@ type indexReaderWithPostingsForMatchers struct {
 	pfmc *PostingsForMatchersCache
 }
 
-func (ir indexReaderWithPostingsForMatchers) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (ir indexReaderWithPostingsForMatchers) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	return ir.pfmc.PostingsForMatchers(ctx, ir, concurrent, ms...)
 }
 

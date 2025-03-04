@@ -114,7 +114,7 @@ func (h *headIndexReader) PostingsForAllLabelValues(ctx context.Context, name st
 	return h.head.postings.PostingsForAllLabelValues(ctx, name)
 }
 
-func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	return h.head.pfmc.PostingsForMatchers(ctx, h, concurrent, ms...)
 }
 

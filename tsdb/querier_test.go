@@ -2390,7 +2390,7 @@ func (m mockIndex) PostingsForAllLabelValues(ctx context.Context, name string) i
 	return index.Merge(ctx, res...)
 }
 
-func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {
 		if matches(ms, s.l) {
@@ -2398,7 +2398,7 @@ func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ..
 		}
 	}
 	sort.Slice(ps, func(i, j int) bool { return ps[i] < ps[j] })
-	return index.NewListPostings(ps), nil
+	return index.NewListPostings(ps), nil, nil
 }
 
 func matches(ms []*labels.Matcher, lbls labels.Labels) bool {
@@ -3113,8 +3113,9 @@ func TestPostingsForMatchers(t *testing.T) {
 			for _, l := range c.exp {
 				exp[l.String()] = struct{}{}
 			}
-			p, err := PostingsForMatchers(ctx, ir, c.matchers...)
+			p, pendingMatchers, err := PostingsForMatchers(ctx, ir, c.matchers...)
 			require.NoError(t, err)
+			require.Empty(t, pendingMatchers)
 
 			var builder labels.ScratchBuilder
 			for p.Next() {
@@ -3858,7 +3859,7 @@ type indexReaderCountingPostingsForMatchersCalls struct {
 	postingsForMatchersCalls int
 }
 
-func (f *indexReaderCountingPostingsForMatchersCalls) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (f *indexReaderCountingPostingsForMatchersCalls) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	f.postingsForMatchersCalls++
 	return f.IndexReader.PostingsForMatchers(ctx, concurrent, ms...)
 }
@@ -4015,8 +4016,8 @@ func (m mockReaderOfLabels) LabelValuesFor(index.Postings, string) storage.Label
 	panic("LabelValuesFor called")
 }
 
-func (m mockReaderOfLabels) PostingsForMatchers(context.Context, bool, ...*labels.Matcher) (index.Postings, error) {
-	panic("PostingsForMatchers called")
+func (m mockReaderOfLabels) PostingsForMatchers(context.Context, bool, ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
+	return index.EmptyPostings(), nil, nil
 }
 
 // TestMergeQuerierConcurrentSelectMatchers reproduces the data race bug from

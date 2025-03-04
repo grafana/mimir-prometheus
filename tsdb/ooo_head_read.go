@@ -170,7 +170,7 @@ func getOOOSeriesChunks(s *memSeries, mint, maxt int64, lastGarbageCollectedMmap
 
 // PostingsForMatchers needs to be overridden so that the right IndexReader
 // implementation gets passed down to the PostingsForMatchers call.
-func (oh *HeadAndOOOIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (oh *HeadAndOOOIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	return oh.head.pfmc.PostingsForMatchers(ctx, oh, concurrent, ms...)
 }
 
@@ -508,8 +508,8 @@ func (ir *OOOCompactionHeadIndexReader) LabelValues(_ context.Context, name stri
 	return nil, errors.New("not implemented")
 }
 
-func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
-	return nil, errors.New("not implemented")
+func (ir *OOOCompactionHeadIndexReader) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
+	return nil, nil, errors.New("not implemented")
 }
 
 func (ir *OOOCompactionHeadIndexReader) LabelNames(context.Context, ...*labels.Matcher) ([]string, error) {
