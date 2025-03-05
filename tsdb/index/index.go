@@ -1121,8 +1121,9 @@ type Reader struct {
 	// Close that releases the underlying resources of the byte slice.
 	c io.Closer
 
-	// Map of LabelName to
-	postings map[string]labelPostings
+	// Map of LabelName to a list of some LabelValues's position in the offset table.
+	// The first and last values for each name are always present.
+	postings map[string][]postingOffset
 	// For the v1 format, labelname -> labelvalue -> offset.
 	postingsV1 map[string]map[string]uint64
 
@@ -1137,10 +1138,6 @@ type Reader struct {
 
 	// Provides a cache mapping series labels hash by series ID.
 	cacheProvider ReaderCacheProvider
-}
-
-func (r *Reader) TotalSeries() int64 {
-	return r.postings[""].numSeriesWithLabel
 }
 
 type postingOffset struct {
@@ -1201,23 +1198,11 @@ func NewFileReaderWithOptions(path string, decoder PostingsDecoder, cacheProvide
 	return r, nil
 }
 
-type labelPostings struct {
-	// offsets is a list of some LabelValues's position in the offset table.
-	// The first and last values for each name are always present.
-	offsets []postingOffset
-
-	// numValues is the number of unique values for this label name. Some of the values may not be in offsets.
-	numValues int64
-
-	// numSeriesWithLabel is the number of series that have this label name.
-	numSeriesWithLabel int64
-}
-
 func newReader(b ByteSlice, c io.Closer, postingsDecoder PostingsDecoder, cacheProvider ReaderCacheProvider) (*Reader, error) {
 	r := &Reader{
 		b:             b,
 		c:             c,
-		postings:      map[string]labelPostings{},
+		postings:      map[string][]postingOffset{},
 		cacheProvider: cacheProvider,
 		st:            labels.NewSymbolTable(),
 	}
@@ -1255,7 +1240,7 @@ func newReader(b ByteSlice, c io.Closer, postingsDecoder PostingsDecoder, cacheP
 		if err := ReadPostingsOffsetTable(r.b, r.toc.PostingsTable, func(name, value []byte, off uint64, _ int) error {
 			if _, ok := r.postingsV1[string(name)]; !ok {
 				r.postingsV1[string(name)] = map[string]uint64{}
-				r.postings[string(name)] = labelPostings{} // Used to get a list of labelnames in places.
+				r.postings[string(name)] = nil // Used to get a list of labelnames in places.
 			}
 			r.postingsV1[string(name)][string(value)] = off
 			return nil
@@ -1263,65 +1248,41 @@ func newReader(b ByteSlice, c io.Closer, postingsDecoder PostingsDecoder, cacheP
 			return nil, fmt.Errorf("read postings table: %w", err)
 		}
 	} else {
-		includedLastValue := true
 		var lastName, lastValue []byte
 		lastOff := 0
 		valueCount := 0
-		lastPostingListOffset := uint64(0)
 		// For the postings offset table we keep every label name but only every nth
 		// label value (plus the first and last one), to save memory.
-		// TODO dimitarvdimitrov untagle this mess
-		if err := ReadPostingsOffsetTable(r.b, r.toc.PostingsTable, func(name, value []byte, postingListOffset uint64, off int) error {
-			_, seenOtherValsForName := r.postings[string(name)]
-			if !seenOtherValsForName {
+		if err := ReadPostingsOffsetTable(r.b, r.toc.PostingsTable, func(name, value []byte, _ uint64, off int) error {
+			if _, ok := r.postings[string(name)]; !ok {
 				// Next label name.
-				r.postings[string(name)] = labelPostings{}
-				// Always include last value for each label name.
-				postings := r.postings[string(lastName)]
-				if !includedLastValue {
-					postings.offsets = append(postings.offsets, postingOffset{value: string(lastValue), off: lastOff})
+				r.postings[string(name)] = []postingOffset{}
+				if lastName != nil {
+					// Always include last value for each label name.
+					r.postings[string(lastName)] = append(r.postings[string(lastName)], postingOffset{value: string(lastValue), off: lastOff})
 				}
-				postings.numValues = int64(valueCount)
-				if lastPostingListOffset > 0 {
-					postings.numSeriesWithLabel += int64(postingListOffset-lastPostingListOffset-12) / 4 // 4B per series in the posting list; 4B for length, 4B for number of entries, 4B for CRC32 = 12B
-				}
-				r.postings[string(lastName)] = postings
 				valueCount = 0
-			} else {
-				postings := r.postings[string(name)]
-				postings.numSeriesWithLabel += int64(postingListOffset-lastPostingListOffset-12) / 4 // 4B per series in the posting list; 4B for length, 4B for number of entries, 4B for CRC32 = 12B
-				r.postings[string(name)] = postings
 			}
 			if valueCount%symbolFactor == 0 {
-				postings := r.postings[string(name)]
-				postings.offsets = append(postings.offsets, postingOffset{value: string(value), off: off})
-				r.postings[string(name)] = postings
-				includedLastValue = true
-			} else { // TODO dimitarvdimitrov get rid of the else and always do this; it should be noop
+				r.postings[string(name)] = append(r.postings[string(name)], postingOffset{value: string(value), off: off})
+				lastName, lastValue = nil, nil
+			} else {
+				lastName, lastValue = name, value
 				lastOff = off
-				includedLastValue = false
 			}
-			lastName, lastValue = name, value
 			valueCount++
-			lastPostingListOffset = postingListOffset
 			return nil
 		}); err != nil {
 			return nil, fmt.Errorf("read postings table: %w", err)
 		}
-		postings := r.postings[string(lastName)]
-		if !includedLastValue {
-			postings.offsets = append(postings.offsets, postingOffset{value: string(lastValue), off: lastOff})
+		if lastName != nil {
+			r.postings[string(lastName)] = append(r.postings[string(lastName)], postingOffset{value: string(lastValue), off: lastOff})
 		}
-		postings.numValues = int64(valueCount)
-		postings.numSeriesWithLabel += int64(r.toc.LabelIndicesTable-lastPostingListOffset-12) / 4 // 4B per series in the posting list; 4B for length, 4B for number of entries, 4B for CRC32 = 12B
-		r.postings[string(lastName)] = postings
 		// Trim any extra space in the slices.
 		for k, v := range r.postings {
-			l := make([]postingOffset, len(v.offsets))
-			copy(l, v.offsets)
-			postings := r.postings[k]
-			postings.offsets = l
-			r.postings[k] = postings
+			l := make([]postingOffset, len(v))
+			copy(l, v)
+			r.postings[k] = l
 		}
 	}
 
@@ -1597,11 +1558,10 @@ func (r *Reader) LabelValues(ctx context.Context, name string, matchers ...*labe
 		}
 		return values, nil
 	}
-	postings, ok := r.postings[name]
+	e, ok := r.postings[name]
 	if !ok {
 		return nil, nil
 	}
-	e := postings.offsets
 	if len(e) == 0 {
 		return nil, nil
 	}
@@ -1776,12 +1736,11 @@ func (r *Reader) Postings(ctx context.Context, name string, values ...string) (P
 		return Merge(ctx, res...), nil
 	}
 
-	postings, ok := r.postings[name]
+	e, ok := r.postings[name]
 	if !ok {
 		return EmptyPostings(), nil
 	}
 
-	e := postings.offsets
 	if len(values) == 0 {
 		return EmptyPostings(), nil
 	}
@@ -1850,7 +1809,7 @@ func (r *Reader) postingsForLabelMatching(ctx context.Context, name string, matc
 		return r.postingsForLabelMatchingV1(ctx, name, match)
 	}
 
-	e := r.postings[name].offsets
+	e := r.postings[name]
 	if len(e) == 0 {
 		return EmptyPostings()
 	}
@@ -1990,20 +1949,6 @@ func (r *Reader) LabelNames(_ context.Context, matchers ...*labels.Matcher) ([]s
 	}
 	slices.Sort(labelNames)
 	return labelNames, nil
-}
-
-func (r *Reader) LabelValuesCount(ctx context.Context, name string) (int64, error) {
-	if r.version == FormatV1 {
-		return int64(len(r.postingsV1[name])), nil
-	}
-	return r.postings[name].numValues, nil
-}
-
-func (r *Reader) TotalSeriesWithLabel(ctx context.Context, name string) (int64, error) {
-	if r.version == FormatV1 {
-		return 0, fmt.Errorf("label statistics not supported in TSDB v1")
-	}
-	return r.postings[name].numSeriesWithLabel, nil
 }
 
 // NewStringListIter returns a StringIter for the given sorted list of strings.

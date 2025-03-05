@@ -486,8 +486,7 @@ func analyzeBlock(ctx context.Context, path, blockID string, limit int, runExten
 		refs []storage.SeriesRef
 	)
 	if len(matchers) > 0 {
-		p, _, err = tsdb.PostingsForMatchers(ctx, ir, selectors...)
-		// TODO dimitarvdimitrov handle pending matchers
+		p, err = tsdb.PostingsForMatchers(ctx, ir, selectors...)
 		if err != nil {
 			return err
 		}
@@ -615,8 +614,7 @@ func analyzeBlock(ctx context.Context, path, blockID string, limit int, runExten
 func analyzeCompaction(ctx context.Context, block tsdb.BlockReader, indexr tsdb.IndexReader, matchers []*labels.Matcher) (err error) {
 	var postingsr index.Postings
 	if len(matchers) > 0 {
-		postingsr, _, err = tsdb.PostingsForMatchers(ctx, indexr, matchers...)
-		// TODO dimitarvdimitrov handle pending matchers
+		postingsr, err = tsdb.PostingsForMatchers(ctx, indexr, matchers...)
 	} else {
 		n, v := index.AllPostingsKey()
 		postingsr, err = indexr.Postings(ctx, n, v)

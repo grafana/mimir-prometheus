@@ -42,8 +42,6 @@ const (
 
 // IndexPostingsReader is a subset of IndexReader methods, the minimum required to evaluate PostingsForMatchers.
 type IndexPostingsReader interface {
-	IndexStatistics
-
 	// LabelValues returns possible label values which may not be sorted.
 	LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error)
 
