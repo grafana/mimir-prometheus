@@ -134,20 +134,17 @@ func selectSeriesSet(ctx context.Context, sortSeries bool, hints *storage.Select
 		p = index.SortedPostings(p)
 	}
 
-	// TODO dimitarvdimitrov handle pending matchers
-	_ = pendingMatchers
-
 	if hints != nil {
 		mint = hints.Start
 		maxt = hints.End
 		disableTrimming = hints.DisableTrimming
 		if hints.Func == "series" {
 			// When you're only looking up metadata (for example series API), you don't need to load any chunks.
-			return newBlockSeriesSet(index, newNopChunkReader(), tombstones, p, mint, maxt, disableTrimming)
+			return newBlockSeriesSet(index, newNopChunkReader(), tombstones, p, mint, maxt, disableTrimming, pendingMatchers)
 		}
 	}
 
-	return newBlockSeriesSet(index, chunks, tombstones, p, mint, maxt, disableTrimming)
+	return newBlockSeriesSet(index, chunks, tombstones, p, mint, maxt, disableTrimming, pendingMatchers)
 }
 
 // blockChunkQuerier provides chunk querying access to a single block database.
@@ -190,11 +187,10 @@ func selectChunkSeriesSet(ctx context.Context, sortSeries bool, hints *storage.S
 		p = index.SortedPostings(p)
 	}
 
-	// TODO dimitarvdimitrov handle pending matchers
-	_ = pendingMatchers
-
-	return NewBlockChunkSeriesSet(blockID, index, chunks, tombstones, p, mint, maxt, disableTrimming)
+	return NewBlockChunkSeriesSet(blockID, index, chunks, tombstones, p, mint, maxt, disableTrimming, pendingMatchers)
 }
+
+const tryOptimizing = true
 
 // PostingsForMatchers assembles a single postings iterator against the index reader
 // based on the given matchers. The resulting postings are not ordered by series.
@@ -206,18 +202,20 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		return p, nil, err
 	}
 
-	indexMatchers, pendingMatchers, err := planIndexLookup(ctx, ms, ix)
-	if err == nil {
-		_ = indexMatchers
-		ms = indexMatchers
-	}
+	var pendingMatchers []*labels.Matcher
+	if tryOptimizing {
+		p, err := planIndexLookup(ctx, ms, ix)
+		if err == nil {
+			pendingMatchers = p.pendingMatchers()
+			ms = p.indexMatchers()
+		}
 
-	if len(ms) == 0 {
-		k, v := index.AllPostingsKey()
-		p, err := ix.Postings(ctx, k, v)
-		return p, pendingMatchers, err
+		if len(ms) == 0 {
+			k, v := index.AllPostingsKey()
+			p, err := ix.Postings(ctx, k, v)
+			return p, pendingMatchers, err
+		}
 	}
-
 	var its, notIts []index.Postings
 	// See which label must be non-empty.
 	// Optimization for case like {l=~".", l!="1"}.
@@ -356,8 +354,6 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 	for _, n := range notIts {
 		it = index.Without(it, n)
 	}
-	_ = pendingMatchers
-	//return it, nil, nil
 	return it, pendingMatchers, nil
 }
 
@@ -622,6 +618,10 @@ type blockBaseSeriesSet struct {
 	index           IndexReader
 	chunks          ChunkReader
 	tombstones      tombstones.Reader
+	pendingMatchers []*labels.Matcher
+
+	closed bool
+
 	mint, maxt      int64
 	disableTrimming bool
 
@@ -633,6 +633,7 @@ type blockBaseSeriesSet struct {
 }
 
 func (b *blockBaseSeriesSet) Next() bool {
+	tempLabels := labels.Labels{}
 	for b.p.Next() {
 		if err := b.index.Series(b.p.At(), &b.builder, &b.bufChks); err != nil {
 			// Postings may be stale. Skip if no underlying series exists.
@@ -641,6 +642,16 @@ func (b *blockBaseSeriesSet) Next() bool {
 			}
 			b.err = fmt.Errorf("get series %d: %w", b.p.At(), err)
 			return false
+		}
+
+		// Check pending matchers before loading chunks
+		if len(b.pendingMatchers) > 0 {
+			b.builder.Overwrite(&tempLabels)
+			for _, m := range b.pendingMatchers {
+				if !m.Matches(tempLabels.Get(m.Name)) {
+					continue
+				}
+			}
 		}
 
 		if len(b.bufChks) == 0 {
@@ -1207,7 +1218,7 @@ type blockSeriesSet struct {
 	blockBaseSeriesSet
 }
 
-func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p index.Postings, mint, maxt int64, disableTrimming bool) storage.SeriesSet {
+func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p index.Postings, mint, maxt int64, disableTrimming bool, pendingMatchers []*labels.Matcher) *blockSeriesSet {
 	return &blockSeriesSet{
 		blockBaseSeriesSet{
 			index:           i,
@@ -1217,6 +1228,7 @@ func newBlockSeriesSet(i IndexReader, c ChunkReader, t tombstones.Reader, p inde
 			mint:            mint,
 			maxt:            maxt,
 			disableTrimming: disableTrimming,
+			pendingMatchers: pendingMatchers,
 		},
 	}
 }
@@ -1237,7 +1249,7 @@ type blockChunkSeriesSet struct {
 	blockBaseSeriesSet
 }
 
-func NewBlockChunkSeriesSet(id ulid.ULID, i IndexReader, c ChunkReader, t tombstones.Reader, p index.Postings, mint, maxt int64, disableTrimming bool) storage.ChunkSeriesSet {
+func NewBlockChunkSeriesSet(id ulid.ULID, i IndexReader, c ChunkReader, t tombstones.Reader, p index.Postings, mint, maxt int64, disableTrimming bool, pendingMatchers []*labels.Matcher) storage.ChunkSeriesSet {
 	return &blockChunkSeriesSet{
 		blockBaseSeriesSet{
 			blockID:         id,
@@ -1248,6 +1260,7 @@ func NewBlockChunkSeriesSet(id ulid.ULID, i IndexReader, c ChunkReader, t tombst
 			mint:            mint,
 			maxt:            maxt,
 			disableTrimming: disableTrimming,
+			pendingMatchers: pendingMatchers,
 		},
 	}
 }
