@@ -2481,18 +2481,6 @@ func (m mockIndex) LabelNames(_ context.Context, matchers ...*labels.Matcher) ([
 	return l, nil
 }
 
-func (m mockIndex) TotalSeries() int64 {
-	return int64(len(m.series))
-}
-
-func (m mockIndex) LabelValuesCount(ctx context.Context, name string) (int64, error) {
-	panic("implement me")
-}
-
-func (m mockIndex) TotalSeriesWithLabel(ctx context.Context, name string) (int64, error) {
-	panic("implement me")
-}
-
 func BenchmarkQueryIterator(b *testing.B) {
 	cases := []struct {
 		numBlocks                   int
@@ -3382,18 +3370,6 @@ func benchQuery(b *testing.B, expExpansions int, q storage.Querier, selectors la
 // mockMatcherIndex is used to check if the regex matcher works as expected.
 type mockMatcherIndex struct{}
 
-func (m mockMatcherIndex) TotalSeries() int64 {
-	return 0
-}
-
-func (m mockMatcherIndex) LabelValuesCount(ctx context.Context, name string) (int64, error) {
-	return 0, errors.New("LabelValuesCount called")
-}
-
-func (m mockMatcherIndex) TotalSeriesWithLabel(ctx context.Context, name string) (int64, error) {
-	return 0, errors.New("TotalSeriesWithLabel called")
-}
-
 func (m mockMatcherIndex) Symbols() index.StringIter { return nil }
 
 func (m mockMatcherIndex) Close() error { return nil }
@@ -4042,18 +4018,6 @@ func (m mockReaderOfLabels) LabelValuesFor(index.Postings, string) storage.Label
 
 func (m mockReaderOfLabels) PostingsForMatchers(context.Context, bool, ...*labels.Matcher) (index.Postings, []*labels.Matcher, error) {
 	return index.EmptyPostings(), nil, nil
-}
-
-func (m mockReaderOfLabels) TotalSeries() int64 {
-	panic("TotalSeries called")
-}
-
-func (m mockReaderOfLabels) LabelValuesCount(context.Context, string) (int64, error) {
-	panic("LabelValuesCount called")
-}
-
-func (m mockReaderOfLabels) TotalSeriesWithLabel(context.Context, string) (int64, error) {
-	panic("TotalSeriesWithLabel called")
 }
 
 // TestMergeQuerierConcurrentSelectMatchers reproduces the data race bug from

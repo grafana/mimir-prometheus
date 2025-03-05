@@ -52,7 +52,7 @@ func TestBlockWriter(t *testing.T) {
 	defer func() { require.NoError(t, b.Close()) }()
 	q, err := NewBlockQuerier(b, math.MinInt64, math.MaxInt64)
 	require.NoError(t, err)
-	series := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "", ""))
+	series := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "", ".*"))
 	sample1 := []chunks.Sample{sample{t: ts1, f: v1}}
 	sample2 := []chunks.Sample{sample{t: ts2, f: v2}}
 	expectedSeries := map[string][]chunks.Sample{"{a=\"b\"}": sample1, "{c=\"d\"}": sample2}
