@@ -169,7 +169,9 @@ func TestNoPanicFor0Tombstones(t *testing.T) {
 		},
 	}
 
-	c, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{50}, nil, nil)
+	c, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{50}, nil, LeveledCompactorOptions{
+		EnableOverlappingCompaction: true,
+	})
 	require.NoError(t, err)
 
 	c.plan(metas)
@@ -177,13 +179,15 @@ func TestNoPanicFor0Tombstones(t *testing.T) {
 
 func TestLeveledCompactor_plan(t *testing.T) {
 	// This mimics our default ExponentialBlockRanges with min block size equals to 20.
-	compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{
+	compactor, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{
 		20,
 		60,
 		180,
 		540,
 		1620,
-	}, nil, nil)
+	}, nil, LeveledCompactorOptions{
+		EnableOverlappingCompaction: true,
+	})
 	require.NoError(t, err)
 
 	cases := map[string]struct {
@@ -386,13 +390,15 @@ func TestLeveledCompactor_plan(t *testing.T) {
 }
 
 func TestRangeWithFailedCompactionWontGetSelected(t *testing.T) {
-	compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{
+	compactor, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{
 		20,
 		60,
 		240,
 		720,
 		2160,
-	}, nil, nil)
+	}, nil, LeveledCompactorOptions{
+		EnableOverlappingCompaction: true,
+	})
 	require.NoError(t, err)
 
 	cases := []struct {
@@ -1364,7 +1370,9 @@ func BenchmarkCompaction(b *testing.B) {
 				blockDirs = append(blockDirs, block.Dir())
 			}
 
-			c, err := NewLeveledCompactor(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, nil)
+			c, err := NewLeveledCompactorWithOptions(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, LeveledCompactorOptions{
+				EnableOverlappingCompaction: true,
+			})
 			require.NoError(b, err)
 
 			b.ResetTimer()
@@ -1560,7 +1568,7 @@ func TestCancelCompactions(t *testing.T) {
 		// This checks that the `context.Canceled` error is properly checked at all levels:
 		// - tsdb_errors.NewMulti() should have the Is() method implemented for correct checks.
 		// - callers should check with errors.Is() instead of ==.
-		readOnlyDB, err := OpenDBReadOnly(tmpdirCopy, "", promslog.NewNopLogger())
+		readOnlyDB, err := OpenDBReadOnly(tmpdirCopy, "", false, promslog.NewNopLogger())
 		require.NoError(t, err)
 		blocks, err := readOnlyDB.Blocks()
 		require.NoError(t, err)
@@ -1859,7 +1867,9 @@ func TestHeadCompactionWithHistograms(t *testing.T) {
 			// Compaction.
 			mint := head.MinTime()
 			maxt := head.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
-			compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), nil)
+			compactor, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), LeveledCompactorOptions{
+				EnableOverlappingCompaction: true,
+			})
 			require.NoError(t, err)
 			ids, err := compactor.Write(head.opts.ChunkDirRoot, head, mint, maxt, nil)
 			require.NoError(t, err)
@@ -2002,7 +2012,9 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 					// Sparse head compaction.
 					mint := sparseHead.MinTime()
 					maxt := sparseHead.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
-					compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), nil)
+					compactor, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), LeveledCompactorOptions{
+						EnableOverlappingCompaction: true,
+					})
 					require.NoError(t, err)
 					sparseULIDs, err = compactor.Write(sparseHead.opts.ChunkDirRoot, sparseHead, mint, maxt, nil)
 					require.NoError(t, err)
@@ -2053,7 +2065,9 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 					// Old head compaction.
 					mint := oldHead.MinTime()
 					maxt := oldHead.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
-					compactor, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), nil)
+					compactor, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), LeveledCompactorOptions{
+						EnableOverlappingCompaction: true,
+					})
 					require.NoError(t, err)
 					oldULIDs, err = compactor.Write(oldHead.opts.ChunkDirRoot, oldHead, mint, maxt, nil)
 					require.NoError(t, err)
@@ -2540,7 +2554,9 @@ func TestCompactEmptyResultBlockWithTombstone(t *testing.T) {
 	err = block.Delete(ctx, 0, 10, labels.MustNewMatcher(labels.MatchEqual, defaultLabelName, "0"))
 	require.NoError(t, err)
 
-	c, err := NewLeveledCompactor(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, nil)
+	c, err := NewLeveledCompactorWithOptions(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, LeveledCompactorOptions{
+		EnableOverlappingCompaction: true,
+	})
 	require.NoError(t, err)
 
 	ulids, err := c.Compact(tmpdir, []string{blockDir}, []*Block{block})
