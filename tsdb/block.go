@@ -62,6 +62,8 @@ type IndexWriter interface {
 
 // IndexReader provides reading access of serialized index data.
 type IndexReader interface {
+	index.Statistics
+
 	// Symbols return an iterator over sorted string symbols that may occur in
 	// series' labels and indices. It is not safe to use the returned strings
 	// beyond the lifetime of the index reader.
@@ -341,14 +343,29 @@ type Block struct {
 	numBytesMeta      int64
 }
 
+type emptyStats struct {
+}
+
+func (e emptyStats) TotalSeries() int64 {
+	return 0
+}
+
+func (e emptyStats) LabelValuesCount(ctx context.Context, name string) (int64, error) {
+	return 0, errors.New("statistics not propagated")
+}
+
+func (e emptyStats) LabelValuesCardinality(ctx context.Context, name string, values ...string) (int64, error) {
+	return 0, errors.New("statistics not propagated")
+}
+
 // OpenBlock opens the block in the directory. It can be passed a chunk pool, which is used
 // to instantiate chunk structs.
 func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory) (pb *Block, err error) {
-	return OpenBlockWithOptions(logger, dir, pool, postingsDecoderFactory, nil, DefaultPostingsForMatchersCacheTTL, DefaultPostingsForMatchersCacheMaxItems, DefaultPostingsForMatchersCacheMaxBytes, DefaultPostingsForMatchersCacheForce, NewPostingsForMatchersCacheMetrics(nil))
+	return OpenBlockWithOptions(logger, dir, pool, postingsDecoderFactory, nil, DefaultPostingsForMatchersCacheTTL, DefaultPostingsForMatchersCacheMaxItems, DefaultPostingsForMatchersCacheMaxBytes, DefaultPostingsForMatchersCacheForce, NewPostingsForMatchersCacheMetrics(nil), emptyStats{})
 }
 
 // OpenBlockWithOptions is like OpenBlock but allows to pass a cache provider and sharding function.
-func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory, cache index.ReaderCacheProvider, postingsCacheTTL time.Duration, postingsCacheMaxItems int, postingsCacheMaxBytes int64, postingsCacheForce bool, postingsCacheMetrics *PostingsForMatchersCacheMetrics) (pb *Block, err error) {
+func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory, cache index.ReaderCacheProvider, postingsCacheTTL time.Duration, postingsCacheMaxItems int, postingsCacheMaxBytes int64, postingsCacheForce bool, postingsCacheMetrics *PostingsForMatchersCacheMetrics, stats index.Statistics) (pb *Block, err error) {
 	if logger == nil {
 		logger = promslog.NewNopLogger()
 	}
@@ -373,7 +390,7 @@ func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, p
 	if postingsDecoderFactory != nil {
 		decoder = postingsDecoderFactory(meta)
 	}
-	indexReader, err := index.NewFileReaderWithOptions(filepath.Join(dir, indexFilename), decoder, cache)
+	indexReader, err := index.NewFileReaderWithOptions(filepath.Join(dir, indexFilename), decoder, cache, stats)
 	if err != nil {
 		return nil, err
 	}
@@ -495,6 +512,18 @@ func (pb *Block) setCompactionFailed() error {
 type blockIndexReader struct {
 	ir IndexReader
 	b  *Block
+}
+
+func (r blockIndexReader) TotalSeries() int64 {
+	return r.ir.TotalSeries()
+}
+
+func (r blockIndexReader) LabelValuesCount(ctx context.Context, name string) (int64, error) {
+	return r.ir.LabelValuesCount(ctx, name)
+}
+
+func (r blockIndexReader) LabelValuesCardinality(ctx context.Context, name string, values ...string) (int64, error) {
+	return r.ir.LabelValuesCardinality(ctx, name, values...)
 }
 
 func (r blockIndexReader) Symbols() index.StringIter {

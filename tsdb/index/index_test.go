@@ -146,7 +146,7 @@ func TestIndexRW_Create_Open(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, iw.Close())
 
-	ir, err := NewFileReader(fn, DecodePostingsRaw)
+	ir, err := NewFileReader(fn, DecodePostingsRaw, emptyIndexStats{})
 	require.NoError(t, err)
 	require.NoError(t, ir.Close())
 
@@ -157,7 +157,7 @@ func TestIndexRW_Create_Open(t *testing.T) {
 	require.NoError(t, err)
 	f.Close()
 
-	_, err = NewFileReader(dir, DecodePostingsRaw)
+	_, err = NewFileReader(dir, DecodePostingsRaw, emptyIndexStats{})
 	require.Error(t, err)
 }
 
@@ -469,7 +469,7 @@ func TestDecbufUvarintWithInvalidBuffer(t *testing.T) {
 func TestReaderWithInvalidBuffer(t *testing.T) {
 	b := realByteSlice([]byte{0x81, 0x81, 0x81, 0x81, 0x81, 0x81})
 
-	_, err := NewReader(b, DecodePostingsRaw)
+	_, err := NewReader(b, DecodePostingsRaw, emptyIndexStats{})
 	require.Error(t, err)
 }
 
@@ -481,7 +481,7 @@ func TestNewFileReaderErrorNoOpenFiles(t *testing.T) {
 	err := os.WriteFile(idxName, []byte("corrupted contents"), 0o666)
 	require.NoError(t, err)
 
-	_, err = NewFileReader(idxName, DecodePostingsRaw)
+	_, err = NewFileReader(idxName, DecodePostingsRaw, emptyIndexStats{})
 	require.Error(t, err)
 
 	// dir.Close will fail on Win if idxName fd is not closed on error path.
@@ -747,9 +747,9 @@ func createFileReaderWithOptions(ctx context.Context, tb testing.TB, input index
 
 	var ir *Reader
 	if withCache {
-		ir, err = NewFileReaderWithOptions(fn, DecodePostingsRaw, hashcache.NewSeriesHashCache(1024*1024*1024).GetBlockCacheProvider("test"))
+		ir, err = NewFileReaderWithOptions(fn, DecodePostingsRaw, hashcache.NewSeriesHashCache(1024*1024*1024).GetBlockCacheProvider("test"), emptyIndexStats{})
 	} else {
-		ir, err = NewFileReader(fn, DecodePostingsRaw)
+		ir, err = NewFileReader(fn, DecodePostingsRaw, emptyIndexStats{})
 	}
 
 	require.NoError(tb, err)
@@ -757,4 +757,18 @@ func createFileReaderWithOptions(ctx context.Context, tb testing.TB, input index
 		require.NoError(tb, ir.Close())
 	})
 	return ir, fn, symbols
+}
+
+type emptyIndexStats struct{}
+
+func (e emptyIndexStats) TotalSeries() int64 {
+	return 0
+}
+
+func (e emptyIndexStats) LabelValuesCount(ctx context.Context, name string) (int64, error) {
+	return 0, errors.New("not implemented")
+}
+
+func (e emptyIndexStats) LabelValuesCardinality(ctx context.Context, name string, values ...string) (int64, error) {
+	return 0, errors.New("not implemented")
 }

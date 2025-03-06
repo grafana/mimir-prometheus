@@ -2238,6 +2238,7 @@ type series struct {
 }
 
 type mockIndex struct {
+	emptyStats
 	series   map[storage.SeriesRef]series
 	postings map[labels.Label][]storage.SeriesRef
 	symbols  map[string]struct{}
@@ -3368,7 +3369,9 @@ func benchQuery(b *testing.B, expExpansions int, q storage.Querier, selectors la
 }
 
 // mockMatcherIndex is used to check if the regex matcher works as expected.
-type mockMatcherIndex struct{}
+type mockMatcherIndex struct {
+	emptyStats
+}
 
 func (m mockMatcherIndex) Symbols() index.StringIter { return nil }
 
@@ -3952,7 +3955,9 @@ func TestReader_PostingsForLabelMatchingHonorsContextCancel(t *testing.T) {
 	require.Equal(t, failAfter+1, ctx.Count()) // Plus one for the Err() call that puts the error in the result.
 }
 
-type mockReaderOfLabels struct{}
+type mockReaderOfLabels struct {
+	emptyStats
+}
 
 const mockReaderOfLabelsSeriesCount = checkContextEveryNIterations * 10
 

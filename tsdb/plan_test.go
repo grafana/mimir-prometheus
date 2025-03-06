@@ -111,7 +111,7 @@ func (m *mockIndexPostingsReader) LabelValuesCount(ctx context.Context, name str
 	return int64(m.stats.labelNameStats[name].totalValues), nil
 }
 
-func (m *mockIndexPostingsReader) TotalSeriesWithLabel(ctx context.Context, name string) (int64, error) {
+func (m *mockIndexPostingsReader) LabelValuesCardinality(ctx context.Context, name string, values ...string) (int64, error) {
 	return int64(m.stats.labelNameStats[name].totalSeries), nil
 }
 

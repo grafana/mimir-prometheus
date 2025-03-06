@@ -41,10 +41,12 @@ func (h *Head) indexRange(mint, maxt int64) *headIndexReader {
 	if hmin := h.MinTime(); hmin > mint {
 		mint = hmin
 	}
-	return &headIndexReader{head: h, mint: mint, maxt: maxt}
+	return &headIndexReader{head: h, mint: mint, maxt: maxt, Statistics: h.postingsStats}
 }
 
 type headIndexReader struct {
+	index.Statistics
+
 	head       *Head
 	mint, maxt int64
 }

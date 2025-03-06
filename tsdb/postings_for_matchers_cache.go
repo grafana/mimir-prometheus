@@ -42,6 +42,8 @@ const (
 
 // IndexPostingsReader is a subset of IndexReader methods, the minimum required to evaluate PostingsForMatchers.
 type IndexPostingsReader interface {
+	index.Statistics
+
 	// LabelValues returns possible label values which may not be sorted.
 	LabelValues(ctx context.Context, name string, matchers ...*labels.Matcher) ([]string, error)
 
@@ -202,7 +204,7 @@ func (p *postingsForMatcherPromise) result(ctx context.Context) (index.Postings,
 func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Context, ix IndexPostingsReader, ms []*labels.Matcher) func(context.Context) (index.Postings, []*labels.Matcher, error) {
 	span := trace.SpanFromContext(ctx)
 
-	promiseCallersCtxTracker, promiseExecCtx := newContextsTracker()
+	promiseCallersCtxTracker, promiseExecCtx := newContextsTracker(ctx)
 	promise := &postingsForMatcherPromise{
 		done:              make(chan struct{}),
 		callersCtxTracker: promiseCallersCtxTracker,
@@ -530,12 +532,12 @@ type contextsTracker struct {
 	trackedStopFuncs []func() bool // The stop watching functions for all tracked contexts.
 }
 
-func newContextsTracker() (*contextsTracker, context.Context) {
+func newContextsTracker(ctx context.Context) (*contextsTracker, context.Context) {
 	t := &contextsTracker{}
 
 	// Create a new execution context that will be canceled only once all tracked contexts have done.
 	var execCtx context.Context
-	execCtx, t.cancelExecCtx = context.WithCancel(context.Background())
+	execCtx, t.cancelExecCtx = context.WithCancel(context.WithoutCancel(ctx))
 
 	return t, execCtx
 }

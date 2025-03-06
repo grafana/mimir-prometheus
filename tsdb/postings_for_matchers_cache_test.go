@@ -1159,7 +1159,9 @@ func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.
 	require.NoError(b, workersErr)
 }
 
-type indexForPostingsMock struct{}
+type indexForPostingsMock struct {
+	emptyStats
+}
 
 func (idx indexForPostingsMock) LabelValues(context.Context, string, ...*labels.Matcher) ([]string, error) {
 	panic("implement me")
@@ -1224,7 +1226,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("1 tracked context, tracked context doesn't get canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		require.NoError(t, tracker.add(context.Background()))
@@ -1237,7 +1239,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("1 tracked context, tracked context gets canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -1253,7 +1255,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("2 tracked contexts, only 1 tracked context gets canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
 
 		ctx1, cancelCtx1 := context.WithCancel(context.Background())
@@ -1273,7 +1275,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("2 tracked contexts, both contexts get canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -1296,7 +1298,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("2 tracked contexts, 1 context gets canceled, the other context has deadline exceeded", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -1319,7 +1321,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("add() context to tracker but the tracker has been explicitly closed", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -1337,7 +1339,7 @@ func TestContextsTracker(t *testing.T) {
 	t.Run("add() context to tracker but the tracker has been implicitly closed because all tracked contexts have been canceled", func(t *testing.T) {
 		t.Parallel()
 
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		t.Cleanup(tracker.close)
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
@@ -1358,7 +1360,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 	const numContexts = 100
 
 	t.Run("concurrently add and then cancel tracked contexts except 1", func(t *testing.T) {
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		t.Cleanup(tracker.close)
 
 		cancels := make([]context.CancelFunc, 0, numContexts)
@@ -1403,7 +1405,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 	})
 
 	t.Run("concurrently add and then cancel tracked contexts", func(t *testing.T) {
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 		t.Cleanup(tracker.close)
 
 		cancels := make([]context.CancelFunc, 0, numContexts)
@@ -1447,7 +1449,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 	})
 
 	t.Run("concurrently close tracker", func(t *testing.T) {
-		tracker, execCtx := newContextsTracker()
+		tracker, execCtx := newContextsTracker(context.TODO())
 
 		for i := 0; i < numContexts; i++ {
 			tracker.add(context.Background())
