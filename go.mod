@@ -98,6 +98,11 @@ require (
 )
 
 require (
+	github.com/d4l3k/messagediff v1.2.1 // indirect
+	github.com/tylertreat/BoomFilters v0.0.0-20210315201527-1a82519a3e43
+)
+
+require (
 	cloud.google.com/go/auth v0.13.0 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.6 // indirect
 	cloud.google.com/go/compute/metadata v0.6.0 // indirect
