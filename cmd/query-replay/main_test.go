@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"hash"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/prometheus/client_golang/prometheus"
 
@@ -166,6 +170,8 @@ func BenchmarkQueryReplay(b *testing.B) {
 		//"0.0001pct": {sampleRate: 10000},
 	}
 
+	checksum := sha256.New()
+
 	for name, bc := range testCases {
 		b.Run(name, func(b *testing.B) {
 			b.ReportAllocs()
@@ -183,19 +189,20 @@ func BenchmarkQueryReplay(b *testing.B) {
 						b.Fatalf("Error creating querier: %v", err)
 					}
 
-					//startTime := time.Now()
+					startTime := time.Now()
 					// Execute each vector selector query
 					for _, matchers := range entry.VectorSelectors {
-						count, err := runQuery(nil, querier, matchers)
+						count, err := runQuery(checksum, querier, matchers)
 						if err != nil {
 							b.Fatalf("Error iterating series set: %v", err)
 						}
 						seriesCount += count
 					}
-					//b.Logf("[%s]\tseries=%d\tduration=%s\n", entry.Fingerprint, seriesCount, time.Since(startTime))
+					b.Logf("[%s]\tseries=%d\tduration=%s\tchecksum=%s\n", entry.Fingerprint, seriesCount, time.Since(startTime), hex.EncodeToString(checksum.Sum(nil)))
 
 					querier.Close()
 				}
+				b.Logf("Checksum: %s series: %d", hex.EncodeToString(checksum.Sum(nil)), seriesCount)
 			}
 		})
 	}
@@ -219,36 +226,36 @@ func labelValuesDistribution(b *testing.B, db *tsdb.DB) {
 	}
 }
 
-func exploreStats(b *testing.B, db *tsdb.DB) {
-	// ix, err := db.Head().Index()
-	// require.NoError(b, err)
-
-	// labelNames, err := ix.LabelNames(context.Background())
-	// require.NoError(b, err)
-
-	generalStats := db.Head().Stats("", 100)
-
-	printStats(generalStats)
-	for _, s := range generalStats.IndexPostingStats.CardinalityLabelStats {
-		topValuesCount := max(5, s.SupplimentaryCount/100)
-		stats := db.Head().Stats(s.Name, int(topValuesCount))
-		stats.IndexPostingStats.LabelValueStats = nil
-		stats.IndexPostingStats.LabelValuePairsStats = nil
-		stats.IndexPostingStats.CardinalityLabelStats = nil
-		fmt.Printf("\nLabel Name: %s\n", s.Name)
-
-		topValuesSeries := uint64(0)
-		for _, stat := range stats.IndexPostingStats.CardinalityMetricsStats {
-			topValuesSeries += stat.Count
-		}
-		fmt.Printf("Top 1%% Values Count: %d\n", topValuesCount)
-		fmt.Printf("Top 1%% Values Series Count: %d (%.2f%%)\n", topValuesSeries, 100*float64(topValuesSeries)/float64(s.Count))
-		fmt.Printf("Remaining Series Count: %d (%.2f%%)\n", s.Count-topValuesSeries, 100*float64(s.Count-topValuesSeries)/float64(s.Count))
-		fmt.Printf("Remaining Labels Count: %d (%.2f%%)\n", s.SupplimentaryCount-topValuesCount, 100*float64(s.SupplimentaryCount-topValuesCount)/float64(s.SupplimentaryCount))
-		fmt.Printf("Remaining Series Per Label: %.2f\n", float64(s.Count-topValuesSeries)/float64(s.SupplimentaryCount-topValuesCount))
-		printStats(stats)
-	}
-}
+//func exploreStats(b *testing.B, db *tsdb.DB) {
+//	// ix, err := db.Head().Index()
+//	// require.NoError(b, err)
+//
+//	// labelNames, err := ix.LabelNames(context.Background())
+//	// require.NoError(b, err)
+//
+//	generalStats := db.Head().Stats("", 100)
+//
+//	printStats(generalStats)
+//	for _, s := range generalStats.IndexPostingStats.CardinalityLabelStats {
+//		topValuesCount := max(5, s.SupplimentaryCount/100)
+//		stats := db.Head().Stats(s.Name, int(topValuesCount))
+//		stats.IndexPostingStats.LabelValueStats = nil
+//		stats.IndexPostingStats.LabelValuePairsStats = nil
+//		stats.IndexPostingStats.CardinalityLabelStats = nil
+//		fmt.Printf("\nLabel Name: %s\n", s.Name)
+//
+//		topValuesSeries := uint64(0)
+//		for _, stat := range stats.IndexPostingStats.CardinalityMetricsStats {
+//			topValuesSeries += stat.Count
+//		}
+//		fmt.Printf("Top 1%% Values Count: %d\n", topValuesCount)
+//		fmt.Printf("Top 1%% Values Series Count: %d (%.2f%%)\n", topValuesSeries, 100*float64(topValuesSeries)/float64(s.Count))
+//		fmt.Printf("Remaining Series Count: %d (%.2f%%)\n", s.Count-topValuesSeries, 100*float64(s.Count-topValuesSeries)/float64(s.Count))
+//		fmt.Printf("Remaining Labels Count: %d (%.2f%%)\n", s.SupplimentaryCount-topValuesCount, 100*float64(s.SupplimentaryCount-topValuesCount)/float64(s.SupplimentaryCount))
+//		fmt.Printf("Remaining Series Per Label: %.2f\n", float64(s.Count-topValuesSeries)/float64(s.SupplimentaryCount-topValuesCount))
+//		printStats(stats)
+//	}
+//}
 
 func printStats(stats *tsdb.Stats) {
 	if stats == nil {
@@ -295,14 +302,22 @@ func printStats(stats *tsdb.Stats) {
 }
 
 // Helper function to run a single query and return the number of series
-func runQuery(stats *tsdb.Stats, querier storage.Querier, matchers []*labels.Matcher) (int, error) {
-	seriesSet := querier.Select(context.WithValue(context.Background(), "stats", stats), true, nil, matchers...)
+func runQuery(checksum hash.Hash, querier storage.Querier, matchers []*labels.Matcher) (int, error) {
+	seriesSet := querier.Select(context.Background(), true, nil, matchers...)
 	count := 0
 	for seriesSet.Next() {
+		for _, l := range seriesSet.At().Labels() {
+			checksum.Write([]byte(l.Name))
+			checksum.Write([]byte(l.Value))
+		}
 		count++
 	}
 	if err := seriesSet.Err(); err != nil {
 		return 0, err
 	}
 	return count, nil
+}
+
+func yoloBytes(s string) []byte {
+	return *(*[]byte)(unsafe.Pointer(&s))
 }
