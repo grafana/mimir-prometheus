@@ -190,7 +190,7 @@ func selectChunkSeriesSet(ctx context.Context, sortSeries bool, hints *storage.S
 	return NewBlockChunkSeriesSet(blockID, index, chunks, tombstones, p, mint, maxt, disableTrimming, pendingMatchers)
 }
 
-const tryOptimizing = true
+var TryOptimizing = true
 
 // PostingsForMatchers assembles a single postings iterator against the index reader
 // based on the given matchers. The resulting postings are not ordered by series.
@@ -216,7 +216,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		return (m.Type == labels.MatchNotEqual || m.Type == labels.MatchNotRegexp) && m.Matches("")
 	}
 	var pendingMatchers []*labels.Matcher
-	if tryOptimizing {
+	if TryOptimizing {
 		p, err := planIndexLookup(ctx, ms, ix, isSubtractingMatcher)
 		if err == nil {
 			pendingMatchers = p.pendingMatchers()
