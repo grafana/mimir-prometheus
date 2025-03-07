@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"hash"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 	"unsafe"
@@ -74,12 +75,12 @@ var tsdbOpts = &tsdb.Options{
 
 	// Caching settings
 	HeadPostingsForMatchersCacheTTL:       5 * time.Minute,
-	HeadPostingsForMatchersCacheMaxItems:  1,                 // Disable cache
-	HeadPostingsForMatchersCacheMaxBytes:  350 * 1024 * 1024, // 350MB
+	HeadPostingsForMatchersCacheMaxItems:  100,              // Disable cache
+	HeadPostingsForMatchersCacheMaxBytes:  10 * 1024 * 1024, // 350MB
 	HeadPostingsForMatchersCacheForce:     true,
 	BlockPostingsForMatchersCacheTTL:      5 * time.Minute,
-	BlockPostingsForMatchersCacheMaxItems: 1,
-	BlockPostingsForMatchersCacheMaxBytes: 350 * 1024 * 1024, // 350MB
+	BlockPostingsForMatchersCacheMaxItems: 100,
+	BlockPostingsForMatchersCacheMaxBytes: 10 * 1024 * 1024, // 350MB
 	BlockPostingsForMatchersCacheForce:    true,
 
 	// Disable features we don't need for benchmarking
@@ -124,9 +125,11 @@ var tsdbOpts = &tsdb.Options{
 }
 
 const (
+	//queryLogPath = "/users/dimitar/proba/2025-03-postings-for-matchers-hackathon/mimir-ops-03-query-logs.json"
 	queryLogPath = "/users/dimitar/proba/2025-03-postings-for-matchers-hackathon/query-logs.json"
-	//queryLogPath = "/Users/dimitar/proba/2025-03-postings-for-matchers-hackathon/selected-queries/8add3a5e7eadacedae63c401ea4668ec9e754a21d5a03c886f0752391154cc0f.json"
+	//queryLogPath = "/Users/dimitar/proba/2025-03-postings-for-matchers-hackathon/selected-queries/57ade864ece271e146bfb163ccc64d9bd6ff0038b39deb1cdcddd095d570eb62.json"
 	tsdbPath = "/users/dimitar/proba/2025-03-postings-for-matchers-hackathon/ingester-zone-a-48"
+	//tsdbPath = "/users/dimitar/proba/2025-03-postings-for-matchers-hackathon/mimir-ops-03-ingester-zone-c-56-trimmed"
 )
 
 func BenchmarkQueryReplay(b *testing.B) {
@@ -147,7 +150,9 @@ func BenchmarkQueryReplay(b *testing.B) {
 		b.Fatalf("Error during iteration: %v", err)
 	}
 	// Open TSDB
-	db, err := tsdb.Open(tsdbPath, nil, nil, tsdbOpts, nil)
+	var logger *slog.Logger
+	//logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	db, err := tsdb.Open(tsdbPath, logger, nil, tsdbOpts, nil)
 	if err != nil {
 		b.Fatalf("Error opening TSDB: %v", err)
 	}
@@ -160,51 +165,58 @@ func BenchmarkQueryReplay(b *testing.B) {
 	//return
 
 	//b.Log("Loaded", len(queries), "queries")
-	testCases := map[string]struct {
+	testCases := []struct {
 		sampleRate int // How often to sample (every Nth entry)
 	}{
 		//"1pct": {sampleRate: 1},
-		"0.1pct": {sampleRate: 10},
-		//"0.01pct":   {sampleRate: 100},
-		//"0.001pct":  {sampleRate: 1000},
-		//"0.0001pct": {sampleRate: 10000},
+		{sampleRate: 587},
+		{sampleRate: 593},
+		{sampleRate: 977},
+		{sampleRate: 997},
+		{sampleRate: 991},
+		{sampleRate: 1009},
+		{sampleRate: 1013},
 	}
 
 	checksum := sha256.New()
 
-	for name, bc := range testCases {
-		b.Run(name, func(b *testing.B) {
-			b.ReportAllocs()
-			for i := 0; i < b.N; i++ {
-				queryCount := 0
+	for _, bc := range testCases {
+		for _, tryOptimizing := range []bool{false, true} {
+			b.Run(fmt.Sprintf("pfmc=enabled/%spct/optimized=%t", strings.TrimRight(fmt.Sprintf("%f", 1.0/float64(bc.sampleRate)), "0"), tryOptimizing), func(b *testing.B) {
+				tsdb.TryOptimizing = tryOptimizing
+				b.ReportAllocs()
+				for i := 0; i < b.N; i++ {
+					queryCount := 0
 
-				iterator := NewFilteredQueryLogIterator(queries, bc.sampleRate)
-				seriesCount := 0
-				for iterator.Next() {
-					entry := iterator.At()
-					queryCount++
+					iterator := NewFilteredQueryLogIterator(queries, bc.sampleRate)
+					seriesCount := 0
+					for iterator.Next() {
+						entry := iterator.At()
+						queryCount++
 
-					querier, err := db.Querier(entry.Start.UnixMilli(), entry.End.UnixMilli())
-					if err != nil {
-						b.Fatalf("Error creating querier: %v", err)
-					}
-
-					startTime := time.Now()
-					// Execute each vector selector query
-					for _, matchers := range entry.VectorSelectors {
-						count, err := runQuery(checksum, querier, matchers)
+						querier, err := db.Querier(entry.Start.UnixMilli(), entry.End.UnixMilli())
 						if err != nil {
-							b.Fatalf("Error iterating series set: %v", err)
+							b.Fatalf("Error creating querier: %v", err)
 						}
-						seriesCount += count
-					}
-					b.Logf("[%s]\tseries=%d\tduration=%s\tchecksum=%s\n", entry.Fingerprint, seriesCount, time.Since(startTime), hex.EncodeToString(checksum.Sum(nil)))
 
-					querier.Close()
+						//startTime := time.Now()
+						// Execute each vector selector query
+						for _, matchers := range entry.VectorSelectors {
+							count, err := runQuery(checksum, querier, matchers)
+							if err != nil {
+								b.Fatalf("Error iterating series set: %v", err)
+							}
+							seriesCount += count
+						}
+						//b.Logf("[%s]\tseries=%d\tduration=%s\tchecksum=%s\n", entry.Fingerprint, seriesCount, time.Since(startTime), hex.EncodeToString(checksum.Sum(nil)))
+
+						querier.Close()
+					}
+					//b.Logf("Queries: %d", queryCount)
+					//b.Logf("Checksum: %s series: %d", hex.EncodeToString(checksum.Sum(nil)), seriesCount)
 				}
-				b.Logf("Checksum: %s series: %d", hex.EncodeToString(checksum.Sum(nil)), seriesCount)
-			}
-		})
+			})
+		}
 	}
 }
 
@@ -306,10 +318,10 @@ func runQuery(checksum hash.Hash, querier storage.Querier, matchers []*labels.Ma
 	seriesSet := querier.Select(context.Background(), true, nil, matchers...)
 	count := 0
 	for seriesSet.Next() {
-		for _, l := range seriesSet.At().Labels() {
-			checksum.Write([]byte(l.Name))
-			checksum.Write([]byte(l.Value))
-		}
+		//for _, l := range seriesSet.At().Labels() {
+		//	checksum.Write([]byte(l.Name))
+		//	checksum.Write([]byte(l.Value))
+		//}
 		count++
 	}
 	if err := seriesSet.Err(); err != nil {

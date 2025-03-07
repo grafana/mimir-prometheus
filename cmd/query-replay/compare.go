@@ -57,7 +57,7 @@ func loadMetrics(filename string) (map[string]QueryMetrics, error) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.Contains(line, "main_test.go:190:") {
+		if !strings.Contains(line, "main_test.go:") {
 			continue
 		}
 
