@@ -2458,7 +2458,7 @@ func (db *DB) SetWriteNotified(wn wlog.WriteNotified) {
 }
 
 type reloadableStats struct {
-	lastReload time.Time
+	lastReload atomic.Int64
 	source     func() index.Statistics
 
 	stats index.Statistics
@@ -2481,9 +2481,14 @@ func (r *reloadableStats) LabelValuesCardinality(ctx context.Context, name strin
 
 func (r *reloadableStats) ensureLoaded() {
 	// TODO dimitarvdimitrov make this reload in the background, we don't want to do it on the hot path
-	if time.Since(r.lastReload) > time.Hour || r.stats == nil {
+	now := time.Now().Unix()
+	if r.stats == nil {
 		r.stats = r.source()
-		r.lastReload = time.Now()
+		r.lastReload.Store(now)
+		return
+	}
+	if lastReload := r.lastReload.Load(); now-lastReload > int64(time.Hour/time.Second) && r.lastReload.CompareAndSwap(lastReload, now) {
+		r.stats = r.source()
 	}
 }
 
