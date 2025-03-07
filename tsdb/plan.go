@@ -205,7 +205,11 @@ func matcherToPlanPredicate(ctx context.Context, m *labels.Matcher, stats index.
 	setMatches := m.SetMatches()
 	switch m.Type {
 	case labels.MatchEqual, labels.MatchNotEqual:
-		seriesBehindSelectedValues, err = stats.LabelValuesCardinality(ctx, m.Name, m.Value)
+		if m.Value != "" {
+			seriesBehindSelectedValues, err = stats.LabelValuesCardinality(ctx, m.Name, m.Value)
+		} else {
+			seriesBehindSelectedValues, err = stats.LabelValuesCardinality(ctx, m.Name)
+		}
 	case labels.MatchRegexp, labels.MatchNotRegexp:
 		if len(setMatches) > 0 {
 			seriesBehindSelectedValues, err = stats.LabelValuesCardinality(ctx, m.Name, setMatches...)
@@ -225,7 +229,11 @@ func matcherToPlanPredicate(ctx context.Context, m *labels.Matcher, stats index.
 
 	switch p.matcher.Type {
 	case labels.MatchEqual, labels.MatchNotEqual:
-		p.indexScanCost = p.perMatchCost * 32 // for on-disk index we'd scan through 32 label values and compare them to the needle before returning.
+		if m.Value == "" {
+			p.indexScanCost = p.perMatchCost * float64(p.labelNameUniqueVals)
+		} else {
+			p.indexScanCost = p.perMatchCost * 32 // for on-disk index we'd scan through 32 label values and compare them to the needle before returning.
+		}
 	case labels.MatchRegexp, labels.MatchNotRegexp:
 		// TODO dimitarvdimitrov benchmark relative cost
 		switch {
