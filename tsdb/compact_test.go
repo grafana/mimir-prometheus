@@ -171,6 +171,7 @@ func TestNoPanicFor0Tombstones(t *testing.T) {
 
 	c, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{50}, nil, LeveledCompactorOptions{
 		EnableOverlappingCompaction: true,
+		CacheAllSymbols:             true,
 	})
 	require.NoError(t, err)
 
@@ -187,6 +188,7 @@ func TestLeveledCompactor_plan(t *testing.T) {
 		1620,
 	}, nil, LeveledCompactorOptions{
 		EnableOverlappingCompaction: true,
+		CacheAllSymbols:             true,
 	})
 	require.NoError(t, err)
 
@@ -398,6 +400,7 @@ func TestRangeWithFailedCompactionWontGetSelected(t *testing.T) {
 		2160,
 	}, nil, LeveledCompactorOptions{
 		EnableOverlappingCompaction: true,
+		CacheAllSymbols:             true,
 	})
 	require.NoError(t, err)
 
@@ -450,6 +453,7 @@ func TestCompactionFailWillCleanUpTempDir(t *testing.T) {
 		2160,
 	}, nil, LeveledCompactorOptions{
 		EnableOverlappingCompaction: true,
+		CacheAllSymbols:             true,
 	})
 	require.NoError(t, err)
 
@@ -545,7 +549,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 
 		for _, shardCount := range shardCounts {
 			t.Run(fmt.Sprintf("series=%d, shards=%d", series, shardCount), func(t *testing.T) {
-				c, err := NewLeveledCompactorWithChunkSize(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+				c, err := NewLeveledCompactorWithChunkSize(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, true, nil)
 				require.NoError(t, err)
 
 				blockIDs, err := c.CompactWithSplitting(dir, blockDirs, openBlocks, shardCount)
@@ -669,7 +673,7 @@ func TestCompaction_CompactEmptyBlocks(t *testing.T) {
 		_, err := writeMetaFile(promslog.NewNopLogger(), bdir, m)
 		require.NoError(t, err)
 
-		iw, err := index.NewWriter(context.Background(), filepath.Join(bdir, indexFilename))
+		iw, err := index.NewWriter(context.Background(), filepath.Join(bdir, indexFilename), true)
 		require.NoError(t, err)
 
 		require.NoError(t, iw.AddSymbol("hello"))
@@ -679,7 +683,7 @@ func TestCompaction_CompactEmptyBlocks(t *testing.T) {
 		blockDirs = append(blockDirs, bdir)
 	}
 
-	c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+	c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, true, nil)
 	require.NoError(t, err)
 
 	blockIDs, err := c.CompactWithSplitting(dir, blockDirs, nil, 5)
@@ -1237,6 +1241,7 @@ func TestCompaction_populateBlock(t *testing.T) {
 
 			c, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{0}, nil, LeveledCompactorOptions{
 				EnableOverlappingCompaction: true,
+				CacheAllSymbols:             true,
 			})
 			require.NoError(t, err)
 
@@ -1376,6 +1381,7 @@ func BenchmarkCompaction(b *testing.B) {
 
 			c, err := NewLeveledCompactorWithOptions(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, LeveledCompactorOptions{
 				EnableOverlappingCompaction: true,
+				CacheAllSymbols:             true,
 			})
 			require.NoError(b, err)
 
@@ -1873,6 +1879,7 @@ func TestHeadCompactionWithHistograms(t *testing.T) {
 			maxt := head.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
 			compactor, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), LeveledCompactorOptions{
 				EnableOverlappingCompaction: true,
+				CacheAllSymbols:             true,
 			})
 			require.NoError(t, err)
 			ids, err := compactor.Write(head.opts.ChunkDirRoot, head, mint, maxt, nil)
@@ -2018,6 +2025,7 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 					maxt := sparseHead.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
 					compactor, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), LeveledCompactorOptions{
 						EnableOverlappingCompaction: true,
+						CacheAllSymbols:             true,
 					})
 					require.NoError(t, err)
 					sparseULIDs, err = compactor.Write(sparseHead.opts.ChunkDirRoot, sparseHead, mint, maxt, nil)
@@ -2071,6 +2079,7 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 					maxt := oldHead.MaxTime() + 1 // Block intervals are half-open: [b.MinTime, b.MaxTime).
 					compactor, err := NewLeveledCompactorWithOptions(context.Background(), nil, nil, []int64{DefaultBlockDuration}, chunkenc.NewPool(), LeveledCompactorOptions{
 						EnableOverlappingCompaction: true,
+						CacheAllSymbols:             true,
 					})
 					require.NoError(t, err)
 					oldULIDs, err = compactor.Write(oldHead.opts.ChunkDirRoot, oldHead, mint, maxt, nil)
@@ -2253,6 +2262,7 @@ func TestLeveledCompactor_plan_overlapping_disabled(t *testing.T) {
 		1620,
 	}, nil, LeveledCompactorOptions{
 		EnableOverlappingCompaction: false,
+		CacheAllSymbols:             true,
 	})
 	require.NoError(t, err)
 
@@ -2460,7 +2470,7 @@ func TestAsyncBlockWriterSuccess(t *testing.T) {
 
 	const series = 100
 	// prepare index, add all symbols
-	iw, err := index.NewWriter(context.Background(), filepath.Join(t.TempDir(), indexFilename))
+	iw, err := index.NewWriter(context.Background(), filepath.Join(t.TempDir(), indexFilename), true)
 	require.NoError(t, err)
 
 	require.NoError(t, iw.AddSymbol("__name__"))
@@ -2506,7 +2516,7 @@ func TestAsyncBlockWriterFailure(t *testing.T) {
 	require.NoError(t, err)
 
 	// We don't write symbols to this index writer, so adding series next will fail.
-	iw, err := index.NewWriter(context.Background(), filepath.Join(t.TempDir(), indexFilename))
+	iw, err := index.NewWriter(context.Background(), filepath.Join(t.TempDir(), indexFilename), true)
 	require.NoError(t, err)
 
 	// async block writer expects index writer ready to receive series.
@@ -2560,6 +2570,7 @@ func TestCompactEmptyResultBlockWithTombstone(t *testing.T) {
 
 	c, err := NewLeveledCompactorWithOptions(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, LeveledCompactorOptions{
 		EnableOverlappingCompaction: true,
+		CacheAllSymbols:             true,
 	})
 	require.NoError(t, err)
 
