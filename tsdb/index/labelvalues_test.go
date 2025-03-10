@@ -16,7 +16,7 @@ func TestReader_LabelValuesFor(t *testing.T) {
 
 	fn := filepath.Join(t.TempDir(), indexFilename)
 
-	iw, err := NewWriter(ctx, fn)
+	iw, err := NewWriter(ctx, fn, true)
 	require.NoError(t, err)
 
 	series := []labels.Labels{
@@ -113,7 +113,7 @@ func TestReader_LabelValuesExcluding(t *testing.T) {
 
 	fn := filepath.Join(t.TempDir(), indexFilename)
 
-	iw, err := NewWriter(ctx, fn)
+	iw, err := NewWriter(ctx, fn, true)
 	require.NoError(t, err)
 
 	series := []labels.Labels{
