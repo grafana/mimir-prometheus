@@ -37,7 +37,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oklog/ulid"
+	"github.com/gogo/protobuf/proto"
+	"github.com/golang/snappy"
+	"github.com/oklog/ulid/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/promslog"
@@ -45,17 +47,13 @@ import (
 	"go.uber.org/atomic"
 	"go.uber.org/goleak"
 
-	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/storage/remote"
-
-	"github.com/gogo/protobuf/proto"
-	"github.com/golang/snappy"
-
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/metadata"
+	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
@@ -65,6 +63,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/tsdb/wlog"
 	"github.com/prometheus/prometheus/util/annotations"
+	"github.com/prometheus/prometheus/util/compression"
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
@@ -1025,7 +1024,7 @@ func TestWALFlushedOnDBClose(t *testing.T) {
 func TestWALSegmentSizeOptions(t *testing.T) {
 	tests := map[int]func(dbdir string, segmentSize int){
 		// Default Wal Size.
-		0: func(dbDir string, segmentSize int) {
+		0: func(dbDir string, _ int) {
 			filesAndDir, err := os.ReadDir(filepath.Join(dbDir, "wal"))
 			require.NoError(t, err)
 			files := []os.FileInfo{}
@@ -1064,7 +1063,7 @@ func TestWALSegmentSizeOptions(t *testing.T) {
 			require.Greater(t, int64(segmentSize), lastFile.Size(), "last WAL file size is not smaller than the WALSegmentSize option, filename: %v", lastFile.Name())
 		},
 		// Wal disabled.
-		-1: func(dbDir string, segmentSize int) {
+		-1: func(dbDir string, _ int) {
 			// Check that WAL dir is not there.
 			_, err := os.Stat(filepath.Join(dbDir, "wal"))
 			require.Error(t, err)
@@ -1975,7 +1974,7 @@ func TestInitializeHeadTimestamp(t *testing.T) {
 		dir := t.TempDir()
 
 		require.NoError(t, os.MkdirAll(path.Join(dir, "wal"), 0o777))
-		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), wlog.CompressionNone)
+		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), compression.None)
 		require.NoError(t, err)
 
 		var enc record.Encoder
@@ -2019,7 +2018,7 @@ func TestInitializeHeadTimestamp(t *testing.T) {
 		createBlock(t, dir, genSeries(1, 1, 1000, 6000))
 
 		require.NoError(t, os.MkdirAll(path.Join(dir, "wal"), 0o777))
-		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), wlog.CompressionNone)
+		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), compression.None)
 		require.NoError(t, err)
 
 		var enc record.Encoder
@@ -2420,7 +2419,7 @@ func TestDBReadOnly(t *testing.T) {
 		}
 
 		// Add head to test DBReadOnly WAL reading capabilities.
-		w, err := wlog.New(logger, nil, filepath.Join(dbDir, "wal"), wlog.CompressionSnappy)
+		w, err := wlog.New(logger, nil, filepath.Join(dbDir, "wal"), compression.Snappy)
 		require.NoError(t, err)
 		h := createHead(t, w, genSeries(1, 1, 16, 18), dbDir)
 		require.NoError(t, h.Close())
@@ -3071,7 +3070,7 @@ func TestCompactHead(t *testing.T) {
 		NoLockfile:                           true,
 		MinBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
 		MaxBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
-		WALCompression:                       wlog.CompressionSnappy,
+		WALCompression:                       compression.Snappy,
 		HeadPostingsForMatchersCacheMetrics:  NewPostingsForMatchersCacheMetrics(nil),
 		BlockPostingsForMatchersCacheMetrics: NewPostingsForMatchersCacheMetrics(nil),
 	}
@@ -4677,7 +4676,7 @@ func TestMetadataCheckpointingOnlyKeepsLatestEntry(t *testing.T) {
 
 	ctx := context.Background()
 	numSamples := 10000
-	hb, w := newTestHead(t, int64(numSamples)*10, wlog.CompressionNone, false)
+	hb, w := newTestHead(t, int64(numSamples)*10, compression.None, false)
 
 	// Add some series so we can append metadata to them.
 	app := hb.Appender(ctx)
@@ -5564,7 +5563,7 @@ func TestQuerierOOOQuery(t *testing.T) {
 		sampleFunc func(ts int64) chunks.Sample
 	}{
 		"float": {
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				return app.Append(0, labels.FromStrings("foo", "bar1"), ts, float64(ts))
 			},
 			sampleFunc: func(ts int64) chunks.Sample {
@@ -5597,7 +5596,7 @@ func TestQuerierOOOQuery(t *testing.T) {
 		},
 		"integer histogram counter resets": {
 			// Adding counter reset to all histograms means each histogram will have its own chunk.
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				h := tsdbutil.GenerateTestHistogram(ts)
 				h.CounterResetHint = histogram.CounterReset // For this scenario, ignore the counterReset argument.
 				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, h, nil)
@@ -5625,7 +5624,7 @@ func testQuerierOOOQuery(t *testing.T,
 	series1 := labels.FromStrings("foo", "bar1")
 
 	type filterFunc func(t int64) bool
-	defaultFilterFunc := func(t int64) bool { return true }
+	defaultFilterFunc := func(_ int64) bool { return true }
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
@@ -5880,7 +5879,7 @@ func TestChunkQuerierOOOQuery(t *testing.T) {
 		checkInUseBucket bool
 	}{
 		"float": {
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				return app.Append(0, labels.FromStrings("foo", "bar1"), ts, float64(ts))
 			},
 			sampleFunc: func(ts int64) chunks.Sample {
@@ -5913,7 +5912,7 @@ func TestChunkQuerierOOOQuery(t *testing.T) {
 		},
 		"integer histogram counter resets": {
 			// Adding counter reset to all histograms means each histogram will have its own chunk.
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				h := tsdbutil.GenerateTestHistogram(ts)
 				h.CounterResetHint = histogram.CounterReset // For this scenario, ignore the counterReset argument.
 				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, h, nil)
@@ -5924,7 +5923,7 @@ func TestChunkQuerierOOOQuery(t *testing.T) {
 		},
 		"integer histogram with recode": {
 			// Histograms have increasing number of buckets so their chunks are recoded.
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				n := ts / time.Minute.Milliseconds()
 				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, nBucketHistogram(n), nil)
 			},
@@ -5956,7 +5955,7 @@ func testChunkQuerierOOOQuery(t *testing.T,
 	series1 := labels.FromStrings("foo", "bar1")
 
 	type filterFunc func(t int64) bool
-	defaultFilterFunc := func(t int64) bool { return true }
+	defaultFilterFunc := func(_ int64) bool { return true }
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
@@ -6236,7 +6235,7 @@ func testOOONativeHistogramsWithCounterResets(t *testing.T, scenario sampleTypeS
 	opts.OutOfOrderTimeWindow = 24 * time.Hour.Milliseconds()
 
 	type resetFunc func(v int64) bool
-	defaultResetFunc := func(v int64) bool { return false }
+	defaultResetFunc := func(_ int64) bool { return false }
 
 	lbls := labels.FromStrings("foo", "bar1")
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
@@ -7034,7 +7033,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		resetMmapToOriginal() // We neet to reset because new duplicate chunks can be written above.
 
 		// Removing m-map markers in WBL by rewriting it.
-		newWbl, err := wlog.New(promslog.NewNopLogger(), nil, filepath.Join(t.TempDir(), "new_wbl"), wlog.CompressionNone)
+		newWbl, err := wlog.New(promslog.NewNopLogger(), nil, filepath.Join(t.TempDir(), "new_wbl"), compression.None)
 		require.NoError(t, err)
 		sr, err := wlog.NewSegmentsReader(originalWblDir)
 		require.NoError(t, err)
@@ -9312,7 +9311,7 @@ func TestNewCompactorFunc(t *testing.T) {
 	opts := DefaultOptions()
 	block1 := ulid.MustNew(1, nil)
 	block2 := ulid.MustNew(2, nil)
-	opts.NewCompactorFunc = func(ctx context.Context, r prometheus.Registerer, l *slog.Logger, ranges []int64, pool chunkenc.Pool, opts *Options) (Compactor, error) {
+	opts.NewCompactorFunc = func(_ context.Context, _ prometheus.Registerer, _ *slog.Logger, _ []int64, _ chunkenc.Pool, _ *Options) (Compactor, error) {
 		return &mockCompactorFn{
 			planFn: func() ([]string, error) {
 				return []string{block1.String(), block2.String()}, nil

@@ -129,11 +129,10 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 		var err error
 		dec := record.NewDecoder(syms)
 		for r.Next() {
-			rec := r.Record()
-			switch dec.Type(rec) {
+			switch dec.Type(r.Record()) {
 			case record.Series:
 				series := h.wlReplaySeriesPool.Get()[:0]
-				series, err = dec.Series(rec, series)
+				series, err = dec.Series(r.Record(), series)
 				if err != nil {
 					decodeErr = &wlog.CorruptionErr{
 						Err:     fmt.Errorf("decode series: %w", err),
@@ -145,7 +144,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 				decoded <- series
 			case record.Samples:
 				samples := h.wlReplaySamplesPool.Get()[:0]
-				samples, err = dec.Samples(rec, samples)
+				samples, err = dec.Samples(r.Record(), samples)
 				if err != nil {
 					decodeErr = &wlog.CorruptionErr{
 						Err:     fmt.Errorf("decode samples: %w", err),
@@ -157,7 +156,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 				decoded <- samples
 			case record.Tombstones:
 				tstones := h.wlReplaytStonesPool.Get()[:0]
-				tstones, err = dec.Tombstones(rec, tstones)
+				tstones, err = dec.Tombstones(r.Record(), tstones)
 				if err != nil {
 					decodeErr = &wlog.CorruptionErr{
 						Err:     fmt.Errorf("decode tombstones: %w", err),
@@ -169,7 +168,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 				decoded <- tstones
 			case record.Exemplars:
 				exemplars := h.wlReplayExemplarsPool.Get()[:0]
-				exemplars, err = dec.Exemplars(rec, exemplars)
+				exemplars, err = dec.Exemplars(r.Record(), exemplars)
 				if err != nil {
 					decodeErr = &wlog.CorruptionErr{
 						Err:     fmt.Errorf("decode exemplars: %w", err),
@@ -181,7 +180,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 				decoded <- exemplars
 			case record.HistogramSamples, record.CustomBucketsHistogramSamples:
 				hists := h.wlReplayHistogramsPool.Get()[:0]
-				hists, err = dec.HistogramSamples(rec, hists)
+				hists, err = dec.HistogramSamples(r.Record(), hists)
 				if err != nil {
 					decodeErr = &wlog.CorruptionErr{
 						Err:     fmt.Errorf("decode histograms: %w", err),
@@ -193,7 +192,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 				decoded <- hists
 			case record.FloatHistogramSamples, record.CustomBucketsFloatHistogramSamples:
 				hists := h.wlReplayFloatHistogramsPool.Get()[:0]
-				hists, err = dec.FloatHistogramSamples(rec, hists)
+				hists, err = dec.FloatHistogramSamples(r.Record(), hists)
 				if err != nil {
 					decodeErr = &wlog.CorruptionErr{
 						Err:     fmt.Errorf("decode float histograms: %w", err),
@@ -205,7 +204,7 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 				decoded <- hists
 			case record.Metadata:
 				meta := h.wlReplayMetadataPool.Get()[:0]
-				meta, err := dec.Metadata(rec, meta)
+				meta, err := dec.Metadata(r.Record(), meta)
 				if err != nil {
 					decodeErr = &wlog.CorruptionErr{
 						Err:     fmt.Errorf("decode metadata: %w", err),
