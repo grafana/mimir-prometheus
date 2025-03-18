@@ -83,7 +83,7 @@ type ProtobufParser struct {
 }
 
 // NewProtobufParser returns a parser for the payload in the byte slice.
-func NewProtobufParser(b []byte, parseClassicHistograms, enableTypeAndUnitLabels bool, st *labels.SymbolTable) Parser {
+func NewProtobufParser(b []byte, parseClassicHistograms bool, enableTypeAndUnitLabels bool, st *labels.SymbolTable) Parser {
 	return &ProtobufParser{
 		dec:        dto.NewMetricStreamingDecoder(b),
 		entryBytes: &bytes.Buffer{},
@@ -557,17 +557,12 @@ func (p *ProtobufParser) onSeriesOrHistogramUpdate() error {
 
 	if p.enableTypeAndUnitLabels {
 		_, typ := p.Type()
-
-		m := schema.Metadata{
+		p.builder.AddMetricIdentity(labels.MetricIdentity{
 			Name: p.getMagicName(),
 			Type: typ,
 			Unit: p.dec.GetUnit(),
-		}
-		m.AddToLabels(&p.builder)
-		if err := p.dec.Label(schema.IgnoreOverriddenMetadataLabelsScratchBuilder{
-			Overwrite:      m,
-			ScratchBuilder: &p.builder,
-		}); err != nil {
+		})
+		if err := p.dec.Label(labels.IgnoreIdentityLabelsScratchBuilder{ScratchBuilder: &p.builder}); err != nil {
 			return err
 		}
 	} else {

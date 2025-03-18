@@ -234,6 +234,14 @@ func (p *PromParser) Labels(l *labels.Labels) {
 	s := string(p.series)
 	p.builder.Reset()
 	metricName := unreplace(s[p.offsets[0]-p.start : p.offsets[1]-p.start])
+	if p.enableTypeAndUnitLabels {
+		p.builder.AddMetricIdentity(labels.MetricIdentity{
+			Name: metricName,
+			Type: p.mtype,
+		})
+	} else {
+		p.builder.Add(labels.MetricName, metricName)
+	}
 
 	m := schema.Metadata{
 		Name: metricName,
@@ -252,8 +260,8 @@ func (p *PromParser) Labels(l *labels.Labels) {
 		a := p.offsets[i] - p.start
 		b := p.offsets[i+1] - p.start
 		label := unreplace(s[a:b])
-		if p.enableTypeAndUnitLabels && !m.IsEmptyFor(label) {
-			// Dropping user provided metadata labels, if found in the OM metadata.
+		if p.enableTypeAndUnitLabels && labels.IsMetricIdentityLabel(label) {
+			// Dropping user provided id labels if needed.
 			continue
 		}
 		c := p.offsets[i+2] - p.start
