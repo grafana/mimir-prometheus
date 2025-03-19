@@ -193,7 +193,7 @@ func TestChunkDiskMapper_WriteUnsupportedChunk_Chunk_IterateChunks(t *testing.T)
 	require.NoError(t, hrw.Close())
 	hrw = createChunkDiskMapper(t, dir)
 
-	require.NoError(t, hrw.IterateAllChunks(func(seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, numSamples uint16, encoding chunkenc.Encoding, isOOO bool) error {
+	require.NoError(t, hrw.IterateAllChunks(func(seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, _ uint16, encoding chunkenc.Encoding, _ bool) error {
 		t.Helper()
 
 		require.Equal(t, ucSeriesRef, seriesRef)
@@ -638,7 +638,7 @@ func writeUnsupportedChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesR
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomUnsupportedChunk(t)
 	awaitCb := make(chan struct{})
-	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, false, func(cbErr error) {
+	chunkRef = hrw.WriteChunk(seriesRef, mint, maxt, chunk, false, func(_ error) {
 		require.NoError(t, err)
 		close(awaitCb)
 	})

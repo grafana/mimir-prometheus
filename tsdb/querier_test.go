@@ -2384,7 +2384,7 @@ func (m mockIndex) PostingsForAllLabelValues(ctx context.Context, name string) i
 	return index.Merge(ctx, res...)
 }
 
-func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (m mockIndex) PostingsForMatchers(_ context.Context, _ bool, ms ...*labels.Matcher) (index.Postings, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {
 		if matches(ms, s.l) {
@@ -3389,7 +3389,7 @@ func (m mockMatcherIndex) Postings(context.Context, string, ...string) (index.Po
 	return index.EmptyPostings(), nil
 }
 
-func (m mockMatcherIndex) SortedPostings(p index.Postings) index.Postings {
+func (m mockMatcherIndex) SortedPostings(_ index.Postings) index.Postings {
 	return index.EmptyPostings()
 }
 

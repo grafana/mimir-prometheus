@@ -967,12 +967,12 @@ func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
 	oldContextTestValue := context.Background().Value(testContextKey)
 
 	contextTestValueChannel := make(chan interface{})
-	mockQueryFunc := func(ctx context.Context, qs string, t time.Time) (promql.Vector, error) {
+	mockQueryFunc := func(ctx context.Context, _ string, _ time.Time) (promql.Vector, error) {
 		contextTestValueChannel <- ctx.Value(testContextKey)
 		return promql.Vector{}, nil
 	}
 
-	mockContextWrapFunc := func(ctx context.Context, g *Group) context.Context {
+	mockContextWrapFunc := func(ctx context.Context, _ *Group) context.Context {
 		return context.WithValue(ctx, testContextKey, 42)
 	}
 
