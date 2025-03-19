@@ -3267,7 +3267,7 @@ func TestHeadCompactable(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			headOpts.TimelyCompaction = tc.timelyCompaction
-			head, _ := newTestHeadWithOptions(t, wlog.CompressionNone, headOpts)
+			head, _ := newTestHeadWithOptions(t, compression.None, headOpts)
 			defer func() {
 				require.NoError(t, head.Close())
 			}()
@@ -3373,7 +3373,7 @@ func TestHeadExemplars(t *testing.T) {
 }
 
 func TestHeadMinMaxTimeNotSet(t *testing.T) {
-	head, _ := newTestHead(t, 1000, wlog.CompressionNone, false)
+	head, _ := newTestHead(t, 1000, compression.None, false)
 	defer func() {
 		require.NoError(t, head.Close())
 	}()
@@ -6189,7 +6189,7 @@ func TestCuttingNewHeadChunks(t *testing.T) {
 func TestAppendQuietZeroDuplicates(t *testing.T) {
 	ts := int64(1695209650)
 	lbls := labels.FromStrings("foo", "bar")
-	h, _ := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, false)
+	h, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
 	defer func() {
 		require.NoError(t, h.Close())
 	}()
@@ -6237,7 +6237,7 @@ func TestAppendQuietZeroDuplicates(t *testing.T) {
 func TestQuietZeroWALReplay(t *testing.T) {
 	ts := int64(1695209650)
 	lbls := labels.FromStrings("foo", "bar")
-	h, w := newTestHead(t, DefaultBlockDuration, wlog.CompressionNone, true)
+	h, w := newTestHead(t, DefaultBlockDuration, compression.None, true)
 
 	a := h.Appender(context.Background())
 	_, err := a.Append(0, lbls, ts, 42.0)
@@ -6263,7 +6263,7 @@ func TestQuietZeroWALReplay(t *testing.T) {
 	require.NoError(t, h.Close())
 
 	// Next we replay the WAL by creating a new head and then verify that previous samples are there as we expect them.
-	w, err = wlog.New(nil, nil, w.Dir(), wlog.CompressionNone)
+	w, err = wlog.New(nil, nil, w.Dir(), compression.None)
 	require.NoError(t, err)
 	opts := DefaultHeadOptions()
 	opts.ChunkRange = 1000
@@ -6545,7 +6545,7 @@ func TestSecondaryHashFunction(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
-			wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, wlog.CompressionNone)
+			wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32768, compression.None)
 			require.NoError(t, err)
 
 			opts := DefaultHeadOptions()
