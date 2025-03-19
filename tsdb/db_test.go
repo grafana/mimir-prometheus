@@ -37,7 +37,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oklog/ulid"
+	"github.com/gogo/protobuf/proto"
+	"github.com/golang/snappy"
+	"github.com/oklog/ulid/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	prom_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/promslog"
@@ -45,17 +47,13 @@ import (
 	"go.uber.org/atomic"
 	"go.uber.org/goleak"
 
-	"github.com/prometheus/prometheus/prompb"
-	"github.com/prometheus/prometheus/storage/remote"
-
-	"github.com/gogo/protobuf/proto"
-	"github.com/golang/snappy"
-
 	"github.com/prometheus/prometheus/config"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/metadata"
+	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/storage/remote"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
@@ -65,6 +63,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/tsdb/wlog"
 	"github.com/prometheus/prometheus/util/annotations"
+	"github.com/prometheus/prometheus/util/compression"
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
@@ -1025,7 +1024,7 @@ func TestWALFlushedOnDBClose(t *testing.T) {
 func TestWALSegmentSizeOptions(t *testing.T) {
 	tests := map[int]func(dbdir string, segmentSize int){
 		// Default Wal Size.
-		0: func(dbDir string, segmentSize int) {
+		0: func(dbDir string, _ int) {
 			filesAndDir, err := os.ReadDir(filepath.Join(dbDir, "wal"))
 			require.NoError(t, err)
 			files := []os.FileInfo{}
@@ -1064,7 +1063,7 @@ func TestWALSegmentSizeOptions(t *testing.T) {
 			require.Greater(t, int64(segmentSize), lastFile.Size(), "last WAL file size is not smaller than the WALSegmentSize option, filename: %v", lastFile.Name())
 		},
 		// Wal disabled.
-		-1: func(dbDir string, segmentSize int) {
+		-1: func(dbDir string, _ int) {
 			// Check that WAL dir is not there.
 			_, err := os.Stat(filepath.Join(dbDir, "wal"))
 			require.Error(t, err)
@@ -1975,7 +1974,7 @@ func TestInitializeHeadTimestamp(t *testing.T) {
 		dir := t.TempDir()
 
 		require.NoError(t, os.MkdirAll(path.Join(dir, "wal"), 0o777))
-		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), wlog.CompressionNone)
+		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), compression.None)
 		require.NoError(t, err)
 
 		var enc record.Encoder
@@ -2019,7 +2018,7 @@ func TestInitializeHeadTimestamp(t *testing.T) {
 		createBlock(t, dir, genSeries(1, 1, 1000, 6000))
 
 		require.NoError(t, os.MkdirAll(path.Join(dir, "wal"), 0o777))
-		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), wlog.CompressionNone)
+		w, err := wlog.New(nil, nil, path.Join(dir, "wal"), compression.None)
 		require.NoError(t, err)
 
 		var enc record.Encoder
@@ -2420,7 +2419,7 @@ func TestDBReadOnly(t *testing.T) {
 		}
 
 		// Add head to test DBReadOnly WAL reading capabilities.
-		w, err := wlog.New(logger, nil, filepath.Join(dbDir, "wal"), wlog.CompressionSnappy)
+		w, err := wlog.New(logger, nil, filepath.Join(dbDir, "wal"), compression.Snappy)
 		require.NoError(t, err)
 		h := createHead(t, w, genSeries(1, 1, 16, 18), dbDir)
 		require.NoError(t, h.Close())
@@ -3071,7 +3070,7 @@ func TestCompactHead(t *testing.T) {
 		NoLockfile:                           true,
 		MinBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
 		MaxBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
-		WALCompression:                       wlog.CompressionSnappy,
+		WALCompression:                       compression.Snappy,
 		HeadPostingsForMatchersCacheMetrics:  NewPostingsForMatchersCacheMetrics(nil),
 		BlockPostingsForMatchersCacheMetrics: NewPostingsForMatchersCacheMetrics(nil),
 	}
@@ -4449,7 +4448,6 @@ func testOOOWALWrite(t *testing.T,
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
 	db.EnableNativeHistograms()
-	db.EnableOOONativeHistograms()
 
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
@@ -4677,7 +4675,7 @@ func TestMetadataCheckpointingOnlyKeepsLatestEntry(t *testing.T) {
 
 	ctx := context.Background()
 	numSamples := 10000
-	hb, w := newTestHead(t, int64(numSamples)*10, wlog.CompressionNone, false)
+	hb, w := newTestHead(t, int64(numSamples)*10, compression.None, false)
 
 	// Add some series so we can append metadata to them.
 	app := hb.Appender(ctx)
@@ -4870,7 +4868,6 @@ func TestMultipleEncodingsCommitOrder(t *testing.T) {
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
 	db.EnableNativeHistograms()
-	db.EnableOOONativeHistograms()
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
@@ -5031,7 +5028,6 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario, addExtraSample
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 300 * time.Minute.Milliseconds()
 	opts.EnableNativeHistograms = true
-	opts.EnableOOONativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -5238,7 +5234,6 @@ func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScen
 	require.NoError(t, err)
 	db.DisableCompactions() // We want to manually call it.
 	db.EnableNativeHistograms()
-	db.EnableOOONativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -5345,13 +5340,11 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScen
 	opts.OutOfOrderTimeWindow = 300 * time.Minute.Milliseconds()
 	opts.WALSegmentSize = -1 // disabled WAL and WBL
 	opts.EnableNativeHistograms = true
-	opts.EnableOOONativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
 	db.DisableCompactions() // We want to manually call it.
 	db.EnableNativeHistograms()
-	db.EnableOOONativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -5458,7 +5451,6 @@ func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sa
 	opts.OutOfOrderTimeWindow = 300 * time.Minute.Milliseconds()
 	opts.EnableMemorySnapshotOnShutdown = true
 	opts.EnableNativeHistograms = true
-	opts.EnableOOONativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -5564,7 +5556,7 @@ func TestQuerierOOOQuery(t *testing.T) {
 		sampleFunc func(ts int64) chunks.Sample
 	}{
 		"float": {
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				return app.Append(0, labels.FromStrings("foo", "bar1"), ts, float64(ts))
 			},
 			sampleFunc: func(ts int64) chunks.Sample {
@@ -5597,7 +5589,7 @@ func TestQuerierOOOQuery(t *testing.T) {
 		},
 		"integer histogram counter resets": {
 			// Adding counter reset to all histograms means each histogram will have its own chunk.
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				h := tsdbutil.GenerateTestHistogram(ts)
 				h.CounterResetHint = histogram.CounterReset // For this scenario, ignore the counterReset argument.
 				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, h, nil)
@@ -5625,7 +5617,7 @@ func testQuerierOOOQuery(t *testing.T,
 	series1 := labels.FromStrings("foo", "bar1")
 
 	type filterFunc func(t int64) bool
-	defaultFilterFunc := func(t int64) bool { return true }
+	defaultFilterFunc := func(_ int64) bool { return true }
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
@@ -5824,7 +5816,6 @@ func testQuerierOOOQuery(t *testing.T,
 			db := openTestDB(t, opts, nil)
 			db.DisableCompactions()
 			db.EnableNativeHistograms()
-			db.EnableOOONativeHistograms()
 			defer func() {
 				require.NoError(t, db.Close())
 			}()
@@ -5880,7 +5871,7 @@ func TestChunkQuerierOOOQuery(t *testing.T) {
 		checkInUseBucket bool
 	}{
 		"float": {
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				return app.Append(0, labels.FromStrings("foo", "bar1"), ts, float64(ts))
 			},
 			sampleFunc: func(ts int64) chunks.Sample {
@@ -5913,7 +5904,7 @@ func TestChunkQuerierOOOQuery(t *testing.T) {
 		},
 		"integer histogram counter resets": {
 			// Adding counter reset to all histograms means each histogram will have its own chunk.
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				h := tsdbutil.GenerateTestHistogram(ts)
 				h.CounterResetHint = histogram.CounterReset // For this scenario, ignore the counterReset argument.
 				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, h, nil)
@@ -5924,7 +5915,7 @@ func TestChunkQuerierOOOQuery(t *testing.T) {
 		},
 		"integer histogram with recode": {
 			// Histograms have increasing number of buckets so their chunks are recoded.
-			appendFunc: func(app storage.Appender, ts int64, counterReset bool) (storage.SeriesRef, error) {
+			appendFunc: func(app storage.Appender, ts int64, _ bool) (storage.SeriesRef, error) {
 				n := ts / time.Minute.Milliseconds()
 				return app.AppendHistogram(0, labels.FromStrings("foo", "bar1"), ts, nBucketHistogram(n), nil)
 			},
@@ -5956,7 +5947,7 @@ func testChunkQuerierOOOQuery(t *testing.T,
 	series1 := labels.FromStrings("foo", "bar1")
 
 	type filterFunc func(t int64) bool
-	defaultFilterFunc := func(t int64) bool { return true }
+	defaultFilterFunc := func(_ int64) bool { return true }
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
@@ -6155,7 +6146,6 @@ func testChunkQuerierOOOQuery(t *testing.T,
 			db := openTestDB(t, opts, nil)
 			db.DisableCompactions()
 			db.EnableNativeHistograms()
-			db.EnableOOONativeHistograms()
 			defer func() {
 				require.NoError(t, db.Close())
 			}()
@@ -6236,7 +6226,7 @@ func testOOONativeHistogramsWithCounterResets(t *testing.T, scenario sampleTypeS
 	opts.OutOfOrderTimeWindow = 24 * time.Hour.Milliseconds()
 
 	type resetFunc func(v int64) bool
-	defaultResetFunc := func(v int64) bool { return false }
+	defaultResetFunc := func(_ int64) bool { return false }
 
 	lbls := labels.FromStrings("foo", "bar1")
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
@@ -6336,7 +6326,6 @@ func testOOONativeHistogramsWithCounterResets(t *testing.T, scenario sampleTypeS
 		t.Run(fmt.Sprintf("name=%s", tc.name), func(t *testing.T) {
 			db := openTestDB(t, opts, nil)
 			db.DisableCompactions()
-			db.EnableOOONativeHistograms()
 			defer func() {
 				require.NoError(t, db.Close())
 			}()
@@ -6574,7 +6563,6 @@ func testOOOInterleavedImplicitCounterResets(t *testing.T, name string, scenario
 
 			db := openTestDB(t, opts, nil)
 			db.DisableCompactions()
-			db.EnableOOONativeHistograms()
 			defer func() {
 				require.NoError(t, db.Close())
 			}()
@@ -6677,7 +6665,6 @@ func testOOOAppendAndQuery(t *testing.T, scenario sampleTypeScenario) {
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
 	db.EnableNativeHistograms()
-	db.EnableOOONativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -6810,7 +6797,6 @@ func testOOODisabled(t *testing.T, scenario sampleTypeScenario) {
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
 	db.EnableNativeHistograms()
-	db.EnableOOONativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -6884,7 +6870,6 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	opts.OutOfOrderCapMax = 30
 	opts.OutOfOrderTimeWindow = 4 * time.Hour.Milliseconds()
 	opts.EnableNativeHistograms = true
-	opts.EnableOOONativeHistograms = true
 
 	db := openTestDB(t, opts, nil)
 	db.DisableCompactions()
@@ -7034,7 +7019,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		resetMmapToOriginal() // We neet to reset because new duplicate chunks can be written above.
 
 		// Removing m-map markers in WBL by rewriting it.
-		newWbl, err := wlog.New(promslog.NewNopLogger(), nil, filepath.Join(t.TempDir(), "new_wbl"), wlog.CompressionNone)
+		newWbl, err := wlog.New(promslog.NewNopLogger(), nil, filepath.Join(t.TempDir(), "new_wbl"), compression.None)
 		require.NoError(t, err)
 		sr, err := wlog.NewSegmentsReader(originalWblDir)
 		require.NoError(t, err)
@@ -7078,7 +7063,6 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 		require.NoError(t, err)
 		db.DisableCompactions() // We want to manually call it.
 		db.EnableNativeHistograms()
-		db.EnableOOONativeHistograms()
 		t.Cleanup(func() {
 			require.NoError(t, db.Close())
 		})
@@ -7440,7 +7424,6 @@ func TestInterleavedInOrderAndOOOHistogramCompactionWithCounterResets(t *testing
 		require.NoError(t, err)
 		db.DisableCompactions() // We want to manually call it.
 		db.EnableNativeHistograms()
-		db.EnableOOONativeHistograms()
 		t.Cleanup(func() {
 			require.NoError(t, db.Close())
 		})
@@ -7556,7 +7539,6 @@ func testOOOCompactionFailure(t *testing.T, scenario sampleTypeScenario) {
 	require.NoError(t, err)
 	db.DisableCompactions() // We want to manually call it.
 	db.EnableNativeHistograms()
-	db.EnableOOONativeHistograms()
 	t.Cleanup(func() {
 		require.NoError(t, db.Close())
 	})
@@ -7845,7 +7827,6 @@ func testOOOMmapCorruption(t *testing.T, scenario sampleTypeScenario) {
 	opts.OutOfOrderCapMax = 10
 	opts.OutOfOrderTimeWindow = 300 * time.Minute.Milliseconds()
 	opts.EnableNativeHistograms = true
-	opts.EnableOOONativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -7980,7 +7961,6 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		opts := DefaultOptions()
 		opts.OutOfOrderTimeWindow = oooTimeWindow
 		opts.EnableNativeHistograms = true
-		opts.EnableOOONativeHistograms = true
 
 		db, err := Open(dir, nil, nil, opts, nil)
 		require.NoError(t, err)
@@ -8275,7 +8255,6 @@ func testNoGapAfterRestartWithOOO(t *testing.T, scenario sampleTypeScenario) {
 			opts := DefaultOptions()
 			opts.OutOfOrderTimeWindow = 30 * time.Minute.Milliseconds()
 			opts.EnableNativeHistograms = true
-			opts.EnableOOONativeHistograms = true
 
 			db, err := Open(dir, nil, nil, opts, nil)
 			require.NoError(t, err)
@@ -8335,7 +8314,6 @@ func testWblReplayAfterOOODisableAndRestart(t *testing.T, scenario sampleTypeSce
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 60 * time.Minute.Milliseconds()
 	opts.EnableNativeHistograms = true
-	opts.EnableOOONativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -8404,7 +8382,6 @@ func testPanicOnApplyConfig(t *testing.T, scenario sampleTypeScenario) {
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 60 * time.Minute.Milliseconds()
 	opts.EnableNativeHistograms = true
-	opts.EnableOOONativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -8463,7 +8440,6 @@ func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenari
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 60 * time.Minute.Milliseconds()
 	opts.EnableNativeHistograms = true
-	opts.EnableOOONativeHistograms = true
 
 	db, err := Open(dir, nil, nil, opts, nil)
 	require.NoError(t, err)
@@ -9005,7 +8981,7 @@ func TestNativeHistogramFlag(t *testing.T) {
 	}, act)
 }
 
-func TestOOONativeHistogramFlag(t *testing.T) {
+func TestOOONativeHistogramsSettings(t *testing.T) {
 	h := &histogram.Histogram{
 		Count:         9,
 		ZeroCount:     4,
@@ -9021,7 +8997,7 @@ func TestOOONativeHistogramFlag(t *testing.T) {
 
 	l := labels.FromStrings("foo", "bar")
 
-	t.Run("Test OOO native histograms if OOO is disabled", func(t *testing.T) {
+	t.Run("Test OOO native histograms if OOO is disabled and Native Histograms is enabled", func(t *testing.T) {
 		opts := DefaultOptions()
 		opts.OutOfOrderTimeWindow = 0
 		db := openTestDB(t, opts, []int64{100})
@@ -9029,9 +9005,7 @@ func TestOOONativeHistogramFlag(t *testing.T) {
 			require.NoError(t, db.Close())
 		}()
 
-		// Enable Native Histograms and OOO Native Histogram ingestion
 		db.EnableNativeHistograms()
-		db.EnableOOONativeHistograms()
 
 		app := db.Appender(context.Background())
 		_, err := app.AppendHistogram(0, l, 100, h, nil)
@@ -9049,7 +9023,7 @@ func TestOOONativeHistogramFlag(t *testing.T) {
 			l.String(): {sample{t: 100, h: h}},
 		}, act)
 	})
-	t.Run("Test OOO Native Histograms if Native Histograms are disabled", func(t *testing.T) {
+	t.Run("Test OOO Native Histograms if OOO is enabled and Native Histograms are disabled", func(t *testing.T) {
 		opts := DefaultOptions()
 		opts.OutOfOrderTimeWindow = 100
 		db := openTestDB(t, opts, []int64{100})
@@ -9057,9 +9031,7 @@ func TestOOONativeHistogramFlag(t *testing.T) {
 			require.NoError(t, db.Close())
 		}()
 
-		// Disable Native Histograms and enable OOO Native Histogram ingestion
 		db.DisableNativeHistograms()
-		db.EnableOOONativeHistograms()
 
 		// Attempt to add an in-order sample
 		app := db.Appender(context.Background())
@@ -9077,7 +9049,7 @@ func TestOOONativeHistogramFlag(t *testing.T) {
 		act := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
 		require.Equal(t, map[string][]chunks.Sample{}, act)
 	})
-	t.Run("Test OOO native histograms when flag is enabled", func(t *testing.T) {
+	t.Run("Test OOO native histograms when both OOO and Native Histograms are enabled", func(t *testing.T) {
 		opts := DefaultOptions()
 		opts.OutOfOrderTimeWindow = 100
 		db := openTestDB(t, opts, []int64{100})
@@ -9085,9 +9057,7 @@ func TestOOONativeHistogramFlag(t *testing.T) {
 			require.NoError(t, db.Close())
 		}()
 
-		// Enable Native Histograms and OOO Native Histogram ingestion
 		db.EnableNativeHistograms()
-		db.EnableOOONativeHistograms()
 
 		// Add in-order samples
 		app := db.Appender(context.Background())
@@ -9312,7 +9282,7 @@ func TestNewCompactorFunc(t *testing.T) {
 	opts := DefaultOptions()
 	block1 := ulid.MustNew(1, nil)
 	block2 := ulid.MustNew(2, nil)
-	opts.NewCompactorFunc = func(ctx context.Context, r prometheus.Registerer, l *slog.Logger, ranges []int64, pool chunkenc.Pool, opts *Options) (Compactor, error) {
+	opts.NewCompactorFunc = func(_ context.Context, _ prometheus.Registerer, _ *slog.Logger, _ []int64, _ chunkenc.Pool, _ *Options) (Compactor, error) {
 		return &mockCompactorFn{
 			planFn: func() ([]string, error) {
 				return []string{block1.String(), block2.String()}, nil
