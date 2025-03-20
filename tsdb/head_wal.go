@@ -143,10 +143,6 @@ func (h *Head) loadWAL(r *wlog.Reader, syms *labels.SymbolTable, multiRef map[ch
 				missingSeries[e.Ref] = struct{}{}
 				continue
 			}
-
-			if e.T < h.minValidTime.Load() {
-				continue
-			}
 			// At the moment the only possible error here is out of order exemplars, which we shouldn't see when
 			// replaying the WAL, so lets just log the error if it's not that type.
 			err = h.exemplars.AddExemplar(ms.labels(), exemplar.Exemplar{Ts: e.T, Value: e.V, Labels: e.Labels})
@@ -321,6 +317,9 @@ Outer:
 					if itv.Maxt < h.minValidTime.Load() {
 						continue
 					}
+					if r, ok := multiRef[chunks.HeadSeriesRef(s.Ref)]; ok {
+						s.Ref = storage.SeriesRef(r)
+					}
 					if m := h.series.getByID(chunks.HeadSeriesRef(s.Ref)); m == nil {
 						unknownTombstoneRefs.Inc()
 						missingSeries[chunks.HeadSeriesRef(s.Ref)] = struct{}{}
@@ -332,6 +331,12 @@ Outer:
 			h.wlReplaytStonesPool.Put(v)
 		case []record.RefExemplar:
 			for _, e := range v {
+				if e.T < h.minValidTime.Load() {
+					continue
+				}
+				if r, ok := multiRef[e.Ref]; ok {
+					e.Ref = r
+				}
 				exemplarsInput <- e
 			}
 			h.wlReplayExemplarsPool.Put(v)
@@ -409,6 +414,9 @@ Outer:
 			h.wlReplayFloatHistogramsPool.Put(v)
 		case []record.RefMetadata:
 			for _, m := range v {
+				if r, ok := multiRef[m.Ref]; ok {
+					m.Ref = r
+				}
 				s := h.series.getByID(m.Ref)
 				if s == nil {
 					unknownMetadataRefs.Inc()
