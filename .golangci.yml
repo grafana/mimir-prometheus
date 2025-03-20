@@ -17,8 +17,7 @@ linters:
     - loggercheck
     - misspell
     - nilnesserr
-    # TODO(bwplotka): Enable once https://github.com/golangci/golangci-lint/issues/3228 is fixed.
-    # - nolintlint
+    - nolintlint
     - perfsprint
     - predeclared
     - revive
@@ -158,6 +157,7 @@ linters-settings:
       - name: unexported-return
       - name: unreachable-code
       - name: unused-parameter
+        disabled: true
       - name: var-declaration
       - name: var-naming
   testifylint:

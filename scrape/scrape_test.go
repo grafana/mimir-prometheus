@@ -120,7 +120,7 @@ func runScrapeLoopTest(t *testing.T, s *teststorage.TestStorage, expectOutOfOrde
 	// Create an appender for adding samples to the storage.
 	app := s.Appender(context.Background())
 	capp := &collectResultAppender{next: app}
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return capp }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return capp }, 0)
 
 	// Current time for generating timestamps.
 	now := time.Now()
@@ -215,7 +215,7 @@ test_metric2{foo="bar"} 22
 
 	// Create an appender for adding samples to the storage.
 	capp := &collectResultAppender{next: nopAppender{}}
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return capp }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return capp }, 0)
 
 	now := time.Now()
 	slApp := sl.appender(context.Background())
@@ -249,12 +249,12 @@ type nopScraper struct {
 	scraper
 }
 
-func (n nopScraper) Report(_ time.Time, _ time.Duration, _ error) {}
+func (n nopScraper) Report(start time.Time, dur time.Duration, err error) {}
 
 func TestScrapeReportMetadataUpdate(t *testing.T) {
 	// Create an appender for adding samples to the storage.
 	capp := &collectResultAppender{next: nopAppender{}}
-	sl := newBasicScrapeLoop(t, context.Background(), nopScraper{}, func(_ context.Context) storage.Appender { return capp }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nopScraper{}, func(ctx context.Context) storage.Appender { return capp }, 0)
 	now := time.Now()
 	slApp := sl.appender(context.Background())
 
@@ -503,7 +503,7 @@ func TestScrapePoolReload(t *testing.T) {
 	// equivalents have been stopped.
 	newLoop := func(opts scrapeLoopOptions) loop {
 		l := &testLoop{interval: time.Duration(reloadCfg.ScrapeInterval), timeout: time.Duration(reloadCfg.ScrapeTimeout)}
-		l.startFunc = func(interval, timeout time.Duration, _ chan<- error) {
+		l.startFunc = func(interval, timeout time.Duration, errc chan<- error) {
 			require.Equal(t, 3*time.Second, interval, "Unexpected scrape interval")
 			require.Equal(t, 2*time.Second, timeout, "Unexpected scrape timeout")
 
@@ -593,7 +593,7 @@ func TestScrapePoolReloadPreserveRelabeledIntervalTimeout(t *testing.T) {
 	}
 	newLoop := func(opts scrapeLoopOptions) loop {
 		l := &testLoop{interval: opts.interval, timeout: opts.timeout}
-		l.startFunc = func(interval, timeout time.Duration, _ chan<- error) {
+		l.startFunc = func(interval, timeout time.Duration, errc chan<- error) {
 			require.Equal(t, 5*time.Second, interval, "Unexpected scrape interval")
 			require.Equal(t, 3*time.Second, timeout, "Unexpected scrape timeout")
 		}
@@ -651,10 +651,10 @@ func TestScrapePoolTargetLimit(t *testing.T) {
 	var wg sync.WaitGroup
 	// On starting to run, new loops created on reload check whether their preceding
 	// equivalents have been stopped.
-	newLoop := func(_ scrapeLoopOptions) loop {
+	newLoop := func(opts scrapeLoopOptions) loop {
 		wg.Add(1)
 		l := &testLoop{
-			startFunc: func(_, _ time.Duration, _ chan<- error) {
+			startFunc: func(interval, timeout time.Duration, errc chan<- error) {
 				wg.Done()
 			},
 			stopFunc: func() {},
@@ -884,10 +884,10 @@ func TestScrapePoolRaces(t *testing.T) {
 
 func TestScrapePoolScrapeLoopsStarted(t *testing.T) {
 	var wg sync.WaitGroup
-	newLoop := func(_ scrapeLoopOptions) loop {
+	newLoop := func(opts scrapeLoopOptions) loop {
 		wg.Add(1)
 		l := &testLoop{
-			startFunc: func(_, _ time.Duration, _ chan<- error) {
+			startFunc: func(interval, timeout time.Duration, errc chan<- error) {
 				wg.Done()
 			},
 			stopFunc: func() {},
@@ -1022,7 +1022,7 @@ func TestScrapeLoopStop(t *testing.T) {
 		signal   = make(chan struct{}, 1)
 		appender = &collectResultAppender{}
 		scraper  = &testScraper{}
-		app      = func(_ context.Context) storage.Appender { return appender }
+		app      = func(ctx context.Context) storage.Appender { return appender }
 	)
 
 	// Since we're writing samples directly below we need to provide a protocol fallback.
@@ -1078,7 +1078,7 @@ func TestScrapeLoopRun(t *testing.T) {
 		errc   = make(chan error)
 
 		scraper       = &testScraper{}
-		app           = func(_ context.Context) storage.Appender { return &nopAppender{} }
+		app           = func(ctx context.Context) storage.Appender { return &nopAppender{} }
 		scrapeMetrics = newTestScrapeMetrics(t)
 	)
 
@@ -1186,7 +1186,7 @@ func TestScrapeLoopForcedErr(t *testing.T) {
 		errc   = make(chan error)
 
 		scraper = &testScraper{}
-		app     = func(_ context.Context) storage.Appender { return &nopAppender{} }
+		app     = func(ctx context.Context) storage.Appender { return &nopAppender{} }
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1235,7 +1235,7 @@ func TestScrapeLoopMetadata(t *testing.T) {
 		nil, nil,
 		nopMutator,
 		nopMutator,
-		func(_ context.Context) storage.Appender { return nopAppender{} },
+		func(ctx context.Context) storage.Appender { return nopAppender{} },
 		cache,
 		labels.NewSymbolTable(),
 		0,
@@ -1325,13 +1325,14 @@ func TestScrapeLoopSeriesAdded(t *testing.T) {
 }
 
 func TestScrapeLoopFailWithInvalidLabelsAfterRelabel(t *testing.T) {
+	model.NameValidationScheme = model.LegacyValidation
 	s := teststorage.New(t)
 	defer s.Close()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	target := &Target{
-		labels: labels.FromStrings("pod_label_invalid_012\xff", "test"),
+		labels: labels.FromStrings("pod_label_invalid_012", "test"),
 	}
 	relabelConfig := []*relabel.Config{{
 		Action:      relabel.LabelMap,
@@ -1356,6 +1357,10 @@ func TestScrapeLoopFailWithInvalidLabelsAfterRelabel(t *testing.T) {
 func TestScrapeLoopFailLegacyUnderUTF8(t *testing.T) {
 	// Test that scrapes fail when default validation is utf8 but scrape config is
 	// legacy.
+	model.NameValidationScheme = model.UTF8Validation
+	defer func() {
+		model.NameValidationScheme = model.LegacyValidation
+	}()
 	s := teststorage.New(t)
 	defer s.Close()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1535,7 +1540,7 @@ func TestSetOptionsHandlingStaleness(t *testing.T) {
 		)
 		sl := newBasicScrapeLoop(t, ctx, scraper, app, 10*time.Millisecond)
 		numScrapes := 0
-		scraper.scrapeFunc = func(_ context.Context, w io.Writer) error {
+		scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 			numScrapes++
 			if numScrapes == cue {
 				action(sl)
@@ -1603,7 +1608,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnFailedScrape(t *testing.T) {
 	var (
 		signal  = make(chan struct{}, 1)
 		scraper = &testScraper{}
-		app     = func(_ context.Context) storage.Appender { return appender }
+		app     = func(ctx context.Context) storage.Appender { return appender }
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1612,7 +1617,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnFailedScrape(t *testing.T) {
 	// Succeed once, several failures, then stop.
 	numScrapes := 0
 
-	scraper.scrapeFunc = func(_ context.Context, w io.Writer) error {
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		numScrapes++
 
 		switch numScrapes {
@@ -1649,7 +1654,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnParseFailure(t *testing.T) {
 	var (
 		signal     = make(chan struct{}, 1)
 		scraper    = &testScraper{}
-		app        = func(_ context.Context) storage.Appender { return appender }
+		app        = func(ctx context.Context) storage.Appender { return appender }
 		numScrapes = 0
 	)
 
@@ -1658,7 +1663,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnParseFailure(t *testing.T) {
 	sl := newBasicScrapeLoopWithFallback(t, ctx, scraper, app, 10*time.Millisecond, "text/plain")
 
 	// Succeed once, several failures, then stop.
-	scraper.scrapeFunc = func(_ context.Context, w io.Writer) error {
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		numScrapes++
 		switch numScrapes {
 		case 1:
@@ -1711,7 +1716,7 @@ func TestScrapeLoopCache(t *testing.T) {
 
 	numScrapes := 0
 
-	scraper.scrapeFunc = func(_ context.Context, w io.Writer) error {
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		switch numScrapes {
 		case 1, 2:
 			_, ok := sl.cache.series["metric_a"]
@@ -1765,7 +1770,7 @@ func TestScrapeLoopCacheMemoryExhaustionProtection(t *testing.T) {
 	var (
 		signal  = make(chan struct{}, 1)
 		scraper = &testScraper{}
-		app     = func(_ context.Context) storage.Appender { return appender }
+		app     = func(ctx context.Context) storage.Appender { return appender }
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1773,7 +1778,7 @@ func TestScrapeLoopCacheMemoryExhaustionProtection(t *testing.T) {
 
 	numScrapes := 0
 
-	scraper.scrapeFunc = func(_ context.Context, w io.Writer) error {
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		numScrapes++
 		if numScrapes < 5 {
 			s := ""
@@ -1861,7 +1866,7 @@ func TestScrapeLoopAppend(t *testing.T) {
 			labels: labels.FromStrings(test.discoveryLabels...),
 		}
 
-		sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+		sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 		sl.sampleMutator = func(l labels.Labels) labels.Labels {
 			return mutateSampleLabels(l, discoveryLabels, test.honorLabels, nil)
 		}
@@ -1949,7 +1954,7 @@ func TestScrapeLoopAppendForConflictingPrefixedLabels(t *testing.T) {
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
 			app := &collectResultAppender{}
-			sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+			sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 			sl.sampleMutator = func(l labels.Labels) labels.Labels {
 				return mutateSampleLabels(l, &Target{labels: labels.FromStrings(tc.targetLabels...)}, false, nil)
 			}
@@ -1973,7 +1978,7 @@ func TestScrapeLoopAppendForConflictingPrefixedLabels(t *testing.T) {
 func TestScrapeLoopAppendCacheEntryButErrNotFound(t *testing.T) {
 	// collectResultAppender's AddFast always returns ErrNotFound if we don't give it a next.
 	app := &collectResultAppender{}
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 
 	fakeRef := storage.SeriesRef(1)
 	expValue := float64(1)
@@ -2011,7 +2016,7 @@ func TestScrapeLoopAppendSampleLimit(t *testing.T) {
 	resApp := &collectResultAppender{}
 	app := &limitAppender{Appender: resApp, limit: 1}
 
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 	sl.sampleMutator = func(l labels.Labels) labels.Labels {
 		if l.Has("deleteme") {
 			return labels.EmptyLabels()
@@ -2070,7 +2075,7 @@ func TestScrapeLoop_HistogramBucketLimit(t *testing.T) {
 	resApp := &collectResultAppender{}
 	app := &bucketLimitAppender{Appender: resApp, limit: 2}
 
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 	sl.enableNativeHistogramIngestion = true
 	sl.sampleMutator = func(l labels.Labels) labels.Labels {
 		if l.Has("deleteme") {
@@ -2182,7 +2187,7 @@ func TestScrapeLoop_ChangingMetricString(t *testing.T) {
 	defer s.Close()
 
 	capp := &collectResultAppender{}
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return capp }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return capp }, 0)
 
 	now := time.Now()
 	slApp := sl.appender(context.Background())
@@ -2214,7 +2219,7 @@ func TestScrapeLoopAppendFailsWithNoContentType(t *testing.T) {
 	app := &collectResultAppender{}
 
 	// Explicitly setting the lack of fallback protocol here to make it obvious.
-	sl := newBasicScrapeLoopWithFallback(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0, "")
+	sl := newBasicScrapeLoopWithFallback(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0, "")
 
 	now := time.Now()
 	slApp := sl.appender(context.Background())
@@ -2228,7 +2233,7 @@ func TestScrapeLoopAppendEmptyWithNoContentType(t *testing.T) {
 	app := &collectResultAppender{}
 
 	// Explicitly setting the lack of fallback protocol here to make it obvious.
-	sl := newBasicScrapeLoopWithFallback(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0, "")
+	sl := newBasicScrapeLoopWithFallback(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0, "")
 
 	now := time.Now()
 	slApp := sl.appender(context.Background())
@@ -2240,7 +2245,7 @@ func TestScrapeLoopAppendEmptyWithNoContentType(t *testing.T) {
 func TestScrapeLoopAppendStaleness(t *testing.T) {
 	app := &collectResultAppender{}
 
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 
 	now := time.Now()
 	slApp := sl.appender(context.Background())
@@ -2270,7 +2275,7 @@ func TestScrapeLoopAppendStaleness(t *testing.T) {
 
 func TestScrapeLoopAppendNoStalenessIfTimestamp(t *testing.T) {
 	app := &collectResultAppender{}
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 	now := time.Now()
 	slApp := sl.appender(context.Background())
 	_, _, _, err := sl.append(slApp, []byte("metric_a 1 1000\n"), "text/plain", now)
@@ -2294,7 +2299,7 @@ func TestScrapeLoopAppendNoStalenessIfTimestamp(t *testing.T) {
 
 func TestScrapeLoopAppendStalenessIfTrackTimestampStaleness(t *testing.T) {
 	app := &collectResultAppender{}
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 	sl.trackTimestampsStaleness = true
 
 	now := time.Now()
@@ -2390,7 +2395,7 @@ metric_total{n="2"} 2 # {t="2"} 2.0 20000
 			},
 		},
 		{
-			title: "Native histogram with three exemplars from classic buckets",
+			title: "Native histogram with three exemplars",
 
 			enableNativeHistogramsIngestion: true,
 			scrapeText: `name: "test_histogram"
@@ -2639,180 +2644,6 @@ metric: <
 				{Labels: labels.FromStrings("dummyID", "58215"), Value: -0.00019, Ts: 1625851055146, HasTs: true},
 			},
 		},
-		{
-			title:                           "Native histogram with exemplars and no classic buckets",
-			contentType:                     "application/vnd.google.protobuf",
-			enableNativeHistogramsIngestion: true,
-			scrapeText: `name: "test_histogram"
-help: "Test histogram."
-type: HISTOGRAM
-metric: <
-  histogram: <
-    sample_count: 175
-    sample_sum: 0.0008280461746287094
-    schema: 3
-    zero_threshold: 2.938735877055719e-39
-    zero_count: 2
-    negative_span: <
-      offset: -162
-      length: 1
-    >
-    negative_span: <
-      offset: 23
-      length: 4
-    >
-    negative_delta: 1
-    negative_delta: 3
-    negative_delta: -2
-    negative_delta: -1
-    negative_delta: 1
-    positive_span: <
-      offset: -161
-      length: 1
-    >
-    positive_span: <
-      offset: 8
-      length: 3
-    >
-    positive_delta: 1
-    positive_delta: 2
-    positive_delta: -1
-    positive_delta: -1
-	exemplars: <
-	  label: <
-        name: "dummyID"
-        value: "59732"
-      >
-      value: -0.00039
-      timestamp: <
-        seconds: 1625851155
-        nanos: 146848499
-      >
-	>
-	exemplars: <
-	  label: <
-        name: "dummyID"
-        value: "58242"
-      >
-      value: -0.00019
-      timestamp: <
-        seconds: 1625851055
-        nanos: 146848599
-      >
-	>
-	exemplars: <
-      label: <
-        name: "dummyID"
-        value: "5617"
-      >
-      value: -0.00029
-    >
-  >
-  timestamp_ms: 1234568
->
-
-`,
-			histograms: []histogramSample{{
-				t:      1234568,
-				metric: labels.FromStrings("__name__", "test_histogram"),
-				h: &histogram.Histogram{
-					Count:         175,
-					ZeroCount:     2,
-					Sum:           0.0008280461746287094,
-					ZeroThreshold: 2.938735877055719e-39,
-					Schema:        3,
-					PositiveSpans: []histogram.Span{
-						{Offset: -161, Length: 1},
-						{Offset: 8, Length: 3},
-					},
-					NegativeSpans: []histogram.Span{
-						{Offset: -162, Length: 1},
-						{Offset: 23, Length: 4},
-					},
-					PositiveBuckets: []int64{1, 2, -1, -1},
-					NegativeBuckets: []int64{1, 3, -2, -1, 1},
-				},
-			}},
-			exemplars: []exemplar.Exemplar{
-				// Exemplars with missing timestamps are dropped for native histograms.
-				{Labels: labels.FromStrings("dummyID", "58242"), Value: -0.00019, Ts: 1625851055146, HasTs: true},
-				{Labels: labels.FromStrings("dummyID", "59732"), Value: -0.00039, Ts: 1625851155146, HasTs: true},
-			},
-		},
-		{
-			title:                           "Native histogram with exemplars but ingestion disabled",
-			contentType:                     "application/vnd.google.protobuf",
-			enableNativeHistogramsIngestion: false,
-			scrapeText: `name: "test_histogram"
-help: "Test histogram."
-type: HISTOGRAM
-metric: <
-  histogram: <
-    sample_count: 175
-    sample_sum: 0.0008280461746287094
-    schema: 3
-    zero_threshold: 2.938735877055719e-39
-    zero_count: 2
-    negative_span: <
-      offset: -162
-      length: 1
-    >
-    negative_span: <
-      offset: 23
-      length: 4
-    >
-    negative_delta: 1
-    negative_delta: 3
-    negative_delta: -2
-    negative_delta: -1
-    negative_delta: 1
-    positive_span: <
-      offset: -161
-      length: 1
-    >
-    positive_span: <
-      offset: 8
-      length: 3
-    >
-    positive_delta: 1
-    positive_delta: 2
-    positive_delta: -1
-    positive_delta: -1
-	exemplars: <
-	  label: <
-        name: "dummyID"
-        value: "59732"
-      >
-      value: -0.00039
-      timestamp: <
-        seconds: 1625851155
-        nanos: 146848499
-      >
-	>
-	exemplars: <
-	  label: <
-        name: "dummyID"
-        value: "58242"
-      >
-      value: -0.00019
-      timestamp: <
-        seconds: 1625851055
-        nanos: 146848599
-      >
-	>
-	exemplars: <
-      label: <
-        name: "dummyID"
-        value: "5617"
-      >
-      value: -0.00029
-    >
-  >
-  timestamp_ms: 1234568
->
-
-`,
-		},
 	}
 
 	for _, test := range tests {
@@ -2823,7 +2654,7 @@ metric: <
 				labels: labels.FromStrings(test.discoveryLabels...),
 			}
 
-			sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+			sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 			sl.enableNativeHistogramIngestion = test.enableNativeHistogramsIngestion
 			sl.sampleMutator = func(l labels.Labels) labels.Labels {
 				return mutateSampleLabels(l, discoveryLabels, false, nil)
@@ -2907,7 +2738,7 @@ func TestScrapeLoopAppendExemplarSeries(t *testing.T) {
 
 	app := &collectResultAppender{}
 
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 	sl.sampleMutator = func(l labels.Labels) labels.Labels {
 		return mutateSampleLabels(l, discoveryLabels, false, nil)
 	}
@@ -2944,13 +2775,13 @@ func TestScrapeLoopRunReportsTargetDownOnScrapeError(t *testing.T) {
 	var (
 		scraper  = &testScraper{}
 		appender = &collectResultAppender{}
-		app      = func(_ context.Context) storage.Appender { return appender }
+		app      = func(ctx context.Context) storage.Appender { return appender }
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sl := newBasicScrapeLoop(t, ctx, scraper, app, 10*time.Millisecond)
 
-	scraper.scrapeFunc = func(_ context.Context, _ io.Writer) error {
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		cancel()
 		return errors.New("scrape failed")
 	}
@@ -2963,13 +2794,13 @@ func TestScrapeLoopRunReportsTargetDownOnInvalidUTF8(t *testing.T) {
 	var (
 		scraper  = &testScraper{}
 		appender = &collectResultAppender{}
-		app      = func(_ context.Context) storage.Appender { return appender }
+		app      = func(ctx context.Context) storage.Appender { return appender }
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	sl := newBasicScrapeLoop(t, ctx, scraper, app, 10*time.Millisecond)
 
-	scraper.scrapeFunc = func(_ context.Context, w io.Writer) error {
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		cancel()
 		w.Write([]byte("a{l=\"\xff\"} 1\n"))
 		return nil
@@ -2998,7 +2829,7 @@ func (app *errorAppender) Append(ref storage.SeriesRef, lset labels.Labels, t in
 
 func TestScrapeLoopAppendGracefullyIfAmendOrOutOfOrderOrOutOfBounds(t *testing.T) {
 	app := &errorAppender{}
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 
 	now := time.Unix(1, 0)
 	slApp := sl.appender(context.Background())
@@ -3022,7 +2853,7 @@ func TestScrapeLoopAppendGracefullyIfAmendOrOutOfOrderOrOutOfBounds(t *testing.T
 func TestScrapeLoopOutOfBoundsTimeError(t *testing.T) {
 	app := &collectResultAppender{}
 	sl := newBasicScrapeLoop(t, context.Background(), nil,
-		func(_ context.Context) storage.Appender {
+		func(ctx context.Context) storage.Appender {
 			return &timeLimitAppender{
 				Appender: app,
 				maxTime:  timestamp.FromTime(time.Now().Add(10 * time.Minute)),
@@ -3165,7 +2996,7 @@ func TestTargetScrapeScrapeCancel(t *testing.T) {
 	block := make(chan struct{})
 
 	server := httptest.NewServer(
-		http.HandlerFunc(func(_ http.ResponseWriter, _ *http.Request) {
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			<-block
 		}),
 	)
@@ -3221,7 +3052,7 @@ func TestTargetScrapeScrapeCancel(t *testing.T) {
 
 func TestTargetScrapeScrapeNotFound(t *testing.T) {
 	server := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusNotFound)
 		}),
 	)
@@ -3257,7 +3088,7 @@ func TestTargetScraperBodySizeLimit(t *testing.T) {
 	)
 	var gzipResponse bool
 	server := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", `text/plain; version=0.0.4`)
 			if gzipResponse {
 				w.Header().Set("Content-Encoding", "gzip")
@@ -3347,11 +3178,11 @@ func (ts *testScraper) Report(start time.Time, duration time.Duration, err error
 	ts.lastError = err
 }
 
-func (ts *testScraper) scrape(_ context.Context) (*http.Response, error) {
+func (ts *testScraper) scrape(ctx context.Context) (*http.Response, error) {
 	return nil, ts.scrapeErr
 }
 
-func (ts *testScraper) readResponse(ctx context.Context, _ *http.Response, w io.Writer) (string, error) {
+func (ts *testScraper) readResponse(ctx context.Context, resp *http.Response, w io.Writer) (string, error) {
 	if ts.scrapeFunc != nil {
 		return "", ts.scrapeFunc(ctx, w)
 	}
@@ -3364,7 +3195,7 @@ func TestScrapeLoop_RespectTimestamps(t *testing.T) {
 
 	app := s.Appender(context.Background())
 	capp := &collectResultAppender{next: app}
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return capp }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return capp }, 0)
 
 	now := time.Now()
 	slApp := sl.appender(context.Background())
@@ -3390,7 +3221,7 @@ func TestScrapeLoop_DiscardTimestamps(t *testing.T) {
 
 	capp := &collectResultAppender{next: app}
 
-	sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return capp }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return capp }, 0)
 	sl.honorTimestamps = false
 
 	now := time.Now()
@@ -3453,7 +3284,7 @@ func TestScrapeLoopDiscardUnnamedMetrics(t *testing.T) {
 	app := s.Appender(context.Background())
 
 	ctx, cancel := context.WithCancel(context.Background())
-	sl := newBasicScrapeLoop(t, context.Background(), &testScraper{}, func(_ context.Context) storage.Appender { return app }, 0)
+	sl := newBasicScrapeLoop(t, context.Background(), &testScraper{}, func(ctx context.Context) storage.Appender { return app }, 0)
 	sl.sampleMutator = func(l labels.Labels) labels.Labels {
 		if l.Has("drop") {
 			return labels.FromStrings("no", "name") // This label set will trigger an error.
@@ -3782,7 +3613,7 @@ func TestScrapeReportSingleAppender(t *testing.T) {
 
 	numScrapes := 0
 
-	scraper.scrapeFunc = func(_ context.Context, w io.Writer) error {
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		numScrapes++
 		if numScrapes%4 == 0 {
 			return errors.New("scrape failed")
@@ -3880,6 +3711,8 @@ func TestScrapeReportLimit(t *testing.T) {
 func TestScrapeUTF8(t *testing.T) {
 	s := teststorage.New(t)
 	defer s.Close()
+	model.NameValidationScheme = model.UTF8Validation
+	t.Cleanup(func() { model.NameValidationScheme = model.LegacyValidation })
 
 	cfg := &config.ScrapeConfig{
 		JobName:                    "test",
@@ -3993,7 +3826,7 @@ func TestScrapeLoopLabelLimit(t *testing.T) {
 			labels: labels.FromStrings(test.discoveryLabels...),
 		}
 
-		sl := newBasicScrapeLoop(t, context.Background(), nil, func(_ context.Context) storage.Appender { return app }, 0)
+		sl := newBasicScrapeLoop(t, context.Background(), nil, func(ctx context.Context) storage.Appender { return app }, 0)
 		sl.sampleMutator = func(l labels.Labels) labels.Labels {
 			return mutateSampleLabels(l, discoveryLabels, false, nil)
 		}
@@ -4591,7 +4424,7 @@ metric: <
 				scrapeCount := 0
 				scraped := make(chan bool)
 
-				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					if metricsText.contentType != "" {
 						w.Header().Set("Content-Type", `application/vnd.google.protobuf; proto=io.prometheus.client.MetricFamily; encoding=delimited`)
 						for _, text := range metricsText.text {
@@ -4691,7 +4524,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnFailedScrapeForTimestampedMetrics(t *
 	var (
 		signal  = make(chan struct{}, 1)
 		scraper = &testScraper{}
-		app     = func(_ context.Context) storage.Appender { return appender }
+		app     = func(ctx context.Context) storage.Appender { return appender }
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -4701,7 +4534,7 @@ func TestScrapeLoopRunCreatesStaleMarkersOnFailedScrapeForTimestampedMetrics(t *
 	// Succeed once, several failures, then stop.
 	numScrapes := 0
 
-	scraper.scrapeFunc = func(_ context.Context, w io.Writer) error {
+	scraper.scrapeFunc = func(ctx context.Context, w io.Writer) error {
 		numScrapes++
 
 		switch numScrapes {
@@ -5028,7 +4861,7 @@ func testNativeHistogramMaxSchemaSet(t *testing.T, minBucketFactor string, expec
 	buffer := protoMarshalDelimited(t, histogramMetricFamily)
 
 	// Create a HTTP server to serve /metrics via ProtoBuf
-	metricsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	metricsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", `application/vnd.google.protobuf; proto=io.prometheus.client.MetricFamily; encoding=delimited`)
 		w.Write(buffer)
 	}))
@@ -5271,7 +5104,7 @@ func newScrapableServer(scrapeText string) (s *httptest.Server, scrapedTwice cha
 	var scrapes int
 	scrapedTwice = make(chan bool)
 
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, scrapeText)
 		scrapes++
 		if scrapes == 2 {
@@ -5283,7 +5116,7 @@ func newScrapableServer(scrapeText string) (s *httptest.Server, scrapedTwice cha
 // Regression test for the panic fixed in https://github.com/prometheus/prometheus/pull/15523.
 func TestScrapePoolScrapeAfterReload(t *testing.T) {
 	h := httptest.NewServer(http.HandlerFunc(
-		func(w http.ResponseWriter, _ *http.Request) {
+		func(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte{0x42, 0x42})
 		},
 	))
@@ -5319,41 +5152,4 @@ func TestScrapePoolScrapeAfterReload(t *testing.T) {
 	require.NoError(t, p.reload(cfg))
 
 	<-time.After(1 * time.Second)
-}
-
-// Regression test against https://github.com/prometheus/prometheus/issues/16160.
-// The first scrape fails with a parsing error, but the second should
-// succeed and cause `metric_1=11` to appear in the appender.
-func TestScrapeAppendWithParseError(t *testing.T) {
-	const (
-		scrape1 = `metric_a 1
-`
-		scrape2 = `metric_a 11
-# EOF`
-	)
-
-	sl := newBasicScrapeLoop(t, context.Background(), nil, nil, 0)
-	sl.cache = newScrapeCache(sl.metrics)
-
-	now := time.Now()
-	capp := &collectResultAppender{next: nopAppender{}}
-	_, _, _, err := sl.append(capp, []byte(scrape1), "application/openmetrics-text", now)
-	require.Error(t, err)
-	_, _, _, err = sl.append(capp, nil, "application/openmetrics-text", now)
-	require.NoError(t, err)
-	require.Empty(t, capp.resultFloats)
-
-	capp = &collectResultAppender{next: nopAppender{}}
-	_, _, _, err = sl.append(capp, []byte(scrape2), "application/openmetrics-text", now.Add(15*time.Second))
-	require.NoError(t, err)
-	require.NoError(t, capp.Commit())
-
-	want := []floatSample{
-		{
-			metric: labels.FromStrings(model.MetricNameLabel, "metric_a"),
-			t:      timestamp.FromTime(now.Add(15 * time.Second)),
-			f:      11,
-		},
-	}
-	requireEqual(t, want, capp.resultFloats, "Appended samples not as expected:\n%s", capp)
 }

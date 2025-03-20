@@ -63,8 +63,7 @@ import (
 )
 
 func init() {
-	// This can be removed when the legacy global mode is fully deprecated.
-	//nolint:staticcheck
+	// This can be removed when the default validation scheme in common is updated.
 	model.NameValidationScheme = model.UTF8Validation
 }
 
@@ -1325,7 +1324,7 @@ func labelsSetPromQL(query, labelMatchType, name, value string) error {
 		return fmt.Errorf("invalid label match type: %s", labelMatchType)
 	}
 
-	parser.Inspect(expr, func(node parser.Node, _ []parser.Node) error {
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
 		if n, ok := node.(*parser.VectorSelector); ok {
 			var found bool
 			for i, l := range n.LabelMatchers {
@@ -1356,7 +1355,7 @@ func labelsDeletePromQL(query, name string) error {
 		return err
 	}
 
-	parser.Inspect(expr, func(node parser.Node, _ []parser.Node) error {
+	parser.Inspect(expr, func(node parser.Node, path []parser.Node) error {
 		if n, ok := node.(*parser.VectorSelector); ok {
 			for i, l := range n.LabelMatchers {
 				if l.Name == name {

@@ -96,7 +96,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		expectedErr := errors.New("failed successfully")
 		reg := prometheus.NewRegistry()
 
-		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			return nil, expectedErr
 		}, &timeNowMock{}, false, reg)
 
@@ -171,7 +171,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 						if cacheEnabled {
 							ttl = DefaultPostingsForMatchersCacheTTL
 						}
-						c := newPostingsForMatchersCache(ttl, 5, 1000, func(_ context.Context, _ IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+						c := newPostingsForMatchersCache(ttl, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 							select {
 							case called <- struct{}{}:
 							default:
@@ -219,7 +219,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		reg := prometheus.NewRegistry()
 
 		var call int
-		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			call++
 			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
 		}, &timeNowMock{}, false, reg)
@@ -267,7 +267,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		reg := prometheus.NewRegistry()
 
 		var call int
-		c := newPostingsForMatchersCache(0, 1000, 1000, func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(0, 1000, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			call++
 			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
 		}, &timeNowMock{}, false, reg)
@@ -318,7 +318,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		reg := prometheus.NewRegistry()
 
 		var call int
-		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, 5, 1000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			call++
 			return index.ErrPostings(fmt.Errorf("result from call %d", call)), nil
 		}, timeNow, false, reg)
@@ -382,7 +382,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		}
 
 		callsPerMatchers := map[string]int{}
-		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, maxItems, 100000, func(_ context.Context, _ IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, maxItems, 100000, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			k := matchersKey(ms)
 			callsPerMatchers[k]++
 			return index.ErrPostings(fmt.Errorf("result from call %d", callsPerMatchers[k])), nil
@@ -474,7 +474,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		}
 
 		callsPerMatchers := map[string]int{}
-		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, maxItems, maxBytes, func(_ context.Context, _ IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(DefaultPostingsForMatchersCacheTTL, maxItems, maxBytes, func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			k := matchersKey(ms)
 			callsPerMatchers[k]++
 			return index.NewListPostings(refsLists[k]), nil
@@ -558,7 +558,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		var cancelReqCtx context.CancelFunc
 		callsCount := atomic.NewInt32(0)
 
-		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			callsCount.Inc()
 
 			// We want the request context to be canceled while running PostingsForMatchers()
@@ -633,7 +633,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		waitBeforeCancelReqCtx1 := make(chan struct{})
 		callsCount := atomic.NewInt32(0)
 
-		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			callsCount.Inc()
 
 			// Cancel the initial request once the test sends the signal. The requests context is not the same
@@ -732,7 +732,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		cancelRequests := make(chan struct{})
 		callsCount := atomic.NewInt32(0)
 
-		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		c := newPostingsForMatchersCache(time.Hour, 5, 1000, func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			callsCount.Inc()
 
 			// Cancel the requests once the test sends the signal. The requests context is not the same
@@ -927,7 +927,7 @@ func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellati
 
 	c := NewPostingsForMatchersCache(time.Hour, 5, 1000, true, NewPostingsForMatchersCacheMetrics(reg))
 
-	c.postingsForMatchers = func(ctx context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+	c.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 		callsCount.Inc()
 
 		// We want the request context to be canceled while running PostingsForMatchers()
@@ -1031,7 +1031,7 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 	b.Run("no evictions", func(b *testing.B) {
 		// Configure the cache to never evict.
 		cache := NewPostingsForMatchersCache(time.Hour, 1000000, 1024*1024*1024, true, NewPostingsForMatchersCacheMetrics(nil))
-		cache.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		cache.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			return index.NewListPostings(refs), nil
 		}
 
@@ -1048,7 +1048,7 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 	b.Run("high eviction rate", func(b *testing.B) {
 		// Configure the cache to evict continuously.
 		cache := NewPostingsForMatchersCache(time.Hour, 0, 0, true, NewPostingsForMatchersCacheMetrics(nil))
-		cache.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+		cache.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 			return index.NewListPostings(refs), nil
 		}
 
@@ -1091,7 +1091,7 @@ func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.
 
 	// Configure the cache to evict continuously.
 	cache := NewPostingsForMatchersCache(time.Hour, 0, 0, true, NewPostingsForMatchersCacheMetrics(nil))
-	cache.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
+	cache.postingsForMatchers = func(ctx context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error) {
 		return index.NewListPostings(refs), nil
 	}
 

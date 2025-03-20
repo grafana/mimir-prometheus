@@ -40,8 +40,7 @@ import (
 )
 
 func init() {
-	// This can be removed when the legacy global mode is fully deprecated.
-	//nolint:staticcheck
+	// This can be removed when the default validation scheme in common is updated.
 	model.NameValidationScheme = model.UTF8Validation
 }
 
@@ -137,8 +136,8 @@ func TestCheckSDFile(t *testing.T) {
 		},
 		{
 			name: "bad file extension",
-			file: "./testdata/bad-sd-file-extension.nonexistent",
-			err:  "invalid file extension: \".nonexistent\"",
+			file: "./testdata/bad-sd-file-extension.nonexistant",
+			err:  "invalid file extension: \".nonexistant\"",
 		},
 		{
 			name: "bad format",

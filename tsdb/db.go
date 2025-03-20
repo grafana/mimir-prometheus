@@ -30,7 +30,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oklog/ulid/v2"
+	"github.com/oklog/ulid"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/promslog"
 	"go.uber.org/atomic"
@@ -48,7 +48,6 @@ import (
 	"github.com/prometheus/prometheus/tsdb/index"
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/tsdb/wlog"
-	"github.com/prometheus/prometheus/util/compression"
 )
 
 const (
@@ -83,7 +82,7 @@ func DefaultOptions() *Options {
 		MaxBlockDuration:            DefaultBlockDuration,
 		NoLockfile:                  false,
 		SamplesPerChunk:             DefaultSamplesPerChunk,
-		WALCompression:              compression.None,
+		WALCompression:              wlog.CompressionNone,
 		StripeSize:                  DefaultStripeSize,
 		HeadChunksWriteBufferSize:   chunks.DefaultWriteBufferSize,
 		IsolationDisabled:           defaultIsolationDisabled,
@@ -139,7 +138,7 @@ type Options struct {
 	NoLockfile bool
 
 	// WALCompression configures the compression type to use on records in the WAL.
-	WALCompression compression.Type
+	WALCompression wlog.CompressionType
 
 	// Maximum number of CPUs that can simultaneously processes WAL replay.
 	// If it is <=0, then GOMAXPROCS is used.
@@ -200,6 +199,12 @@ type Options struct {
 
 	// EnableNativeHistograms enables the ingestion of native histograms.
 	EnableNativeHistograms bool
+
+	// EnableOOONativeHistograms enables the ingestion of OOO native histograms.
+	// It will only take effect if EnableNativeHistograms is set to true and the
+	// OutOfOrderTimeWindow is > 0. This flag will be removed after testing of
+	// OOO Native Histogram ingestion is complete.
+	EnableOOONativeHistograms bool
 
 	// EnableBiggerOOOBlockForOldSamples enables building 24h blocks for the OOO samples
 	// that belong to the previous day. This is in-line with Mimir maintaining 24h blocks
@@ -1037,6 +1042,7 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 	headOpts.MaxExemplars.Store(opts.MaxExemplars)
 	headOpts.EnableMemorySnapshotOnShutdown = opts.EnableMemorySnapshotOnShutdown
 	headOpts.EnableNativeHistograms.Store(opts.EnableNativeHistograms)
+	headOpts.EnableOOONativeHistograms.Store(opts.EnableOOONativeHistograms)
 	headOpts.OutOfOrderTimeWindow.Store(opts.OutOfOrderTimeWindow)
 	headOpts.OutOfOrderCapMax.Store(opts.OutOfOrderCapMax)
 	headOpts.EnableSharding = opts.EnableSharding
@@ -1271,6 +1277,16 @@ func (db *DB) EnableNativeHistograms() {
 // DisableNativeHistograms disables the native histogram feature.
 func (db *DB) DisableNativeHistograms() {
 	db.head.DisableNativeHistograms()
+}
+
+// EnableOOONativeHistograms enables the ingestion of out-of-order native histograms.
+func (db *DB) EnableOOONativeHistograms() {
+	db.head.EnableOOONativeHistograms()
+}
+
+// DisableOOONativeHistograms disables the ingestion of out-of-order native histograms.
+func (db *DB) DisableOOONativeHistograms() {
+	db.head.DisableOOONativeHistograms()
 }
 
 // dbAppender wraps the DB's head appender and triggers compactions on commit

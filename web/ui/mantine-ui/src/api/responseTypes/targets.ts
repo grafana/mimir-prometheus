@@ -18,7 +18,6 @@ export type Target = {
 
 export interface DroppedTarget {
   discoveredLabels: Labels;
-  scrapePool: string;
 }
 
 // Result type for /api/v1/targets endpoint.

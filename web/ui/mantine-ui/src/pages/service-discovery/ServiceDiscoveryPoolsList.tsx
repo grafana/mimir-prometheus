@@ -109,7 +109,8 @@ const buildPoolsData = (
   }
 
   for (const target of droppedTargets) {
-    const pool = pools[target.scrapePool];
+    const { job: poolName } = target.discoveredLabels;
+    const pool = pools[poolName];
     if (!pool) {
       // TODO: Should we do better here?
       throw new Error(
@@ -130,7 +131,7 @@ const buildPoolsData = (
             .map((value) => value.original);
 
   for (const target of filteredDroppedTargets) {
-    pools[target.scrapePool].targets.push({
+    pools[target.discoveredLabels.job].targets.push({
       discoveredLabels: target.discoveredLabels,
       isDropped: true,
       labels: {},

@@ -23,7 +23,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"slices"
 	"sort"
 	"strconv"
 	"sync"
@@ -55,6 +54,11 @@ import (
 	"github.com/prometheus/prometheus/util/runutil"
 	"github.com/prometheus/prometheus/util/testutil"
 )
+
+func init() {
+	// This can be removed when the default validation scheme in common is updated.
+	model.NameValidationScheme = model.UTF8Validation
+}
 
 func TestPopulateLabels(t *testing.T) {
 	cases := []struct {
@@ -475,7 +479,7 @@ func loadConfiguration(t testing.TB, c string) *config.Config {
 
 func noopLoop() loop {
 	return &testLoop{
-		startFunc: func(_, _ time.Duration, _ chan<- error) {},
+		startFunc: func(interval, timeout time.Duration, errc chan<- error) {},
 		stopFunc:  func() {},
 	}
 }
@@ -726,7 +730,7 @@ func setupTestServer(t *testing.T, typ string, toWrite []byte) *httptest.Server 
 	once := sync.Once{}
 
 	server := httptest.NewServer(
-		http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			fail := true
 			once.Do(func() {
 				fail = false
@@ -968,7 +972,7 @@ func TestManagerCTZeroIngestionHistogram(t *testing.T) {
 			once := sync.Once{}
 			// Start fake HTTP target to that allow one scrape only.
 			server := httptest.NewServer(
-				http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					fail := true
 					once.Do(func() {
 						fail = false
@@ -1152,7 +1156,12 @@ func requireTargets(
 		}
 		sort.Strings(expectedTargets)
 		sort.Strings(sTargets)
-		return slices.Equal(sTargets, expectedTargets)
+		for i, t := range sTargets {
+			if t != expectedTargets[i] {
+				return false
+			}
+		}
+		return true
 	}, 1*time.Second, 100*time.Millisecond)
 }
 
