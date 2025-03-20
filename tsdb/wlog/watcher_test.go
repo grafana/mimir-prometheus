@@ -31,7 +31,6 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/record"
-	"github.com/prometheus/prometheus/util/compression"
 )
 
 var (
@@ -143,7 +142,7 @@ func TestTailSamples(t *testing.T) {
 	const samplesCount = 250
 	const exemplarsCount = 25
 	const histogramsCount = 50
-	for _, compress := range compression.Types() {
+	for _, compress := range []CompressionType{CompressionNone, CompressionSnappy, CompressionZstd} {
 		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {
 			now := time.Now()
 
@@ -291,7 +290,7 @@ func TestReadToEndNoCheckpoint(t *testing.T) {
 	const seriesCount = 10
 	const samplesCount = 250
 
-	for _, compress := range compression.Types() {
+	for _, compress := range []CompressionType{CompressionNone, CompressionSnappy, CompressionZstd} {
 		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {
 			dir := t.TempDir()
 			wdir := path.Join(dir, "wal")
@@ -359,7 +358,7 @@ func TestReadToEndWithCheckpoint(t *testing.T) {
 	const seriesCount = 10
 	const samplesCount = 250
 
-	for _, compress := range compression.Types() {
+	for _, compress := range []CompressionType{CompressionNone, CompressionSnappy, CompressionZstd} {
 		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {
 			dir := t.TempDir()
 
@@ -447,7 +446,7 @@ func TestReadCheckpoint(t *testing.T) {
 	const seriesCount = 10
 	const samplesCount = 250
 
-	for _, compress := range compression.Types() {
+	for _, compress := range []CompressionType{CompressionNone, CompressionSnappy, CompressionZstd} {
 		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {
 			dir := t.TempDir()
 
@@ -520,7 +519,7 @@ func TestReadCheckpointMultipleSegments(t *testing.T) {
 	const seriesCount = 20
 	const samplesCount = 300
 
-	for _, compress := range compression.Types() {
+	for _, compress := range []CompressionType{CompressionNone, CompressionSnappy, CompressionZstd} {
 		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {
 			dir := t.TempDir()
 
@@ -591,11 +590,11 @@ func TestCheckpointSeriesReset(t *testing.T) {
 	const seriesCount = 20
 	const samplesCount = 350
 	testCases := []struct {
-		compress compression.Type
+		compress CompressionType
 		segments int
 	}{
-		{compress: compression.None, segments: 14},
-		{compress: compression.Snappy, segments: 13},
+		{compress: CompressionNone, segments: 14},
+		{compress: CompressionSnappy, segments: 13},
 	}
 
 	for _, tc := range testCases {
@@ -682,8 +681,8 @@ func TestRun_StartupTime(t *testing.T) {
 	const seriesCount = 20
 	const samplesCount = 300
 
-	for _, compress := range compression.Types() {
-		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {
+	for _, compress := range []CompressionType{CompressionNone, CompressionSnappy, CompressionZstd} {
+		t.Run(string(compress), func(t *testing.T) {
 			dir := t.TempDir()
 
 			wdir := path.Join(dir, "wal")
@@ -775,8 +774,8 @@ func TestRun_AvoidNotifyWhenBehind(t *testing.T) {
 	const seriesCount = 10
 	const samplesCount = 50
 
-	for _, compress := range compression.Types() {
-		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {
+	for _, compress := range []CompressionType{CompressionNone, CompressionSnappy, CompressionZstd} {
+		t.Run(string(compress), func(t *testing.T) {
 			dir := t.TempDir()
 
 			wdir := path.Join(dir, "wal")

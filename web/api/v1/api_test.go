@@ -314,7 +314,7 @@ func (m *rulesRetrieverMock) CreateRuleGroups() {
 		Appendable: storage,
 		Context:    context.Background(),
 		Logger:     promslog.NewNopLogger(),
-		NotifyFunc: func(_ context.Context, _ string, _ ...*rules.Alert) {},
+		NotifyFunc: func(ctx context.Context, expr string, alerts ...*rules.Alert) {},
 	}
 
 	var r []rules.Rule
@@ -480,15 +480,15 @@ func TestEndpoints(t *testing.T) {
 		u, err := url.Parse(server.URL)
 		require.NoError(t, err)
 
-		al := promslog.NewLevel()
+		al := promslog.AllowedLevel{}
 		require.NoError(t, al.Set("debug"))
 
-		af := promslog.NewFormat()
+		af := promslog.AllowedFormat{}
 		require.NoError(t, af.Set("logfmt"))
 
 		promslogConfig := promslog.Config{
-			Level:  al,
-			Format: af,
+			Level:  &al,
+			Format: &af,
 		}
 
 		dbDir := t.TempDir()
@@ -951,7 +951,7 @@ func TestStats(t *testing.T) {
 		},
 		{
 			name: "custom handler with known value",
-			renderer: func(_ context.Context, _ *stats.Statistics, p string) stats.QueryStats {
+			renderer: func(ctx context.Context, s *stats.Statistics, p string) stats.QueryStats {
 				if p == "known" {
 					return testStats{"Custom Value"}
 				}
@@ -1117,6 +1117,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 		metadata              []targetMetadata
 		exemplars             []exemplar.QueryResult
 		zeroFunc              func(interface{})
+		nameValidationScheme  model.ValidationScheme
 	}
 
 	rulesZeroFunc := func(i interface{}) {
@@ -1766,7 +1767,6 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 							"__scrape_interval__", "30s",
 							"__scrape_timeout__", "15s",
 						),
-						ScrapePool: "blackbox",
 					},
 				},
 				DroppedTargetCounts: map[string]int{"blackbox": 1},
@@ -1816,7 +1816,6 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 							"__scrape_interval__", "30s",
 							"__scrape_timeout__", "15s",
 						),
-						ScrapePool: "blackbox",
 					},
 				},
 				DroppedTargetCounts: map[string]int{"blackbox": 1},
@@ -1876,7 +1875,6 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 							"__scrape_interval__", "30s",
 							"__scrape_timeout__", "15s",
 						),
-						ScrapePool: "blackbox",
 					},
 				},
 				DroppedTargetCounts: map[string]int{"blackbox": 1},
@@ -3246,13 +3244,14 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 					"boo",
 				},
 			},
-			// Bad name parameter
+			// Bad name parameter for legacy validation.
 			{
 				endpoint: api.labelValues,
 				params: map[string]string{
-					"name": "host.name\xff",
+					"name": "host.name",
 				},
-				errType: errorBadData,
+				nameValidationScheme: model.LegacyValidation,
+				errType:              errorBadData,
 			},
 			// Valid utf8 name parameter for utf8 validation.
 			{
@@ -3260,6 +3259,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 				params: map[string]string{
 					"name": "host.name",
 				},
+				nameValidationScheme: model.UTF8Validation,
 				response: []string{
 					"localhost",
 				},
@@ -3270,6 +3270,7 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 				params: map[string]string{
 					"name": "U__junk_0a__7b__7d__2c__3d_:_20__20_chars",
 				},
+				nameValidationScheme: model.UTF8Validation,
 				response: []string{
 					"bar",
 				},
@@ -3702,6 +3703,8 @@ func testEndpoints(t *testing.T, api *API, tr *testTargetRetriever, es storage.E
 						ctx = route.WithParam(ctx, p, v)
 					}
 
+					model.NameValidationScheme = test.nameValidationScheme
+
 					req, err := request(method, test.query)
 					require.NoError(t, err)
 
@@ -4124,7 +4127,7 @@ func TestRespondSuccess_DefaultCodecCannotEncodeResponse(t *testing.T) {
 }
 
 func TestRespondError(t *testing.T) {
-	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		api := API{}
 		api.respondError(w, &apiError{errorTimeout, errors.New("message")}, "test")
 	}))
@@ -4720,11 +4723,11 @@ type fakeEngine struct {
 	query fakeQuery
 }
 
-func (e *fakeEngine) NewInstantQuery(_ context.Context, _ storage.Queryable, _ promql.QueryOpts, _ string, _ time.Time) (promql.Query, error) {
+func (e *fakeEngine) NewInstantQuery(ctx context.Context, q storage.Queryable, opts promql.QueryOpts, qs string, ts time.Time) (promql.Query, error) {
 	return &e.query, nil
 }
 
-func (e *fakeEngine) NewRangeQuery(_ context.Context, _ storage.Queryable, _ promql.QueryOpts, _ string, _, _ time.Time, _ time.Duration) (promql.Query, error) {
+func (e *fakeEngine) NewRangeQuery(ctx context.Context, q storage.Queryable, opts promql.QueryOpts, qs string, start, end time.Time, interval time.Duration) (promql.Query, error) {
 	return &e.query, nil
 }
 

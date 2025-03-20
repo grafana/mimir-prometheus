@@ -41,7 +41,6 @@ import (
 	"github.com/prometheus/prometheus/tsdb/record"
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/tsdb/wlog"
-	"github.com/prometheus/prometheus/util/compression"
 	"github.com/prometheus/prometheus/util/zeropool"
 )
 
@@ -67,7 +66,7 @@ type Options struct {
 	WALSegmentSize int
 
 	// WALCompression configures the compression type to use on records in the WAL.
-	WALCompression compression.Type
+	WALCompression wlog.CompressionType
 
 	// StripeSize is the size (power of 2) in entries of the series hash map. Reducing the size will save memory but impact performance.
 	StripeSize int
@@ -91,7 +90,7 @@ type Options struct {
 func DefaultOptions() *Options {
 	return &Options{
 		WALSegmentSize:       wlog.DefaultSegmentSize,
-		WALCompression:       compression.None,
+		WALCompression:       wlog.CompressionNone,
 		StripeSize:           tsdb.DefaultStripeSize,
 		TruncateFrequency:    DefaultTruncateFrequency,
 		MinWALTime:           DefaultMinWALTime,
@@ -338,7 +337,7 @@ func validateOptions(opts *Options) *Options {
 	}
 
 	if opts.WALCompression == "" {
-		opts.WALCompression = compression.None
+		opts.WALCompression = wlog.CompressionNone
 	}
 
 	// Revert StripeSize to DefaultStripeSize if StripeSize is either 0 or not a power of 2.

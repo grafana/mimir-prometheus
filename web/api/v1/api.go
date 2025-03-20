@@ -1022,7 +1022,6 @@ type ScrapePoolsDiscovery struct {
 type DroppedTarget struct {
 	// Labels before any processing.
 	DiscoveredLabels labels.Labels `json:"discoveredLabels"`
-	ScrapePool       string        `json:"scrapePool"`
 }
 
 // TargetDiscovery has all the active targets.
@@ -1107,15 +1106,15 @@ func (api *API) scrapePools(r *http.Request) apiFuncResult {
 }
 
 func (api *API) targets(r *http.Request) apiFuncResult {
-	getSortedPools := func(targets map[string][]*scrape.Target) ([]string, int) {
+	sortKeys := func(targets map[string][]*scrape.Target) ([]string, int) {
 		var n int
-		pools := make([]string, 0, len(targets))
-		for p, t := range targets {
-			pools = append(pools, p)
-			n += len(t)
+		keys := make([]string, 0, len(targets))
+		for k := range targets {
+			keys = append(keys, k)
+			n += len(targets[k])
 		}
-		slices.Sort(pools)
-		return pools, n
+		slices.Sort(keys)
+		return keys, n
 	}
 
 	scrapePool := r.URL.Query().Get("scrapePool")
@@ -1127,14 +1126,14 @@ func (api *API) targets(r *http.Request) apiFuncResult {
 
 	if showActive {
 		targetsActive := api.targetRetriever(r.Context()).TargetsActive()
-		activePools, numTargets := getSortedPools(targetsActive)
+		activeKeys, numTargets := sortKeys(targetsActive)
 		res.ActiveTargets = make([]*Target, 0, numTargets)
 
-		for _, pool := range activePools {
-			if scrapePool != "" && pool != scrapePool {
+		for _, key := range activeKeys {
+			if scrapePool != "" && key != scrapePool {
 				continue
 			}
-			for _, target := range targetsActive[pool] {
+			for _, target := range targetsActive[key] {
 				lastErrStr := ""
 				lastErr := target.LastError()
 				if lastErr != nil {
@@ -1146,7 +1145,7 @@ func (api *API) targets(r *http.Request) apiFuncResult {
 				res.ActiveTargets = append(res.ActiveTargets, &Target{
 					DiscoveredLabels: target.DiscoveredLabels(builder),
 					Labels:           target.Labels(builder),
-					ScrapePool:       pool,
+					ScrapePool:       key,
 					ScrapeURL:        target.URL().String(),
 					GlobalURL:        globalURL.String(),
 					LastError: func() string {
@@ -1172,18 +1171,18 @@ func (api *API) targets(r *http.Request) apiFuncResult {
 	}
 	if showDropped {
 		res.DroppedTargetCounts = api.targetRetriever(r.Context()).TargetsDroppedCounts()
-
+	}
+	if showDropped {
 		targetsDropped := api.targetRetriever(r.Context()).TargetsDropped()
-		droppedPools, numTargets := getSortedPools(targetsDropped)
+		droppedKeys, numTargets := sortKeys(targetsDropped)
 		res.DroppedTargets = make([]*DroppedTarget, 0, numTargets)
-		for _, pool := range droppedPools {
-			if scrapePool != "" && pool != scrapePool {
+		for _, key := range droppedKeys {
+			if scrapePool != "" && key != scrapePool {
 				continue
 			}
-			for _, target := range targetsDropped[pool] {
+			for _, target := range targetsDropped[key] {
 				res.DroppedTargets = append(res.DroppedTargets, &DroppedTarget{
 					DiscoveredLabels: target.DiscoveredLabels(builder),
-					ScrapePool:       pool,
 				})
 			}
 		}

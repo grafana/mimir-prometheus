@@ -445,7 +445,7 @@ func New(logger *slog.Logger, o *Options) *Handler {
 
 	router.Get("/consoles/*filepath", readyf(h.consoles))
 
-	serveReactApp := func(w http.ResponseWriter, _ *http.Request) {
+	serveReactApp := func(w http.ResponseWriter, r *http.Request) {
 		indexPath := reactAssetsRoot + "/index.html"
 		f, err := ui.Assets.Open(indexPath)
 		if err != nil {
@@ -543,18 +543,18 @@ func New(logger *slog.Logger, o *Options) *Handler {
 	router.Get("/debug/*subpath", serveDebug)
 	router.Post("/debug/*subpath", serveDebug)
 
-	router.Get("/-/healthy", func(w http.ResponseWriter, _ *http.Request) {
+	router.Get("/-/healthy", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "%s is Healthy.\n", o.AppName)
 	})
 	router.Head("/-/healthy", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	router.Get("/-/ready", readyf(func(w http.ResponseWriter, _ *http.Request) {
+	router.Get("/-/ready", readyf(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		fmt.Fprintf(w, "%s is Ready.\n", o.AppName)
 	}))
-	router.Head("/-/ready", readyf(func(w http.ResponseWriter, _ *http.Request) {
+	router.Head("/-/ready", readyf(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -900,7 +900,7 @@ func (h *Handler) consolesPath() string {
 }
 
 func setPathWithPrefix(prefix string) func(handlerName string, handler http.HandlerFunc) http.HandlerFunc {
-	return func(_ string, handler http.HandlerFunc) http.HandlerFunc {
+	return func(handlerName string, handler http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			handler(w, r.WithContext(httputil.ContextWithPath(r.Context(), prefix+r.URL.Path)))
 		}

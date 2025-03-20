@@ -61,7 +61,7 @@ func TestStoreHTTPErrorHandling(t *testing.T) {
 
 	for _, test := range tests {
 		server := httptest.NewServer(
-			http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, longErrMessage, test.code)
 			}),
 		)
@@ -93,7 +93,7 @@ func TestStoreHTTPErrorHandling(t *testing.T) {
 func TestClientRetryAfter(t *testing.T) {
 	setupServer := func(statusCode int) *httptest.Server {
 		return httptest.NewServer(
-			http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Retry-After", "5")
 				http.Error(w, longErrMessage, statusCode)
 			}),
@@ -180,7 +180,7 @@ func TestClientCustomHeaders(t *testing.T) {
 
 	var called bool
 	server := httptest.NewServer(
-		http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			called = true
 			receivedHeaders := r.Header
 			for name, value := range headersToSend {
@@ -220,7 +220,6 @@ func TestReadClient(t *testing.T) {
 		name                  string
 		query                 *prompb.Query
 		httpHandler           http.HandlerFunc
-		timeout               time.Duration
 		expectedLabels        []map[string]string
 		expectedSamples       [][]model.SamplePair
 		expectedErrorContains string
@@ -272,7 +271,7 @@ func TestReadClient(t *testing.T) {
 				StartTimestampMs: 4000,
 				EndTimestampMs:   12000,
 			},
-			httpHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			httpHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "application/x-streamed-protobuf; proto=prometheus.ChunkedReadResponse")
 
 				flusher, ok := w.(http.Flusher)
@@ -325,16 +324,10 @@ func TestReadClient(t *testing.T) {
 		},
 		{
 			name: "unsupported content type",
-			httpHandler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			httpHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", "foobar")
 			}),
 			expectedErrorContains: "unsupported content type",
-		},
-		{
-			name:                  "timeout",
-			httpHandler:           delayedResponseHTTPHandler(t, 15*time.Millisecond),
-			timeout:               5 * time.Millisecond,
-			expectedErrorContains: "context deadline exceeded: request timed out after 5ms",
 		},
 	}
 
@@ -346,13 +339,9 @@ func TestReadClient(t *testing.T) {
 			u, err := url.Parse(server.URL)
 			require.NoError(t, err)
 
-			if test.timeout == 0 {
-				test.timeout = 5 * time.Second
-			}
-
 			conf := &ClientConfig{
 				URL:              &config_util.URL{URL: u},
-				Timeout:          model.Duration(test.timeout),
+				Timeout:          model.Duration(5 * time.Second),
 				ChunkedReadLimit: config.DefaultChunkedReadLimit,
 			}
 			c, err := NewReadClient("test", conf)
@@ -410,7 +399,7 @@ func TestReadClient(t *testing.T) {
 }
 
 func sampledResponseHTTPHandler(t *testing.T) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-protobuf")
 
 		resp := prompb.ReadResponse{
@@ -442,19 +431,6 @@ func sampledResponseHTTPHandler(t *testing.T) http.HandlerFunc {
 			},
 		}
 		b, err := proto.Marshal(&resp)
-		require.NoError(t, err)
-
-		_, err = w.Write(snappy.Encode(nil, b))
-		require.NoError(t, err)
-	}
-}
-
-func delayedResponseHTTPHandler(t *testing.T, delay time.Duration) http.HandlerFunc {
-	return func(w http.ResponseWriter, _ *http.Request) {
-		time.Sleep(delay)
-
-		w.Header().Set("Content-Type", "application/x-protobuf")
-		b, err := proto.Marshal(&prompb.ReadResponse{})
 		require.NoError(t, err)
 
 		_, err = w.Write(snappy.Encode(nil, b))
