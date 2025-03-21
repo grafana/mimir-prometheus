@@ -26,7 +26,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/oklog/ulid"
+	"github.com/oklog/ulid/v2"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -104,7 +104,7 @@ type seriesSamples struct {
 // Index: labels -> postings -> chunkMetas -> chunkRef.
 // ChunkReader: ref -> vals.
 func createIdxChkReaders(t *testing.T, tc []seriesSamples) (IndexReader, ChunkReader, int64, int64) {
-	sort.Slice(tc, func(i, j int) bool {
+	sort.Slice(tc, func(i, _ int) bool {
 		return labels.Compare(labels.FromMap(tc[i].lset), labels.FromMap(tc[i].lset)) < 0
 	})
 
@@ -1547,8 +1547,6 @@ func TestPopulateWithTombSeriesIterators(t *testing.T) {
 			expectedMinMaxTimes: []minMaxTimes{{7, 12}, {11, 16}, {10, 203}},
 		},
 		{
-			// This case won't actually happen until OOO native histograms is implemented.
-			// Issue: https://github.com/prometheus/prometheus/issues/11220.
 			name: "int histogram iterables with counter resets",
 			samples: [][]chunks.Sample{
 				{
@@ -1618,8 +1616,6 @@ func TestPopulateWithTombSeriesIterators(t *testing.T) {
 			skipChunkTest: true,
 		},
 		{
-			// This case won't actually happen until OOO native histograms is implemented.
-			// Issue: https://github.com/prometheus/prometheus/issues/11220.
 			name: "float histogram iterables with counter resets",
 			samples: [][]chunks.Sample{
 				{
@@ -1689,8 +1685,6 @@ func TestPopulateWithTombSeriesIterators(t *testing.T) {
 			skipChunkTest: true,
 		},
 		{
-			// This case won't actually happen until OOO native histograms is implemented.
-			// Issue: https://github.com/prometheus/prometheus/issues/11220.
 			name: "iterables with mixed encodings and counter resets",
 			samples: [][]chunks.Sample{
 				{
@@ -2390,7 +2384,7 @@ func (m mockIndex) PostingsForAllLabelValues(ctx context.Context, name string) i
 	return index.Merge(ctx, res...)
 }
 
-func (m mockIndex) PostingsForMatchers(_ context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+func (m mockIndex) PostingsForMatchers(_ context.Context, _ bool, ms ...*labels.Matcher) (index.Postings, error) {
 	var ps []storage.SeriesRef
 	for p, s := range m.series {
 		if matches(ms, s.l) {
@@ -3387,7 +3381,7 @@ func (m mockMatcherIndex) LabelValueFor(context.Context, storage.SeriesRef, stri
 	return "", errors.New("label value for called")
 }
 
-func (m mockMatcherIndex) LabelNamesFor(ctx context.Context, postings index.Postings) ([]string, error) {
+func (m mockMatcherIndex) LabelNamesFor(_ context.Context, _ index.Postings) ([]string, error) {
 	return nil, errors.New("label names for called")
 }
 
@@ -3395,19 +3389,15 @@ func (m mockMatcherIndex) Postings(context.Context, string, ...string) (index.Po
 	return index.EmptyPostings(), nil
 }
 
-func (m mockMatcherIndex) PostingsForMatchers(bool, ...*labels.Matcher) (index.Postings, error) {
-	return index.EmptyPostings(), nil
-}
-
-func (m mockMatcherIndex) SortedPostings(p index.Postings) index.Postings {
+func (m mockMatcherIndex) SortedPostings(_ index.Postings) index.Postings {
 	return index.EmptyPostings()
 }
 
-func (m mockMatcherIndex) ShardedPostings(ps index.Postings, shardIndex, shardCount uint64) index.Postings {
+func (m mockMatcherIndex) ShardedPostings(ps index.Postings, _, _ uint64) index.Postings {
 	return ps
 }
 
-func (m mockMatcherIndex) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
+func (m mockMatcherIndex) Series(_ storage.SeriesRef, _ *labels.ScratchBuilder, _ *[]chunks.Meta) error {
 	return nil
 }
 
@@ -3663,13 +3653,13 @@ func TestQueryWithDeletedHistograms(t *testing.T) {
 		"intCounter": func(i int) (*histogram.Histogram, *histogram.FloatHistogram) {
 			return tsdbutil.GenerateTestHistogram(int64(i)), nil
 		},
-		"intgauge": func(i int) (*histogram.Histogram, *histogram.FloatHistogram) {
+		"intgauge": func(_ int) (*histogram.Histogram, *histogram.FloatHistogram) {
 			return tsdbutil.GenerateTestGaugeHistogram(rand.Int63() % 1000), nil
 		},
 		"floatCounter": func(i int) (*histogram.Histogram, *histogram.FloatHistogram) {
 			return nil, tsdbutil.GenerateTestFloatHistogram(int64(i))
 		},
-		"floatGauge": func(i int) (*histogram.Histogram, *histogram.FloatHistogram) {
+		"floatGauge": func(_ int) (*histogram.Histogram, *histogram.FloatHistogram) {
 			return nil, tsdbutil.GenerateTestGaugeFloatHistogram(rand.Int63() % 1000)
 		},
 	}
