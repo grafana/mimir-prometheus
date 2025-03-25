@@ -20,9 +20,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/prometheus/common/promslog"
+	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/util/testutil"
