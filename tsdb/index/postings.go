@@ -402,8 +402,17 @@ type Entry struct {
 
 // AddBatch adds a batch of postings to the postings index.
 func (p *MemPostings) AddBatch(batch []Entry) {
-	for _, b := range batch {
-		p.Add(b.Ref, b.Labels)
+	p.mtx.Lock()
+	defer p.mtx.Unlock()
+
+	for i, b := range batch {
+		if i > 0 && i%512 == 0 {
+			p.unlockWaitAndLockAgain()
+		}
+		b.Labels.Range(func(l labels.Label) {
+			p.addFor(b.Ref, l)
+		})
+		p.addFor(b.Ref, allPostingsKey)
 	}
 }
 
