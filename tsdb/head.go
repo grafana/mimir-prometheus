@@ -1803,6 +1803,61 @@ func (h *Head) getOrCreateWithID(id chunks.HeadSeriesRef, hash uint64, lset labe
 	return s, true, nil
 }
 
+type getOrCreateSeries struct {
+	lset labels.Labels
+	hash uint64
+	ref  storage.SeriesRef
+}
+
+var indexEntriesPool = sync.Pool{New: func() any { return new([]index.Entry) }}
+
+// getOrCreateBatch will attempt to create a batch of series.
+// It will set the ref field of the successfully created series (or leave it 0 if unsuccessful)
+func (h *Head) getOrCreateBatch(batch []getOrCreateSeries) {
+	createdEntriesPointer := indexEntriesPool.Get().(*[]index.Entry)
+	createdEntries := reuseOrMake(createdEntriesPointer, 0, len(batch))
+	defer func() {
+		clear(createdEntries)
+		indexEntriesPool.Put(createdEntriesPointer)
+	}()
+
+	for i, b := range batch {
+		s, created, err := h.series.getOrSet(b.hash, b.lset, func() *memSeries {
+			shardHash := uint64(0)
+			if h.opts.EnableSharding {
+				shardHash = labels.StableHash(b.lset)
+			}
+
+			id := chunks.HeadSeriesRef(h.lastSeriesID.Inc())
+			return newMemSeries(b.lset, id, shardHash, h.secondaryHashFunc(b.lset), h.opts.ChunkEndTimeVariance, h.opts.IsolationDisabled)
+		})
+		if err != nil {
+			continue
+		}
+		if created {
+			createdEntries = append(createdEntries, index.Entry{
+				Ref:    storage.SeriesRef(s.ref),
+				Labels: b.lset,
+			})
+		}
+
+		// Whether it's created or not, store the reference for the caller.
+		batch[i].ref = storage.SeriesRef(s.ref)
+	}
+
+	h.metrics.seriesCreated.Add(float64(len(createdEntries)))
+	h.numSeries.Add(uint64(len(createdEntries)))
+
+	h.postings.AddBatch(createdEntries)
+
+	// Adding the series in the postings marks the creation of series
+	// as any further calls to this and the read methods would return that series.
+	// We could do this in a separate goroutine while h.postings.AddBatch() is running, if we want to optimize this method's speed.
+	for _, e := range createdEntries {
+		h.opts.SeriesCallback.PostCreation(e.Labels)
+	}
+}
+
 // mmapHeadChunks will iterate all memSeries stored on Head and call mmapHeadChunks() on each of them.
 //
 // There are two types of chunks that store samples for each memSeries:
