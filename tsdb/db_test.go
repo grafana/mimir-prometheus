@@ -328,6 +328,67 @@ func TestDataNotAvailableAfterRollback(t *testing.T) {
 	require.Equal(t, map[string][]chunks.Sample{}, seriesSet)
 }
 
+func TestBatchDBAppenderAddRef(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	ctx := context.Background()
+	db.InitializeHead(123)
+	app1, ok := db.BatchAppender(ctx)
+	require.True(t, ok)
+
+	lset1 := labels.FromStrings("a", "b")
+	refs1 := app1.BatchSeriesRefs([]labels.Labels{lset1}, nil)
+	require.NotZero(t, refs1[0])
+
+	// Reference should already work before commit.
+	ref1 := refs1[0]
+	ref2, err := app1.Append(ref1, labels.EmptyLabels(), 124, 1)
+	require.NoError(t, err)
+	require.Equal(t, ref1, ref2)
+
+	err = app1.Commit()
+	require.NoError(t, err)
+
+	app2, ok := db.BatchAppender(ctx)
+	require.True(t, ok)
+
+	lset2 := labels.FromStrings("a", "c")
+	lset3 := labels.FromStrings("x", "y")
+	refs2 := app1.BatchSeriesRefs([]labels.Labels{lset1, lset2, lset3, labels.EmptyLabels()}, nil)
+	require.Equal(t, refs1[0], refs2[0])
+	require.NotEqual(t, refs1[0], refs2[2])
+	require.Zero(t, refs2[3], "Empty labels should not create a new series")
+
+	// first refs should already work in next transaction.
+	ref3, err := app2.Append(ref1, labels.EmptyLabels(), 125, 0)
+	require.NoError(t, err)
+	require.Equal(t, ref1, ref3)
+
+	ref4, err := app2.Append(refs2[1], labels.EmptyLabels(), 143, 2)
+	require.NoError(t, err)
+	require.Equal(t, refs2[1], ref4)
+
+	require.NoError(t, app2.Commit())
+
+	q, err := db.Querier(0, 200)
+	require.NoError(t, err)
+
+	res := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "a", ".+"))
+
+	require.Equal(t, map[string][]chunks.Sample{
+		lset1.String(): {
+			sample{t: 124, f: 1},
+			sample{t: 125, f: 0},
+		},
+		lset2.String(): {
+			sample{t: 143, f: 2},
+		},
+	}, res)
+}
+
 func TestDBAppenderAddRef(t *testing.T) {
 	db := openTestDB(t, nil, nil)
 	defer func() {
@@ -406,6 +467,28 @@ func TestAppendEmptyLabelsIgnored(t *testing.T) {
 	require.Equal(t, ref1, ref2)
 
 	err = app1.Commit()
+	require.NoError(t, err)
+}
+
+func TestBatchSeriesRefEmptyLabelsIgnored(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	ctx := context.Background()
+	db.InitializeHead(123)
+	app1, ok := db.BatchAppender(ctx)
+	require.True(t, ok)
+
+	lset1 := labels.FromStrings("a", "b")
+	lset2 := labels.FromStrings("a", "b", "c", "")
+
+	entries := app1.BatchSeriesRefs([]labels.Labels{lset1, lset2}, nil)
+	require.Len(t, entries, 2)
+	require.Equal(t, entries[0], entries[1])
+
+	err := app1.Commit()
 	require.NoError(t, err)
 }
 

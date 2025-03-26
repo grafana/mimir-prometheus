@@ -147,6 +147,15 @@ func (a *initAppender) Rollback() error {
 	return a.app.Rollback()
 }
 
+// batchAppender returns a storage.BatchAppender, it requires the head to be initialized.
+// If the Head is not initialized, it returns nil and false.
+func (h *Head) batchAppender(_ context.Context) (app storage.BatchAppender, ok bool) {
+	if h.initialized() {
+		return h.appender(), true
+	}
+	return nil, false
+}
+
 // Appender returns a new Appender on the database.
 func (h *Head) Appender(_ context.Context) storage.Appender {
 	h.metrics.activeAppenders.Inc()
@@ -337,6 +346,21 @@ type headAppender struct {
 
 func (a *headAppender) SetOptions(opts *storage.AppendOptions) {
 	a.hints = opts
+}
+
+func (a *headAppender) BatchSeriesRefs(series []labels.Labels, buf []storage.SeriesRef) []storage.SeriesRef {
+	var refs []storage.SeriesRef
+	if cap(buf) < len(series) {
+		refs = make([]storage.SeriesRef, len(series))
+	} else {
+		refs = buf[:len(series)]
+	}
+	for i, lset := range series {
+		if s, _, err := a.getOrCreate(lset); err == nil {
+			refs[i] = storage.SeriesRef(s.ref)
+		}
+	}
+	return refs
 }
 
 func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
