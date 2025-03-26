@@ -1809,40 +1809,45 @@ type getOrCreateSeries struct {
 	ref  storage.SeriesRef
 }
 
-var indexEntriesPool = sync.Pool{New: func() any { return new([]index.Entry) }}
+var seriesWithRefsPool = sync.Pool{New: func() any { return new([]storage.SeriesWithRef) }}
 
 // getOrCreateBatch will attempt to create a batch of series.
+// It will copy the labels before trying to insert them into the storage.
 // It will set the ref field of the successfully created series (or leave it 0 if unsuccessful)
+// If series are successfully created, or already existed, it will set the lset field of the batch input
+// to the one persisted.
 func (h *Head) getOrCreateBatch(batch []getOrCreateSeries) {
-	createdEntriesPointer := indexEntriesPool.Get().(*[]index.Entry)
+	createdEntriesPointer := seriesWithRefsPool.Get().(*[]storage.SeriesWithRef)
 	createdEntries := reuseOrMake(createdEntriesPointer, 0, len(batch))
 	defer func() {
 		clear(createdEntries)
-		indexEntriesPool.Put(createdEntriesPointer)
+		seriesWithRefsPool.Put(createdEntriesPointer)
 	}()
 
 	for i, b := range batch {
-		s, created, err := h.series.getOrSet(b.hash, b.lset, func() *memSeries {
+		lset := b.lset.Copy()
+		s, created, err := h.series.getOrSet(b.hash, lset, func() *memSeries {
 			shardHash := uint64(0)
 			if h.opts.EnableSharding {
-				shardHash = labels.StableHash(b.lset)
+				shardHash = labels.StableHash(lset)
 			}
 
 			id := chunks.HeadSeriesRef(h.lastSeriesID.Inc())
-			return newMemSeries(b.lset, id, shardHash, h.secondaryHashFunc(b.lset), h.opts.ChunkEndTimeVariance, h.opts.IsolationDisabled)
+			return newMemSeries(lset, id, shardHash, h.secondaryHashFunc(lset), h.opts.ChunkEndTimeVariance, h.opts.IsolationDisabled)
 		})
 		if err != nil {
 			continue
 		}
 		if created {
-			createdEntries = append(createdEntries, index.Entry{
-				Ref:    storage.SeriesRef(s.ref),
+			createdEntries = append(createdEntries, storage.SeriesWithRef{
 				Labels: b.lset,
+				Ref:    storage.SeriesRef(s.ref),
 			})
 		}
 
 		// Whether it's created or not, store the reference for the caller.
 		batch[i].ref = storage.SeriesRef(s.ref)
+		batch[i].lset = s.lset
 	}
 
 	h.metrics.seriesCreated.Add(float64(len(createdEntries)))

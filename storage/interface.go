@@ -284,11 +284,19 @@ type Appender interface {
 	CreatedTimestampAppender
 }
 
+type SeriesWithRef struct {
+	Labels labels.Labels
+	Ref    SeriesRef
+}
+
 type BatchAppender interface {
 	Appender
-	// BatchSeriesRefs will create series and return their SeriesRef, reusing buf when possible.
+	// BatchSeriesRefs will create series and return their SeriesRef and existing labels, reusing buf when possible.
 	// Series that could not be created because of invalid labelsets will have their SeriesRef set to 0.
-	BatchSeriesRefs(series []labels.Labels, buf []SeriesRef) []SeriesRef
+	// Series that have to be created will copy (calling Labels.Copy()) the labels before storing them,
+	// so no references to series will be kept.
+	// Series that already exist and didn't have to be created will return the labels stored in the TSDB.
+	BatchSeriesRefs(series []labels.Labels, buf []SeriesWithRef) []SeriesWithRef
 }
 
 // GetRef is an extra interface on Appenders used by downstream projects
