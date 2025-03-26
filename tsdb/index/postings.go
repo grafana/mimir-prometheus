@@ -395,13 +395,8 @@ func (p *MemPostings) Iter(f func(labels.Label, Postings) error) error {
 	return nil
 }
 
-type Entry struct {
-	Labels labels.Labels
-	Ref    storage.SeriesRef
-}
-
 // AddBatch adds a batch of postings to the postings index.
-func (p *MemPostings) AddBatch(batch []Entry) {
+func (p *MemPostings) AddBatch(batch []storage.SeriesWithRef) {
 	p.mtx.Lock()
 	defer p.mtx.Unlock()
 

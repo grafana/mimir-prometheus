@@ -354,7 +354,7 @@ var (
 	missingSeriesIndexesPool = sync.Pool{New: func() any { return new([]int) }}
 )
 
-func (a *headAppender) BatchSeriesRefs(batch []labels.Labels, buf []storage.SeriesRef) (refs []storage.SeriesRef) {
+func (a *headAppender) BatchSeriesRefs(batch []labels.Labels, buf []storage.SeriesWithRef) (entries []storage.SeriesWithRef) {
 	// missing is the slice of getOrCreateSeries that we're going to pass to getOrCreateBulk
 	missingPointer := getOrCreateSeriesPool.Get().(*[]getOrCreateSeries)
 	missing := reuseOrMake(missingPointer, 0, len(batch))
@@ -364,7 +364,7 @@ func (a *headAppender) BatchSeriesRefs(batch []labels.Labels, buf []storage.Seri
 	}()
 
 	// missingSeriesIndexes is the slice of indexes of the series that are missing.
-	// We use this to track where the missing series go in the refs slice.
+	// We use this to track where the missing series go in the entries slice.
 	missingSeriesIndexesPointer := missingSeriesIndexesPool.Get().(*[]int)
 	missingSeriesIndexes := reuseOrMake(missingSeriesIndexesPointer, 0, len(batch))
 	defer func() {
@@ -372,24 +372,24 @@ func (a *headAppender) BatchSeriesRefs(batch []labels.Labels, buf []storage.Seri
 		missingSeriesIndexesPool.Put(missingSeriesIndexesPointer)
 	}()
 
-	refs = reuseOrMake(&buf, len(batch), len(batch))
+	entries = reuseOrMake(&buf, len(batch), len(batch))
 
 	// Go through the batch, try to getByHash, or note the missing ones.
 	for i, lset := range batch {
 		// Ensure no empty labels have gotten through.
 		lset = lset.WithoutEmpty()
 		if lset.IsEmpty() {
-			refs[i] = 0
+			entries[i] = storage.SeriesWithRef{}
 			continue
 		}
 		if _, dup := lset.HasDuplicateLabelNames(); dup {
-			refs[i] = 0
+			entries[i] = storage.SeriesWithRef{}
 			continue
 		}
 		hash := lset.Hash()
 		s := a.head.series.getByHash(hash, lset)
 		if s != nil {
-			refs[i] = storage.SeriesRef(s.ref)
+			entries[i] = storage.SeriesWithRef{Labels: s.lset, Ref: storage.SeriesRef(s.ref)}
 		} else {
 			missing = append(missing, getOrCreateSeries{hash: hash, lset: lset})
 			missingSeriesIndexes = append(missingSeriesIndexes, i)
@@ -400,11 +400,12 @@ func (a *headAppender) BatchSeriesRefs(batch []labels.Labels, buf []storage.Seri
 	if len(missing) > 0 {
 		a.head.getOrCreateBatch(missing)
 		for i := range missing {
-			refs[missingSeriesIndexes[i]] = missing[i].ref
+			entries[missingSeriesIndexes[i]].Ref = missing[i].ref
+			entries[missingSeriesIndexes[i]].Labels = missing[i].lset
 		}
 	}
 
-	return refs
+	return entries
 }
 
 func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64, v float64) (storage.SeriesRef, error) {
