@@ -284,6 +284,13 @@ type Appender interface {
 	CreatedTimestampAppender
 }
 
+type BatchAppender interface {
+	Appender
+	// BatchSeriesRefs will create series and return their SeriesRef, reusing buf when possible.
+	// Series that could not be created because of invalid labelsets will have their SeriesRef set to 0.
+	BatchSeriesRefs(series []labels.Labels, buf []SeriesRef) []SeriesRef
+}
+
 // GetRef is an extra interface on Appenders used by downstream projects
 // (e.g. Cortex) to avoid maintaining a parallel set of references.
 type GetRef interface {
