@@ -399,9 +399,17 @@ func (a *headAppender) BatchSeriesRefs(batch []labels.Labels, buf []storage.Seri
 	// If we have missing series, do a second pass and try to create them.
 	if len(missing) > 0 {
 		a.head.getOrCreateBatch(missing)
+		// Extend a.series capacity to hold missing.
+		if cap(a.series) < len(a.series)+len(missing) {
+			a.series = append(make([]record.RefSeries, 0, len(a.series)+len(missing)), a.series...)
+		}
 		for i := range missing {
 			entries[missingSeriesIndexes[i]].Ref = missing[i].ref
 			entries[missingSeriesIndexes[i]].Labels = missing[i].lset
+			a.series = append(a.series, record.RefSeries{
+				Ref:    chunks.HeadSeriesRef(missing[i].ref),
+				Labels: missing[i].lset,
+			})
 		}
 	}
 

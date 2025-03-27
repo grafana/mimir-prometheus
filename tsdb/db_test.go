@@ -474,6 +474,41 @@ func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
 	require.NoError(t, app2.Commit())
 }
 
+func TestBatchDBAppenderTracksCreatedSeriesInWAL(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	dbDir := db.Dir()
+	ctx := context.Background()
+
+	lbls := labels.FromStrings("labelname", "labelvalue")
+
+	// Append to that DB and close it.
+	{
+		db.InitializeHead(123)
+		app, ok := db.BatchAppender(ctx)
+		require.True(t, ok)
+
+		refs := app.BatchSeriesRefs([]labels.Labels{lbls}, nil)
+		require.NotZero(t, refs[0])
+		_, err := app.Append(refs[0].Ref, labels.EmptyLabels(), 0, 1)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		require.NoError(t, db.Close())
+	}
+
+	// Open again, series should be present.
+	db, err := Open(dbDir, nil, nil, nil, nil)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	q, err := db.Querier(0, 1)
+	require.NoError(t, err)
+
+	values, ws, err := q.LabelValues(ctx, "labelname", nil)
+	require.NoError(t, err)
+	require.Empty(t, ws)
+	require.Equal(t, []string{"labelvalue"}, values)
+}
+
 func TestDBAppenderAddRef(t *testing.T) {
 	db := openTestDB(t, nil, nil)
 	defer func() {
