@@ -480,7 +480,7 @@ func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
 
 func TestBatchDBAppenderBatchSeriesRefsTracksCreatedSeriesInWAL(t *testing.T) {
 	db := openTestDB(t, nil, nil)
-	db.head.initTime(123)
+	db.head.initTime(0)
 	dbDir := db.Dir()
 	ctx := context.Background()
 
@@ -488,15 +488,13 @@ func TestBatchDBAppenderBatchSeriesRefsTracksCreatedSeriesInWAL(t *testing.T) {
 
 	// Append to that DB and close it.
 	{
-		err := db.Head().Init(123)
-		require.NoError(t, err)
 		app := db.Appender(ctx)
 		batchApp, ok := app.(storage.BatchSeriesReferencer)
 		require.True(t, ok)
 
 		refs := batchApp.BatchSeriesRefs([]labels.Labels{lbls}, nil)
 		require.NotZero(t, refs[0])
-		_, err = app.Append(refs[0].Ref, labels.EmptyLabels(), 0, 1)
+		_, err := app.Append(refs[0].Ref, labels.EmptyLabels(), 0, 1)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 		require.NoError(t, db.Close())
