@@ -328,14 +328,14 @@ func TestDataNotAvailableAfterRollback(t *testing.T) {
 	require.Equal(t, map[string][]chunks.Sample{}, seriesSet)
 }
 
-func TestBatchDBAppenderAddRef(t *testing.T) {
+func TestDBAppenderBatchSeriesRefs(t *testing.T) {
 	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
 
 	ctx := context.Background()
-	db.Head().Init(123)
 	app1 := db.Appender(ctx)
 	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
 	require.True(t, ok)
@@ -395,12 +395,12 @@ func TestBatchDBAppenderAddRef(t *testing.T) {
 
 func TestBatchDBAppenderBatchSeriesRefsCopiesLabels(t *testing.T) {
 	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
 
 	ctx := context.Background()
-	db.Head().Init(123)
 	app1 := db.Appender(ctx)
 	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
 	require.True(t, ok)
@@ -441,12 +441,12 @@ func TestBatchDBAppenderBatchSeriesRefsCopiesLabels(t *testing.T) {
 
 func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
 	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
 
 	ctx := context.Background()
-	db.Head().Init(123)
 	app1 := db.Appender(ctx)
 	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
 	require.True(t, ok)
@@ -478,8 +478,9 @@ func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
 	require.NoError(t, app2.Commit())
 }
 
-func TestBatchDBAppenderTracksCreatedSeriesInWAL(t *testing.T) {
+func TestBatchDBAppenderBatchSeriesRefsTracksCreatedSeriesInWAL(t *testing.T) {
 	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
 	dbDir := db.Dir()
 	ctx := context.Background()
 
@@ -487,14 +488,15 @@ func TestBatchDBAppenderTracksCreatedSeriesInWAL(t *testing.T) {
 
 	// Append to that DB and close it.
 	{
-		db.Head().Init(123)
+		err := db.Head().Init(123)
+		require.NoError(t, err)
 		app := db.Appender(ctx)
 		batchApp, ok := app.(storage.BatchSeriesReferencer)
 		require.True(t, ok)
 
 		refs := batchApp.BatchSeriesRefs([]labels.Labels{lbls}, nil)
 		require.NotZero(t, refs[0])
-		_, err := app.Append(refs[0].Ref, labels.EmptyLabels(), 0, 1)
+		_, err = app.Append(refs[0].Ref, labels.EmptyLabels(), 0, 1)
 		require.NoError(t, err)
 		require.NoError(t, app.Commit())
 		require.NoError(t, db.Close())
@@ -595,14 +597,14 @@ func TestAppendEmptyLabelsIgnored(t *testing.T) {
 	require.NoError(t, err)
 }
 
-func TestBatchSeriesRefEmptyLabelsIgnored(t *testing.T) {
+func TestBatchSeriesRefsEmptyLabelsIgnored(t *testing.T) {
 	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
 	defer func() {
 		require.NoError(t, db.Close())
 	}()
 
 	ctx := context.Background()
-	db.Head().Init(123)
 	app1 := db.Appender(ctx)
 	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
 	require.True(t, ok)
