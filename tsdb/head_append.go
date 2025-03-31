@@ -40,6 +40,7 @@ type initAppender struct {
 }
 
 var _ storage.GetRef = &initAppender{}
+var _ storage.BatchSeriesReferencer = &initAppender{}
 
 func (a *initAppender) SetOptions(opts *storage.AppendOptions) {
 	if a.app != nil {
@@ -132,6 +133,13 @@ func (a *initAppender) GetRef(lset labels.Labels, hash uint64) (storage.SeriesRe
 	return 0, labels.EmptyLabels()
 }
 
+func (a *initAppender) BatchSeriesRefs(series []labels.Labels, buf []storage.SeriesWithRef) []storage.SeriesWithRef {
+	if r, ok := a.app.(storage.BatchSeriesReferencer); ok {
+		return r.BatchSeriesRefs(series, buf)
+	}
+	return unknownBatchSeriesRefs(series, buf)
+}
+
 func (a *initAppender) Commit() error {
 	if a.app == nil {
 		a.head.metrics.activeAppenders.Dec()
@@ -146,15 +154,6 @@ func (a *initAppender) Rollback() error {
 		return nil
 	}
 	return a.app.Rollback()
-}
-
-// batchAppender returns a storage.BatchAppender, it requires the head to be initialized.
-// If the Head is not initialized, it returns nil and false.
-func (h *Head) batchAppender(_ context.Context) (app storage.BatchAppender, ok bool) {
-	if h.initialized() {
-		return h.appender(), true
-	}
-	return nil, false
 }
 
 // Appender returns a new Appender on the database.
@@ -2094,6 +2093,14 @@ func (a *headAppender) Rollback() (err error) {
 	// Series are created in the head memory regardless of rollback. Thus we have
 	// to log them to the WAL in any case.
 	return a.log()
+}
+
+// unknownBatchSeriesRefs is a default non-implementation for storage.BatchSeriesReferencer
+// that will return zero refs and labels for each series provided.
+func unknownBatchSeriesRefs(series []labels.Labels, buf []storage.SeriesWithRef) []storage.SeriesWithRef {
+	result := reuseOrMake(&buf, len(series), len(series))
+	clear(result)
+	return result
 }
 
 // reuseOrMake will try to reuse the reusable slice if it has enough capacity, setting it to the desired len.

@@ -289,13 +289,14 @@ type SeriesWithRef struct {
 	Ref    SeriesRef
 }
 
-type BatchAppender interface {
-	Appender
-	// BatchSeriesRefs will create series and return their SeriesRef and existing labels, reusing buf when possible.
-	// Series that could not be created because of invalid labelsets will have their SeriesRef set to 0.
-	// Series that have to be created will copy (calling Labels.Copy()) the labels before storing them,
-	// so no references to series will be kept.
-	// Series that already exist and didn't have to be created will return the labels stored in the TSDB.
+type BatchSeriesReferencer interface {
+	// BatchSeriesRefs will attempt to, for each one of the series provided:
+	// - If it does not exist, clone the labels and create a new series, returning the reference and the cloned labels.
+	// - If it does exist, return the reference and the labels stored in the TSDB.
+	// The result will contain the references and labels for each series in the same order as the input.
+	// If the reference is 0, it means that series was not created,
+	// this could happen because the input was not valid (e.g. empty labels),
+	// or because the implementation does not support this feature (for example, initAppender when head is not initialized yet).
 	BatchSeriesRefs(series []labels.Labels, buf []SeriesWithRef) []SeriesWithRef
 }
 
