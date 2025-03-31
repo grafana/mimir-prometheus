@@ -402,10 +402,9 @@ func TestBatchDBAppenderBatchSeriesRefsCopiesLabels(t *testing.T) {
 	app1, ok := db.BatchAppender(ctx)
 	require.True(t, ok)
 
-	var unsafeMutableLabels labels.Labels
-	var b labels.ScratchBuilder
+	b := labels.NewScratchBuilder(0)
 	b.Add("a", "b")
-	b.Overwrite(&unsafeMutableLabels)
+	unsafeMutableLabels := b.Labels()
 
 	entries1 := app1.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
 	require.NotZero(t, entries1[0])
@@ -447,10 +446,9 @@ func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
 	app1, ok := db.BatchAppender(ctx)
 	require.True(t, ok)
 
-	var unsafeMutableLabels labels.Labels
-	var b labels.ScratchBuilder
+	b := labels.NewScratchBuilder(0)
 	b.Add("a", "b")
-	b.Overwrite(&unsafeMutableLabels)
+	unsafeMutableLabels := b.Labels()
 
 	entries1 := app1.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
 	require.NotZero(t, entries1[0])
