@@ -405,9 +405,10 @@ func TestBatchDBAppenderBatchSeriesRefsCopiesLabels(t *testing.T) {
 	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
 	require.True(t, ok)
 
+	unsafeMutableLabels := labels.EmptyLabels()
 	b := labels.NewScratchBuilder(0)
-	b.Add("a", "b")
-	unsafeMutableLabels := b.Labels()
+	b.Add("a", "1")
+	b.Overwrite(&unsafeMutableLabels)
 
 	entries1 := batchApp1.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
 	require.NotZero(t, entries1[0])
@@ -435,8 +436,14 @@ func TestBatchDBAppenderBatchSeriesRefsCopiesLabels(t *testing.T) {
 	entries2 := batchApp2.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
 	require.NotEqual(t, entries2[0], entries1[0])
 	require.True(t, labels.Equal(entries2[0].Labels, unsafeMutableLabels))
-
 	require.NoError(t, app2.Commit())
+
+	// Make sure index got the copies of the labels (they were not corrupted).
+	q, err := db.Querier(0, 200)
+	require.NoError(t, err)
+	lvs, _, err := q.LabelValues(ctx, "a", nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1"}, lvs)
 }
 
 func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
@@ -451,9 +458,10 @@ func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
 	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
 	require.True(t, ok)
 
+	unsafeMutableLabels := labels.EmptyLabels()
 	b := labels.NewScratchBuilder(0)
-	b.Add("a", "b")
-	unsafeMutableLabels := b.Labels()
+	b.Add("a", "1")
+	b.Overwrite(&unsafeMutableLabels)
 
 	entries1 := batchApp1.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
 	require.NotZero(t, entries1[0])
@@ -471,11 +479,18 @@ func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
 
 	// Overwrite previous labels with x=y, that shouldn't affect the labels we were given.
 	b.Reset()
-	b.Add("x", "y")
+	b.Add("a", "2")
 	b.Overwrite(&unsafeMutableLabels)
 	require.False(t, labels.Equal(unsafeMutableLabels, entries2[0].Labels))
 
 	require.NoError(t, app2.Commit())
+
+	// Make sure index got the copies of the labels (they were not corrupted).
+	q, err := db.Querier(0, 200)
+	require.NoError(t, err)
+	lvs, _, err := q.LabelValues(ctx, "a", nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1"}, lvs)
 }
 
 func TestBatchDBAppenderBatchSeriesRefsTracksCreatedSeriesInWAL(t *testing.T) {
