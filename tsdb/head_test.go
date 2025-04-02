@@ -811,6 +811,46 @@ func TestHead_ReadWAL(t *testing.T) {
 	}
 }
 
+func TestHead_LoadWALSeriesMissingAcrossSegments(t *testing.T) {
+	head, w := newTestHead(t, 1000, compression.None, false)
+	defer func() {
+		require.NoError(t, head.Close())
+	}()
+
+	entries := []interface{}{
+		[]record.RefSeries{
+			{Ref: 100, Labels: labels.FromStrings("a", "1")},
+		},
+		[]record.RefSample{
+			{Ref: 101, T: 101, V: 101},
+		},
+	}
+
+	populateTestWL(t, w, entries)
+
+	var (
+		mmappedChunks    map[chunks.HeadSeriesRef][]*mmappedChunk
+		oooMmappedChunks map[chunks.HeadSeriesRef][]*mmappedChunk
+	)
+
+	syms := labels.NewSymbolTable() // One table for the whole WAL.
+	multiRef := map[chunks.HeadSeriesRef]chunks.HeadSeriesRef{}
+	unknownSeriesRefs := &seriesRefSet{refs: make(map[chunks.HeadSeriesRef]struct{}), mtx: sync.Mutex{}}
+	unknownSeriesRefs.refs[100] = struct{}{}
+
+	sr, err := wlog.NewSegmentsReader(w.Dir())
+	require.NoError(t, err)
+
+	err = head.loadWAL(wlog.NewReader(sr), syms, multiRef, unknownSeriesRefs, mmappedChunks, oooMmappedChunks, math.MaxInt)
+	require.NoError(t, err)
+
+	require.Equal(t, 1, unknownSeriesRefs.count())
+	_, ok := unknownSeriesRefs.refs[100]
+	require.False(t, ok)
+	_, ok = unknownSeriesRefs.refs[101]
+	require.True(t, ok)
+}
+
 func TestHead_WALMultiRef(t *testing.T) {
 	head, w := newTestHead(t, 1000, compression.None, false)
 
