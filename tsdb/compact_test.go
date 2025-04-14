@@ -1647,6 +1647,7 @@ func TestDeleteCompactionBlockAfterFailedReload(t *testing.T) {
 }
 
 func TestOpenBlocksForCompaction(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
 
 	const blocks = 5
@@ -1659,7 +1660,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 
 	// Open subset of blocks first.
 	const blocksToOpen = 2
-	opened, toClose, err := openBlocksForCompaction(blockDirs[:blocksToOpen], nil, promslog.NewNopLogger(), nil, nil, 10)
+	opened, toClose, err := openBlocksForCompaction(ctx, blockDirs[:blocksToOpen], nil, promslog.NewNopLogger(), nil, nil, 10)
 	for _, b := range toClose {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1669,7 +1670,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 	checkBlocks(t, toClose, blockDirs[:blocksToOpen]...)
 
 	// Open all blocks, but provide previously opened blocks.
-	opened2, toClose2, err := openBlocksForCompaction(blockDirs, opened, promslog.NewNopLogger(), nil, nil, 10)
+	opened2, toClose2, err := openBlocksForCompaction(ctx, blockDirs, opened, promslog.NewNopLogger(), nil, nil, 10)
 	for _, b := range toClose2 {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
@@ -1680,6 +1681,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 }
 
 func TestOpenBlocksForCompactionErrorsNoMeta(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
 
 	const blocks = 5
@@ -1699,7 +1701,7 @@ func TestOpenBlocksForCompactionErrorsNoMeta(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { require.NoError(t, b0.Close()) }()
 
-	_, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b0}, promslog.NewNopLogger(), nil, nil, 10)
+	_, toClose, err := openBlocksForCompaction(ctx, blockDirs, []*Block{b0}, promslog.NewNopLogger(), nil, nil, 10)
 
 	require.Error(t, err)
 	// We didn't get to opening more blocks, because we found invalid dir, so there is nothing to close.
@@ -1707,6 +1709,7 @@ func TestOpenBlocksForCompactionErrorsNoMeta(t *testing.T) {
 }
 
 func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
+	ctx := context.Background()
 	dir := t.TempDir()
 
 	const blocks = 5
@@ -1732,7 +1735,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	// Block[2] will be opened correctly.
 	// Block[3] is invalid and will cause error.
 	// Block[4] will not be opened at all.
-	opened, toClose, err := openBlocksForCompaction(blockDirs, []*Block{b1}, promslog.NewNopLogger(), nil, nil, 1)
+	opened, toClose, err := openBlocksForCompaction(ctx, blockDirs, []*Block{b1}, promslog.NewNopLogger(), nil, nil, 1)
 	for _, b := range toClose {
 		defer func(b *Block) { require.NoError(t, b.Close()) }(b)
 	}
