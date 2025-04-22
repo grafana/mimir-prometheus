@@ -383,7 +383,7 @@ func TestMemSeries_chunk(t *testing.T) {
 				require.NoError(t, chunkDiskMapper.Close())
 			}()
 
-			series := newMemSeries(labels.EmptyLabels(), 1, 0, 0, 0, true)
+			series := newMemSeries(labels.EmptyLabels(), 1, 0, 0, 0, true, false)
 
 			if tc.setup != nil {
 				tc.setup(t, series, chunkDiskMapper)
