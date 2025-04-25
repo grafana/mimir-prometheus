@@ -461,7 +461,7 @@ func (ng *Engine) NewInstantQuery(ctx context.Context, q storage.Queryable, opts
 	if err := ng.validateOpts(expr); err != nil {
 		return nil, err
 	}
-	*pExpr = PreprocessExpr(expr, ts, ts)
+	*pExpr, _ = PreprocessExpr(expr, ts, ts)
 
 	return qry, nil
 }
@@ -485,7 +485,7 @@ func (ng *Engine) NewRangeQuery(ctx context.Context, q storage.Queryable, opts Q
 	if expr.Type() != parser.ValueTypeVector && expr.Type() != parser.ValueTypeScalar {
 		return nil, fmt.Errorf("invalid expression type %q for range query, must be Scalar or instant Vector", parser.DocumentedType(expr.Type()))
 	}
-	*pExpr = PreprocessExpr(expr, start, end)
+	*pExpr, _ = PreprocessExpr(expr, start, end)
 
 	return qry, nil
 }
@@ -3306,14 +3306,14 @@ func unwrapStepInvariantExpr(e parser.Expr) parser.Expr {
 
 // PreprocessExpr wraps all possible step invariant parts of the given expression with
 // StepInvariantExpr. It also resolves the preprocessors.
-func PreprocessExpr(expr parser.Expr, start, end time.Time) parser.Expr {
+func PreprocessExpr(expr parser.Expr, start, end time.Time) (parser.Expr, error) {
 	detectHistogramStatsDecoding(expr)
 
 	isStepInvariant := preprocessExprHelper(expr, start, end)
 	if isStepInvariant {
-		return newStepInvariantExpr(expr)
+		return newStepInvariantExpr(expr), nil
 	}
-	return expr
+	return expr, nil
 }
 
 // preprocessExprHelper wraps the child nodes of the expression
