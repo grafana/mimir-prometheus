@@ -824,6 +824,7 @@ func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
 					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
 				metric.Name(),
+				pmetric.AggregationTemporalityCumulative,
 			)
 			require.NoError(t, err)
 			require.Empty(t, annot)
