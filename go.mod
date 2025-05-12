@@ -60,7 +60,7 @@ require (
 	github.com/vultr/govultr/v2 v2.17.2
 	go.opentelemetry.io/collector/component v1.30.0
 	go.opentelemetry.io/collector/consumer v1.30.0
-	go.opentelemetry.io/collector/pdata v1.30.0
+	go.opentelemetry.io/collector/pdata v1.31.0
 	go.opentelemetry.io/collector/processor v1.30.0
 	go.opentelemetry.io/collector/semconv v0.124.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.60.0
@@ -241,3 +241,7 @@ replace gopkg.in/yaml.v3 => github.com/colega/go-yaml-yaml v0.0.0-20220720105220
 
 // Pin until https://github.com/fsnotify/fsnotify/issues/656 is resolved.
 replace github.com/fsnotify/fsnotify v1.8.0 => github.com/fsnotify/fsnotify v1.7.0
+
+// Use Mimir fork of prometheus/otlptranslator to allow for higher velocity of upstream development,
+// while allowing Mimir to move at a more conservative pace.
+replace github.com/prometheus/otlptranslator => github.com/grafana/mimir-otlptranslator v0.0.0-20250501145537-53ceaec28820
