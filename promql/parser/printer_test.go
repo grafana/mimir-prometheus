@@ -167,6 +167,9 @@ func TestExprString(t *testing.T) {
 			in:  "1048576",
 			out: "1048576",
 		},
+		{
+			in: `predict_linear(foo[1h], 3000)`,
+		},
 	}
 
 	for _, test := range inputs {
