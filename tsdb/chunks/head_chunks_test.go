@@ -186,7 +186,7 @@ func TestChunkDiskMapper_WriteUnsupportedChunk_Chunk_IterateChunks(t *testing.T)
 
 	// Checking on-disk bytes for the first file.
 	require.Len(t, hrw.mmappedChunkFiles, 1, "expected 1 mmapped file, got %d", len(hrw.mmappedChunkFiles))
-	require.Equal(t, len(hrw.mmappedChunkFiles), len(hrw.closers))
+	require.Len(t, hrw.closers, len(hrw.mmappedChunkFiles))
 
 	// Testing IterateAllChunks method.
 	dir := hrw.dir.Name()

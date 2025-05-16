@@ -6663,7 +6663,7 @@ func TestSecondaryHashFunction(t *testing.T) {
 		reportedHashes := 0
 		h.ForEachSecondaryHash(func(refs []chunks.HeadSeriesRef, secondaryHashes []uint32) {
 			reportedHashes += len(secondaryHashes)
-			require.Equal(t, len(refs), len(secondaryHashes))
+			require.Len(t, secondaryHashes, len(refs))
 
 			for _, h := range secondaryHashes {
 				require.Equal(t, labelsCount, int(h))
