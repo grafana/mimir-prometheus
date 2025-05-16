@@ -145,7 +145,7 @@ func TestChunkSeriesSetToSeriesSet(t *testing.T) {
 	require.Len(t, ssSlice, 2)
 	var iter chunkenc.Iterator
 	for i, s := range ssSlice {
-		require.EqualValues(t, series[i].lbs, s.Labels())
+		require.Equal(t, series[i].lbs, s.Labels())
 		iter = s.Iterator(iter)
 		j := 0
 		for iter.Next() == chunkenc.ValFloat {
@@ -630,11 +630,11 @@ func testHistogramsSeriesToChunks(t *testing.T, test histogramTest) {
 	}
 	series := NewListSeries(lbs, copiedSamples)
 	encoder := NewSeriesToChunkEncoder(series)
-	require.EqualValues(t, lbs, encoder.Labels())
+	require.Equal(t, lbs, encoder.Labels())
 
 	chks, err := ExpandChunks(encoder.Iterator(nil))
 	require.NoError(t, err)
-	require.Equal(t, len(test.expectedCounterResetHeaders), len(chks))
+	require.Len(t, chks, len(test.expectedCounterResetHeaders))
 
 	count, err := encoder.ChunkCount()
 	require.NoError(t, err)
@@ -642,7 +642,7 @@ func testHistogramsSeriesToChunks(t *testing.T, test histogramTest) {
 
 	// Decode all encoded samples and assert they are equal to the original ones.
 	encodedSamples := chunks.ChunkMetasToSamples(chks)
-	require.Equal(t, len(test.expectedSamples), len(encodedSamples))
+	require.Len(t, encodedSamples, len(test.expectedSamples))
 
 	for i, s := range test.expectedSamples {
 		encodedSample := encodedSamples[i]

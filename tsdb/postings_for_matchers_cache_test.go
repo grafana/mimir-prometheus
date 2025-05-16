@@ -1129,7 +1129,7 @@ func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.
 
 type indexForPostingsMock struct{}
 
-func (idx indexForPostingsMock) LabelValues(context.Context, string, ...*labels.Matcher) ([]string, error) {
+func (idx indexForPostingsMock) LabelValues(context.Context, string, *storage.LabelHints, ...*labels.Matcher) ([]string, error) {
 	panic("implement me")
 }
 

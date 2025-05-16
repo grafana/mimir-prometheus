@@ -55,7 +55,7 @@ func testSymbolsBatchAndIterationWithFlushersConcurrency(t *testing.T, flushersC
 	var w, prev string
 	for w, err = it.NextSymbol(); err == nil; w, err = it.NextSymbol() {
 		if !first {
-			require.NotEqual(t, "", w)
+			require.NotEmpty(t, w)
 			require.Less(t, prev, w)
 		}
 
