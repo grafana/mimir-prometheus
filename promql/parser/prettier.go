@@ -14,6 +14,7 @@
 package parser
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 )
@@ -75,8 +76,9 @@ func (e *BinaryExpr) Pretty(level int) string {
 		returnBool = " bool"
 	}
 
-	matching := e.getMatchingStr()
-	return fmt.Sprintf("%s\n%s%s%s%s\n%s", e.LHS.Pretty(level+1), indent(level), e.Op, returnBool, matching, e.RHS.Pretty(level+1))
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	e.writeMatchingStr(b)
+	return fmt.Sprintf("%s\n%s%s%s%s\n%s", e.LHS.Pretty(level+1), indent(level), e.Op, returnBool, b.String(), e.RHS.Pretty(level+1))
 }
 
 func (e *DurationExpr) Pretty(int) string {
