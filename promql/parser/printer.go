@@ -53,33 +53,37 @@ func (node *EvalStmt) String() string {
 }
 
 func (es Expressions) String() (s string) {
-	switch len(es) {
-	case 0:
-		return ""
-	case 1:
-		return es[0].String()
-	}
-	b := bytes.NewBuffer(make([]byte, 0, 1024))
-	b.WriteString(es[0].String())
-	for _, e := range es[1:] {
-		b.WriteString(", ")
-		b.WriteString(e.String())
-	}
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	es.WriteTo(b)
 	return b.String()
 }
 
+func (es Expressions) WriteTo(b *bytes.Buffer) {
+	if len(es) == 0 {
+		return
+	}
+	es[0].WriteTo(b)
+	for _, e := range es[1:] {
+		b.WriteString(", ")
+		e.WriteTo(b)
+	}
+}
+
 func (node *AggregateExpr) String() string {
-	b := bytes.NewBuffer(make([]byte, 0, 1024))
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	node.WriteTo(b)
+	return b.String()
+}
+
+func (node *AggregateExpr) WriteTo(b *bytes.Buffer) {
 	node.writeAggOpStr(b)
 	b.WriteString("(")
 	if node.Op.IsAggregatorWithParam() {
 		b.WriteString(node.Param.String())
 		b.WriteString(", ")
 	}
-	b.WriteString(node.Expr.String())
+	node.Expr.WriteTo(b)
 	b.WriteString(")")
-
-	return b.String()
 }
 
 func (node *AggregateExpr) ShortString() string {
@@ -136,42 +140,59 @@ func (node *BinaryExpr) returnBool() string {
 }
 
 func (node *BinaryExpr) String() string {
-	matching := node.getMatchingStr()
-	return node.LHS.String() + " " + node.Op.String() + node.returnBool() + matching + " " + node.RHS.String()
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	node.WriteTo(b)
+	return b.String()
+}
+
+func (node *BinaryExpr) WriteTo(b *bytes.Buffer) {
+	node.LHS.WriteTo(b)
+	b.WriteByte(' ')
+	b.WriteString(node.Op.String())
+	b.WriteString(node.returnBool())
+	node.writeMatchingStr(b)
+	b.WriteByte(' ')
+	node.RHS.WriteTo(b)
 }
 
 func (node *BinaryExpr) ShortString() string {
-	return node.Op.String() + node.returnBool() + node.getMatchingStr()
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	b.WriteString(node.Op.String())
+	b.WriteString(node.returnBool())
+	node.writeMatchingStr(b)
+	return b.String()
 }
 
-func (node *BinaryExpr) getMatchingStr() string {
-	matching := ""
+func (node *BinaryExpr) writeMatchingStr(b *bytes.Buffer) {
 	vm := node.VectorMatching
 	if vm != nil && (len(vm.MatchingLabels) > 0 || vm.On) {
-		vmTag := "ignoring"
 		if vm.On {
-			vmTag = "on"
+			b.WriteString(" on (")
+		} else {
+			b.WriteString(" ignoring (")
 		}
-		matching = fmt.Sprintf(" %s (%s)", vmTag, strings.Join(vm.MatchingLabels, ", "))
+		writeStringsJoin(b, vm.MatchingLabels, ", ")
+		b.WriteByte(')')
 
 		if vm.Card == CardManyToOne || vm.Card == CardOneToMany {
-			vmCard := "right"
 			if vm.Card == CardManyToOne {
-				vmCard = "left"
+				b.WriteString(" group_left (")
+			} else {
+				b.WriteString(" group_right (")
 			}
-			matching += fmt.Sprintf(" group_%s (%s)", vmCard, strings.Join(vm.Include, ", "))
+			writeStringsJoin(b, vm.Include, ", ")
+			b.WriteByte(')')
 		}
 	}
-	return matching
 }
 
 func (node *DurationExpr) String() string {
 	b := bytes.NewBuffer(make([]byte, 0, 1024))
-	node.writeTo(b)
+	node.WriteTo(b)
 	return b.String()
 }
 
-func (node *DurationExpr) writeTo(b *bytes.Buffer) {
+func (node *DurationExpr) WriteTo(b *bytes.Buffer) {
 	if node.Wrapped {
 		b.WriteByte('(')
 	}
@@ -198,6 +219,13 @@ func (node *DurationExpr) ShortString() string {
 
 func (node *Call) String() string {
 	return node.Func.Name + "(" + node.Args.String() + ")"
+}
+
+func (node *Call) WriteTo(b *bytes.Buffer) {
+	b.WriteString(node.Func.Name)
+	b.WriteByte('(')
+	node.Args.WriteTo(b)
+	b.WriteByte(')')
 }
 
 func (node *Call) ShortString() string {
@@ -229,6 +257,12 @@ func (node *MatrixSelector) atOffset() (string, string) {
 }
 
 func (node *MatrixSelector) String() string {
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	node.WriteTo(b)
+	return b.String()
+}
+
+func (node *MatrixSelector) WriteTo(b *bytes.Buffer) {
 	at, offset := node.atOffset()
 	// Copy the Vector selector before changing the offset
 	vecSelector := *node.VectorSelector.(*VectorSelector)
@@ -243,11 +277,14 @@ func (node *MatrixSelector) String() string {
 	if node.RangeExpr != nil {
 		rangeStr = node.RangeExpr.String()
 	}
-	str := fmt.Sprintf("%s[%s]%s%s", vecSelector.String(), rangeStr, at, offset)
+	vecSelector.WriteTo(b)
+	b.WriteByte('[')
+	b.WriteString(rangeStr)
+	b.WriteByte(']')
+	b.WriteString(at)
+	b.WriteString(offset)
 
 	vecSelector.OriginalOffset, vecSelector.OriginalOffsetExpr, vecSelector.Timestamp, vecSelector.StartOrEnd = offsetVal, offsetExprVal, atVal, preproc
-
-	return str
 }
 
 func (node *MatrixSelector) ShortString() string {
@@ -261,6 +298,11 @@ func (node *MatrixSelector) ShortString() string {
 
 func (node *SubqueryExpr) String() string {
 	return fmt.Sprintf("%s%s", node.Expr.String(), node.getSubqueryTimeSuffix())
+}
+
+func (node *SubqueryExpr) WriteTo(b *bytes.Buffer) {
+	node.Expr.WriteTo(b)
+	b.WriteString(node.getSubqueryTimeSuffix())
 }
 
 func (node *SubqueryExpr) ShortString() string {
@@ -301,25 +343,51 @@ func (node *SubqueryExpr) getSubqueryTimeSuffix() string {
 }
 
 func (node *NumberLiteral) String() string {
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	node.WriteTo(b)
+	return b.String()
+}
+
+func (node *NumberLiteral) WriteTo(b *bytes.Buffer) {
 	if node.Duration {
 		if node.Val < 0 {
-			return fmt.Sprintf("-%s", model.Duration(-node.Val*1e9).String())
+			b.WriteByte('-')
+			b.WriteString(model.Duration(-node.Val * 1e9).String())
+			return
 		}
-		return model.Duration(node.Val * 1e9).String()
+		b.WriteString(model.Duration(node.Val * 1e9).String())
+		return
 	}
-	return strconv.FormatFloat(node.Val, 'f', -1, 64)
+	b.Write(strconv.AppendFloat(b.AvailableBuffer(), node.Val, 'f', -1, 64))
 }
 
 func (node *ParenExpr) String() string {
-	return "(" + node.Expr.String() + ")"
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	node.WriteTo(b)
+	return b.String()
+}
+
+func (node *ParenExpr) WriteTo(b *bytes.Buffer) {
+	b.WriteByte('(')
+	node.Expr.WriteTo(b)
+	b.WriteByte(')')
 }
 
 func (node *StringLiteral) String() string {
 	return strconv.Quote(node.Val)
 }
 
+func (node *StringLiteral) WriteTo(b *bytes.Buffer) {
+	b.Write(strconv.AppendQuote(b.AvailableBuffer(), node.Val))
+}
+
 func (node *UnaryExpr) String() string {
 	return node.Op.String() + node.Expr.String()
+}
+
+func (node *UnaryExpr) WriteTo(b *bytes.Buffer) {
+	b.WriteString(node.Op.String())
+	node.Expr.WriteTo(b)
 }
 
 func (node *UnaryExpr) ShortString() string {
@@ -327,6 +395,12 @@ func (node *UnaryExpr) ShortString() string {
 }
 
 func (node *VectorSelector) String() string {
+	b := bytes.NewBuffer(make([]byte, 0, 128))
+	node.WriteTo(b)
+	return b.String()
+}
+
+func (node *VectorSelector) WriteTo(b *bytes.Buffer) {
 	var labelStrings []string
 	if len(node.LabelMatchers) > 1 {
 		labelStrings = make([]string, 0, len(node.LabelMatchers)-1)
@@ -338,7 +412,6 @@ func (node *VectorSelector) String() string {
 		}
 		labelStrings = append(labelStrings, matcher.String())
 	}
-	b := bytes.NewBuffer(make([]byte, 0, 1024))
 	b.WriteString(node.Name)
 	if len(labelStrings) != 0 {
 		b.WriteByte('{')
@@ -358,7 +431,7 @@ func (node *VectorSelector) String() string {
 	switch {
 	case node.OriginalOffsetExpr != nil:
 		b.WriteString(" offset ")
-		node.OriginalOffsetExpr.writeTo(b)
+		node.OriginalOffsetExpr.WriteTo(b)
 	case node.OriginalOffset > time.Duration(0):
 		b.WriteString(" offset ")
 		b.WriteString(model.Duration(node.OriginalOffset).String())
@@ -366,5 +439,4 @@ func (node *VectorSelector) String() string {
 		b.WriteString(" offset -")
 		b.WriteString(model.Duration(-node.OriginalOffset).String())
 	}
-	return b.String()
 }
