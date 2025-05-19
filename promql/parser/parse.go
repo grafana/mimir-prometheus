@@ -443,7 +443,7 @@ func (p *parser) assembleVectorSelector(vs *VectorSelector) {
 		if err != nil {
 			panic(err) // Must not happen with labels.MatchEqual
 		}
-		vs.LabelMatchers = append(vs.LabelMatchers, nameMatcher)
+		vs.LabelMatchers = append([]*labels.Matcher{nameMatcher}, vs.LabelMatchers...)
 	}
 }
 
@@ -853,10 +853,9 @@ func (p *parser) checkAST(node Node) (typ ValueType) {
 
 	case *VectorSelector:
 		if n.Name != "" {
-			// In this case the last LabelMatcher is checking for the metric name
-			// set outside the braces. This checks if the name has already been set
-			// previously.
-			for _, m := range n.LabelMatchers[0 : len(n.LabelMatchers)-1] {
+			// In this case the first LabelMatcher is checking for the metric name
+			// set outside the braces. This checks if the name is checked again.
+			for _, m := range n.LabelMatchers[1:] {
 				if m != nil && m.Name == labels.MetricName {
 					p.addParseErrf(n.PositionRange(), "metric name must not be set twice: %q or %q", n.Name, m.Value)
 				}
