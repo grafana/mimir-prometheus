@@ -80,9 +80,12 @@ func MustNewMatcher(mt MatchType, name, val string) *Matcher {
 
 func (m *Matcher) String() string {
 	// Start a buffer with a pre-allocated size on stack to cover most needs.
-	var bytea [1024]byte
-	b := bytes.NewBuffer(bytea[:0])
+	b := bytes.NewBuffer(make([]byte, 0, 1024))
+	m.WriteTo(b)
+	return b.String()
+}
 
+func (m *Matcher) WriteTo(b *bytes.Buffer) {
 	if m.shouldQuoteName() {
 		b.Write(strconv.AppendQuote(b.AvailableBuffer(), m.Name))
 	} else {
@@ -90,8 +93,6 @@ func (m *Matcher) String() string {
 	}
 	b.WriteString(m.Type.String())
 	b.Write(strconv.AppendQuote(b.AvailableBuffer(), m.Value))
-
-	return b.String()
 }
 
 func (m *Matcher) shouldQuoteName() bool {

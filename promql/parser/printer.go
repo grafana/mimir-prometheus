@@ -401,19 +401,38 @@ func (node *VectorSelector) String() string {
 }
 
 func (node *VectorSelector) WriteTo(b *bytes.Buffer) {
-	var labelStrings []string
-	if len(node.LabelMatchers) > 1 {
-		labelStrings = make([]string, 0, len(node.LabelMatchers)-1)
-	}
-	for _, matcher := range node.LabelMatchers {
-		// Only include the __name__ label if its equality matching and matches the name, but don't skip if it's an explicit empty name matcher.
-		if matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == node.Name && matcher.Value != "" {
-			continue
-		}
-		labelStrings = append(labelStrings, matcher.String())
-	}
 	b.WriteString(node.Name)
-	if len(labelStrings) != 0 {
+	switch {
+	case len(node.LabelMatchers) == 0:
+	case labelMatchersSorted(node.LabelMatchers):
+		count := 0
+		for _, matcher := range node.LabelMatchers {
+			if matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == node.Name && matcher.Value != "" {
+				continue
+			}
+			if count == 0 {
+				b.WriteByte('{')
+			} else {
+				b.WriteByte(',')
+			}
+			matcher.WriteTo(b)
+			count++
+		}
+		if count > 0 {
+			b.WriteByte('}')
+		}
+	default:
+		var labelStrings []string
+		if len(node.LabelMatchers) > 1 {
+			labelStrings = make([]string, 0, len(node.LabelMatchers)-1)
+		}
+		for _, matcher := range node.LabelMatchers {
+			// Only include the __name__ label if it isn't equality matching on the name, but don't skip if it's an explicit empty name matcher.
+			if matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == node.Name && matcher.Value != "" {
+				continue
+			}
+			labelStrings = append(labelStrings, matcher.String())
+		}
 		b.WriteByte('{')
 		sort.Strings(labelStrings)
 		writeStringsJoin(b, labelStrings, ",")
@@ -439,4 +458,16 @@ func (node *VectorSelector) WriteTo(b *bytes.Buffer) {
 		b.WriteString(" offset -")
 		b.WriteString(model.Duration(-node.OriginalOffset).String())
 	}
+}
+
+func labelMatchersSorted(matchers []*labels.Matcher) bool {
+	if len(matchers) <= 1 {
+		return true
+	}
+	for i := range matchers[1:] {
+		if matchers[i].Name > matchers[i+1].Name {
+			return false
+		}
+	}
+	return true
 }
