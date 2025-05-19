@@ -444,7 +444,7 @@ func (node *VectorSelector) WriteTo(b *bytes.Buffer) {
 	switch {
 	case node.Timestamp != nil:
 		b.WriteString(" @ ")
-		b.WriteString(fmt.Sprintf("%.3f", float64(*node.Timestamp)/1000.0))
+		fmt.Fprintf(b, "%.3f", float64(*node.Timestamp)/1000.0)
 	case node.StartOrEnd == START:
 		b.WriteString(" @ start()")
 	case node.StartOrEnd == END:

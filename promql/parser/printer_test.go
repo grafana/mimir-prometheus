@@ -200,7 +200,7 @@ func BenchmarkExprString(b *testing.B) {
 			expr, err := ParseExpr(test)
 			require.NoError(b, err)
 			for i := 0; i < b.N; i++ {
-				expr.String()
+				_ = expr.String()
 			}
 		})
 	}
