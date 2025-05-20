@@ -53,18 +53,15 @@ func (node *EvalStmt) String() string {
 }
 
 func (es Expressions) String() (s string) {
-	switch len(es) {
-	case 0:
-		return ""
-	case 1:
-		return es[0].String()
-	}
 	b := bytes.NewBuffer(make([]byte, 0, 128))
 	es.WriteTo(b)
 	return b.String()
 }
 
 func (es Expressions) WriteTo(b *bytes.Buffer) {
+	if len(es) == 0 {
+		return
+	}
 	es[0].WriteTo(b)
 	for _, e := range es[1:] {
 		b.WriteString(", ")
