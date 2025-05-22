@@ -189,6 +189,8 @@ func (p *postingsForMatcherPromise) result(ctx context.Context) (index.Postings,
 		trace.SpanFromContext(ctx).AddEvent("completed postingsForMatchers promise", trace.WithAttributes(
 			// Do not format the timestamp to introduce a performance regression.
 			attribute.Int64("evaluation completed at (epoch seconds)", p.evaluationCompletedAt.Unix()),
+			// We don't include the block ID because propagating it from the caller would increase the size of the promise.
+			// With a bigger promise we can fit fewer promises in the cache, so the cache will be less effective.
 			attribute.String("block", "unknown"),
 		))
 
