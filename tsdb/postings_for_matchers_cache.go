@@ -62,6 +62,7 @@ type IndexPostingsReader interface {
 // NewPostingsForMatchersCache creates a new PostingsForMatchersCache.
 // If `ttl` is 0, then it only deduplicates in-flight requests.
 // If `force` is true, then all requests go through cache, regardless of the `concurrent` param provided to the PostingsForMatchers method.
+// The `tracingKV` parameter allows passing additional attributes for tracing purposes, which are appended to the default attributes.
 func NewPostingsForMatchersCache(ttl time.Duration, maxItems int, maxBytes int64, force bool, metrics *PostingsForMatchersCacheMetrics, tracingKV []attribute.KeyValue) *PostingsForMatchersCache {
 	b := &PostingsForMatchersCache{
 		calls:            &sync.Map{},
