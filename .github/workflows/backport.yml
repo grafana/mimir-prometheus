@@ -28,7 +28,8 @@ jobs:
           path: ./actions
           # pin the version to before https://github.com/grafana/grafana-github-actions/pull/113 because
           # we don't want to have the same strict rules for PR labels
-          ref: d284afd314ca3625c23595e9f62b52d215ead7ce
+          # We also use our own version which works with merge commits since a lot of the commits in this repo are merge commits.
+          ref: ea415d5eaa70337430db7ae7782f28dd14a15525
           persist-credentials: false
 
       - name: Install Actions
