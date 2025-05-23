@@ -3,12 +3,13 @@ name: Update vendored version in grafana/mimir
 on:
   push:
     branches:
+      - 'r[0-9]*'
       - dimitar/build/trigger-mimir-workflow
-      # - main # TODO
+      - main
+
 permissions:
   contents: read
   id-token: write
-  pull-requests: write
 
 jobs:
   trigger:
@@ -31,10 +32,10 @@ jobs:
           private-key: ${{ env.PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      - name: Send repository_dispatch to Repo A
-        uses: peter-evans/repository-dispatch@v3
+      - name: Send repository_dispatch to grafana/mimir
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
         with:
           token: ${{ steps.app-token.outputs.token }}
           repository: grafana/mimir
-          event-type: my-event
-          client-payload: '{"ref": "${{ github.ref }}", "sha": "${{ github.sha }}"}'
+          event-type: mimir-prometheus-branch-push
+          client-payload: '{"branch_name": "${{ github.ref_name }}"}'
