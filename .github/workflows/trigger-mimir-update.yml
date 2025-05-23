@@ -5,6 +5,10 @@ on:
     branches:
       - dimitar/build/trigger-mimir-workflow
       # - main # TODO
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
 
 jobs:
   trigger:
