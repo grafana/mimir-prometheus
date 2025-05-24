@@ -124,8 +124,8 @@ jobs:
 
           echo "Cherry-picking commit $COMMIT_HASH..."
 
-          # Attempt the cherry-pick
-          if git cherry-pick $COMMIT_HASH; then
+          # Attempt the cherry-pick (with -x to record original commit and -m1 to handle merge commits)
+          if git cherry-pick -x -m1 $COMMIT_HASH; then
             echo "Cherry-pick successful!"
           else
             echo "Cherry-pick failed with conflicts. Checking status..."
