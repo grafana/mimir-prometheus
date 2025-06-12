@@ -2433,8 +2433,8 @@ func TestPreprocessAndWrapWithStepInvariantExpr(t *testing.T) {
 						Name:      "test",
 						Timestamp: makeInt64Pointer(1603774699000),
 						LabelMatchers: []*labels.Matcher{
-							parser.MustLabelMatcher(labels.MatchEqual, "a", "b"),
 							parser.MustLabelMatcher(labels.MatchEqual, "__name__", "test"),
+							parser.MustLabelMatcher(labels.MatchEqual, "a", "b"),
 						},
 						PosRange: posrange.PositionRange{
 							Start: 0,
@@ -2612,8 +2612,8 @@ func TestPreprocessAndWrapWithStepInvariantExpr(t *testing.T) {
 				Expr: &parser.VectorSelector{
 					Name: "foo",
 					LabelMatchers: []*labels.Matcher{
-						parser.MustLabelMatcher(labels.MatchEqual, "bar", "baz"),
 						parser.MustLabelMatcher(labels.MatchEqual, "__name__", "foo"),
+						parser.MustLabelMatcher(labels.MatchEqual, "bar", "baz"),
 					},
 					PosRange: posrange.PositionRange{
 						Start: 0,
@@ -2632,8 +2632,8 @@ func TestPreprocessAndWrapWithStepInvariantExpr(t *testing.T) {
 					Expr: &parser.VectorSelector{
 						Name: "foo",
 						LabelMatchers: []*labels.Matcher{
-							parser.MustLabelMatcher(labels.MatchEqual, "bar", "baz"),
 							parser.MustLabelMatcher(labels.MatchEqual, "__name__", "foo"),
+							parser.MustLabelMatcher(labels.MatchEqual, "bar", "baz"),
 						},
 						PosRange: posrange.PositionRange{
 							Start: 0,
@@ -2657,8 +2657,8 @@ func TestPreprocessAndWrapWithStepInvariantExpr(t *testing.T) {
 							Expr: &parser.VectorSelector{
 								Name: "foo",
 								LabelMatchers: []*labels.Matcher{
-									parser.MustLabelMatcher(labels.MatchEqual, "bar", "baz"),
 									parser.MustLabelMatcher(labels.MatchEqual, "__name__", "foo"),
+									parser.MustLabelMatcher(labels.MatchEqual, "bar", "baz"),
 								},
 								PosRange: posrange.PositionRange{
 									Start: 4,
@@ -2694,8 +2694,8 @@ func TestPreprocessAndWrapWithStepInvariantExpr(t *testing.T) {
 											VectorSelector: &parser.VectorSelector{
 												Name: "foo",
 												LabelMatchers: []*labels.Matcher{
-													parser.MustLabelMatcher(labels.MatchEqual, "bar", "baz"),
 													parser.MustLabelMatcher(labels.MatchEqual, "__name__", "foo"),
+													parser.MustLabelMatcher(labels.MatchEqual, "bar", "baz"),
 												},
 												PosRange: posrange.PositionRange{
 													Start: 19,
@@ -2795,8 +2795,8 @@ func TestPreprocessAndWrapWithStepInvariantExpr(t *testing.T) {
 								Expr: &parser.VectorSelector{
 									Name: "bar",
 									LabelMatchers: []*labels.Matcher{
-										parser.MustLabelMatcher(labels.MatchEqual, "nm", "val"),
 										parser.MustLabelMatcher(labels.MatchEqual, "__name__", "bar"),
+										parser.MustLabelMatcher(labels.MatchEqual, "nm", "val"),
 									},
 									Timestamp: makeInt64Pointer(1234000),
 									PosRange: posrange.PositionRange{
