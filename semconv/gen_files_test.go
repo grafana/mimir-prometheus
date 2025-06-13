@@ -81,8 +81,10 @@ func TestSchemaEngine_FetchIDs(t *testing.T) {
 		Version: 1,
 		MetricsIDs: map[string][]versionedID{
 			"my_app_latency_seconds~seconds.histogram": {
-				{ID: "my_app_latency.2",
-					IntroVersion: "1.1.0"},
+				{
+					ID:           "my_app_latency.2",
+					IntroVersion: "1.1.0",
+				},
 			},
 			"my_app_custom_changed_elements_total~elements.counter": {
 				{

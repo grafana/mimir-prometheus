@@ -1336,7 +1336,7 @@ func (ev *evaluator) rangeEval(ctx context.Context, prepSeries func(labels.Label
 		// If this could be an instant query, shortcut so as not to change sort order.
 		if ev.endTimestamp == ev.startTimestamp {
 			if !ev.enableDelayedNameRemoval && result.ContainsSameLabelset() {
-				ev.errorf("vector cannot contain metrics with the same labelset %v", result.String())
+				ev.errorf("vector cannot contain metrics with the same labelset")
 			}
 			mat := make(Matrix, len(result))
 			for i, s := range result {
@@ -1357,7 +1357,7 @@ func (ev *evaluator) rangeEval(ctx context.Context, prepSeries func(labels.Label
 			ss, ok := seriess[h]
 			if ok {
 				if ss.ts == ts { // If we've seen this output series before at this timestamp, it's a duplicate.
-					ev.errorf("vector cannot contain metrics with the same labelset %v", result.String())
+					ev.errorf("vector cannot contain metrics with the same labelset")
 				}
 				ss.ts = ts
 			} else {
@@ -1829,7 +1829,7 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 			it.Reset(chkIter)
 			metric := selVS.Series[i].Labels()
 			if !ev.enableDelayedNameRemoval && dropName {
-				metric = metric.DropMetricIdentity()
+				metric = metric.DropReserved(schema.IsMetadataLabel)
 			}
 			ss := Series{
 				Metric:   metric,
@@ -1963,7 +1963,7 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 		}
 
 		if !ev.enableDelayedNameRemoval && mat.ContainsSameLabelset() {
-			ev.errorf("vector cannot contain metrics with the same labelset %v", mat.String())
+			ev.errorf("vector cannot contain metrics with the same labelset")
 		}
 		return mat, warnings
 
@@ -1976,7 +1976,7 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 		if e.Op == parser.SUB {
 			for i := range mat {
 				if !ev.enableDelayedNameRemoval {
-					mat[i].Metric = mat[i].Metric.DropMetricIdentity()
+					mat[i].Metric = mat[i].Metric.DropReserved(schema.IsMetadataLabel)
 				}
 				mat[i].DropName = true
 				for j := range mat[i].Floats {
@@ -1987,7 +1987,7 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 				}
 			}
 			if !ev.enableDelayedNameRemoval && mat.ContainsSameLabelset() {
-				ev.errorf("vector cannot contain metrics with the same labelset %v", mat.String())
+				ev.errorf("vector cannot contain metrics with the same labelset")
 			}
 		}
 		return mat, ws
@@ -2727,7 +2727,7 @@ func (ev *evaluator) VectorBinop(op parser.ItemType, lhs, rhs Vector, matching *
 		}
 		metric := resultMetric(ls.Metric, rs.Metric, op, matching, enh)
 		if !ev.enableDelayedNameRemoval && returnBool {
-			metric = metric.DropMetricIdentity()
+			metric = metric.DropReserved(schema.IsMetadataLabel)
 		}
 		insertedSigs, exists := matchedSigs[sig]
 		if matching.Card == parser.CardOneToOne {
@@ -2794,9 +2794,9 @@ func resultMetric(lhs, rhs labels.Labels, op parser.ItemType, matching *parser.V
 	}
 	str := string(enh.lblResultBuf)
 
-	if shouldDropMetricIdentity(op) {
-		// Setting to empty fields will cause the deletion of those.
-		enh.lb.SetMetricIdentity(labels.MetricIdentity{})
+	if changesMetricSchema(op) {
+		// Setting empty Metadata causes the deletion of those if they exists.
+		schema.Metadata{}.SetToLabels(enh.lb)
 	}
 
 	if matching.Card == parser.CardOneToOne {
@@ -2855,9 +2855,9 @@ func (ev *evaluator) VectorscalarBinop(op parser.ItemType, lhs Vector, rhs Scala
 		if keep {
 			lhsSample.F = float
 			lhsSample.H = histogram
-			if shouldDropMetricIdentity(op) || returnBool {
+			if changesMetricSchema(op) || returnBool {
 				if !ev.enableDelayedNameRemoval {
-					lhsSample.Metric = lhsSample.Metric.DropMetricIdentity()
+					lhsSample.Metric = lhsSample.Metric.DropReserved(schema.IsMetadataLabel)
 				}
 				lhsSample.DropName = true
 			}
@@ -3541,21 +3541,21 @@ func (ev *evaluator) cleanupMetricLabels(v parser.Value) {
 		mat := v.(Matrix)
 		for i := range mat {
 			if mat[i].DropName {
-				mat[i].Metric = mat[i].Metric.DropMetricIdentity()
+				mat[i].Metric = mat[i].Metric.DropReserved(schema.IsMetadataLabel)
 			}
 		}
 		if mat.ContainsSameLabelset() {
-			ev.errorf("vector cannot contain metrics with the same labelset %v", mat.String())
+			ev.errorf("vector cannot contain metrics with the same labelset")
 		}
 	} else if v.Type() == parser.ValueTypeVector {
 		vec := v.(Vector)
 		for i := range vec {
 			if vec[i].DropName {
-				vec[i].Metric = vec[i].Metric.DropMetricIdentity()
+				vec[i].Metric = vec[i].Metric.DropReserved(schema.IsMetadataLabel)
 			}
 		}
 		if vec.ContainsSameLabelset() {
-			ev.errorf("vector cannot contain metrics with the same labelset %v", vec.String())
+			ev.errorf("vector cannot contain metrics with the same labelset")
 		}
 	}
 }
@@ -3653,9 +3653,9 @@ func btos(b bool) float64 {
 	return 0
 }
 
-// shouldDropMetricIdentity returns whether the metric name, type and unit should be dropped in the
-// result of the op operation.
-func shouldDropMetricIdentity(op parser.ItemType) bool {
+// changesMetricSchema returns true whether the op operation changes the semantic meaning or
+// schema of the metric.
+func changesMetricSchema(op parser.ItemType) bool {
 	switch op {
 	case parser.ADD, parser.SUB, parser.DIV, parser.MUL, parser.POW, parser.MOD, parser.ATAN2:
 		return true

@@ -383,9 +383,11 @@ type_and_unit_test2{__type__="counter"} 123`
 				},
 			}
 
-	p := NewPromParser([]byte(input), labels.NewSymbolTable(), false)
-	got := testParse(t, p)
-	requireEntries(t, exp, got)
+			p := NewPromParser([]byte(input), labels.NewSymbolTable(), typeAndUnitEnabled)
+			got := testParse(t, p)
+			requireEntries(t, exp, got)
+		})
+	}
 }
 
 func TestUTF8PromParse(t *testing.T) {

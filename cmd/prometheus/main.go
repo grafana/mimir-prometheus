@@ -286,9 +286,19 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 			case "otlp-deltatocumulative":
 				c.web.ConvertOTLPDelta = true
 				logger.Info("Converting delta OTLP metrics to cumulative")
+			case "otlp-native-delta-ingestion":
+				// Experimental OTLP native delta ingestion.
+				// This currently just stores the raw delta value as-is with unknown metric type. Better typing and
+				// type-aware functions may come later.
+				// See proposal: https://github.com/prometheus/proposals/pull/48
+				c.web.NativeOTLPDeltaIngestion = true
+				logger.Info("Enabling native ingestion of delta OTLP metrics, storing the raw sample values without conversion. WARNING: Delta support is in an early stage of development. The ingestion and querying process is likely to change over time.")
 			case "type-and-unit-labels":
 				c.scrape.EnableTypeAndUnitLabels = true
 				logger.Info("Experimental type and unit labels enabled")
+			case "use-uncached-io":
+				c.tsdb.UseUncachedIO = true
+				logger.Info("Experimental Uncached IO is enabled.")
 			case "semconv-versioned-read":
 				c.enableSemconvVersionedRead = true
 				logger.Info("Experimental semconv versioned read enabled")
@@ -995,8 +1005,7 @@ func main() {
 				}
 				return discoveryManagerNotify.ApplyConfig(c)
 			},
-		},
-		{
+		}, {
 			name: "semconv",
 			reloader: func(c *config.Config) error {
 				if !cfg.enableSemconvVersionedRead {

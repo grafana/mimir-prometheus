@@ -219,15 +219,6 @@ func (p *OpenMetricsParser) Labels(l *labels.Labels) {
 
 	p.builder.Reset()
 	metricName := unreplace(s[p.offsets[0]-p.start : p.offsets[1]-p.start])
-	if p.enableTypeAndUnitLabels {
-		p.builder.AddMetricIdentity(labels.MetricIdentity{
-			Name: metricName,
-			Type: p.mtype,
-			Unit: p.unit,
-		})
-	} else {
-		p.builder.Add(labels.MetricName, metricName)
-	}
 
 	m := schema.Metadata{
 		Name: metricName,
@@ -243,8 +234,8 @@ func (p *OpenMetricsParser) Labels(l *labels.Labels) {
 		a := p.offsets[i] - p.start
 		b := p.offsets[i+1] - p.start
 		label := unreplace(s[a:b])
-		if p.enableTypeAndUnitLabels && labels.IsMetricIdentityLabel(label) {
-			// Dropping user provided id labels if needed.
+		if p.enableTypeAndUnitLabels && !m.IsEmptyFor(label) {
+			// Dropping user provided metadata labels, if found in the OM metadata.
 			continue
 		}
 		c := p.offsets[i+2] - p.start

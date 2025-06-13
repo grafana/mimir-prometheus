@@ -217,23 +217,70 @@ Examples of equivalent durations:
 
 [d2c]: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/deltatocumulativeprocessor
 
+## OTLP Native Delta Support
+
+`--enable-feature=otlp-native-delta-ingestion`
+
+When enabled, allows for the native ingestion of delta OTLP metrics, storing the raw sample values without conversion. This cannot be enabled in conjunction with `otlp-deltatocumulative`.
+
+Currently, the StartTimeUnixNano field is ignored, and deltas are given the unknown metric metadata type.
+
+Delta support is in a very early stage of development and the ingestion and querying process my change over time. For the open proposal see [prometheus/proposals#48](https://github.com/prometheus/proposals/pull/48).
+
+### Querying
+
+We encourage users to experiment with deltas and existing PromQL functions; we will collect feedback and likely build features to improve the experience around querying deltas.
+
+Note that standard PromQL counter functions like `rate()` and `increase()` are designed for cumulative metrics and will produce incorrect results when used with delta metrics. This may change in the future, but for now, to get similar results for delta metrics, you need `sum_over_time()`:
+
+* `sum_over_time(delta_metric[<range>])`: Calculates the sum of delta values over the specified time range.
+* `sum_over_time(delta_metric[<range>]) / <range>`: Calculates the per-second rate of the delta metric.
+
+These may not work well if the `<range>` is not a multiple of the collection interval of the metric. For example, if you do `sum_over_time(delta_metric[1m]) / 1m` range query (with a 1m step), but the collection interval of a metric is 10m, the graph will show a single point every 10 minutes with a high rate value, rather than 10 points with a lower, constant value.
+
+### Current gotchas
+
+* If delta metrics are exposed via [federation](https://prometheus.io/docs/prometheus/latest/federation/), data can be incorrectly collected if the ingestion interval is not the same as the scrape interval for the federated endpoint.
+
+* It is difficult to figure out whether a metric has delta or cumulative temporality, since there's no indication of temporality in metric names or labels. For now, if you are ingesting a mix of delta and cumulative metrics we advise you to explicitly add your own labels to distinguish them. In the future, we plan to introduce type labels to consistently distinguish metric types and potentially make PromQL functions type-aware (e.g. providing warnings when cumulative-only functions are used with delta metrics).
+
+* If there are multiple samples being ingested at the same timestamp, only one of the points is kept - the samples are **not** summed together (this is how Prometheus works in general - duplicate timestamp samples are rejected). Any aggregation will have to be done before sending samples to Prometheus.
+
 ## Type and Unit Labels
 
 `--enable-feature=type-and-unit-labels`
 
-When enabled, Prometheus will start injecting additional, special `__type__`
-and `__unit__` labels that extends the existing `__name__` metric identity.
+When enabled, Prometheus will start injecting additional, reserved `__type__`
+and `__unit__` labels as designed in the [PROM-39 proposal](https://github.com/prometheus/proposals/pull/39).
 
-Those labels are injected from the metadata parts of OpenMetrics and other scrape expositions
-, as well as Remote Write 2.0 and OTLP receive. All user provided labels with
-`__type__` and `__unit__` will be dropped or overridden.
+Those labels are sourced from the metadata structured of the existing scrape and ingestion formats
+like OpenMetrics Text, Prometheus Text, Prometheus Proto, Remote Write 2 and OTLP. All the user provided labels with
+`__type__` and `__unit__` will be overridden.
 
-This is useful for users who:
+PromQL layer will handle those labels the same way __name__ is handled, e.g. dropped
+on certain operations like `-` or `+` and affected by `promql-delayed-name-removal` feature.
+
+This feature enables important metadata information to be accessible directly with samples and PromQL layer.
+ 
+It's especially useful for users who:
+
 * Want to be able to select metrics based on type or unit.
 * Want to handle cases of series with the same metric name and different type and units.
-e.g. native histogram migrations or OpenTelemetry metrics from OTLP endpoint, without translation.
+  e.g. native histogram migrations or OpenTelemetry metrics from OTLP endpoint, without translation.
 
-In future more work is planned that will depend on this e.g. rich PromQL UX that helps 
+In future more [work is planned](https://github.com/prometheus/prometheus/issues/16610) that will depend on this e.g. rich PromQL UX that helps
 when wrong types are used on wrong functions, automatic renames, delta types and more.
 
-See [proposal](https://github.com/prometheus/proposals/pull/39)
+## Use Uncached IO
+
+`--enable-feature=use-uncached-io`
+
+Experimental and only available on Linux.
+
+When enabled, it makes chunks writing bypass the page cache. Its primary
+goal is to reduce confusion around page‐cache behavior and to prevent over‑allocation of
+memory in response to misleading cache growth.
+
+This is currently implemented using direct I/O.
+
+For more details, see the [proposal](https://github.com/prometheus/proposals/pull/45).
