@@ -275,7 +275,7 @@ func (e *schemaEngine) FindMatcherVariants(schemaURL string, originalMatchers []
 	}
 
 	// Changes are sorted from the newest to the oldest, so reverse this, so
-	// it's matches the revisions order.
+	// it matches the revisions order.
 	slices.Reverse(q.changes)
 
 	// Revision starts with 0, then 2,3,4..., uniform it (0,1,2,3...).
