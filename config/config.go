@@ -797,34 +797,6 @@ func (c *ScrapeConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err := discovery.UnmarshalYAMLWithInlineConfigs(c, unmarshal); err != nil {
 		return err
 	}
-	if len(c.JobName) == 0 {
-		return errors.New("job_name is empty")
-	}
-
-	// The UnmarshalYAML method of HTTPClientConfig is not being called because it's not a pointer.
-	// We cannot make it a pointer as the parser panics for inlined pointer structs.
-	// Thus we just do its validation here.
-	if err := c.HTTPClientConfig.Validate(); err != nil {
-		return err
-	}
-
-	// Check for users putting URLs in target groups.
-	if len(c.RelabelConfigs) == 0 {
-		if err := checkStaticTargets(c.ServiceDiscoveryConfigs); err != nil {
-			return err
-		}
-	}
-
-	for _, rlcfg := range c.RelabelConfigs {
-		if rlcfg == nil {
-			return errors.New("empty or null target relabeling rule in scrape config")
-		}
-	}
-	for _, rlcfg := range c.MetricRelabelConfigs {
-		if rlcfg == nil {
-			return errors.New("empty or null metric relabeling rule in scrape config")
-		}
-	}
 
 	return nil
 }
@@ -885,6 +857,16 @@ func (c *ScrapeConfig) Validate(globalConfig GlobalConfig) error {
 		if err := c.ScrapeFallbackProtocol.Validate(); err != nil {
 			return fmt.Errorf("invalid fallback_scrape_protocol for scrape config with job name %q: %w", c.JobName, err)
 		}
+	}
+
+	if len(c.JobName) == 0 {
+		return errors.New("job_name is empty")
+	}
+	// The UnmarshalYAML method of HTTPClientConfig is not being called because it's not a pointer.
+	// We cannot make it a pointer as the parser panics for inlined pointer structs.
+	// Thus we just do its validation here.
+	if err := c.HTTPClientConfig.Validate(); err != nil {
+		return err
 	}
 
 	switch globalConfig.MetricNameValidationScheme {
@@ -973,8 +955,6 @@ func (c *ScrapeConfig) Validate(globalConfig GlobalConfig) error {
 // MarshalYAML implements the yaml.Marshaler interface.
 func (c *ScrapeConfig) MarshalYAML() (interface{}, error) {
 	return discovery.MarshalYAMLWithInlineConfigs(c)
-}
-
 // ToEscapingScheme wraps the equivalent common library function with the
 // desired default behavior based on the given validation scheme. This is a
 // workaround for third party exporters that don't set the escaping scheme.
@@ -1417,6 +1397,24 @@ func (c *RemoteWriteConfig) Validate(globalConfig GlobalConfig) error {
 	if c.URL == nil {
 		return errors.New("url for remote_write is empty")
 	}
+	if err := validateHeaders(c.Headers); err != nil {
+		return err
+	}
+
+	if err := c.ProtobufMessage.Validate(); err != nil {
+		return fmt.Errorf("invalid protobuf_message value: %w", err)
+	}
+
+	// The UnmarshalYAML method of HTTPClientConfig is not being called because it's not a pointer.
+	// We cannot make it a pointer as the parser panics for inlined pointer structs.
+	// Thus, we just do its validation here.
+	if err := c.HTTPClientConfig.Validate(); err != nil {
+		return err
+	}
+
+	if err := validateAuthConfigs(c); err != nil {
+		return err
+	}
 
 	namingScheme := cmp.Or(
 		c.MetricNameValidationScheme,
@@ -1430,22 +1428,7 @@ func (c *RemoteWriteConfig) Validate(globalConfig GlobalConfig) error {
 			return errors.New("invalid relabel config: " + err.Error())
 		}
 	}
-	if err := validateHeaders(c.Headers); err != nil {
-		return err
-	}
-
-	if err := c.ProtobufMessage.Validate(); err != nil {
-		return fmt.Errorf("invalid protobuf_message value: %w", err)
-	}
-
-	// The UnmarshalYAML method of HTTPClientConfig is not being called because it's not a pointer.
-	// We cannot make it a pointer as the parser panics for inlined pointer structs.
-	// Thus we just do its validation here.
-	if err := c.HTTPClientConfig.Validate(); err != nil {
-		return err
-	}
-
-	return validateAuthConfigs(c)
+	return nil
 }
 
 // validateAuthConfigs validates that at most one of basic_auth, authorization, oauth2, sigv4, azuread or google_iam must be configured.
