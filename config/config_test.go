@@ -59,6 +59,7 @@ import (
 	"github.com/prometheus/prometheus/discovery/zookeeper"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/relabel"
+	"github.com/prometheus/prometheus/model/validation"
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
@@ -285,7 +286,7 @@ var expectedConf = &Config{
 					Regex:                      relabel.MustNewRegexp("(.*)some-[regex]"),
 					Replacement:                "foo-${1}",
 					Action:                     relabel.Replace,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					SourceLabels:               model.LabelNames{"abc"},
@@ -294,7 +295,7 @@ var expectedConf = &Config{
 					Regex:                      relabel.DefaultRelabelConfig.Regex,
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Action:                     relabel.Replace,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					TargetLabel:                "abc",
@@ -302,7 +303,7 @@ var expectedConf = &Config{
 					Regex:                      relabel.DefaultRelabelConfig.Regex,
 					Replacement:                "static",
 					Action:                     relabel.Replace,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					TargetLabel:                "abc",
@@ -310,7 +311,7 @@ var expectedConf = &Config{
 					Regex:                      relabel.MustNewRegexp(""),
 					Replacement:                "static",
 					Action:                     relabel.Replace,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					SourceLabels:               model.LabelNames{"foo"},
@@ -319,7 +320,7 @@ var expectedConf = &Config{
 					Regex:                      relabel.DefaultRelabelConfig.Regex,
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Separator:                  relabel.DefaultRelabelConfig.Separator,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					SourceLabels:               model.LabelNames{"foo"},
@@ -328,7 +329,7 @@ var expectedConf = &Config{
 					Regex:                      relabel.DefaultRelabelConfig.Regex,
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Separator:                  relabel.DefaultRelabelConfig.Separator,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 			},
 		},
@@ -388,7 +389,7 @@ var expectedConf = &Config{
 					Separator:                  ";",
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Action:                     relabel.Drop,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					SourceLabels:               model.LabelNames{"__address__"},
@@ -398,7 +399,7 @@ var expectedConf = &Config{
 					Modulus:                    8,
 					Separator:                  ";",
 					Action:                     relabel.HashMod,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					SourceLabels:               model.LabelNames{"__tmp_hash"},
@@ -406,28 +407,28 @@ var expectedConf = &Config{
 					Separator:                  ";",
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Action:                     relabel.Keep,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					Regex:                      relabel.MustNewRegexp("1"),
 					Separator:                  ";",
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Action:                     relabel.LabelMap,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					Regex:                      relabel.MustNewRegexp("d"),
 					Separator:                  ";",
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Action:                     relabel.LabelDrop,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 				{
 					Regex:                      relabel.MustNewRegexp("k"),
 					Separator:                  ";",
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Action:                     relabel.LabelKeep,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 			},
 			MetricRelabelConfigs: []*relabel.Config{
@@ -437,7 +438,7 @@ var expectedConf = &Config{
 					Separator:                  ";",
 					Replacement:                relabel.DefaultRelabelConfig.Replacement,
 					Action:                     relabel.Drop,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 			},
 		},
@@ -498,7 +499,7 @@ var expectedConf = &Config{
 					TargetLabel:                "${1}",
 					Replacement:                "${2}",
 					Action:                     relabel.Replace,
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 			},
 		},
@@ -1296,7 +1297,7 @@ var expectedConf = &Config{
 					Separator:                  relabel.DefaultRelabelConfig.Separator,
 					SourceLabels:               model.LabelNames{"instance"},
 					TargetLabel:                "instance",
-					MetricNameValidationScheme: model.UTF8Validation,
+					MetricNameValidationScheme: validation.UTF8NamingScheme,
 				},
 			},
 
@@ -2597,7 +2598,7 @@ func TestGetScrapeConfigs(t *testing.T) {
 			ScrapeInterval:             opts.ScrapeInterval,
 			ScrapeTimeout:              opts.ScrapeTimeout,
 			ScrapeProtocols:            DefaultGlobalConfig.ScrapeProtocols,
-			MetricNameValidationScheme: model.UTF8Validation,
+			MetricNameValidationScheme: validation.UTF8NamingScheme,
 			MetricNameEscapingScheme:   model.AllowUTF8,
 
 			MetricsPath:       "/metrics",
@@ -2657,7 +2658,7 @@ func TestGetScrapeConfigs(t *testing.T) {
 					ScrapeInterval:                 model.Duration(60 * time.Second),
 					ScrapeTimeout:                  DefaultGlobalConfig.ScrapeTimeout,
 					ScrapeProtocols:                DefaultGlobalConfig.ScrapeProtocols,
-					MetricNameValidationScheme:     model.UTF8Validation,
+					MetricNameValidationScheme:     validation.UTF8NamingScheme,
 					MetricNameEscapingScheme:       model.AllowUTF8,
 					AlwaysScrapeClassicHistograms:  boolPtr(false),
 					ConvertClassicHistogramsToNHCB: boolPtr(false),
@@ -2694,7 +2695,7 @@ func TestGetScrapeConfigs(t *testing.T) {
 					ScrapeInterval:                 model.Duration(15 * time.Second),
 					ScrapeTimeout:                  DefaultGlobalConfig.ScrapeTimeout,
 					ScrapeProtocols:                DefaultGlobalConfig.ScrapeProtocols,
-					MetricNameValidationScheme:     model.UTF8Validation,
+					MetricNameValidationScheme:     validation.UTF8NamingScheme,
 					MetricNameEscapingScheme:       model.AllowUTF8,
 					AlwaysScrapeClassicHistograms:  boolPtr(false),
 					ConvertClassicHistogramsToNHCB: boolPtr(false),
@@ -2818,7 +2819,7 @@ func TestScrapeConfigNameValidationSettings(t *testing.T) {
 	tests := []struct {
 		name         string
 		inputFile    string
-		expectScheme model.ValidationScheme
+		expectScheme validation.NamingScheme
 	}{
 		{
 			name:         "blank config implies default",
@@ -2862,7 +2863,7 @@ func TestScrapeConfigNameEscapingSettings(t *testing.T) {
 	tests := []struct {
 		name                   string
 		inputFile              string
-		expectValidationScheme model.ValidationScheme
+		expectValidationScheme validation.NamingScheme
 		expectEscapingScheme   string
 	}{
 		{
