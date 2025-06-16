@@ -63,12 +63,6 @@ import (
 
 var promqlEnableDelayedNameRemoval = false
 
-func init() {
-	// This can be removed when the legacy global mode is fully deprecated.
-	//nolint:staticcheck
-	model.NameValidationScheme = model.UTF8Validation
-}
-
 const (
 	successExitCode = 0
 	failureExitCode = 1
@@ -163,6 +157,7 @@ func main() {
 
 	checkMetricsCmd := checkCmd.Command("metrics", checkMetricsUsage)
 	checkMetricsExtended := checkCmd.Flag("extended", "Print extended information related to the cardinality of the metrics.").Bool()
+	checkMetricsScheme := checkCmd.Flag("validation-scheme", "Validate metric and label names").Default("utf8").Enum("legacy", "utf8")
 	agentMode := checkConfigCmd.Flag("agent", "Check config file for Prometheus in Agent mode.").Bool()
 
 	queryCmd := app.Command("query", "Run query against a Prometheus server.")
@@ -374,7 +369,17 @@ func main() {
 		os.Exit(CheckRules(newRulesLintConfig(*checkRulesLint, *checkRulesLintFatal, *checkRulesIgnoreUnknownFields), *ruleFiles...))
 
 	case checkMetricsCmd.FullCommand():
-		os.Exit(CheckMetrics(*checkMetricsExtended))
+		validationScheme := model.UnsetValidation
+		switch *checkMetricsScheme {
+		case "legacy":
+			validationScheme = model.LegacyValidation
+		case "utf8":
+			validationScheme = model.UTF8Validation
+		default:
+			fmt.Fprintln(os.Stderr, "invalid validation scheme: "+*checkMetricsScheme)
+			os.Exit(1)
+		}
+		os.Exit(CheckMetrics(*checkMetricsExtended, validationScheme))
 
 	case pushMetricsCmd.FullCommand():
 		os.Exit(PushMetrics(remoteWriteURL, httpRoundTripper, *pushMetricsHeaders, *pushMetricsTimeout, *pushMetricsLabels, *metricFiles...))
@@ -1019,11 +1024,11 @@ $ curl -s http://localhost:9090/metrics | promtool check metrics
 `)
 
 // CheckMetrics performs a linting pass on input metrics.
-func CheckMetrics(extended bool) int {
+func CheckMetrics(extended bool, validationScheme model.ValidationScheme) int {
 	var buf bytes.Buffer
 	tee := io.TeeReader(os.Stdin, &buf)
 	l := promlint.New(tee)
-	problems, err := l.Lint()
+	problems, err := l.Lint(validationScheme)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error while linting:", err)
 		return failureExitCode

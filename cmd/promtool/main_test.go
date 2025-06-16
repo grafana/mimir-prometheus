@@ -39,12 +39,6 @@ import (
 	"github.com/prometheus/prometheus/promql/promqltest"
 )
 
-func init() {
-	// This can be removed when the legacy global mode is fully deprecated.
-	//nolint:staticcheck
-	model.NameValidationScheme = model.UTF8Validation
-}
-
 var promtoolPath = os.Args[0]
 
 func TestMain(m *testing.M) {
