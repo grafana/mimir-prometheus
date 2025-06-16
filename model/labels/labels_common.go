@@ -21,6 +21,8 @@ import (
 	"unsafe"
 
 	"github.com/prometheus/common/model"
+
+	"github.com/prometheus/prometheus/model/validation"
 )
 
 const (
@@ -103,14 +105,14 @@ func (ls *Labels) UnmarshalYAML(unmarshal func(interface{}) error) error {
 // IsValid checks if the metric name or label names are valid.
 //
 //nolint:forbidigo
-func (ls Labels) IsValid(validationScheme model.ValidationScheme) bool {
+func (ls Labels) IsValid(validationScheme validation.NamingScheme) bool {
 	err := ls.Validate(func(l Label) error {
 		if l.Name == model.MetricNameLabel {
-			if !model.IsValidMetricName(model.LabelValue(l.Value), validationScheme) {
+			if !validationScheme.IsValidMetricName(l.Value) {
 				return strconv.ErrSyntax
 			}
 		}
-		if !model.LabelName(l.Name).IsValid(validationScheme) || !model.LabelValue(l.Value).IsValid() {
+		if !validationScheme.IsValidLabelName(l.Name) || !model.LabelValue(l.Value).IsValid() {
 			return strconv.ErrSyntax
 		}
 		return nil

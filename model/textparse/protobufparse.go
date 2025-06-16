@@ -30,6 +30,7 @@ import (
 	"github.com/prometheus/prometheus/model/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/validation"
 	dto "github.com/prometheus/prometheus/prompb/io/prometheus/client"
 	"github.com/prometheus/prometheus/schema"
 )
@@ -81,14 +82,14 @@ type ProtobufParser struct {
 	parseClassicHistograms  bool
 	enableTypeAndUnitLabels bool
 
-	validationScheme model.ValidationScheme
+	namingScheme validation.NamingScheme
 }
 
 type ProtobufParserOption func(p *ProtobufParser)
 
-func WithValidationScheme(scheme model.ValidationScheme) ProtobufParserOption {
+func WithNamingScheme(scheme validation.NamingScheme) ProtobufParserOption {
 	return func(p *ProtobufParser) {
-		p.validationScheme = scheme
+		p.namingScheme = scheme
 	}
 }
 
@@ -102,7 +103,7 @@ func NewProtobufParser(b []byte, parseClassicHistograms, enableTypeAndUnitLabels
 		state:                   EntryInvalid,
 		parseClassicHistograms:  parseClassicHistograms,
 		enableTypeAndUnitLabels: enableTypeAndUnitLabels,
-		validationScheme:        model.UTF8Validation,
+		namingScheme:            validation.UTF8NamingScheme,
 	}
 	for _, opt := range opts {
 		opt(pp)
@@ -443,7 +444,7 @@ func (p *ProtobufParser) Next() (Entry, error) {
 		// We are at the beginning of a metric family. Put only the name
 		// into entryBytes and validate only name, help, and type for now.
 		name := p.dec.GetName()
-		if !model.IsValidMetricName(model.LabelValue(name), p.validationScheme) {
+		if !p.namingScheme.IsValidMetricName(name) {
 			return EntryInvalid, fmt.Errorf("invalid metric name: %s", name)
 		}
 		if help := p.dec.GetHelp(); !utf8.ValidString(help) {
