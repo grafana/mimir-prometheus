@@ -173,24 +173,21 @@ func ToQueryResult(ss storage.SeriesSet, sampleLimit int) (*prompb.QueryResult, 
 	return resp, ss.Warnings(), ss.Err()
 }
 
-type fromQueryResultArgs struct {
+type FromQueryResultArgs struct {
 	nameValidation model.ValidationScheme
 }
 
-// FromQueryResultOption is an option for creating QueryResults.
-type FromQueryResultOption func(*fromQueryResultArgs)
+type FromQueryResultOption func(*FromQueryResultArgs)
 
-// WithNameValidation sets the label/metric name validation scheme.
-// Defaults to UTF8Validation.
 func WithNameValidation(nameValidation model.ValidationScheme) FromQueryResultOption {
-	return func(args *fromQueryResultArgs) {
+	return func(args *FromQueryResultArgs) {
 		args.nameValidation = nameValidation
 	}
 }
 
 // FromQueryResult unpacks and sorts a QueryResult proto.
 func FromQueryResult(sortSeries bool, res *prompb.QueryResult, opts ...FromQueryResultOption) storage.SeriesSet {
-	args := &fromQueryResultArgs{
+	args := &FromQueryResultArgs{
 		nameValidation: model.UTF8Validation,
 	}
 	for _, opt := range opts {
