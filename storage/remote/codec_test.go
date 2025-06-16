@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/metadata"
+	"github.com/prometheus/prometheus/model/validation"
 	"github.com/prometheus/prometheus/prompb"
 	writev2 "github.com/prometheus/prometheus/prompb/io/prometheus/write/v2"
 	"github.com/prometheus/prometheus/storage"
@@ -219,14 +220,14 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 		input        []prompb.Label
 		expectedErr  string
 		description  string
-		namingScheme model.ValidationScheme
+		namingScheme validation.NamingScheme
 	}{
 		{
 			input: []prompb.Label{
 				{Name: "__name__", Value: "name"},
 				{Name: "labelName", Value: "labelValue"},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "",
 			description:  "regular labels",
 		},
@@ -235,7 +236,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 				{Name: "__name__", Value: "name"},
 				{Name: "_labelName", Value: "labelValue"},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "",
 			description:  "label name with _",
 		},
@@ -244,7 +245,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 				{Name: "__name__", Value: "name"},
 				{Name: "@labelName\xff", Value: "labelValue"},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "invalid label name: @labelName\xff",
 			description:  "label name with \xff",
 		},
@@ -253,7 +254,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 				{Name: "__name__", Value: "name"},
 				{Name: "", Value: "labelValue"},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "invalid label name: ",
 			description:  "label name is empty string",
 		},
@@ -262,7 +263,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 				{Name: "__name__", Value: "name"},
 				{Name: "labelName", Value: string([]byte{0xff})},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "invalid label value: " + string([]byte{0xff}),
 			description:  "label value is an invalid UTF-8 value",
 		},
@@ -270,7 +271,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 			input: []prompb.Label{
 				{Name: "__name__", Value: "invalid_name\xff"},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "invalid metric name: invalid_name\xff",
 			description:  "metric name has invalid utf8",
 		},
@@ -279,7 +280,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 				{Name: "__name__", Value: "name1"},
 				{Name: "__name__", Value: "name2"},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "duplicate label with name: __name__",
 			description:  "duplicate label names",
 		},
@@ -288,7 +289,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 				{Name: "label1", Value: "name"},
 				{Name: "label2", Value: "name"},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "",
 			description:  "duplicate label values",
 		},
@@ -297,7 +298,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 				{Name: "", Value: "name"},
 				{Name: "label2", Value: "name"},
 			},
-			namingScheme: model.UTF8Validation,
+			namingScheme: validation.UTF8NamingScheme,
 			expectedErr:  "invalid label name: ",
 			description:  "don't report as duplicate label name",
 		},
@@ -305,7 +306,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 			input: []prompb.Label{
 				{Name: "__name__", Value: "name1*"},
 			},
-			namingScheme: model.LegacyValidation,
+			namingScheme: validation.LegacyNamingScheme,
 			expectedErr:  "invalid metric name: name1*",
 			description:  "invalid legacy metric name",
 		},
@@ -313,7 +314,7 @@ func TestValidateLabelsAndMetricName(t *testing.T) {
 			input: []prompb.Label{
 				{Name: "label1*", Value: "name"},
 			},
-			namingScheme: model.LegacyValidation,
+			namingScheme: validation.LegacyNamingScheme,
 			expectedErr:  "invalid label name: label1*",
 			description:  "invalid legacy label name",
 		},
