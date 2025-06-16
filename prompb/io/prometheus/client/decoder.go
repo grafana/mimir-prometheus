@@ -44,12 +44,9 @@ type MetricStreamingDecoder struct {
 	validationScheme model.ValidationScheme
 }
 
-// Option for the MetricStreamingDecoder.
 type Option func(*MetricStreamingDecoder)
 
-// WithValidationScheme sets the label/metric name validation scheme. Defaults to
-// UTF8Validation.
-func WithValidationScheme(scheme model.ValidationScheme) Option {
+func WithNamingScheme(scheme model.ValidationScheme) Option {
 	return func(m *MetricStreamingDecoder) {
 		m.validationScheme = scheme
 	}
