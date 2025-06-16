@@ -60,6 +60,7 @@ Check the resources for validity.
 | --- | --- | --- |
 | <code class="text-nowrap">--query.lookback-delta</code> | The server's maximum query lookback duration. | `5m` |
 | <code class="text-nowrap">--extended</code> | Print extended information related to the cardinality of the metrics. |  |
+| <code class="text-nowrap">--validation-scheme</code> | Validate metric and label names | `utf8` |
 
 
 
