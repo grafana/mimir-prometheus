@@ -183,7 +183,6 @@ linters:
           pkg: ^github.com/prometheus/common/model$
           msg: it depends on model.NameValidationScheme. Use model/validation.NamingScheme instead.
 
-
 output:
   show-stats: false
 
