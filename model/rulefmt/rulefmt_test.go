@@ -66,6 +66,7 @@ func TestParseFileFailure(t *testing.T) {
 	for _, c := range []struct {
 		filename string
 		errMsg   string
+		opts     []ParseOption
 	}{
 		{
 			filename: "duplicate_grp.bad.yaml",
@@ -107,9 +108,14 @@ func TestParseFileFailure(t *testing.T) {
 			filename: "record_and_keep_firing_for.bad.yaml",
 			errMsg:   "invalid field 'keep_firing_for' in recording rule",
 		},
+		{
+			filename: "utf-8_annotation.bad.yaml",
+			opts:     []ParseOption{WithNamingScheme(model.LegacyValidation)},
+			errMsg:   "invalid annotation name: ins-tance",
+		},
 	} {
 		t.Run(c.filename, func(t *testing.T) {
-			_, errs := ParseFile(filepath.Join("testdata", c.filename), false)
+			_, errs := ParseFile(filepath.Join("testdata", c.filename), false, c.opts...)
 			require.NotEmpty(t, errs, "Expected error parsing %s but got none", c.filename)
 			require.ErrorContainsf(t, errs[0], c.errMsg, "Expected error for %s.", c.filename)
 		})

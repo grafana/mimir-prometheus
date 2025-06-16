@@ -240,7 +240,7 @@ func benchExpFmt(b *testing.B, data []byte, expFormatTypeStr string) {
 		}
 
 		for {
-			if err := sdec.Decode(&decSamples); err != nil {
+			if err := sdec.Decode(&decSamples, model.UTF8Validation); err != nil {
 				if errors.Is(err, io.EOF) {
 					break
 				}
