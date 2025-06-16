@@ -84,10 +84,8 @@ type ProtobufParser struct {
 	validationScheme model.ValidationScheme
 }
 
-// ProtobufParserOption is an option that can be applied to ProtobufParser.
 type ProtobufParserOption func(p *ProtobufParser)
 
-// WithValidationScheme sets the label/metric name validation. Default is UTF8Validation.
 func WithValidationScheme(scheme model.ValidationScheme) ProtobufParserOption {
 	return func(p *ProtobufParser) {
 		p.validationScheme = scheme

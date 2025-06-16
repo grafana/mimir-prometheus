@@ -324,16 +324,16 @@ func relabel(cfg *Config, lb *labels.Builder) (keep bool) {
 		if indexes == nil {
 			break
 		}
-		target := model.LabelName(cfg.Regex.ExpandString([]byte{}, cfg.TargetLabel, val, indexes))
-		if !target.IsValid(cfg.validationScheme()) {
+		target := string(cfg.Regex.ExpandString([]byte{}, cfg.TargetLabel, val, indexes))
+		if !model.LabelName(target).IsValid(cfg.validationScheme()) {
 			break
 		}
 		res := cfg.Regex.ExpandString([]byte{}, cfg.Replacement, val, indexes)
 		if len(res) == 0 {
-			lb.Del(string(target))
+			lb.Del(target)
 			break
 		}
-		lb.Set(string(target), string(res))
+		lb.Set(target, string(res))
 	case Lowercase:
 		lb.Set(cfg.TargetLabel, strings.ToLower(val))
 	case Uppercase:
