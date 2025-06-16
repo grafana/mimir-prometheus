@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/common/model"
 
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/validation"
 )
 
 var (
@@ -102,11 +103,7 @@ type Config struct {
 	// Action is the action to be performed for the relabeling.
 	Action Action `yaml:"action,omitempty" json:"action,omitempty"`
 	// MetricNameValidationScheme to use when validating labels.
-	MetricNameValidationScheme model.ValidationScheme `yaml:"metric_name_validation_scheme,omitempty" json:"metricNameValidationScheme,omitempty"`
-}
-
-func (c Config) validationScheme() model.ValidationScheme {
-	return cmp.Or(c.MetricNameValidationScheme, model.UTF8Validation)
+	MetricNameValidationScheme validation.NamingScheme `yaml:"metric_name_validation_scheme,omitempty" json:"metricNameValidationScheme,omitempty"`
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.
@@ -122,7 +119,7 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	return nil
 }
 
-func (c *Config) Validate(defaultValidationScheme model.ValidationScheme) error {
+func (c *Config) Validate(defaultNamingScheme validation.NamingScheme) error {
 	if c.Action == "" {
 		return errors.New("relabel action cannot be empty")
 	}
@@ -133,27 +130,29 @@ func (c *Config) Validate(defaultValidationScheme model.ValidationScheme) error 
 		return fmt.Errorf("relabel configuration for %s action requires 'target_label' value", c.Action)
 	}
 
-	if defaultValidationScheme != model.UnsetValidation && c.MetricNameValidationScheme == model.UnsetValidation {
-		c.MetricNameValidationScheme = defaultValidationScheme
+	c.MetricNameValidationScheme = c.MetricNameValidationScheme.WithDefault(defaultNamingScheme)
+	if err := c.MetricNameValidationScheme.Validate(); err != nil {
+		return err
 	}
 
-	if c.Action == Replace && !varInRegexTemplate(c.TargetLabel) && !model.LabelName(c.TargetLabel).IsValid(c.validationScheme()) {
+	namingScheme := c.MetricNameValidationScheme
+	if c.Action == Replace && !varInRegexTemplate(c.TargetLabel) && !namingScheme.IsValidLabelName(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 
-	if c.Action == Replace && varInRegexTemplate(c.TargetLabel) && !model.LabelName(c.TargetLabel).IsValid(c.validationScheme()) {
+	if c.Action == Replace && varInRegexTemplate(c.TargetLabel) && !namingScheme.IsValidLabelName(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
-	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && !model.LabelName(c.TargetLabel).IsValid(c.validationScheme()) {
+	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && !namingScheme.IsValidLabelName(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && c.Replacement != DefaultRelabelConfig.Replacement {
 		return fmt.Errorf("'replacement' can not be set for %s action", c.Action)
 	}
-	if c.Action == LabelMap && !model.LabelName(c.Replacement).IsValid(c.validationScheme()) {
+	if c.Action == LabelMap && !namingScheme.IsValidLabelName(c.Replacement) {
 		return fmt.Errorf("%q is invalid 'replacement' for %s action", c.Replacement, c.Action)
 	}
-	if c.Action == HashMod && !model.LabelName(c.TargetLabel).IsValid(c.validationScheme()) {
+	if c.Action == HashMod && !namingScheme.IsValidLabelName(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 
@@ -325,7 +324,8 @@ func relabel(cfg *Config, lb *labels.Builder) (keep bool) {
 			break
 		}
 		target := string(cfg.Regex.ExpandString([]byte{}, cfg.TargetLabel, val, indexes))
-		if !model.LabelName(target).IsValid(cfg.validationScheme()) {
+		namingScheme := cfg.MetricNameValidationScheme
+		if !namingScheme.IsValidLabelName(target) {
 			break
 		}
 		res := cfg.Regex.ExpandString([]byte{}, cfg.Replacement, val, indexes)
