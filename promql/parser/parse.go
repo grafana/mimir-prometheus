@@ -83,8 +83,7 @@ func WithFunctions(functions map[string]*Function) Opt {
 	}
 }
 
-// WithValidationScheme controls how label/metric names are validated.
-// Defaults to UTF8Validation.
+// WithValidationScheme controls how labels are validated at parse time.
 func WithValidationScheme(scheme model.ValidationScheme) Opt {
 	return func(p *parser) {
 		p.validationScheme = scheme
