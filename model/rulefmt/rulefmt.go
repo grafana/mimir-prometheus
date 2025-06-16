@@ -27,6 +27,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/prometheus/prometheus/model/timestamp"
+	"github.com/prometheus/prometheus/model/validation"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/template"
@@ -96,7 +97,7 @@ type ruleGroups struct {
 }
 
 // Validate validates all rules in the rule groups.
-func (g *RuleGroups) Validate(node ruleGroups, validationScheme model.ValidationScheme) (errs []error) {
+func (g *RuleGroups) Validate(node ruleGroups, namingScheme validation.NamingScheme) (errs []error) {
 	set := map[string]struct{}{}
 
 	for j, g := range g.Groups {
@@ -112,7 +113,7 @@ func (g *RuleGroups) Validate(node ruleGroups, validationScheme model.Validation
 		}
 
 		for k, v := range g.Labels {
-			if !model.LabelName(k).IsValid(validationScheme) || k == model.MetricNameLabel {
+			if !namingScheme.IsValidLabelName(k) || k == model.MetricNameLabel {
 				errs = append(
 					errs, fmt.Errorf("invalid label name: %s", k),
 				)
@@ -128,7 +129,7 @@ func (g *RuleGroups) Validate(node ruleGroups, validationScheme model.Validation
 		set[g.Name] = struct{}{}
 
 		for i, r := range g.Rules {
-			for _, node := range r.Validate(node.Groups[j].Rules[i], validationScheme) {
+			for _, node := range r.Validate(node.Groups[j].Rules[i], namingScheme) {
 				var ruleName string
 				if r.Alert != "" {
 					ruleName = r.Alert
@@ -198,7 +199,7 @@ type RuleNode struct {
 }
 
 // Validate the rule and return a list of encountered errors.
-func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) (nodes []WrappedError) {
+func (r *Rule) Validate(node RuleNode, namingScheme validation.NamingScheme) (nodes []WrappedError) {
 	if r.Record != "" && r.Alert != "" {
 		nodes = append(nodes, WrappedError{
 			err:     errors.New("only one of 'record' and 'alert' must be set"),
@@ -244,7 +245,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 				node: &node.Record,
 			})
 		}
-		if !model.IsValidMetricName(model.LabelValue(r.Record), validationScheme) {
+		if !namingScheme.IsValidMetricName(r.Record) {
 			nodes = append(nodes, WrappedError{
 				err:  fmt.Errorf("invalid recording rule name: %s", r.Record),
 				node: &node.Record,
@@ -261,7 +262,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 	}
 
 	for k, v := range r.Labels {
-		if !model.LabelName(k).IsValid(validationScheme) || k == model.MetricNameLabel {
+		if !namingScheme.IsValidLabelName(k) || k == model.MetricNameLabel {
 			nodes = append(nodes, WrappedError{
 				err: fmt.Errorf("invalid label name: %s", k),
 			})
@@ -275,7 +276,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 	}
 
 	for k := range r.Annotations {
-		if !model.LabelName(k).IsValid(validationScheme) {
+		if !namingScheme.IsValidLabelName(k) {
 			nodes = append(nodes, WrappedError{
 				err: fmt.Errorf("invalid annotation name: %s", k),
 			})
@@ -339,12 +340,12 @@ func testTemplateParsing(rl *Rule) (errs []error) {
 }
 
 type parseArgs struct {
-	namingScheme model.ValidationScheme
+	namingScheme validation.NamingScheme
 }
 
 type ParseOption func(*parseArgs)
 
-func WithNamingScheme(scheme model.ValidationScheme) ParseOption {
+func WithNamingScheme(scheme validation.NamingScheme) ParseOption {
 	return func(args *parseArgs) {
 		args.namingScheme = scheme
 	}
@@ -353,7 +354,7 @@ func WithNamingScheme(scheme model.ValidationScheme) ParseOption {
 // Parse parses and validates a set of rules.
 func Parse(content []byte, ignoreUnknownFields bool, opts ...ParseOption) (*RuleGroups, []error) {
 	args := &parseArgs{
-		namingScheme: model.UTF8Validation,
+		namingScheme: validation.UTF8NamingScheme,
 	}
 	for _, opt := range opts {
 		opt(args)
