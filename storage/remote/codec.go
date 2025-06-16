@@ -31,6 +31,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/validation"
 	"github.com/prometheus/prometheus/prompb"
 	writev2 "github.com/prometheus/prometheus/prompb/io/prometheus/write/v2"
 	"github.com/prometheus/prometheus/storage"
@@ -174,12 +175,12 @@ func ToQueryResult(ss storage.SeriesSet, sampleLimit int) (*prompb.QueryResult, 
 }
 
 type FromQueryResultArgs struct {
-	nameValidation model.ValidationScheme
+	nameValidation validation.NamingScheme
 }
 
 type FromQueryResultOption func(*FromQueryResultArgs)
 
-func WithNameValidation(nameValidation model.ValidationScheme) FromQueryResultOption {
+func WithNameValidation(nameValidation validation.NamingScheme) FromQueryResultOption {
 	return func(args *FromQueryResultArgs) {
 		args.nameValidation = nameValidation
 	}
@@ -188,7 +189,7 @@ func WithNameValidation(nameValidation model.ValidationScheme) FromQueryResultOp
 // FromQueryResult unpacks and sorts a QueryResult proto.
 func FromQueryResult(sortSeries bool, res *prompb.QueryResult, opts ...FromQueryResultOption) storage.SeriesSet {
 	args := &FromQueryResultArgs{
-		nameValidation: model.UTF8Validation,
+		nameValidation: validation.UTF8NamingScheme,
 	}
 	for _, opt := range opts {
 		opt(args)
@@ -783,12 +784,12 @@ func (it *chunkedSeriesIterator) Err() error {
 
 // validateLabelsAndMetricName validates the label names/values and metric names returned from remote read,
 // also making sure that there are no labels with duplicate names.
-func validateLabelsAndMetricName(ls []prompb.Label, validationScheme model.ValidationScheme) error {
+func validateLabelsAndMetricName(ls []prompb.Label, namingScheme validation.NamingScheme) error {
 	for i, l := range ls {
-		if l.Name == labels.MetricName && !model.IsValidMetricName(model.LabelValue(l.Value), validationScheme) {
+		if l.Name == labels.MetricName && !namingScheme.IsValidMetricName(l.Value) {
 			return fmt.Errorf("invalid metric name: %v", l.Value)
 		}
-		if !model.LabelName(l.Name).IsValid(validationScheme) {
+		if !namingScheme.IsValidLabelName(l.Name) {
 			return fmt.Errorf("invalid label name: %v", l.Name)
 		}
 		if !model.LabelValue(l.Value).IsValid() {
