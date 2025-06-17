@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - 'r[0-9]*'
-      - dimitar/build/trigger-mimir-workflow
       - main
 
 permissions:
