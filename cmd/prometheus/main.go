@@ -1010,8 +1010,7 @@ func main() {
 				}
 				return discoveryManagerNotify.ApplyConfig(c)
 			},
-		},
-		{
+		}, {
 			name: "semconv",
 			reloader: func(c *config.Config) error {
 				if !cfg.enableSemconvVersionedRead {
