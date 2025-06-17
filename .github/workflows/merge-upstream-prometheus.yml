@@ -31,8 +31,6 @@ jobs:
       timestamp: ${{ steps.set-branches.outputs.timestamp }}
       upstream_commit: ${{ steps.get-upstream-info.outputs.upstream_commit }}
       upstream_short: ${{ steps.get-upstream-info.outputs.upstream_short }}
-      commit_subject: ${{ steps.get-upstream-info.outputs.commit_subject }}
-      commit_author: ${{ steps.get-upstream-info.outputs.commit_author }}
       commit_date: ${{ steps.get-upstream-info.outputs.commit_date }}
     steps:
       - name: Set default branches for scheduled runs
@@ -86,21 +84,13 @@ jobs:
           # Get latest commit info from upstream branch
           UPSTREAM_COMMIT=$(git rev-parse prometheus/$UPSTREAM_BRANCH)
           UPSTREAM_SHORT=$(echo "$UPSTREAM_COMMIT" | cut -c1-12)
-          COMMIT_SUBJECT=$(git log --format="%s" -n 1 prometheus/$UPSTREAM_BRANCH)
-          COMMIT_AUTHOR=$(git log --format="%an" -n 1 prometheus/$UPSTREAM_BRANCH)
           COMMIT_DATE=$(git log --format="%ad" --date=short -n 1 prometheus/$UPSTREAM_BRANCH)
-          
-          # Escape for GitHub Actions
-          COMMIT_SUBJECT_ESCAPED=$(echo "$COMMIT_SUBJECT" | sed 's/"/\\"/g')
           
           echo "upstream_commit=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
           echo "upstream_short=$UPSTREAM_SHORT" >> $GITHUB_OUTPUT
-          echo "commit_subject=$COMMIT_SUBJECT_ESCAPED" >> $GITHUB_OUTPUT
-          echo "commit_author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
           echo "commit_date=$COMMIT_DATE" >> $GITHUB_OUTPUT
           
           echo "Upstream commit: $UPSTREAM_COMMIT"
-          echo "Commit subject: $COMMIT_SUBJECT"
 
       - name: Check if merge is needed
         id: check-merge
@@ -279,9 +269,7 @@ jobs:
             - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
             - **Local branch**: `${{ needs.check-merge.outputs.local_branch }}`
             - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', needs.check-merge.outputs.upstream_commit) }}
-            - **Commit subject**: ${{ needs.check-merge.outputs.commit_subject }}
-            - **Original author**: ${{ needs.check-merge.outputs.commit_author }}
-            - **Original date**: ${{ needs.check-merge.outputs.commit_date }}
+            - **Latest upstream commit date**: ${{ needs.check-merge.outputs.commit_date }}
             
             ### Changes:
             This PR merges the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch.
