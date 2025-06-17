@@ -17,14 +17,13 @@ on:
     # Run daily at 02:00 UTC
     - cron: '0 2 * * *'
 
-permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+# Permissions are defined at job level for least privilege
 
 jobs:
   check-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       merge_needed: ${{ steps.check-merge.outputs.merge_needed }}
       upstream_branch: ${{ steps.set-branches.outputs.upstream_branch }}
@@ -129,6 +128,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: check-merge
     if: needs.check-merge.outputs.merge_needed == 'true'
+    permissions:
+      contents: read
     outputs:
       merge_result: ${{ steps.merge-attempt.outputs.merge_result }}
     steps:
@@ -220,6 +221,10 @@ jobs:
     runs-on: ubuntu-latest
     needs: [check-merge, attempt-merge]
     if: needs.attempt-merge.outputs.merge_result == 'success'
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -289,6 +294,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: check-merge
     if: needs.check-merge.outputs.merge_needed == 'false'
+    permissions:
+      contents: read
     steps:
       - name: No merge needed
         run: |
