@@ -1,0 +1,235 @@
+name: Merge upstream prometheus/prometheus branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      upstream_branch:
+        description: "Upstream branch to merge from prometheus/prometheus"
+        required: true
+        default: "main"
+        type: string
+      local_branch:
+        description: "Local branch to merge into"
+        required: true
+        default: "main"
+        type: string
+  schedule:
+    # Run daily at 02:00 UTC
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+jobs:
+  merge-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set default branches for scheduled runs
+        id: set-branches
+        env:
+          UPSTREAM_BRANCH: ${{ inputs.upstream_branch || 'main' }}
+          LOCAL_BRANCH: ${{ inputs.local_branch || 'main' }}
+        run: |
+          # Create timestamp for branch naming
+          TIMESTAMP=$(date +%Y%m%d%H%M)
+          
+          echo "upstream_branch=$UPSTREAM_BRANCH" >> $GITHUB_OUTPUT
+          echo "local_branch=$LOCAL_BRANCH" >> $GITHUB_OUTPUT
+          echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          
+          echo "Upstream branch: $UPSTREAM_BRANCH"
+          echo "Local branch: $LOCAL_BRANCH"
+
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.set-branches.outputs.local_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          set-safe-directory: "*"
+
+      - name: Add prometheus/prometheus remote and fetch
+        env:
+          UPSTREAM_BRANCH: ${{ steps.set-branches.outputs.upstream_branch }}
+        run: |
+          echo "Adding prometheus/prometheus as remote..."
+          git remote add prometheus https://github.com/prometheus/prometheus.git
+          
+          # Fetch the upstream branch
+          echo "Fetching branch $UPSTREAM_BRANCH from prometheus/prometheus..."
+          git fetch prometheus $UPSTREAM_BRANCH
+          
+          # Verify the branch exists
+          if ! git show-ref --verify --quiet refs/remotes/prometheus/$UPSTREAM_BRANCH; then
+            echo "Error: Branch $UPSTREAM_BRANCH not found in prometheus/prometheus"
+            exit 1
+          fi
+          
+          echo "Successfully fetched upstream branch $UPSTREAM_BRANCH"
+
+      - name: Get upstream commit info
+        id: get-upstream-info
+        env:
+          UPSTREAM_BRANCH: ${{ steps.set-branches.outputs.upstream_branch }}
+        run: |
+          # Get latest commit info from upstream branch
+          UPSTREAM_COMMIT=$(git rev-parse prometheus/$UPSTREAM_BRANCH)
+          UPSTREAM_SHORT=$(echo "$UPSTREAM_COMMIT" | cut -c1-12)
+          COMMIT_SUBJECT=$(git log --format="%s" -n 1 prometheus/$UPSTREAM_BRANCH)
+          COMMIT_AUTHOR=$(git log --format="%an" -n 1 prometheus/$UPSTREAM_BRANCH)
+          COMMIT_DATE=$(git log --format="%ad" --date=short -n 1 prometheus/$UPSTREAM_BRANCH)
+          
+          # Escape for GitHub Actions
+          COMMIT_SUBJECT_ESCAPED=$(echo "$COMMIT_SUBJECT" | sed 's/"/\\"/g')
+          
+          echo "upstream_commit=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
+          echo "upstream_short=$UPSTREAM_SHORT" >> $GITHUB_OUTPUT
+          echo "commit_subject=$COMMIT_SUBJECT_ESCAPED" >> $GITHUB_OUTPUT
+          echo "commit_author=$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+          echo "commit_date=$COMMIT_DATE" >> $GITHUB_OUTPUT
+          
+          echo "Upstream commit: $UPSTREAM_COMMIT"
+          echo "Commit subject: $COMMIT_SUBJECT"
+
+      - name: Check if merge is needed
+        id: check-merge
+        env:
+          UPSTREAM_BRANCH: ${{ steps.set-branches.outputs.upstream_branch }}
+          LOCAL_BRANCH: ${{ steps.set-branches.outputs.local_branch }}
+        run: |
+          # Check if upstream has new commits
+          UPSTREAM_COMMIT=$(git rev-parse prometheus/$UPSTREAM_BRANCH)
+          
+          # Check if we already have this commit
+          if git merge-base --is-ancestor $UPSTREAM_COMMIT HEAD; then
+            echo "merge_needed=false" >> $GITHUB_OUTPUT
+            echo "No new commits to merge from upstream $UPSTREAM_BRANCH"
+          else
+            echo "merge_needed=true" >> $GITHUB_OUTPUT
+            echo "New commits found in upstream $UPSTREAM_BRANCH"
+            
+            # Show what would be merged
+            echo "Commits to be merged:"
+            git log --oneline HEAD..prometheus/$UPSTREAM_BRANCH | head -10
+          fi
+
+      # This job uses "mimir-github-bot" instead of "github-actions bot" (secrets.GITHUB_TOKEN)
+      # because any events triggered by the later don't spawn GitHub actions.
+      # Refer to https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
+      - name: Retrieve GitHub App Credentials from Vault
+        if: steps.check-merge.outputs.merge_needed == 'true'
+        id: get-secrets
+        uses: grafana/shared-workflows/actions/get-vault-secrets@28361cdb22223e5f1e34358c86c20908e7248760 # v1.1.0
+        with:
+          repo_secrets: |
+            APP_ID=mimir-github-bot:app_id
+            PRIVATE_KEY=mimir-github-bot:private_key
+
+      - name: Generate GitHub App Token
+        if: steps.check-merge.outputs.merge_needed == 'true'
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          # Variables generated by the previous step get-secrets
+          app-id: ${{ env.APP_ID }}
+          private-key: ${{ env.PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Attempt merge
+        if: steps.check-merge.outputs.merge_needed == 'true'
+        id: merge-attempt
+        env:
+          UPSTREAM_BRANCH: ${{ steps.set-branches.outputs.upstream_branch }}
+          LOCAL_BRANCH: ${{ steps.set-branches.outputs.local_branch }}
+        run: |
+          # Configure git for the merge
+          git config user.name "mimir-github-bot[bot]"
+          git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
+          
+          echo "Attempting to merge prometheus/$UPSTREAM_BRANCH into $LOCAL_BRANCH..."
+          
+          # Attempt the merge
+          if git merge prometheus/$UPSTREAM_BRANCH --no-edit; then
+            echo "merge_successful=true" >> $GITHUB_OUTPUT
+            echo "Merge successful!"
+            
+            # Show merge commit
+            git log --oneline -1
+          else
+            echo "merge_successful=false" >> $GITHUB_OUTPUT
+            echo "Merge failed with conflicts. Checking status..."
+            git status
+            
+            # Reset to clean state
+            git merge --abort
+            
+            # Check if there are conflicts by attempting merge again
+            git merge prometheus/$UPSTREAM_BRANCH --no-commit --no-ff || true
+            
+            if git diff --name-only --diff-filter=U | grep -q .; then
+              echo "conflicts_found=true" >> $GITHUB_OUTPUT
+              echo "Merge conflicts detected in the following files:"
+              git diff --name-only --diff-filter=U
+              
+              # Reset again
+              git reset --hard HEAD
+            else
+              echo "conflicts_found=false" >> $GITHUB_OUTPUT
+              echo "Merge failed for unknown reasons (not conflicts)"
+            fi
+          fi
+
+      - name: Handle merge conflicts
+        if: steps.check-merge.outputs.merge_needed == 'true' && steps.merge-attempt.outputs.merge_successful == 'false' && steps.merge-attempt.outputs.conflicts_found == 'true'
+        run: |
+          echo "Merge conflicts detected. This requires manual intervention."
+          echo "TODO: Send Slack notification about merge conflicts"
+          echo "Conflicted files would be:"
+          
+          # Attempt merge again to show conflicts (for logging purposes)
+          git merge prometheus/${{ steps.set-branches.outputs.upstream_branch }} --no-commit --no-ff || true
+          git diff --name-only --diff-filter=U || echo "No conflicted files found in this attempt"
+          git reset --hard HEAD
+          
+          # Exit with error to mark the workflow as failed
+          exit 1
+
+      - name: Handle merge failure (non-conflict)
+        if: steps.check-merge.outputs.merge_needed == 'true' && steps.merge-attempt.outputs.merge_successful == 'false' && steps.merge-attempt.outputs.conflicts_found == 'false'
+        run: |
+          echo "Merge failed for non-conflict reasons. This requires investigation."
+          echo "TODO: Send Slack notification about merge failure"
+          exit 1
+
+      - name: Create Pull Request
+        if: steps.check-merge.outputs.merge_needed == 'true' && steps.merge-attempt.outputs.merge_successful == 'true'
+        uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          title: "Merge upstream prometheus/${{ steps.set-branches.outputs.upstream_branch }} into ${{ steps.set-branches.outputs.local_branch }}"
+          body: |
+            ## Merge from prometheus/prometheus
+            
+            *This PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml)*
+            
+            ### Details:
+            - **Upstream branch**: `${{ steps.set-branches.outputs.upstream_branch }}`
+            - **Local branch**: `${{ steps.set-branches.outputs.local_branch }}`
+            - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', steps.get-upstream-info.outputs.upstream_commit) }}
+            - **Commit subject**: ${{ steps.get-upstream-info.outputs.commit_subject }}
+            - **Original author**: ${{ steps.get-upstream-info.outputs.commit_author }}
+            - **Original date**: ${{ steps.get-upstream-info.outputs.commit_date }}
+            
+            ### Changes:
+            This PR merges the latest changes from the upstream prometheus/prometheus `${{ steps.set-branches.outputs.upstream_branch }}` branch.
+          commit-message: "Merge upstream prometheus/${{ steps.set-branches.outputs.upstream_branch }} (${{ steps.get-upstream-info.outputs.upstream_short }})"
+          branch: bot/${{ steps.set-branches.outputs.local_branch }}/merge-upstream-${{ steps.set-branches.outputs.upstream_branch }}-${{ steps.set-branches.outputs.timestamp }}
+          base: ${{ steps.set-branches.outputs.local_branch }}
+          delete-branch: true
+
+      - name: No merge needed
+        if: steps.check-merge.outputs.merge_needed == 'false'
+        run: |
+          echo "Repository is already up to date with upstream prometheus/${{ steps.set-branches.outputs.upstream_branch }}"
