@@ -233,7 +233,7 @@ jobs:
           body: |
             ## Merge Conflicts Detected
             
-            *This DRAFT PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
+            *This PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
             
             ### Details
             - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
