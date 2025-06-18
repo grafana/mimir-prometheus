@@ -249,13 +249,13 @@ jobs:
         uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
         with:
           token: ${{ steps.app-token.outputs.token }}
-          title: "🚧 DRAFT: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} into ${{ needs.check-merge.outputs.local_branch }} (CONFLICTS)"
+          title: "DRAFT: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} into ${{ needs.check-merge.outputs.local_branch }} (CONFLICTS)"
           body: |
-            ## ⚠️ Merge Conflicts Detected
+            ## Merge Conflicts Detected
             
             *This DRAFT PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
             
-            ### 🔧 Action Required
+            ### Action Required
             This PR contains **unresolved merge conflicts** with conflict markers preserved in the files. To complete this merge:
             
             1. **Find conflicts**: Search for conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
@@ -264,13 +264,13 @@ jobs:
             4. **Test changes**: Ensure the merge works correctly
             5. **Mark ready**: Convert from draft when resolved
             
-            ### 📋 Details
+            ### Details
             - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
             - **Local branch**: `${{ needs.check-merge.outputs.local_branch }}`
             - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', needs.check-merge.outputs.upstream_commit) }}
             - **Latest upstream commit date**: ${{ needs.check-merge.outputs.commit_date }}
             
-            ### 🔍 Conflict Resolution Guide
+            ### Conflict Resolution Guide
             ```bash
             # Fetch and check out this branch locally
             git fetch origin ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
@@ -290,7 +290,7 @@ jobs:
             git push
             ```
             
-            ### 📊 Changes
+            ### Changes
             This PR merges the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch.
           commit-message: "WIP: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} (${{ needs.check-merge.outputs.upstream_short }}) - CONFLICTS NEED RESOLUTION"
           branch: ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
