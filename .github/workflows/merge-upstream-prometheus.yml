@@ -297,7 +297,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":warning: *Merge conflicts detected in upstream prometheus merge*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\n:point_right: *Draft PR created*: <${{ steps.create-conflict-pr.outputs.pull-request-url }}|Click here to resolve conflicts>\n\n<!subteam^S03C2P8659U> the PR contains conflict markers and needs manual resolution. Check the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> for details."
+              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }})\n\nDraft PR created*: <${{ steps.create-conflict-pr.outputs.pull-request-url }}|Click here to resolve conflicts>\n\nTODO the PR contains conflict markers and needs manual resolution."
             }
 
   handle-error:
@@ -313,7 +313,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":rotating_light: *Upstream prometheus merge failed unexpectedly*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\n<!subteam^S03C2P8659U> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
+              "text": ":sadcomputer: *Upstream prometheus merge failed*\(prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }})\n\n<!subteam^S03C2P8659U> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
             }
       
       - name: Mark workflow as failed
