@@ -194,16 +194,14 @@ jobs:
           fetch-depth: 0
           set-safe-directory: "*"
 
-      - name: Create a placeholder commit
+      - name: Create empty commit for PR
         run: |
           # Configure git
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
           
-          # Create an empty file to establish the branch
-          touch .merge-conflicts-placeholder
-          git add .merge-conflicts-placeholder
-          git commit -m "Add placeholder file for conflict resolution"
+          # Create an empty commit to establish the branch
+          git commit --allow-empty -m "Empty commit to create branch for conflict resolution"
 
       # This job uses "mimir-github-bot" instead of "github-actions bot" (secrets.GITHUB_TOKEN)
       # because any events triggered by the later don't spawn GitHub actions.
@@ -261,7 +259,7 @@ jobs:
             # 4. Push your resolved merge (no force-push needed)
             git push
             ```
-          commit-message: "Add placeholder file for conflict resolution"
+          commit-message: "Empty commit to create branch for conflict resolution"
           branch: ${{ needs.check-merge.outputs.bot_branch }}
           base: ${{ needs.check-merge.outputs.local_branch }}
           delete-branch: false
@@ -269,7 +267,7 @@ jobs:
 
       - name: Close PR by force-pushing to HEAD~1
         run: |
-          # Force-push to HEAD~1 to close the existing PR (removes the placeholder commit, leaving no commits)
+          # Force-push to HEAD~1 to close the existing PR (removes the empty commit, leaving no commits)
           # This closes the PR while keeping the branch and instructions as a placeholder
           git push --force origin HEAD~1:${{ needs.check-merge.outputs.bot_branch }}
 
