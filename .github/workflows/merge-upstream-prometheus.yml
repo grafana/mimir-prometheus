@@ -197,8 +197,10 @@ jobs:
           # Create a new empty branch
           git checkout -b ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
           
-          # Create an empty commit to establish the branch
-          git commit --allow-empty -m "Empty commit to create branch for conflict resolution"
+          # Create an empty file to establish the branch
+          touch .merge-conflicts-placeholder
+          git add .merge-conflicts-placeholder
+          git commit -m "Add placeholder file for conflict resolution"
           
           # Push the empty branch to remote
           git push -u origin ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
@@ -266,7 +268,7 @@ jobs:
             
             ### Changes
             This PR will merge the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch once conflicts are resolved.
-          commit-message: "Empty commit to create branch for conflict resolution"
+          commit-message: "Add placeholder file for conflict resolution"
           branch: ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
           base: ${{ needs.check-merge.outputs.local_branch }}
           delete-branch: false
@@ -274,7 +276,7 @@ jobs:
 
       - name: Close PR by force-pushing to HEAD~1
         run: |
-          # Force-push to HEAD~1 to close the existing PR (removes the empty commit, leaving no commits)
+          # Force-push to HEAD~1 to close the existing PR (removes the placeholder commit, leaving no commits)
           # This closes the PR while keeping the branch and instructions as a placeholder
           git push --force origin HEAD~1:${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
 
