@@ -264,8 +264,6 @@ jobs:
             # 5. Create a new PR with your resolved merge
             ```
             
-            **Why is this PR closed?** The PR is initially closed to avoid cluttering the open PR list while conflicts are being resolved.
-            
             ### Changes
             This PR will merge the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch once conflicts are resolved.
           commit-message: "Add placeholder file for conflict resolution"
