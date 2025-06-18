@@ -194,22 +194,16 @@ jobs:
           fetch-depth: 0
           set-safe-directory: "*"
 
-      - name: Create and push empty branch for conflict resolution
+      - name: Create a placeholder commit
         run: |
           # Configure git
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
           
-          # Create a new empty branch
-          git checkout -b ${{ needs.check-merge.outputs.bot_branch }}
-          
           # Create an empty file to establish the branch
           touch .merge-conflicts-placeholder
           git add .merge-conflicts-placeholder
           git commit -m "Add placeholder file for conflict resolution"
-          
-          # Push the empty branch to remote
-          git push -u origin ${{ needs.check-merge.outputs.bot_branch }}
 
       # This job uses "mimir-github-bot" instead of "github-actions bot" (secrets.GITHUB_TOKEN)
       # because any events triggered by the later don't spawn GitHub actions.
