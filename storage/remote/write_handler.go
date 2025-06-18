@@ -602,11 +602,16 @@ func (rw *rwExporter) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) er
 		KeepIdentifyingResourceAttributes: otlpCfg.KeepIdentifyingResourceAttributes,
 		ConvertHistogramsToNHCB:           otlpCfg.ConvertHistogramsToNHCB,
 		AllowDeltaTemporality:             rw.allowDeltaTemporality,
+<<<<<<< HEAD
 
 		// Mimir specifics.
 		EnableCreatedTimestampZeroIngestion:        rw.enableCTZeroIngestion,
 		ValidIntervalCreatedTimestampZeroIngestion: rw.validIntervalCTZeroIngestion,
 	}, rw.logger)
+=======
+		ConvertScopeMetadata:              otlpCfg.ConvertScopeMetadata,
+	})
+>>>>>>> f69c83f5f1dce5f0b2f90172d5f6f9e2bda91fec
 	if err != nil {
 		rw.logger.Warn("Error translating OTLP metrics to Prometheus write request", "err", err)
 	}
