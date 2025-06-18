@@ -222,7 +222,7 @@ jobs:
           private-key: ${{ env.PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      - name: Create Draft Pull Request with conflicts
+      - name: Create empty PR for conflict resolution
         id: create-conflict-pr
         uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
         with:
