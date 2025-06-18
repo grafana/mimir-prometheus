@@ -297,7 +297,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }})\n\nDraft PR created*: <${{ steps.create-conflict-pr.outputs.pull-request-url }}|Click here to resolve conflicts>\n\nTODO the PR contains conflict markers and needs manual resolution."
+              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n*Draft PR created*: <${{ steps.create-conflict-pr.outputs.pull-request-url }}|Click here to resolve conflicts>\n\nTODO the PR contains conflict markers and needs manual resolution."
             }
 
   handle-error:
