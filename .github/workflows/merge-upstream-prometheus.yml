@@ -273,7 +273,7 @@ jobs:
             ### 🔍 Conflict Resolution Guide
             ```bash
             # Check out this branch locally
-            git checkout ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts
+            git checkout ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
             
             # Find conflicted files
             git status
