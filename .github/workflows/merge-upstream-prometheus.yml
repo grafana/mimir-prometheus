@@ -188,42 +188,20 @@ jobs:
           fetch-depth: 0
           set-safe-directory: "*"
 
-      - name: Add prometheus/prometheus remote and create conflicted merge
+      - name: Create and push empty branch for conflict resolution
         run: |
-          git remote add prometheus https://github.com/prometheus/prometheus.git
-          git fetch prometheus ${{ needs.check-merge.outputs.upstream_commit }}
-          
           # Configure git
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
           
-          # Attempt the merge, expecting conflicts
-          echo "Creating merge with conflicts..."
-          if ! git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit; then
-            echo "Merge conflicts detected, keeping conflict markers in files"
-            
-            # Show conflicted files
-            echo "Conflicted files:"
-            git diff --name-only --diff-filter=U
-            
-            # Add all files (including conflicted ones) to stage them with conflict markers
-            git add .
-            
-            # Create a commit with conflict markers
-            git commit -m "WIP: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} (${{ needs.check-merge.outputs.upstream_short }}) - CONFLICTS NEED RESOLUTION
-  
-              This merge has unresolved conflicts. The conflict markers are preserved in the files.
-              Please resolve all conflicts by:
-              1. Searching for conflict markers: <<<<<<< HEAD, =======, >>>>>>>
-              2. Editing the files to resolve conflicts
-              3. Removing the conflict markers
-              4. Committing the resolved changes
-              
-              Original upstream commit: ${{ needs.check-merge.outputs.upstream_commit }}"
-          else
-            echo "ERROR: Expected conflicts but merge succeeded - this should not happen"
-            exit 1
-          fi
+          # Create a new empty branch
+          git checkout -b ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
+          
+          # Create an empty commit to establish the branch
+          git commit --allow-empty -m "Empty commit to create branch for conflict resolution"
+          
+          # Push the empty branch to remote
+          git push -u origin ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
 
       # This job uses "mimir-github-bot" instead of "github-actions bot" (secrets.GITHUB_TOKEN)
       # because any events triggered by the later don't spawn GitHub actions.
@@ -249,10 +227,11 @@ jobs:
         uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
         with:
           token: ${{ steps.app-token.outputs.token }}
-          title: "DRAFT: [${{ needs.check-merge.outputs.local_branch }}] Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }}"
+          title: "[${{ needs.check-merge.outputs.local_branch }}] Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} to ${{ needs.check-merge.outputs.upstream_short }}"
           body: |
-            ## Changes
-            This PR merges the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch.
+            ## Merge Conflicts Detected
+            
+            *This DRAFT PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
             
             ### Details
             - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
@@ -260,36 +239,44 @@ jobs:
             - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', needs.check-merge.outputs.upstream_commit) }}
             - **Latest upstream commit date**: ${{ needs.check-merge.outputs.commit_date }}
             
-            ## Merge Conflicts Detected
-            
-            *This DRAFT PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
-            
             ### Action Required
-            This PR contains **unresolved merge conflicts** with conflict markers preserved in the files. To complete this merge:
+            This **closed PR** serves as a placeholder that holds the branch and instructions for conflict resolution. Follow these steps to resolve conflicts and reopen this PR:
             
             ```bash
-            # Fetch and check out this branch locally
-            git fetch origin ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
+            # 1. Fetch and check out the empty branch created by CI
+            git fetch origin
             git checkout ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
             
-            # Edit each conflicted file and resolve conflicts
-            # Look for these markers and resolve:
-            # <<<<<<< HEAD
-            # (your local changes)
-            # =======
-            # (upstream changes)  
-            # >>>>>>> commit_hash
+            # 2. Merge the upstream commit to trigger conflicts
+            git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit
             
-            # After resolving all conflicts, commit the changes
-            git add .
-            git commit -m "Resolve merge conflicts"
+            # 3. If conflicts occur:
+            #    - Edit conflicted files and resolve conflicts
+            #    - Look for conflict markers: <<<<<<< HEAD, =======, >>>>>>>
+            #    - Remove conflict markers after resolving
+            #    - Run: git add . && git merge --continue
+            
+            # 4. Push your resolved merge (no force-push needed)
             git push
+            
+            # 5. Create a new PR with your resolved merge
             ```
-          commit-message: "WIP: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} (${{ needs.check-merge.outputs.upstream_short }}) - CONFLICTS NEED RESOLUTION"
+            
+            **Why is this PR closed?** The PR is initially closed to avoid cluttering the open PR list while conflicts are being resolved.
+            
+            ### Changes
+            This PR will merge the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch once conflicts are resolved.
+          commit-message: "Empty commit to create branch for conflict resolution"
           branch: ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
           base: ${{ needs.check-merge.outputs.local_branch }}
           delete-branch: false
           draft: true
+
+      - name: Close PR by force-pushing to HEAD~1
+        run: |
+          # Force-push to HEAD~1 to close the existing PR (removes the empty commit, leaving no commits)
+          # This closes the PR while keeping the branch and instructions as a placeholder
+          git push --force origin HEAD~1:${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
 
       - name: Send Slack notification for merge conflicts
         uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
@@ -297,7 +284,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S03C2P8659U> check and resolve the conflicts in <${{ steps.create-conflict-pr.outputs.pull-request-url }}|the PR>."
+              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S05TQM9UAAF> a closed PR has been created for conflict resolution: <${{ steps.create-conflict-pr.outputs.pull-request-url }}|Click to resolve conflicts>. Check out the branch and follow the instructions in the closed PR."
             }
 
   handle-error:
@@ -371,7 +358,7 @@ jobs:
         uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
         with:
           token: ${{ steps.app-token.outputs.token }}
-          title: "[${{ needs.check-merge.outputs.local_branch }}] Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }}"
+          title: "[${{ needs.check-merge.outputs.local_branch }}] Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} to ${{ needs.check-merge.outputs.upstream_short }}"
           body: |
             ## Merge from prometheus/prometheus
             
