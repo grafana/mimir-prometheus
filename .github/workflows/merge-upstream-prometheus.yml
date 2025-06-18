@@ -32,6 +32,7 @@ jobs:
       upstream_commit: ${{ steps.get-upstream-info.outputs.upstream_commit }}
       upstream_short: ${{ steps.get-upstream-info.outputs.upstream_short }}
       commit_date: ${{ steps.get-upstream-info.outputs.commit_date }}
+      bot_branch: ${{ steps.set-branches.outputs.bot_branch }}
     steps:
       - name: Set default branches for scheduled runs
         id: set-branches
@@ -42,12 +43,17 @@ jobs:
           # Create timestamp for branch naming
           TIMESTAMP=$(date +%Y%m%d%H%M)
           
+          # Compute bot branch name pattern
+          BOT_BRANCH="bot/$LOCAL_BRANCH/merge-upstream-$UPSTREAM_BRANCH-$TIMESTAMP"
+          
           echo "upstream_branch=$UPSTREAM_BRANCH" >> $GITHUB_OUTPUT
           echo "local_branch=$LOCAL_BRANCH" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
+          echo "bot_branch=$BOT_BRANCH" >> $GITHUB_OUTPUT
           
           echo "Upstream branch: $UPSTREAM_BRANCH"
           echo "Local branch: $LOCAL_BRANCH"
+          echo "Bot branch: $BOT_BRANCH"
 
       - name: Check out repository
         uses: actions/checkout@v4
@@ -195,7 +201,7 @@ jobs:
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
           
           # Create a new empty branch
-          git checkout -b bot/${{ needs.check-merge.outputs.local_branch }}/merge-upstream-${{ needs.check-merge.outputs.upstream_branch }}-${{ needs.check-merge.outputs.timestamp }}
+          git checkout -b ${{ needs.check-merge.outputs.bot_branch }}
           
           # Create an empty file to establish the branch
           touch .merge-conflicts-placeholder
@@ -203,7 +209,7 @@ jobs:
           git commit -m "Add placeholder file for conflict resolution"
           
           # Push the empty branch to remote
-          git push -u origin bot/${{ needs.check-merge.outputs.local_branch }}/merge-upstream-${{ needs.check-merge.outputs.upstream_branch }}-${{ needs.check-merge.outputs.timestamp }}
+          git push -u origin ${{ needs.check-merge.outputs.bot_branch }}
 
       # This job uses "mimir-github-bot" instead of "github-actions bot" (secrets.GITHUB_TOKEN)
       # because any events triggered by the later don't spawn GitHub actions.
@@ -247,7 +253,7 @@ jobs:
             ```bash
             # 1. Fetch and check out the empty branch created by CI
             git fetch origin
-            git checkout bot/${{ needs.check-merge.outputs.local_branch }}/merge-upstream-${{ needs.check-merge.outputs.upstream_branch }}-${{ needs.check-merge.outputs.timestamp }}
+            git checkout ${{ needs.check-merge.outputs.bot_branch }}
             
             # 2. Merge the upstream commit to trigger conflicts
             git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit
@@ -269,7 +275,7 @@ jobs:
             ### Changes
             This PR will merge the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch once conflicts are resolved.
           commit-message: "Add placeholder file for conflict resolution"
-          branch: bot/${{ needs.check-merge.outputs.local_branch }}/merge-upstream-${{ needs.check-merge.outputs.upstream_branch }}-${{ needs.check-merge.outputs.timestamp }}
+          branch: ${{ needs.check-merge.outputs.bot_branch }}
           base: ${{ needs.check-merge.outputs.local_branch }}
           delete-branch: false
           draft: true
@@ -278,7 +284,7 @@ jobs:
         run: |
           # Force-push to HEAD~1 to close the existing PR (removes the placeholder commit, leaving no commits)
           # This closes the PR while keeping the branch and instructions as a placeholder
-          git push --force origin HEAD~1:bot/${{ needs.check-merge.outputs.local_branch }}/merge-upstream-${{ needs.check-merge.outputs.upstream_branch }}-${{ needs.check-merge.outputs.timestamp }}
+          git push --force origin HEAD~1:${{ needs.check-merge.outputs.bot_branch }}
 
       - name: Send Slack notification for merge conflicts
         uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
@@ -375,7 +381,7 @@ jobs:
             ### Changes:
             This PR merges the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch.
           commit-message: "Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} (${{ needs.check-merge.outputs.upstream_short }})"
-          branch: bot/${{ needs.check-merge.outputs.local_branch }}/merge-upstream-${{ needs.check-merge.outputs.upstream_branch }}-${{ needs.check-merge.outputs.timestamp }}
+          branch: ${{ needs.check-merge.outputs.bot_branch }}
           base: ${{ needs.check-merge.outputs.local_branch }}
           delete-branch: true
 
