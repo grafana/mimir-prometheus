@@ -182,7 +182,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":warning: *Merge conflicts detected in upstream prometheus merge*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\nPlease resolve conflicts manually and create the merge PR. Check the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> for details."
+              "text": ":warning: *Merge conflicts detected in upstream prometheus merge*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\n<!subteam^S03C2P8659U> please resolve conflicts manually and create the merge PR. Check the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> for details."
             }
       
       - name: Mark workflow as failed
@@ -201,7 +201,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":rotating_light: *Upstream prometheus merge failed unexpectedly*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\nMerge failed for non-conflict reasons. Please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
+              "text": ":rotating_light: *Upstream prometheus merge failed unexpectedly*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\n<!subteam^S03C2P8659U> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
             }
       
       - name: Mark workflow as failed
