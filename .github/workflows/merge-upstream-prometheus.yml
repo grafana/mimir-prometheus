@@ -174,19 +174,140 @@ jobs:
     needs: [check-merge, attempt-merge]
     if: needs.attempt-merge.outputs.merge_result == 'conflicts'
     permissions:
+      contents: write
+      pull-requests: write
       id-token: write
+    outputs:
+      pr_url: ${{ steps.create-conflict-pr.outputs.pull-request-url }}
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.check-merge.outputs.local_branch }}
+          token: ${{ secrets.GITHUB_TOKEN }}
+          fetch-depth: 0
+          set-safe-directory: "*"
+
+      - name: Add prometheus/prometheus remote and create conflicted merge
+        run: |
+          git remote add prometheus https://github.com/prometheus/prometheus.git
+          git fetch prometheus ${{ needs.check-merge.outputs.upstream_commit }}
+          
+          # Configure git
+          git config user.name "mimir-github-bot[bot]"
+          git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
+          
+          # Attempt the merge, expecting conflicts
+          echo "Creating merge with conflicts..."
+          if ! git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit; then
+            echo "Merge conflicts detected, keeping conflict markers in files"
+            
+            # Show conflicted files
+            echo "Conflicted files:"
+            git diff --name-only --diff-filter=U
+            
+            # Add all files (including conflicted ones) to stage them with conflict markers
+            git add .
+            
+            # Create a commit with conflict markers
+            git commit -m "WIP: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} (${{ needs.check-merge.outputs.upstream_short }}) - CONFLICTS NEED RESOLUTION
+  
+              This merge has unresolved conflicts. The conflict markers are preserved in the files.
+              Please resolve all conflicts by:
+              1. Searching for conflict markers: <<<<<<< HEAD, =======, >>>>>>>
+              2. Editing the files to resolve conflicts
+              3. Removing the conflict markers
+              4. Committing the resolved changes
+              
+              Original upstream commit: ${{ needs.check-merge.outputs.upstream_commit }}"
+          else
+            echo "ERROR: Expected conflicts but merge succeeded - this should not happen"
+            exit 1
+          fi
+
+      # This job uses "mimir-github-bot" instead of "github-actions bot" (secrets.GITHUB_TOKEN)
+      # because any events triggered by the later don't spawn GitHub actions.
+      # Refer to https://docs.github.com/en/actions/security-for-github-actions/security-guides/automatic-token-authentication#using-the-github_token-in-a-workflow
+      - name: Retrieve GitHub App Credentials from Vault
+        id: get-secrets
+        uses: grafana/shared-workflows/actions/get-vault-secrets@28361cdb22223e5f1e34358c86c20908e7248760 # v1.1.0
+        with:
+          repo_secrets: |
+            APP_ID=mimir-github-bot:app_id
+            PRIVATE_KEY=mimir-github-bot:private_key
+
+      - name: Generate GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ env.APP_ID }}
+          private-key: ${{ env.PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      - name: Create Draft Pull Request with conflicts
+        id: create-conflict-pr
+        uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          title: "🚧 DRAFT: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} into ${{ needs.check-merge.outputs.local_branch }} (CONFLICTS)"
+          body: |
+            ## ⚠️ Merge Conflicts Detected
+            
+            *This DRAFT PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
+            
+            ### 🔧 Action Required
+            This PR contains **unresolved merge conflicts** with conflict markers preserved in the files. To complete this merge:
+            
+            1. **Find conflicts**: Search for conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
+            2. **Resolve conflicts**: Edit files to choose the correct changes
+            3. **Remove markers**: Delete all conflict marker lines  
+            4. **Test changes**: Ensure the merge works correctly
+            5. **Mark ready**: Convert from draft when resolved
+            
+            ### 📋 Details
+            - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
+            - **Local branch**: `${{ needs.check-merge.outputs.local_branch }}`
+            - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', needs.check-merge.outputs.upstream_commit) }}
+            - **Latest upstream commit date**: ${{ needs.check-merge.outputs.commit_date }}
+            
+            ### 🔍 Conflict Resolution Guide
+            ```bash
+            # Check out this branch locally
+            git checkout ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts
+            
+            # Find conflicted files
+            git status
+            
+            # Edit each conflicted file and resolve conflicts
+            # Look for these markers and resolve:
+            # <<<<<<< HEAD
+            # (your local changes)
+            # =======
+            # (upstream changes)  
+            # >>>>>>> commit_hash
+            
+            # After resolving all conflicts, commit the changes
+            git add .
+            git commit -m "Resolve merge conflicts"
+            git push
+            ```
+            
+            ### 📊 Changes
+            This PR merges the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch.
+          commit-message: "WIP: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} (${{ needs.check-merge.outputs.upstream_short }}) - CONFLICTS NEED RESOLUTION"
+          branch: ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
+          base: ${{ needs.check-merge.outputs.local_branch }}
+          delete-branch: false
+          draft: true
+
       - name: Send Slack notification for merge conflicts
         uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
         with:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":warning: *Merge conflicts detected in upstream prometheus merge*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\n<!subteam^S03C2P8659U> please resolve conflicts manually and create the merge PR. Check the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> for details."
+              "text": ":warning: *Merge conflicts detected in upstream prometheus merge*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\n:point_right: **Draft PR created**: <${{ steps.create-conflict-pr.outputs.pull-request-url }}|Click here to resolve conflicts>\n\n<!subteam^S03C2P8659U> the PR contains conflict markers and needs manual resolution. Check the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> for details."
             }
-      
-      - name: Mark workflow as failed
-        run: exit 1
 
   handle-error:
     runs-on: ubuntu-latest
