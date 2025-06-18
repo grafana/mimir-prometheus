@@ -134,7 +134,7 @@ jobs:
       - name: Add prometheus/prometheus remote and fetch
         run: |
           git remote add prometheus https://github.com/prometheus/prometheus.git
-          git fetch prometheus ${{ needs.check-merge.outputs.upstream_branch }}
+          git fetch prometheus ${{ needs.check-merge.outputs.upstream_commit }}
 
       - name: Attempt merge
         id: merge-attempt
@@ -143,10 +143,10 @@ jobs:
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
           
-          echo "Attempting to merge prometheus/${{ needs.check-merge.outputs.upstream_branch }}..."
+          echo "Attempting to merge ${{ needs.check-merge.outputs.upstream_commit }}..."
           
           # Attempt the merge
-          if git merge prometheus/${{ needs.check-merge.outputs.upstream_branch }} --no-edit; then
+          if git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit; then
             echo "merge_result=success" >> $GITHUB_OUTPUT
             echo "Merge successful!"
             git log --oneline -1
@@ -155,7 +155,7 @@ jobs:
             git merge --abort
             
             # Check if conflicts exist
-            git merge prometheus/${{ needs.check-merge.outputs.upstream_branch }} --no-commit --no-ff || true
+            git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-commit --no-ff || true
             
             if git diff --name-only --diff-filter=U | grep -q .; then
               echo "merge_result=conflicts" >> $GITHUB_OUTPUT
@@ -227,14 +227,14 @@ jobs:
       - name: Add prometheus/prometheus remote and perform merge
         run: |
           git remote add prometheus https://github.com/prometheus/prometheus.git
-          git fetch prometheus ${{ needs.check-merge.outputs.upstream_branch }}
+          git fetch prometheus ${{ needs.check-merge.outputs.upstream_commit }}
           
           # Configure git
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
           
           # Perform the merge (we know it will succeed)
-          git merge prometheus/${{ needs.check-merge.outputs.upstream_branch }} --no-edit
+          git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit
 
       # This job uses "mimir-github-bot" instead of "github-actions bot" (secrets.GITHUB_TOKEN)
       # because any events triggered by the later don't spawn GitHub actions.
