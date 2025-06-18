@@ -260,12 +260,7 @@ jobs:
             
             # 4. Push your resolved merge (no force-push needed)
             git push
-            
-            # 5. Create a new PR with your resolved merge
             ```
-            
-            ### Changes
-            This PR will merge the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch once conflicts are resolved.
           commit-message: "Add placeholder file for conflict resolution"
           branch: ${{ needs.check-merge.outputs.bot_branch }}
           base: ${{ needs.check-merge.outputs.local_branch }}
