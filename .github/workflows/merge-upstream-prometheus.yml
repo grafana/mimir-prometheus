@@ -276,7 +276,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\nTODO a closed PR has been created for conflict resolution: <${{ steps.create-conflict-pr.outputs.pull-request-url }}|Click to resolve conflicts>. Check out the branch and follow the instructions in the closed PR."
+              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S05TQM9UAAF> check and resolve the conflicts in <${{ steps.create-conflict-pr.outputs.pull-request-url }}|the PR>."
             }
 
   handle-error:
@@ -292,7 +292,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":sadcomputer: *Upstream prometheus merge failed*\(prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }})\n\nTODO please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
+              "text": ":sadcomputer: *Upstream prometheus merge failed* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S05TQM9UAAF> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
             }
 
       - name: Mark workflow as failed
@@ -347,6 +347,7 @@ jobs:
           owner: ${{ github.repository_owner }}
 
       - name: Create Pull Request
+        id: create-pr
         uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
         with:
           token: ${{ steps.app-token.outputs.token }}
@@ -368,6 +369,15 @@ jobs:
           branch: ${{ needs.check-merge.outputs.bot_branch }}
           base: ${{ needs.check-merge.outputs.local_branch }}
           delete-branch: true
+
+      - name: Send Slack notification for successful merge
+        uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
+        with:
+          channel-id: C04AF91LPFX #mimir-ci-notifications
+          payload: |
+            {
+              "text": ":white_check_mark: *Successfully merged upstream prometheus changes* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S05TQM9UAAF> PR created: <${{ steps.create-pr.outputs.pull-request-url }}|Click to review and merge>"
+            }
 
   no-merge-needed:
     runs-on: ubuntu-latest
