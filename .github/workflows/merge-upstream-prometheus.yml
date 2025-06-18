@@ -249,34 +249,28 @@ jobs:
         uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
         with:
           token: ${{ steps.app-token.outputs.token }}
-          title: "🚧 DRAFT: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} into ${{ needs.check-merge.outputs.local_branch }} (CONFLICTS)"
+          title: "DRAFT: [${{ needs.check-merge.outputs.local_branch }}] Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }}"
           body: |
-            ## ⚠️ Merge Conflicts Detected
+            ## Changes
+            This PR merges the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch.
             
-            *This DRAFT PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
-            
-            ### 🔧 Action Required
-            This PR contains **unresolved merge conflicts** with conflict markers preserved in the files. To complete this merge:
-            
-            1. **Find conflicts**: Search for conflict markers (`<<<<<<<`, `=======`, `>>>>>>>`)
-            2. **Resolve conflicts**: Edit files to choose the correct changes
-            3. **Remove markers**: Delete all conflict marker lines  
-            4. **Test changes**: Ensure the merge works correctly
-            5. **Mark ready**: Convert from draft when resolved
-            
-            ### 📋 Details
+            ### Details
             - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
             - **Local branch**: `${{ needs.check-merge.outputs.local_branch }}`
             - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', needs.check-merge.outputs.upstream_commit) }}
             - **Latest upstream commit date**: ${{ needs.check-merge.outputs.commit_date }}
             
-            ### 🔍 Conflict Resolution Guide
-            ```bash
-            # Check out this branch locally
-            git checkout ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts
+            ## Merge Conflicts Detected
             
-            # Find conflicted files
-            git status
+            *This DRAFT PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
+            
+            ### Action Required
+            This PR contains **unresolved merge conflicts** with conflict markers preserved in the files. To complete this merge:
+            
+            ```bash
+            # Fetch and check out this branch locally
+            git fetch origin ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
+            git checkout ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
             
             # Edit each conflicted file and resolve conflicts
             # Look for these markers and resolve:
@@ -291,9 +285,6 @@ jobs:
             git commit -m "Resolve merge conflicts"
             git push
             ```
-            
-            ### 📊 Changes
-            This PR merges the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch.
           commit-message: "WIP: Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} (${{ needs.check-merge.outputs.upstream_short }}) - CONFLICTS NEED RESOLUTION"
           branch: ${{ needs.check-merge.outputs.local_branch }}-merge-conflicts-${{ needs.check-merge.outputs.timestamp }}
           base: ${{ needs.check-merge.outputs.local_branch }}
@@ -306,7 +297,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":warning: *Merge conflicts detected in upstream prometheus merge*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\n:point_right: **Draft PR created**: <${{ steps.create-conflict-pr.outputs.pull-request-url }}|Click here to resolve conflicts>\n\n<!subteam^S03C2P8659U> the PR contains conflict markers and needs manual resolution. Check the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> for details."
+              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S03C2P8659U> check and resolve the conflicts in <${{ steps.create-conflict-pr.outputs.pull-request-url }}|the PR>."
             }
 
   handle-error:
@@ -322,7 +313,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":rotating_light: *Upstream prometheus merge failed unexpectedly*\n\n*Details:*\n• Upstream branch: `${{ needs.check-merge.outputs.upstream_branch }}`\n• Local branch: `${{ needs.check-merge.outputs.local_branch }}`\n• Latest upstream commit: <https://github.com/prometheus/prometheus/commit/${{ needs.check-merge.outputs.upstream_commit }}|${{ needs.check-merge.outputs.upstream_short }}>\n\n<!subteam^S03C2P8659U> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
+              "text": ":sadcomputer: *Upstream prometheus merge failed*\(prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }})\n\n<!subteam^S03C2P8659U> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
             }
       
       - name: Mark workflow as failed
@@ -380,7 +371,7 @@ jobs:
         uses: peter-evans/create-pull-request@4e1beaa7521e8b457b572c090b25bd3db56bf1c5 # v5.0.3
         with:
           token: ${{ steps.app-token.outputs.token }}
-          title: "Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} into ${{ needs.check-merge.outputs.local_branch }}"
+          title: "[${{ needs.check-merge.outputs.local_branch }}] Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }}"
           body: |
             ## Merge from prometheus/prometheus
             
