@@ -47,6 +47,17 @@ func TestCreateAttributes(t *testing.T) {
 		// This one is for testing conflict with auto-generated instance attribute.
 		"instance": "resource value",
 	}
+	scopeAttrs := pcommon.NewMap()
+	scopeAttrs.FromRaw(map[string]any{
+		"attr1": "value1",
+		"attr2": "value2",
+	})
+	defaultScope := scope{
+		name:       "test-scope",
+		version:    "1.0.0",
+		schemaURL:  "https://schema.com",
+		attributes: scopeAttrs,
+	}
 
 	resource := pcommon.NewResource()
 	for k, v := range resourceAttrs {
@@ -58,15 +69,19 @@ func TestCreateAttributes(t *testing.T) {
 
 	testCases := []struct {
 		name                         string
+		scope                        scope
 		promoteAllResourceAttributes bool
 		promoteResourceAttributes    []string
+		convertScope                 bool
 		ignoreResourceAttributes     []string
 		ignoreAttrs                  []string
 		expectedLabels               []prompb.Label
 	}{
 		{
-			name:                      "Successful conversion without resource attribute promotion",
+			name:                      "Successful conversion without resource attribute promotion and without scope conversion",
+			scope:                     defaultScope,
 			promoteResourceAttributes: nil,
+			convertScope:              false,
 			expectedLabels: []prompb.Label{
 				{
 					Name:  "__name__",
@@ -91,8 +106,86 @@ func TestCreateAttributes(t *testing.T) {
 			},
 		},
 		{
-			name:                      "Successful conversion with some attributes ignored",
+			name:                      "Successful conversion without resource attribute promotion and with scope conversion",
+			scope:                     defaultScope,
 			promoteResourceAttributes: nil,
+			convertScope:              true,
+			expectedLabels: []prompb.Label{
+				{
+					Name:  "__name__",
+					Value: "test_metric",
+				},
+				{
+					Name:  "instance",
+					Value: "service ID",
+				},
+				{
+					Name:  "job",
+					Value: "service name",
+				},
+				{
+					Name:  "metric_attr",
+					Value: "metric value",
+				},
+				{
+					Name:  "metric_attr_other",
+					Value: "metric value other",
+				},
+				{
+					Name:  "otel_scope_name",
+					Value: defaultScope.name,
+				},
+				{
+					Name:  "otel_scope_schema_url",
+					Value: defaultScope.schemaURL,
+				},
+				{
+					Name:  "otel_scope_version",
+					Value: defaultScope.version,
+				},
+				{
+					Name:  "otel_scope_attr1",
+					Value: "value1",
+				},
+				{
+					Name:  "otel_scope_attr2",
+					Value: "value2",
+				},
+			},
+		},
+		{
+			name:                      "Successful conversion without resource attribute promotion and with scope conversion, but without scope",
+			scope:                     scope{},
+			promoteResourceAttributes: nil,
+			convertScope:              true,
+			expectedLabels: []prompb.Label{
+				{
+					Name:  "__name__",
+					Value: "test_metric",
+				},
+				{
+					Name:  "instance",
+					Value: "service ID",
+				},
+				{
+					Name:  "job",
+					Value: "service name",
+				},
+				{
+					Name:  "metric_attr",
+					Value: "metric value",
+				},
+				{
+					Name:  "metric_attr_other",
+					Value: "metric value other",
+				},
+			},
+		},
+		{
+			name:                      "Successful conversion with some attributes ignored and with scope conversion",
+			scope:                     defaultScope,
+			promoteResourceAttributes: nil,
+			convertScope:              true,
 			ignoreAttrs:               []string{"metric-attr-other"},
 			expectedLabels: []prompb.Label{
 				{
@@ -111,11 +204,33 @@ func TestCreateAttributes(t *testing.T) {
 					Name:  "metric_attr",
 					Value: "metric value",
 				},
+				{
+					Name:  "otel_scope_name",
+					Value: defaultScope.name,
+				},
+				{
+					Name:  "otel_scope_schema_url",
+					Value: defaultScope.schemaURL,
+				},
+				{
+					Name:  "otel_scope_version",
+					Value: defaultScope.version,
+				},
+				{
+					Name:  "otel_scope_attr1",
+					Value: "value1",
+				},
+				{
+					Name:  "otel_scope_attr2",
+					Value: "value2",
+				},
 			},
 		},
 		{
-			name:                      "Successful conversion with resource attribute promotion",
+			name:                      "Successful conversion with resource attribute promotion and with scope conversion",
+			scope:                     defaultScope,
 			promoteResourceAttributes: []string{"non-existent-attr", "existent-attr"},
+			convertScope:              true,
 			expectedLabels: []prompb.Label{
 				{
 					Name:  "__name__",
@@ -141,11 +256,33 @@ func TestCreateAttributes(t *testing.T) {
 					Name:  "existent_attr",
 					Value: "resource value",
 				},
+				{
+					Name:  "otel_scope_name",
+					Value: defaultScope.name,
+				},
+				{
+					Name:  "otel_scope_schema_url",
+					Value: defaultScope.schemaURL,
+				},
+				{
+					Name:  "otel_scope_version",
+					Value: defaultScope.version,
+				},
+				{
+					Name:  "otel_scope_attr1",
+					Value: "value1",
+				},
+				{
+					Name:  "otel_scope_attr2",
+					Value: "value2",
+				},
 			},
 		},
 		{
-			name:                      "Successful conversion with resource attribute promotion, conflicting resource attributes are ignored",
+			name:                      "Successful conversion with resource attribute promotion and with scope conversion, conflicting resource attributes are ignored",
+			scope:                     defaultScope,
 			promoteResourceAttributes: []string{"non-existent-attr", "existent-attr", "metric-attr", "job", "instance"},
+			convertScope:              true,
 			expectedLabels: []prompb.Label{
 				{
 					Name:  "__name__",
@@ -171,11 +308,33 @@ func TestCreateAttributes(t *testing.T) {
 					Name:  "metric_attr_other",
 					Value: "metric value other",
 				},
+				{
+					Name:  "otel_scope_name",
+					Value: defaultScope.name,
+				},
+				{
+					Name:  "otel_scope_schema_url",
+					Value: defaultScope.schemaURL,
+				},
+				{
+					Name:  "otel_scope_version",
+					Value: defaultScope.version,
+				},
+				{
+					Name:  "otel_scope_attr1",
+					Value: "value1",
+				},
+				{
+					Name:  "otel_scope_attr2",
+					Value: "value2",
+				},
 			},
 		},
 		{
-			name:                      "Successful conversion with resource attribute promotion, attributes are only promoted once",
+			name:                      "Successful conversion with resource attribute promotion and with scope conversion, attributes are only promoted once",
+			scope:                     defaultScope,
 			promoteResourceAttributes: []string{"existent-attr", "existent-attr"},
+			convertScope:              true,
 			expectedLabels: []prompb.Label{
 				{
 					Name:  "__name__",
@@ -201,11 +360,33 @@ func TestCreateAttributes(t *testing.T) {
 					Name:  "metric_attr_other",
 					Value: "metric value other",
 				},
+				{
+					Name:  "otel_scope_name",
+					Value: defaultScope.name,
+				},
+				{
+					Name:  "otel_scope_schema_url",
+					Value: defaultScope.schemaURL,
+				},
+				{
+					Name:  "otel_scope_version",
+					Value: defaultScope.version,
+				},
+				{
+					Name:  "otel_scope_attr1",
+					Value: "value1",
+				},
+				{
+					Name:  "otel_scope_attr2",
+					Value: "value2",
+				},
 			},
 		},
 		{
-			name:                         "Successful conversion promoting all resource attributes",
+			name:                         "Successful conversion promoting all resource attributes and with scope conversion",
+			scope:                        defaultScope,
 			promoteAllResourceAttributes: true,
+			convertScope:                 true,
 			expectedLabels: []prompb.Label{
 				{
 					Name:  "__name__",
@@ -239,11 +420,33 @@ func TestCreateAttributes(t *testing.T) {
 					Name:  "service_instance_id",
 					Value: "service ID",
 				},
+				{
+					Name:  "otel_scope_name",
+					Value: defaultScope.name,
+				},
+				{
+					Name:  "otel_scope_schema_url",
+					Value: defaultScope.schemaURL,
+				},
+				{
+					Name:  "otel_scope_version",
+					Value: defaultScope.version,
+				},
+				{
+					Name:  "otel_scope_attr1",
+					Value: "value1",
+				},
+				{
+					Name:  "otel_scope_attr2",
+					Value: "value2",
+				},
 			},
 		},
 		{
-			name:                         "Successful conversion promoting all resource attributes, ignoring 'service.instance.id'",
+			name:                         "Successful conversion promoting all resource attributes and with scope conversion, ignoring 'service.instance.id'",
+			scope:                        defaultScope,
 			promoteAllResourceAttributes: true,
+			convertScope:                 true,
 			ignoreResourceAttributes: []string{
 				"service.instance.id",
 			},
@@ -276,6 +479,26 @@ func TestCreateAttributes(t *testing.T) {
 					Name:  "service_name",
 					Value: "service name",
 				},
+				{
+					Name:  "otel_scope_name",
+					Value: defaultScope.name,
+				},
+				{
+					Name:  "otel_scope_schema_url",
+					Value: defaultScope.schemaURL,
+				},
+				{
+					Name:  "otel_scope_version",
+					Value: defaultScope.version,
+				},
+				{
+					Name:  "otel_scope_attr1",
+					Value: "value1",
+				},
+				{
+					Name:  "otel_scope_attr2",
+					Value: "value2",
+				},
 			},
 		},
 	}
@@ -287,8 +510,9 @@ func TestCreateAttributes(t *testing.T) {
 					PromoteResourceAttributes:    tc.promoteResourceAttributes,
 					IgnoreResourceAttributes:     tc.ignoreResourceAttributes,
 				}),
+				ConvertScopeMetadata: tc.convertScope,
 			}
-			lbls := createAttributes(resource, attrs, settings, tc.ignoreAttrs, false, model.MetricNameLabel, "test_metric")
+			lbls := createAttributes(resource, attrs, tc.scope, settings, tc.ignoreAttrs, false, model.MetricNameLabel, "test_metric")
 
 			require.ElementsMatch(t, lbls, tc.expectedLabels)
 		})
@@ -314,6 +538,18 @@ func Test_convertTimeStamp(t *testing.T) {
 }
 
 func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
+	scopeAttrs := pcommon.NewMap()
+	scopeAttrs.FromRaw(map[string]any{
+		"attr1": "value1",
+		"attr2": "value2",
+	})
+	defaultScope := scope{
+		name:       "test-scope",
+		version:    "1.0.0",
+		schemaURL:  "https://schema.com",
+		attributes: scopeAttrs,
+	}
+
 	now := time.Now()
 	nowUnixNano := pcommon.Timestamp(now.UnixNano())
 	nowMinus2m30s := pcommon.Timestamp(now.Add(-2 * time.Minute).Add(-30 * time.Second).UnixNano())
@@ -321,10 +557,59 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
 	tests := []struct {
 		name                  string
-		overrideValidInterval time.Duration
 		metric                func() pmetric.Metric
+		scope                 scope
+		convertScope          bool
+		overrideValidInterval time.Duration
 		want                  func() map[uint64]*prompb.TimeSeries
 	}{
+		{
+			name: "summary with start time and without scope conversion",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_summary")
+				metric.SetEmptySummary()
+
+				dp := metric.Summary().DataPoints().AppendEmpty()
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowUnixNano)
+
+				return metric
+			},
+			scope:        defaultScope,
+			convertScope: false,
+			want: func() map[uint64]*prompb.TimeSeries {
+				countLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
+				}
+				sumLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
+				}
+				createdLabels := []prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
+				}
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(countLabels): {
+						Labels: countLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(sumLabels): {
+						Labels: sumLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(createdLabels): {
+						Labels: createdLabels,
+						Samples: []prompb.Sample{
+							{Value: float64(convertTimeStamp(nowUnixNano)), Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+				}
+			},
+		},
 		{
 			name: "summary with start time equal to sample timestamp",
 			metric: func() pmetric.Metric {
@@ -338,6 +623,8 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 
 				return metric
 			},
+			scope:        defaultScope,
+			convertScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
@@ -511,7 +798,79 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "summary without start time",
+			name: "summary with start time and with scope conversion",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_summary")
+				metric.SetEmptySummary()
+
+				dp := metric.Summary().DataPoints().AppendEmpty()
+				dp.SetTimestamp(nowUnixNano)
+				dp.SetStartTimestamp(nowUnixNano)
+
+				return metric
+			},
+			scope:        defaultScope,
+			convertScope: true,
+			want: func() map[uint64]*prompb.TimeSeries {
+				scopeLabels := []prompb.Label{
+					{
+						Name:  "otel_scope_attr1",
+						Value: "value1",
+					},
+					{
+						Name:  "otel_scope_attr2",
+						Value: "value2",
+					},
+					{
+						Name:  "otel_scope_name",
+						Value: defaultScope.name,
+					},
+					{
+						Name:  "otel_scope_schema_url",
+						Value: defaultScope.schemaURL,
+					},
+					{
+						Name:  "otel_scope_version",
+						Value: defaultScope.version,
+					},
+				}
+				countLabels := append([]prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
+				}, scopeLabels...)
+				sumLabels := append([]prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
+				}, scopeLabels...)
+				createdLabels := append([]prompb.Label{
+					{
+						Name:  model.MetricNameLabel,
+						Value: "test_summary" + createdSuffix,
+					},
+				}, scopeLabels...)
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(countLabels): {
+						Labels: countLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(sumLabels): {
+						Labels: sumLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+					timeSeriesSignature(createdLabels): {
+						Labels: createdLabels,
+						Samples: []prompb.Sample{
+							{Value: float64(convertTimeStamp(nowUnixNano)), Timestamp: convertTimeStamp(nowUnixNano)},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "summary without start time and without scope conversion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_summary")
@@ -522,16 +881,17 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 
 				return metric
 			},
+			convertScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
+				countLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
 				}
 				sumLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
 				}
 				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
+					timeSeriesSignature(countLabels): {
+						Labels: countLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
 						},
@@ -560,8 +920,10 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					EnableCreatedTimestampZeroIngestion:        true,
 					EnableStartTimeQuietZero:                   true,
 					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
+					ConvertScopeMetadata:                       tt.convertScope,
 				},
 				metric.Name(),
+				tt.scope,
 				promslog.NewNopLogger(),
 			)
 			require.NoError(t, err)
@@ -578,14 +940,28 @@ func equalSamples(a, b prompb.Sample) bool {
 }
 
 func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
+	scopeAttrs := pcommon.NewMap()
+	scopeAttrs.FromRaw(map[string]any{
+		"attr1": "value1",
+		"attr2": "value2",
+	})
+	defaultScope := scope{
+		name:       "test-scope",
+		version:    "1.0.0",
+		schemaURL:  "https://schema.com",
+		attributes: scopeAttrs,
+	}
+
 	ts := pcommon.Timestamp(time.Now().UnixNano())
 	tests := []struct {
-		name   string
-		metric func() pmetric.Metric
-		want   func() map[uint64]*prompb.TimeSeries
+		name         string
+		metric       func() pmetric.Metric
+		scope        scope
+		convertScope bool
+		want         func() map[uint64]*prompb.TimeSeries
 	}{
 		{
-			name: "histogram with start time",
+			name: "histogram with start time and without scope conversion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist")
@@ -597,8 +973,10 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 
 				return metric
 			},
+			scope:        defaultScope,
+			convertScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
+				countLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist" + countStr},
 				}
 				createdLabels := []prompb.Label{
@@ -609,14 +987,84 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 					{Name: model.BucketLabel, Value: "+Inf"},
 				}
 				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(countLabels): {
+						Labels: countLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(ts)},
+						},
+					},
 					timeSeriesSignature(infLabels): {
 						Labels: infLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
-					timeSeriesSignature(labels): {
-						Labels: labels,
+					timeSeriesSignature(createdLabels): {
+						Labels: createdLabels,
+						Samples: []prompb.Sample{
+							{Value: float64(convertTimeStamp(ts)), Timestamp: convertTimeStamp(ts)},
+						},
+					},
+				}
+			},
+		},
+		{
+			name: "histogram with start time and with scope conversion",
+			metric: func() pmetric.Metric {
+				metric := pmetric.NewMetric()
+				metric.SetName("test_hist")
+				metric.SetEmptyHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+
+				pt := metric.Histogram().DataPoints().AppendEmpty()
+				pt.SetTimestamp(ts)
+				pt.SetStartTimestamp(ts)
+
+				return metric
+			},
+			scope:        defaultScope,
+			convertScope: true,
+			want: func() map[uint64]*prompb.TimeSeries {
+				scopeLabels := []prompb.Label{
+					{
+						Name:  "otel_scope_attr1",
+						Value: "value1",
+					},
+					{
+						Name:  "otel_scope_attr2",
+						Value: "value2",
+					},
+					{
+						Name:  "otel_scope_name",
+						Value: defaultScope.name,
+					},
+					{
+						Name:  "otel_scope_schema_url",
+						Value: defaultScope.schemaURL,
+					},
+					{
+						Name:  "otel_scope_version",
+						Value: defaultScope.version,
+					},
+				}
+				countLabels := append([]prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_hist" + countStr},
+				}, scopeLabels...)
+				infLabels := append([]prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_hist_bucket"},
+					{Name: model.BucketLabel, Value: "+Inf"},
+				}, scopeLabels...)
+				createdLabels := append([]prompb.Label{
+					{Name: model.MetricNameLabel, Value: "test_hist" + createdSuffix},
+				}, scopeLabels...)
+				return map[uint64]*prompb.TimeSeries{
+					timeSeriesSignature(countLabels): {
+						Labels: countLabels,
+						Samples: []prompb.Sample{
+							{Value: 0, Timestamp: convertTimeStamp(ts)},
+						},
+					},
+					timeSeriesSignature(infLabels): {
+						Labels: infLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
@@ -679,8 +1127,10 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 				Settings{
 					ExportCreatedMetric:                 true,
 					EnableCreatedTimestampZeroIngestion: true,
+					ConvertScopeMetadata:                tt.convertScope,
 				},
 				metric.Name(),
+				tt.scope,
 				promslog.NewNopLogger(),
 			)
 			require.NoError(t, err)
@@ -692,11 +1142,24 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 }
 
 func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
+	scopeAttrs := pcommon.NewMap()
+	scopeAttrs.FromRaw(map[string]any{
+		"attr1": "value1",
+		"attr2": "value2",
+	})
+	defaultScope := scope{
+		name:       "test-scope",
+		version:    "1.0.0",
+		schemaURL:  "https://schema.com",
+		attributes: scopeAttrs,
+	}
+
 	now := time.Now()
 	nowUnixNano := pcommon.Timestamp(now.UnixNano())
 	// nowMinus2m30s := pcommon.Timestamp(now.Add(-2 * time.Minute).Add(-30 * time.Second).UnixNano())
 	// nowMinus6m := pcommon.Timestamp(now.Add(-6 * time.Minute).UnixNano())
 	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
+
 	tests := []struct {
 		overrideValidInterval time.Duration
 		metric                func() pmetric.Metric
@@ -907,6 +1370,7 @@ func TestPrometheusConverter_AddExponentialHistogramDataPoints(t *testing.T) {
 				},
 				metric.Name(),
 				pmetric.AggregationTemporalityCumulative,
+				defaultScope,
 			)
 			require.NoError(t, err)
 			require.Empty(t, annot)
