@@ -258,6 +258,8 @@ jobs:
             
             # 4. Push your resolved merge (no force-push needed)
             git push
+            
+            # 5. Re-open the closed PR
             ```
           commit-message: "Empty commit to create branch for conflict resolution"
           branch: ${{ needs.check-merge.outputs.bot_branch }}
