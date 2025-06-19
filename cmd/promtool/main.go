@@ -63,12 +63,6 @@ import (
 
 var promqlEnableDelayedNameRemoval = false
 
-func init() {
-	// This can be removed when the legacy global mode is fully deprecated.
-	//nolint:staticcheck
-	model.NameValidationScheme = model.UTF8Validation
-}
-
 const (
 	successExitCode = 0
 	failureExitCode = 1

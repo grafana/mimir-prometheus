@@ -24,6 +24,8 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
+
+	"github.com/prometheus/prometheus/model/validation"
 )
 
 func TestLabels_String(t *testing.T) {
@@ -287,7 +289,7 @@ func TestLabels_IsValid(t *testing.T) {
 		},
 	} {
 		t.Run("", func(t *testing.T) {
-			require.Equal(t, test.expected, test.input.IsValid(model.LegacyValidation))
+			require.Equal(t, test.expected, test.input.IsValid(validation.LegacyNamingScheme))
 		})
 	}
 }
@@ -295,7 +297,7 @@ func TestLabels_IsValid(t *testing.T) {
 func TestLabels_ValidationModes(t *testing.T) {
 	for _, test := range []struct {
 		input    Labels
-		callMode model.ValidationScheme
+		callMode validation.NamingScheme
 		expected bool
 	}{
 		{
@@ -304,7 +306,7 @@ func TestLabels_ValidationModes(t *testing.T) {
 				"hostname", "localhost",
 				"job", "check",
 			),
-			callMode: model.UTF8Validation,
+			callMode: validation.UTF8NamingScheme,
 			expected: true,
 		},
 		{
@@ -313,7 +315,7 @@ func TestLabels_ValidationModes(t *testing.T) {
 				"\xc5 bad utf8", "localhost",
 				"job", "check",
 			),
-			callMode: model.UTF8Validation,
+			callMode: validation.UTF8NamingScheme,
 			expected: false,
 		},
 		{
@@ -322,7 +324,7 @@ func TestLabels_ValidationModes(t *testing.T) {
 				"hostname", "localhost",
 				"job", "check",
 			),
-			callMode: model.LegacyValidation,
+			callMode: validation.LegacyNamingScheme,
 			expected: false,
 		},
 		{
@@ -331,7 +333,7 @@ func TestLabels_ValidationModes(t *testing.T) {
 				"host.name", "localhost",
 				"job", "check",
 			),
-			callMode: model.LegacyValidation,
+			callMode: validation.LegacyNamingScheme,
 			expected: false,
 		},
 	} {
