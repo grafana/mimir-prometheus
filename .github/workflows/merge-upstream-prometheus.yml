@@ -13,11 +13,6 @@ on:
         required: true
         default: "main"
         type: string
-  schedule:
-    # Run daily at 02:00 UTC
-    - cron: '0 2 * * *'
-
-# Permissions are defined at job level for least privilege
 
 jobs:
   check-merge:
