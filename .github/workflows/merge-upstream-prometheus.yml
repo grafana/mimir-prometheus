@@ -242,7 +242,9 @@ jobs:
             git fetch origin
             git checkout ${{ needs.check-merge.outputs.bot_branch }}
             
-            # 2. Merge the upstream commit to trigger conflicts
+            # 2. Fetch and merge the upstream commit to trigger conflicts
+            git remote add upstream https://github.com/prometheus/prometheus.git # Omit this step if you already have a remote configured for prometheus/prometheus.
+            git fetch upstream
             git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit
             
             # 3. If conflicts occur:
@@ -292,7 +294,7 @@ jobs:
             {
               "text": ":sadcomputer: *Upstream prometheus merge failed*\(prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }})\n\nTODO please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
             }
-      
+
       - name: Mark workflow as failed
         run: exit 1
 
