@@ -53,8 +53,8 @@ type Settings struct {
 	ConvertHistogramsToNHCB           bool
 	AllowDeltaTemporality             bool
 
-	// ConvertScopeMetadata controls whether to convert OTel scope metadata to metric labels.
-	ConvertScopeMetadata bool
+	// PromoteScopeMetadata controls whether to promote OTel scope metadata to metric labels.
+	PromoteScopeMetadata bool
 
 	// Mimir specifics.
 	EnableCreatedTimestampZeroIngestion        bool

@@ -47,11 +47,11 @@ func TestPrometheusConverter_addGaugeNumberDataPoints(t *testing.T) {
 		name         string
 		metric       func() pmetric.Metric
 		scope        scope
-		convertScope bool
+		promoteScope bool
 		want         func() map[uint64]*prompb.TimeSeries
 	}{
 		{
-			name: "gauge without scope conversion",
+			name: "gauge without scope promotion",
 			metric: func() pmetric.Metric {
 				return getIntGaugeMetric(
 					"test",
@@ -60,7 +60,7 @@ func TestPrometheusConverter_addGaugeNumberDataPoints(t *testing.T) {
 				)
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test"},
@@ -79,7 +79,7 @@ func TestPrometheusConverter_addGaugeNumberDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "gauge with scope conversion",
+			name: "gauge with scope promotion",
 			metric: func() pmetric.Metric {
 				return getIntGaugeMetric(
 					"test",
@@ -88,7 +88,7 @@ func TestPrometheusConverter_addGaugeNumberDataPoints(t *testing.T) {
 				)
 			},
 			scope:        defaultScope,
-			convertScope: true,
+			promoteScope: true,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test"},
@@ -123,8 +123,8 @@ func TestPrometheusConverter_addGaugeNumberDataPoints(t *testing.T) {
 				pcommon.NewResource(),
 				Settings{
 					ExportCreatedMetric:                 true,
+					PromoteScopeMetadata: tt.promoteScope,
 					EnableCreatedTimestampZeroIngestion: true,
-					ConvertScopeMetadata:                tt.convertScope,
 				},
 				metric.Name(),
 				tt.scope,
@@ -153,11 +153,11 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 		name         string
 		metric       func() pmetric.Metric
 		scope        scope
-		convertScope bool
+		promoteScope bool
 		want         func() map[uint64]*prompb.TimeSeries
 	}{
 		{
-			name: "sum without scope conversion",
+			name: "sum without scope promotion",
 			metric: func() pmetric.Metric {
 				return getIntSumMetric(
 					"test",
@@ -167,7 +167,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				)
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test"},
@@ -186,7 +186,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "sum with scope conversion",
+			name: "sum with scope promotion",
 			metric: func() pmetric.Metric {
 				return getIntSumMetric(
 					"test",
@@ -196,7 +196,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				)
 			},
 			scope:        defaultScope,
-			convertScope: true,
+			promoteScope: true,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test"},
@@ -220,7 +220,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "sum with exemplars and without scope conversion",
+			name: "sum with exemplars and without scope promotion",
 			metric: func() pmetric.Metric {
 				m := getIntSumMetric(
 					"test",
@@ -232,7 +232,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				return m
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test"},
@@ -252,7 +252,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "monotonic cumulative sum with start timestamp and without scope conversion",
+			name: "monotonic cumulative sum with start timestamp and without scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_sum")
@@ -267,7 +267,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_sum"},
@@ -292,7 +292,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "monotonic cumulative sum with no start time and without scope conversion",
+			name: "monotonic cumulative sum with no start time and without scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_sum")
@@ -305,7 +305,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_sum"},
@@ -321,7 +321,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "non-monotonic cumulative sum with start time and without scope conversion",
+			name: "non-monotonic cumulative sum with start time and without scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_sum")
@@ -334,7 +334,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_sum"},
@@ -362,8 +362,8 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				metric,
 				Settings{
 					ExportCreatedMetric:                 true,
+					PromoteScopeMetadata: tt.promoteScope,
 					EnableCreatedTimestampZeroIngestion: true,
-					ConvertScopeMetadata:                tt.convertScope,
 				},
 				metric.Name(),
 				tt.scope,
