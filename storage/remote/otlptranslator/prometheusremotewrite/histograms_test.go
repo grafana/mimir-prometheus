@@ -641,12 +641,12 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 		name                  string
 		metric                func() pmetric.Metric
 		scope                 scope
-		convertScope          bool
+		promoteScope          bool
 		overrideValidInterval time.Duration
 		wantSeries            func() map[uint64]*prompb.TimeSeries
 	}{
 		{
-			name: "histogram data points with same labels and without scope conversion",
+			name: "histogram data points with same labels and without scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist")
@@ -671,7 +671,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist"},
@@ -707,7 +707,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "histogram data points with same labels and with scope conversion",
+			name: "histogram data points with same labels and with scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist")
@@ -732,7 +732,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: true,
+			promoteScope: true,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist"},
@@ -773,7 +773,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "histogram data points with different labels and without scope conversion",
+			name: "histogram data points with different labels and without scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist")
@@ -798,7 +798,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist"},
@@ -859,7 +859,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
@@ -896,7 +896,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
@@ -935,7 +935,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 		// 		return metric
 		// 	},
 		// 	scope:        defaultScope,
-		// 	convertScope: false,
+		// 	promoteScope: false,
 		// 	wantSeries: func() map[uint64]*prompb.TimeSeries {
 		// 		labels := []prompb.Label{
 		// 			{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
@@ -976,7 +976,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 		// 		return metric
 		// 	},
 		// 	scope:        defaultScope,
-		// 	convertScope: false,
+		// 	promoteScope: false,
 		// 	wantSeries: func() map[uint64]*prompb.TimeSeries {
 		// 		labels := []prompb.Label{
 		// 			{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
@@ -1018,7 +1018,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
@@ -1056,8 +1056,8 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				pcommon.NewResource(),
 				Settings{
 					ExportCreatedMetric:                        true,
+					PromoteScopeMetadata:                       tt.promoteScope,
 					EnableCreatedTimestampZeroIngestion:        true,
-					ConvertScopeMetadata:                       tt.convertScope,
 					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
 				namer.Build(TranslatorMetricFromOtelMetric(metric)),
@@ -1297,11 +1297,11 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 		name         string
 		metric       func() pmetric.Metric
 		scope        scope
-		convertScope bool
+		promoteScope bool
 		wantSeries   func() map[uint64]*prompb.TimeSeries
 	}{
 		{
-			name: "histogram data points with same labels and without scope conversion",
+			name: "histogram data points with same labels and without scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist_to_nhcb")
@@ -1326,7 +1326,7 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist_to_nhcb"},
@@ -1362,7 +1362,7 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "histogram data points with same labels and with scope conversion",
+			name: "histogram data points with same labels and with scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist_to_nhcb")
@@ -1387,7 +1387,7 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: true,
+			promoteScope: true,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist_to_nhcb"},
@@ -1428,7 +1428,7 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "histogram data points with different labels and without scope conversion",
+			name: "histogram data points with different labels and without scope promotion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist_to_nhcb")
@@ -1453,7 +1453,7 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			wantSeries: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist_to_nhcb"},
@@ -1516,7 +1516,7 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 				Settings{
 					ExportCreatedMetric:     true,
 					ConvertHistogramsToNHCB: true,
-					ConvertScopeMetadata:    tt.convertScope,
+					PromoteScopeMetadata:    tt.promoteScope,
 				},
 				namer.Build(TranslatorMetricFromOtelMetric(metric)),
 				pmetric.AggregationTemporalityCumulative,
