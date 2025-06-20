@@ -559,7 +559,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 		name                  string
 		metric                func() pmetric.Metric
 		scope                 scope
-		promoteScope bool
+		promoteScope          bool
 		overrideValidInterval time.Duration
 		want                  func() map[uint64]*prompb.TimeSeries
 	}{
@@ -624,7 +624,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				return metric
 			},
 			scope:        defaultScope,
-			convertScope: false,
+			promoteScope: false,
 			want: func() map[uint64]*prompb.TimeSeries {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
@@ -1126,7 +1126,7 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 				pcommon.NewResource(),
 				Settings{
 					ExportCreatedMetric:                 true,
-					PromoteScopeMetadata: tt.promoteScope,
+					PromoteScopeMetadata:                tt.promoteScope,
 					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),

@@ -123,7 +123,7 @@ func TestPrometheusConverter_addGaugeNumberDataPoints(t *testing.T) {
 				pcommon.NewResource(),
 				Settings{
 					ExportCreatedMetric:                 true,
-					PromoteScopeMetadata: tt.promoteScope,
+					PromoteScopeMetadata:                tt.promoteScope,
 					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
@@ -362,7 +362,7 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				metric,
 				Settings{
 					ExportCreatedMetric:                 true,
-					PromoteScopeMetadata: tt.promoteScope,
+					PromoteScopeMetadata:                tt.promoteScope,
 					EnableCreatedTimestampZeroIngestion: true,
 				},
 				metric.Name(),
