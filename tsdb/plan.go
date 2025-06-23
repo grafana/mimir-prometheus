@@ -157,6 +157,14 @@ func (p plan) pendingMatchers() []*labels.Matcher {
 	return matchers
 }
 
+func (p plan) intersectingMatchers() []*labels.Matcher {
+	return nil
+}
+
+func (p plan) subtractingMatchers() []*labels.Matcher {
+	return nil
+}
+
 func planIndexLookup(ctx context.Context, ms []*labels.Matcher, ix IndexPostingsReader, isSubtractingMatcher func(m *labels.Matcher) bool) (plan, error) {
 	allPlans, err := generatePlans(ctx, ms, ix, isSubtractingMatcher)
 	if err != nil {

@@ -192,6 +192,30 @@ func selectChunkSeriesSet(ctx context.Context, sortSeries bool, hints *storage.S
 
 var TryOptimizing = true
 
+func PostingsForPlan(ctx context.Context, ix IndexPostingsReader, p plan) (index.Postings, []*labels.Matcher, error) {
+	var its, notIts []index.Postings
+	for _, m := range p.intersectingMatchers() {
+		postings := ix.PostingsForLabelMatching(ctx, m.Name, m.Matches)
+		if index.IsEmptyPostingsType(postings) {
+			return nil, nil, storage.ErrNotFound // TODO dimitarvdimitrov or return something else
+		}
+		its = append(its, postings)
+	}
+
+	for _, m := range p.subtractingMatchers() {
+		postings := ix.PostingsForLabelMatching(ctx, m.Name, m.Matches)
+		notIts = append(notIts, postings)
+	}
+
+	it := index.Intersect(its...)
+
+	for _, n := range notIts {
+		it = index.Without(it, n)
+	}
+	return it, nil, nil
+}
+
+// PostingsForMatchers assembles a single postings iterator against the index reade
 // PostingsForMatchers assembles a single postings iterator against the index reader
 // based on the given matchers. The resulting postings are not ordered by series.
 // The returned pendingMatchers are matchers that have not been applied to the returned postings yet.
@@ -240,6 +264,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 		}
 	}
 
+	// TODO dimitarvdimitrov move to planner
 	if hasSubtractingMatchers && !hasIntersectingMatchers {
 		// If there's nothing to subtract from, add in everything and remove the notIts later.
 		// We prefer to get AllPostings so that the base of subtraction (i.e. allPostings)
@@ -275,10 +300,11 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 			// and it is unexpected to get all postings again here.
 			return nil, nil, errors.New("unexpected all postings")
 
-		case m.Type == labels.MatchRegexp && m.Value == ".*":
-			// .* regexp matches any string: do nothing.
-		case m.Type == labels.MatchNotRegexp && m.Value == ".*":
-			return index.EmptyPostings(), nil, nil
+		// TODO dimitarvdimitrov move to planner
+		//case m.Type == labels.MatchRegexp && m.Value == ".*":
+		//	// .* regexp matches any string: do nothing.
+		//case m.Type == labels.MatchNotRegexp && m.Value == ".*":
+		//	return index.EmptyPostings(), nil, nil
 
 		case m.Type == labels.MatchRegexp && m.Value == ".+":
 			// .+ regexp matches any non-empty string: get postings for all label values.
@@ -297,6 +323,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 			isNot := m.Type == labels.MatchNotEqual || m.Type == labels.MatchNotRegexp
 			switch {
 			case isNot && matchesEmpty: // l!="foo"
+				// TODO dimitarvdimitrov move to planner
 				// If the label can't be empty and is a Not and the inner matcher
 				// doesn't match empty, then subtract it out at the end.
 				inverse, err := m.Inverse()
@@ -309,23 +336,12 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 					return nil, nil, err
 				}
 				notIts = append(notIts, it)
-			case isNot && !matchesEmpty: // l!=""
-				// If the label can't be empty and is a Not, but the inner matcher can
-				// be empty we need to use inversePostingsForMatcher.
-				inverse, err := m.Inverse()
-				if err != nil {
-					return nil, nil, err
-				}
-
-				it, err := inversePostingsForMatcher(ctx, ix, inverse)
-				if err != nil {
-					return nil, nil, err
-				}
-				if index.IsEmptyPostingsType(it) {
-					return index.EmptyPostings(), nil, nil
-				}
-				its = append(its, it)
-			default: // l="a", l=~"a|b", l=~"a.b", etc.
+			//case isNot && !matchesEmpty: // l!=""
+			// TODO dimitarvdimitrov - remove the inverse of the inverse - what the inverse of the inverse allows us to do is to get the postings for all series
+			// 							with a label if the matcher is literally `X!=""` (doesn't cover `X!~"(.*|x)"` for example or other regexes that accept the empty string).
+			//							To solve this we can accept the change in this commit to postingsForMatcher, move the invert of this matcher (m) to the intersecting list of the plan and treat it as normal.
+			//							We'll effectively remove this branch of the switch.
+			default: // l!="", l!~"", l="a", l=~"a|b", l=~"a.b", etc.
 				// Non-Not matcher, use normal postingsForMatcher.
 				it, err := postingsForMatcher(ctx, ix, m)
 				if err != nil {
@@ -337,6 +353,7 @@ func PostingsForMatchers(ctx context.Context, ix IndexPostingsReader, ms ...*lab
 				its = append(its, it)
 			}
 		default: // l=""
+			// TODO dimitarvdimitrov just inverse the matcher and add it to subtracting matchers of the plan
 			// If the matchers for a labelname selects an empty value, it selects all
 			// the series which don't have the label name set too. See:
 			// https://github.com/prometheus/prometheus/issues/3575 and
@@ -374,38 +391,22 @@ func postingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *labels.M
 		}
 	}
 
+	if (m.Type == labels.MatchNotEqual || m.Type == labels.MatchNotRegexp) && m.Value == "" {
+		return ix.PostingsForAllLabelValues(ctx, m.Name), nil
+	}
+
 	it := ix.PostingsForLabelMatching(ctx, m.Name, m.Matches)
 	return it, it.Err()
 }
 
+// TODO dimitarvdimitrov remove
 // inversePostingsForMatcher returns the postings for the series with the label name set but not matching the matcher.
 func inversePostingsForMatcher(ctx context.Context, ix IndexPostingsReader, m *labels.Matcher) (index.Postings, error) {
-	// Fast-path for MatchNotRegexp matching.
-	// Inverse of a MatchNotRegexp is MatchRegexp (double negation).
-	// Fast-path for set matching.
-	if m.Type == labels.MatchNotRegexp {
-		setMatches := m.SetMatches()
-		if len(setMatches) > 0 {
-			return ix.Postings(ctx, m.Name, setMatches...)
-		}
+	m, err := m.Inverse()
+	if err != nil {
+		return nil, err
 	}
-
-	// Fast-path for MatchNotEqual matching.
-	// Inverse of a MatchNotEqual is MatchEqual (double negation).
-	if m.Type == labels.MatchNotEqual {
-		return ix.Postings(ctx, m.Name, m.Value)
-	}
-
-	// If the matcher being inverted is =~"" or ="", we just want all the values.
-	if m.Value == "" && (m.Type == labels.MatchRegexp || m.Type == labels.MatchEqual) {
-		it := ix.PostingsForAllLabelValues(ctx, m.Name)
-		return it, it.Err()
-	}
-
-	it := ix.PostingsForLabelMatching(ctx, m.Name, func(s string) bool {
-		return !m.Matches(s)
-	})
-	return it, it.Err()
+	return postingsForMatcher(ctx, ix, m)
 }
 
 const maxExpandedPostingsFactor = 100 // Division factor for maximum number of matched series.
