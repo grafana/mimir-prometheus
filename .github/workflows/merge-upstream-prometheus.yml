@@ -244,7 +244,7 @@ jobs:
             
             # 2. Fetch and merge the upstream commit to trigger conflicts
             git remote add upstream https://github.com/prometheus/prometheus.git # Omit this step if you already have a remote configured for prometheus/prometheus.
-            git fetch upstream
+            git fetch upstream ${{ needs.check-merge.outputs.upstream_commit }}
             git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit
             
             # 3. If conflicts occur:
