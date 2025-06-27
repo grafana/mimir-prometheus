@@ -39,15 +39,15 @@ jobs:
         run: |
           # Create timestamp for branch naming
           TIMESTAMP=$(date +%Y%m%d%H%M)
-          
+
           # Compute bot branch name pattern
           BOT_BRANCH="bot/$LOCAL_BRANCH/merge-upstream-$UPSTREAM_BRANCH-$TIMESTAMP"
-          
+
           echo "upstream_branch=$UPSTREAM_BRANCH" >> $GITHUB_OUTPUT
           echo "local_branch=$LOCAL_BRANCH" >> $GITHUB_OUTPUT
           echo "timestamp=$TIMESTAMP" >> $GITHUB_OUTPUT
           echo "bot_branch=$BOT_BRANCH" >> $GITHUB_OUTPUT
-          
+
           echo "Upstream branch: $UPSTREAM_BRANCH"
           echo "Local branch: $LOCAL_BRANCH"
           echo "Bot branch: $BOT_BRANCH"
@@ -66,17 +66,17 @@ jobs:
         run: |
           echo "Adding prometheus/prometheus as remote..."
           git remote add prometheus https://github.com/prometheus/prometheus.git
-          
+
           # Fetch the upstream branch
           echo "Fetching branch $UPSTREAM_BRANCH from prometheus/prometheus..."
           git fetch prometheus $UPSTREAM_BRANCH
-          
+
           # Verify the branch exists
           if ! git show-ref --verify --quiet refs/remotes/prometheus/$UPSTREAM_BRANCH; then
             echo "Error: Branch $UPSTREAM_BRANCH not found in prometheus/prometheus"
             exit 1
           fi
-          
+
           echo "Successfully fetched upstream branch $UPSTREAM_BRANCH"
 
       - name: Get upstream commit info
@@ -88,11 +88,11 @@ jobs:
           UPSTREAM_COMMIT=$(git rev-parse prometheus/$UPSTREAM_BRANCH)
           UPSTREAM_SHORT=$(echo "$UPSTREAM_COMMIT" | cut -c1-12)
           COMMIT_DATE=$(git log --format="%ad" --date=short -n 1 prometheus/$UPSTREAM_BRANCH)
-          
+
           echo "upstream_commit=$UPSTREAM_COMMIT" >> $GITHUB_OUTPUT
           echo "upstream_short=$UPSTREAM_SHORT" >> $GITHUB_OUTPUT
           echo "commit_date=$COMMIT_DATE" >> $GITHUB_OUTPUT
-          
+
           echo "Upstream commit: $UPSTREAM_COMMIT"
 
       - name: Check if merge is needed
@@ -103,7 +103,7 @@ jobs:
         run: |
           # Check if upstream has new commits
           UPSTREAM_COMMIT=$(git rev-parse prometheus/$UPSTREAM_BRANCH)
-          
+
           # Check if we already have this commit
           if git merge-base --is-ancestor $UPSTREAM_COMMIT HEAD; then
             echo "merge_needed=false" >> $GITHUB_OUTPUT
@@ -145,9 +145,9 @@ jobs:
           # Configure git for the merge
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
-          
+
           echo "Attempting to merge ${{ needs.check-merge.outputs.upstream_commit }}..."
-          
+
           # Attempt the merge
           if git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit; then
             echo "merge_result=success" >> $GITHUB_OUTPUT
@@ -196,7 +196,7 @@ jobs:
           # Configure git
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
-          
+
           # Create an empty commit to establish the branch
           git commit --allow-empty -m "Empty commit to create branch for conflict resolution"
 
@@ -227,37 +227,37 @@ jobs:
           title: "[${{ needs.check-merge.outputs.local_branch }}] Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} to ${{ needs.check-merge.outputs.upstream_short }}"
           body: |
             ## Merge Conflicts Detected
-            
+
             *This PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
-            
+
             ### Details
             - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
             - **Local branch**: `${{ needs.check-merge.outputs.local_branch }}`
             - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', needs.check-merge.outputs.upstream_commit) }}
             - **Latest upstream commit date**: ${{ needs.check-merge.outputs.commit_date }}
-            
+
             ### Action Required
             This **closed PR** serves as a placeholder that holds the branch and instructions for conflict resolution. Follow these steps to resolve conflicts and reopen this PR:
-            
+
             ```bash
             # 1. Fetch and check out the empty branch created by CI
             git fetch origin
             git checkout ${{ needs.check-merge.outputs.bot_branch }}
-            
+
             # 2. Fetch and merge the upstream commit to trigger conflicts
             git remote add upstream https://github.com/prometheus/prometheus.git # Omit this step if you already have a remote configured for prometheus/prometheus.
             git fetch upstream
             git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit
-            
+
             # 3. If conflicts occur:
             #    - Edit conflicted files and resolve conflicts
             #    - Look for conflict markers: <<<<<<< HEAD, =======, >>>>>>>
             #    - Remove conflict markers after resolving
             #    - Run: git add . && git merge --continue
-            
+
             # 4. Push your resolved merge (no force-push needed)
             git push
-            
+
             # 5. Re-open the closed PR
             ```
           commit-message: "Empty commit to create branch for conflict resolution"
@@ -321,11 +321,11 @@ jobs:
         run: |
           git remote add prometheus https://github.com/prometheus/prometheus.git
           git fetch prometheus ${{ needs.check-merge.outputs.upstream_commit }}
-          
+
           # Configure git
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
-          
+
           # Perform the merge (we know it will succeed)
           git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit
 
@@ -356,15 +356,15 @@ jobs:
           title: "[${{ needs.check-merge.outputs.local_branch }}] Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} to ${{ needs.check-merge.outputs.upstream_short }}"
           body: |
             ## Merge from prometheus/prometheus
-            
+
             *This PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml)*
-            
+
             ### Details:
             - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
             - **Local branch**: `${{ needs.check-merge.outputs.local_branch }}`
             - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', needs.check-merge.outputs.upstream_commit) }}
             - **Latest upstream commit date**: ${{ needs.check-merge.outputs.commit_date }}
-            
+
             ### Changes:
             This PR merges the latest changes from the upstream prometheus/prometheus `${{ needs.check-merge.outputs.upstream_branch }}` branch.
           commit-message: "Merge upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }} (${{ needs.check-merge.outputs.upstream_short }})"
