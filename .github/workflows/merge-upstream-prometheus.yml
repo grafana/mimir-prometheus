@@ -1,6 +1,8 @@
 name: Merge upstream prometheus/prometheus branch
 
 on:
+  schedule:
+    - cron: "0 2 * * 1" # weekly at 2am on Monday
   workflow_dispatch:
     inputs:
       upstream_branch:
