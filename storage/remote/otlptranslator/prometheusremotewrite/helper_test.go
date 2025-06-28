@@ -753,7 +753,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "summary with start time older than default valid interval to sample timestamp",
+			name: "summary with start time and with scope conversion",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_summary")
