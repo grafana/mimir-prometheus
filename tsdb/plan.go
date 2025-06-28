@@ -127,6 +127,19 @@ func (p plan) intersectionSize() int64 {
 		//
 		// We also assume idependence between the predicates. This is a simplification.
 		// For example, the selectivity of {pod=~prometheus.*} doesn't depend if we have already applied {statefulset=prometheus}.
+
+		// https://www.microsoft.com/en-us/research/wp-content/uploads/2024/12/Extensible-Query-Optimizers-in-Practice.pdf
+		// Microsoft SQL Server made a major update to its cardinality estimator in 2014 [137] based on the aggregated benefit observed over
+		// several OLTP and data warehousing workloads. In particular, it made
+		// two major changes to the assumptions. First, instead of assuming independence, it assumes that data distributions on different columns are
+		// positively correlated. However, instead of assuming perfect correlation,
+		// 	it assumes a so-called “exponential back-off” model of correlation, which
+		// strikes a middle-ground while still keeping the overheads of statistics
+		// low. Specifically, when estimating the selectivity of a conjunction of
+		// predicates, the most selective predicate’s selectivity is multiplied by the
+		// square root of the selectivity of the second most selective predicate,
+		// 	which is multiplied by the square root of the square root of the selectivity of the third most selective predicate, and so on, as shown in the
+		// formula below:
 		finalSelectivity *= float64(pr.cardinality) / float64(p.totalSeries)
 	}
 	return int64(finalSelectivity * float64(p.totalSeries))
