@@ -1576,7 +1576,7 @@ func (ev *evaluator) evalLabelReplace(ctx context.Context, args parser.Expressio
 	if err != nil {
 		panic(fmt.Errorf("invalid regular expression in label_replace(): %s", regexStr))
 	}
-	if !ev.nameValidationScheme.IsValidLabelName(dst) {
+	if !model.LabelName(dst).IsValid(ev.validationScheme) {
 		panic(fmt.Errorf("invalid destination label name in label_replace(): %s", dst))
 	}
 
@@ -1624,12 +1624,12 @@ func (ev *evaluator) evalLabelJoin(ctx context.Context, args parser.Expressions)
 	)
 	for i := 3; i < len(args); i++ {
 		src := stringFromArg(args[i])
-		if !ev.nameValidationScheme.IsValidLabelName(src) {
+		if !model.LabelName(src).IsValid(ev.validationScheme) {
 			panic(fmt.Errorf("invalid source label name in label_join(): %s", src))
 		}
 		srcLabels[i-3] = src
 	}
-	if !ev.nameValidationScheme.IsValidLabelName(dst) {
+	if !model.LabelName(dst).IsValid(ev.validationScheme) {
 		panic(fmt.Errorf("invalid destination label name in label_join(): %s", dst))
 	}
 
