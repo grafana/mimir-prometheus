@@ -1144,3 +1144,44 @@ func containsInOrderMulti(s string, contains []string) bool {
 
 	return true
 }
+
+func (m *FastRegexMatcher) CostEstimate() float64 {
+	parsed, err := syntax.Parse(m.reString, syntax.Perl|syntax.DotNL)
+	if err != nil {
+		return 0
+	}
+	return costEstimate(parsed)
+}
+
+func costEstimate(re *syntax.Regexp) float64 {
+	switch re.Op {
+	case syntax.OpBeginText:
+		return 1
+	case syntax.OpEndText:
+		return 1
+	case syntax.OpLiteral:
+		return float64(len(re.Rune))
+	case syntax.OpEmptyMatch:
+		return 1
+	case syntax.OpStar:
+		return 10
+	case syntax.OpAlternate:
+		var total float64 = 1
+		for _, sub := range re.Sub {
+			total += costEstimate(sub)
+		}
+		return total
+	case syntax.OpCapture:
+		return costEstimate(re.Sub[0])
+	case syntax.OpConcat:
+		var total float64 = 0
+		for _, sub := range re.Sub {
+			total += costEstimate(sub)
+		}
+		return total
+	case syntax.OpCharClass:
+		return float64(len(re.Rune))
+	default:
+		return 1
+	}
+}
