@@ -23,7 +23,6 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/prometheus/prometheus/model/labels"
-	"github.com/prometheus/prometheus/model/validation"
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
@@ -749,7 +748,8 @@ func TestRelabel(t *testing.T) {
 				if cfg.Replacement == "" {
 					cfg.Replacement = DefaultRelabelConfig.Replacement
 				}
-				require.NoError(t, cfg.Validate(validation.UTF8NamingScheme))
+				cfg.MetricNameValidationScheme = model.UTF8Validation
+				require.NoError(t, cfg.Validate())
 			}
 
 			res, keep := Process(test.input, test.relabel...)
@@ -764,26 +764,26 @@ func TestRelabel(t *testing.T) {
 func TestRelabelValidate(t *testing.T) {
 	tests := []struct {
 		config   Config
-		scheme   validation.NamingScheme
+		scheme   model.ValidationScheme
 		expected string
 	}{
 		{
 			config:   Config{},
-			scheme:   validation.LegacyNamingScheme,
+			scheme:   model.LegacyValidation,
 			expected: `relabel action cannot be empty`,
 		},
 		{
 			config: Config{
 				Action: Replace,
 			},
-			scheme:   validation.LegacyNamingScheme,
+			scheme:   model.LegacyValidation,
 			expected: `requires 'target_label' value`,
 		},
 		{
 			config: Config{
 				Action: Lowercase,
 			},
-			scheme:   validation.LegacyNamingScheme,
+			scheme:   model.LegacyValidation,
 			expected: `requires 'target_label' value`,
 		},
 		{
@@ -792,7 +792,7 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement: DefaultRelabelConfig.Replacement,
 				TargetLabel: "${3}", // Fails with legacy validation
 			},
-			scheme:   validation.LegacyNamingScheme,
+			scheme:   model.LegacyValidation,
 			expected: "\"${3}\" is invalid 'target_label' for lowercase action",
 		},
 		{
@@ -800,9 +800,9 @@ func TestRelabelValidate(t *testing.T) {
 				Action:                     Lowercase,
 				Replacement:                DefaultRelabelConfig.Replacement,
 				TargetLabel:                "${3}", // With UTF-8 naming, this is now a legal relabel rule.
-				MetricNameValidationScheme: validation.UTF8NamingScheme,
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
-			scheme: validation.LegacyNamingScheme, // overridden by the config's scheme
+			scheme: model.LegacyValidation, // overridden by the config's scheme
 		},
 		{
 			config: Config{
@@ -810,7 +810,7 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement: DefaultRelabelConfig.Replacement,
 				TargetLabel: "${3}", // With UTF-8 naming, this is now a legal relabel rule.
 			},
-			scheme: "", // defaults to UTF8 validation
+			scheme: model.UnsetValidation, // defaults to UTF8 validation
 		},
 		{
 			config: Config{
@@ -818,7 +818,7 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement: DefaultRelabelConfig.Replacement,
 				TargetLabel: "${3}", // With UTF-8 naming, this is now a legal relabel rule.
 			},
-			scheme: validation.UTF8NamingScheme,
+			scheme: model.UTF8Validation,
 		},
 		{
 			config: Config{
@@ -828,7 +828,7 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement:  "${1}",
 				TargetLabel:  "${3}",
 			},
-			scheme: validation.UTF8NamingScheme,
+			scheme: model.UTF8Validation,
 		},
 		{
 			config: Config{
@@ -838,7 +838,7 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement:  "${1}",
 				TargetLabel:  "0${3}", // With UTF-8 naming this targets a valid label.
 			},
-			scheme: validation.UTF8NamingScheme,
+			scheme: model.UTF8Validation,
 		},
 		{
 			config: Config{
@@ -848,12 +848,13 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement:  "${1}",
 				TargetLabel:  "-${3}", // With UTF-8 naming this targets a valid label.
 			},
-			scheme: validation.UTF8NamingScheme,
+			scheme: model.UTF8Validation,
 		},
 	}
 	for i, test := range tests {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			err := test.config.Validate(test.scheme)
+			test.config.MetricNameValidationScheme = test.scheme
+			err := test.config.Validate()
 			if test.expected == "" {
 				require.NoError(t, err)
 			} else {

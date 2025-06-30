@@ -50,7 +50,7 @@ require (
 	github.com/prometheus/alertmanager v0.28.1
 	github.com/prometheus/client_golang v1.22.1-0.20250704064215-27d159a1744f
 	github.com/prometheus/client_model v0.6.2
-	github.com/prometheus/common v0.65.1-0.20250704064055-d99456f60c11
+	github.com/prometheus/common v0.65.1-0.20250704081827-cdfe59f8772d
 	github.com/prometheus/common/assets v0.2.0
 	github.com/prometheus/exporter-toolkit v0.14.0
 	github.com/prometheus/sigv4 v0.2.0
@@ -93,8 +93,6 @@ require (
 	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.130.1
 )
-
-replace github.com/prometheus/client_golang => github.com/juliusmh/client_golang v1.22.1-0.20250701110037-ceb5803cbf1f
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3 // indirect
