@@ -230,6 +230,8 @@ jobs:
 
             *This PR was automatically created by the [merge-upstream-prometheus workflow](https://github.com/grafana/mimir-prometheus/blob/main/.github/workflows/merge-upstream-prometheus.yml) due to merge conflicts.*
 
+            **For reviewers**: After conflicts are resolved, the author should post a comment with the output of `git show --remerge-diff`. This shows how merge conflicts were manually resolved compared to what Git would have done automatically, making conflict resolution transparent and allowing validation that conflicts were resolved correctly.
+
             ### Details
             - **Upstream branch**: `${{ needs.check-merge.outputs.upstream_branch }}`
             - **Local branch**: `${{ needs.check-merge.outputs.local_branch }}`
@@ -259,6 +261,24 @@ jobs:
             git push
 
             # 5. Re-open the closed PR
+            
+            # 6. Post the remerge diff as a comment for reviewers:
+            gh pr comment --body "## Merge Conflict Resolution
+
+            You can review how conflicts were resolved using:
+
+            \`\`\`bash
+            git show --remerge-diff
+            \`\`\`
+
+            <details>
+            <summary>Click to expand remerge diff output</summary>
+
+            \`\`\`diff
+            $(git show --remerge-diff)
+            \`\`\`
+
+            </details>"
             ```
           commit-message: "Empty commit to create branch for conflict resolution"
           branch: ${{ needs.check-merge.outputs.bot_branch }}
