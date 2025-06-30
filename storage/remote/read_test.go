@@ -22,6 +22,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	config_util "github.com/prometheus/common/config"
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/config"
@@ -43,6 +44,7 @@ func TestNoDuplicateReadConfigs(t *testing.T) {
 				Host:   "localhost1",
 			},
 		},
+		MetricNameValidationScheme: model.UTF8Validation,
 	}
 	cfg2 := config.RemoteReadConfig{
 		Name: "write-2",
@@ -52,6 +54,7 @@ func TestNoDuplicateReadConfigs(t *testing.T) {
 				Host:   "localhost2",
 			},
 		},
+		MetricNameValidationScheme: model.UTF8Validation,
 	}
 	cfg3 := config.RemoteReadConfig{
 		URL: &config_util.URL{
@@ -60,6 +63,7 @@ func TestNoDuplicateReadConfigs(t *testing.T) {
 				Host:   "localhost3",
 			},
 		},
+		MetricNameValidationScheme: model.UTF8Validation,
 	}
 
 	type testcase struct {
