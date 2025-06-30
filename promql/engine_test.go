@@ -26,12 +26,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/timestamp"
-	"github.com/prometheus/prometheus/model/validation"
 	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -1302,7 +1302,7 @@ load 10s
 
 	for _, c := range cases {
 		t.Run(c.Query, func(t *testing.T) {
-			opts := promql.NewPrometheusQueryOpts(true, 0, validation.UTF8NamingScheme)
+			opts := promql.NewPrometheusQueryOpts(true, 0, model.UTF8Validation)
 			engine := promqltest.NewTestEngine(t, true, 0, promqltest.DefaultMaxSamplesPerQuery)
 
 			runQuery := func(expErr error) *stats.Statistics {
@@ -3344,7 +3344,7 @@ metric 0 1 2
 			storage := promqltest.LoadedStorage(t, load)
 			t.Cleanup(func() { storage.Close() })
 
-			opts := promql.NewPrometheusQueryOpts(false, c.queryLookback, validation.UTF8NamingScheme)
+			opts := promql.NewPrometheusQueryOpts(false, c.queryLookback, model.UTF8Validation)
 			qry, err := engine.NewInstantQuery(context.Background(), storage, opts, query, c.ts)
 			require.NoError(t, err)
 

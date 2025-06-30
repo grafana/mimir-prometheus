@@ -41,7 +41,6 @@ linters:
     - unused
     - usestdlibvars
     - whitespace
-    - forbidigo
 
   exclusions:
     paths:
@@ -170,18 +169,6 @@ linters:
         - float-compare
         - go-require
       enable-all: true
-    forbidigo:
-      analyze-types: true
-      forbid:
-        - pattern: ^.*model\.NameValidationScheme$
-          pkg: ^github.com/prometheus/common/model$
-          msg: it is deprecated. Use model/validation.NamingScheme instead.
-        - pattern: ^.*model\.LabelName\.IsValid$
-          pkg: ^github.com/prometheus/common/model$
-          msg: it depends on model.NameValidationScheme. Use model/validation.NamingScheme instead.
-        - pattern: ^.*model\.IsValidMetricName$
-          pkg: ^github.com/prometheus/common/model$
-          msg: it depends on model.NameValidationScheme. Use model/validation.NamingScheme instead.
 
 output:
   show-stats: false
