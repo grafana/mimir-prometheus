@@ -157,7 +157,6 @@ func main() {
 
 	checkMetricsCmd := checkCmd.Command("metrics", checkMetricsUsage)
 	checkMetricsExtended := checkCmd.Flag("extended", "Print extended information related to the cardinality of the metrics.").Bool()
-	checkMetricsScheme := checkCmd.Flag("validation-scheme", "Validate metric and label names").Default("utf8").Enum("legacy", "utf8")
 	agentMode := checkConfigCmd.Flag("agent", "Check config file for Prometheus in Agent mode.").Bool()
 
 	queryCmd := app.Command("query", "Run query against a Prometheus server.")
@@ -369,17 +368,7 @@ func main() {
 		os.Exit(CheckRules(newRulesLintConfig(*checkRulesLint, *checkRulesLintFatal, *checkRulesIgnoreUnknownFields), *ruleFiles...))
 
 	case checkMetricsCmd.FullCommand():
-		validationScheme := model.UnsetValidation
-		switch *checkMetricsScheme {
-		case "legacy":
-			validationScheme = model.LegacyValidation
-		case "utf8":
-			validationScheme = model.UTF8Validation
-		default:
-			fmt.Fprintln(os.Stderr, "invalid validation scheme: "+*checkMetricsScheme)
-			os.Exit(1)
-		}
-		os.Exit(CheckMetrics(*checkMetricsExtended, validationScheme))
+		os.Exit(CheckMetrics(*checkMetricsExtended, model.UTF8Validation))
 
 	case pushMetricsCmd.FullCommand():
 		os.Exit(PushMetrics(remoteWriteURL, httpRoundTripper, *pushMetricsHeaders, *pushMetricsTimeout, *pushMetricsLabels, *metricFiles...))

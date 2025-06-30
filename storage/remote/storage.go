@@ -96,7 +96,7 @@ func (s *Storage) ApplyConfig(conf *config.Config) error {
 	// Update read clients
 	readHashes := make(map[string]struct{})
 	queryables := make([]storage.SampleAndChunkQueryable, 0, len(conf.RemoteReadConfigs))
-	for _, rrConf := range conf.RemoteReadConfigs {
+	for i, rrConf := range conf.RemoteReadConfigs {
 		hash, err := toHash(rrConf)
 		if err != nil {
 			return err
@@ -117,7 +117,7 @@ func (s *Storage) ApplyConfig(conf *config.Config) error {
 		}
 		validationScheme := rrConf.MetricNameValidationScheme
 		if validationScheme == model.UnsetValidation {
-			validationScheme = model.UTF8Validation
+			return fmt.Errorf("conf.RemoteReadConfigs[%d].MetricNameValidationScheme must be set", i)
 		}
 
 		c, err := NewReadClient(name, &ClientConfig{
@@ -126,7 +126,7 @@ func (s *Storage) ApplyConfig(conf *config.Config) error {
 			ChunkedReadLimit: rrConf.ChunkedReadLimit,
 			HTTPClientConfig: rrConf.HTTPClientConfig,
 			Headers:          rrConf.Headers,
-			NamingScheme:     rrConf.MetricNameValidationScheme,
+			ValidationScheme: validationScheme,
 		})
 		if err != nil {
 			return err

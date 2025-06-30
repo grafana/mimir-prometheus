@@ -23,8 +23,6 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
-
-	"github.com/prometheus/prometheus/model/validation"
 )
 
 func TestParseFileSuccess(t *testing.T) {
@@ -112,7 +110,7 @@ func TestParseFileFailure(t *testing.T) {
 		},
 		{
 			filename: "utf-8_annotation.bad.yaml",
-			opts:     []ParseOption{WithNamingScheme(validation.LegacyNamingScheme)},
+			opts:     []ParseOption{WithValidationScheme(model.LegacyValidation)},
 			errMsg:   "invalid annotation name: ins-tance",
 		},
 	} {

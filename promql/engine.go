@@ -41,7 +41,6 @@ import (
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/timestamp"
-	"github.com/prometheus/prometheus/model/validation"
 	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/promql/parser/posrange"
@@ -152,17 +151,17 @@ type PrometheusQueryOpts struct {
 	enablePerStepStats bool
 	// Lookback delta duration for this query.
 	lookbackDelta time.Duration
-	// nameValidationScheme for validating metric/label names.
-	nameValidationScheme validation.NamingScheme
+	// validationScheme for metric/label names.
+	validationScheme model.ValidationScheme
 }
 
 var _ QueryOpts = &PrometheusQueryOpts{}
 
-func NewPrometheusQueryOpts(enablePerStepStats bool, lookbackDelta time.Duration, namingScheme validation.NamingScheme) QueryOpts {
+func NewPrometheusQueryOpts(enablePerStepStats bool, lookbackDelta time.Duration, validationScheme model.ValidationScheme) QueryOpts {
 	return &PrometheusQueryOpts{
-		enablePerStepStats:   enablePerStepStats,
-		lookbackDelta:        lookbackDelta,
-		nameValidationScheme: namingScheme,
+		enablePerStepStats: enablePerStepStats,
+		lookbackDelta:      lookbackDelta,
+		validationScheme:   validationScheme,
 	}
 }
 
@@ -174,8 +173,8 @@ func (p *PrometheusQueryOpts) LookbackDelta() time.Duration {
 	return p.lookbackDelta
 }
 
-func (p *PrometheusQueryOpts) NameValidationScheme() validation.NamingScheme {
-	return p.nameValidationScheme
+func (p *PrometheusQueryOpts) ValidationScheme() model.ValidationScheme {
+	return p.validationScheme
 }
 
 type QueryOpts interface {
@@ -183,8 +182,8 @@ type QueryOpts interface {
 	EnablePerStepStats() bool
 	// Lookback delta duration for this query.
 	LookbackDelta() time.Duration
-	// NameValidationScheme to use
-	NameValidationScheme() validation.NamingScheme
+	// ValidationScheme to use for metric and label names.
+	ValidationScheme() model.ValidationScheme
 }
 
 // query implements the Query interface.
@@ -202,8 +201,9 @@ type query struct {
 	// Result matrix for reuse.
 	matrix Matrix
 	// Cancellation function for the query.
-	cancel               func()
-	nameValidationScheme validation.NamingScheme
+	cancel func()
+	// validationScheme used for metric and label names.
+	validationScheme model.ValidationScheme
 
 	// The engine against which the query is executed.
 	ng *Engine
@@ -531,7 +531,7 @@ func (ng *Engine) NewRangeQuery(ctx context.Context, q storage.Queryable, opts Q
 
 func (ng *Engine) newQuery(q storage.Queryable, qs string, opts QueryOpts, start, end time.Time, interval time.Duration) (*parser.Expr, *query) {
 	if opts == nil {
-		opts = NewPrometheusQueryOpts(false, 0, validation.UTF8NamingScheme)
+		opts = NewPrometheusQueryOpts(false, 0, model.UTF8Validation)
 	}
 
 	lookbackDelta := opts.LookbackDelta()
@@ -546,13 +546,13 @@ func (ng *Engine) newQuery(q storage.Queryable, qs string, opts QueryOpts, start
 		LookbackDelta: lookbackDelta,
 	}
 	qry := &query{
-		q:                    qs,
-		stmt:                 es,
-		ng:                   ng,
-		stats:                stats.NewQueryTimers(),
-		sampleStats:          stats.NewQuerySamples(ng.enablePerStepStats && opts.EnablePerStepStats()),
-		queryable:            q,
-		nameValidationScheme: opts.NameValidationScheme(),
+		q:                qs,
+		stmt:             es,
+		ng:               ng,
+		stats:            stats.NewQueryTimers(),
+		sampleStats:      stats.NewQuerySamples(ng.enablePerStepStats && opts.EnablePerStepStats()),
+		queryable:        q,
+		validationScheme: opts.ValidationScheme(),
 	}
 	return &es.Expr, qry
 }
@@ -757,7 +757,7 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 			enableDelayedNameRemoval: ng.enableDelayedNameRemoval,
 			enableTypeAndUnitLabels:  ng.enableTypeAndUnitLabels,
 			querier:                  querier,
-			nameValidationScheme:     query.nameValidationScheme,
+			validationScheme:         query.validationScheme,
 		}
 		query.sampleStats.InitStepTracking(start, start, 1)
 
@@ -818,7 +818,7 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 		enableDelayedNameRemoval: ng.enableDelayedNameRemoval,
 		enableTypeAndUnitLabels:  ng.enableTypeAndUnitLabels,
 		querier:                  querier,
-		nameValidationScheme:     query.nameValidationScheme,
+		validationScheme:         query.validationScheme,
 	}
 	query.sampleStats.InitStepTracking(evaluator.startTimestamp, evaluator.endTimestamp, evaluator.interval)
 	val, warnings, err := evaluator.Eval(ctxInnerEval, s.Expr)
@@ -1093,7 +1093,7 @@ type evaluator struct {
 	enableDelayedNameRemoval bool
 	enableTypeAndUnitLabels  bool
 	querier                  storage.Querier
-	nameValidationScheme     validation.NamingScheme
+	validationScheme         model.ValidationScheme
 }
 
 // errorf causes a panic with the input formatted into an error.
@@ -1693,7 +1693,7 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 
 		if e.Op == parser.COUNT_VALUES {
 			valueLabel := param.(*parser.StringLiteral)
-			if !ev.nameValidationScheme.IsValidLabelName(valueLabel.Val) {
+			if !model.LabelName(valueLabel.Val).IsValid(ev.validationScheme) {
 				ev.errorf("invalid label name %s", valueLabel)
 			}
 			if !e.Without {
@@ -2099,7 +2099,7 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 			enableDelayedNameRemoval: ev.enableDelayedNameRemoval,
 			enableTypeAndUnitLabels:  ev.enableTypeAndUnitLabels,
 			querier:                  ev.querier,
-			nameValidationScheme:     ev.nameValidationScheme,
+			validationScheme:         ev.validationScheme,
 		}
 
 		if e.Step != 0 {
@@ -2146,7 +2146,7 @@ func (ev *evaluator) eval(ctx context.Context, expr parser.Expr) (parser.Value, 
 			enableDelayedNameRemoval: ev.enableDelayedNameRemoval,
 			enableTypeAndUnitLabels:  ev.enableTypeAndUnitLabels,
 			querier:                  ev.querier,
-			nameValidationScheme:     ev.nameValidationScheme,
+			validationScheme:         ev.validationScheme,
 		}
 		res, ws := newEv.eval(ctx, e.Expr)
 		ev.currentSamples = newEv.currentSamples
