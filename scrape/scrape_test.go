@@ -4827,7 +4827,7 @@ func TestTypeUnitReLabel(t *testing.T) {
 		Scheme:                     "http",
 		ScrapeInterval:             model.Duration(100 * time.Millisecond),
 		ScrapeTimeout:              model.Duration(100 * time.Millisecond),
-		MetricNameValidationScheme: model.UTF8Validation,
+		MetricNameValidationScheme: validation.UTF8NamingScheme,
 		MetricNameEscapingScheme:   model.AllowUTF8,
 	}
 

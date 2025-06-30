@@ -135,24 +135,23 @@ func (c *Config) Validate(defaultNamingScheme validation.NamingScheme) error {
 		return err
 	}
 
-	namingScheme := c.MetricNameValidationScheme
-	if c.Action == Replace && !varInRegexTemplate(c.TargetLabel) && !namingScheme.IsValidLabelName(c.TargetLabel) {
+	if c.Action == Replace && !varInRegexTemplate(c.TargetLabel) && !c.MetricNameValidationScheme.IsValidLabelName(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 
-	if c.Action == Replace && varInRegexTemplate(c.TargetLabel) && !namingScheme.IsValidLabelName(c.TargetLabel) {
+	if c.Action == Replace && varInRegexTemplate(c.TargetLabel) && !c.MetricNameValidationScheme.IsValidLabelName(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
-	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && !namingScheme.IsValidLabelName(c.TargetLabel) {
+	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && !c.MetricNameValidationScheme.IsValidLabelName(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && c.Replacement != DefaultRelabelConfig.Replacement {
 		return fmt.Errorf("'replacement' can not be set for %s action", c.Action)
 	}
-	if c.Action == LabelMap && !namingScheme.IsValidLabelName(c.Replacement) {
+	if c.Action == LabelMap && !c.MetricNameValidationScheme.IsValidLabelName(c.Replacement) {
 		return fmt.Errorf("%q is invalid 'replacement' for %s action", c.Replacement, c.Action)
 	}
-	if c.Action == HashMod && !namingScheme.IsValidLabelName(c.TargetLabel) {
+	if c.Action == HashMod && !c.MetricNameValidationScheme.IsValidLabelName(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 
@@ -324,8 +323,7 @@ func relabel(cfg *Config, lb *labels.Builder) (keep bool) {
 			break
 		}
 		target := string(cfg.Regex.ExpandString([]byte{}, cfg.TargetLabel, val, indexes))
-		namingScheme := cfg.MetricNameValidationScheme
-		if !namingScheme.IsValidLabelName(target) {
+		if !cfg.MetricNameValidationScheme.IsValidLabelName(target) {
 			break
 		}
 		res := cfg.Regex.ExpandString([]byte{}, cfg.Replacement, val, indexes)
