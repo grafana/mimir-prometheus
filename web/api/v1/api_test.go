@@ -43,6 +43,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/model/timestamp"
+	"github.com/prometheus/prometheus/model/validation"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -4611,7 +4612,7 @@ func TestExtractQueryOpts(t *testing.T) {
 			form: url.Values{
 				"stats": []string{"all"},
 			},
-			expect: promql.NewPrometheusQueryOpts(true, 0, model.UTF8Validation),
+			expect: promql.NewPrometheusQueryOpts(true, 0, validation.UTF8NamingScheme),
 
 			err: nil,
 		},
@@ -4620,7 +4621,7 @@ func TestExtractQueryOpts(t *testing.T) {
 			form: url.Values{
 				"stats": []string{"none"},
 			},
-			expect: promql.NewPrometheusQueryOpts(false, 0, model.UTF8Validation),
+			expect: promql.NewPrometheusQueryOpts(false, 0, validation.UTF8NamingScheme),
 			err:    nil,
 		},
 		{
@@ -4629,7 +4630,7 @@ func TestExtractQueryOpts(t *testing.T) {
 				"stats":          []string{"all"},
 				"lookback_delta": []string{"30s"},
 			},
-			expect: promql.NewPrometheusQueryOpts(true, 30*time.Second, model.UTF8Validation),
+			expect: promql.NewPrometheusQueryOpts(true, 30*time.Second, validation.UTF8NamingScheme),
 			err:    nil,
 		},
 		{
@@ -4645,7 +4646,7 @@ func TestExtractQueryOpts(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			req := &http.Request{Form: test.form}
-			opts, err := extractQueryOpts(req, model.UTF8Validation)
+			opts, err := extractQueryOpts(req, validation.UTF8NamingScheme)
 			require.Equal(t, test.expect, opts)
 			if test.err == nil {
 				require.NoError(t, err)

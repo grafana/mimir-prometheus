@@ -7,13 +7,13 @@ import (
 	"github.com/prometheus/common/model"
 )
 
-// NamingScheme that is used for validation label and metric names.
+// NamingScheme that is used for validation of metric and label names.
 type NamingScheme string
 
 const (
-	// LegacyNamingScheme validates label and metric names with the legacy naming convention.
+	// LegacyNamingScheme validates metric and label names according to the legacy naming convention.
 	LegacyNamingScheme NamingScheme = "legacy"
-	// UTF8NamingScheme validates label and metric names according to UTF8 naming convention.
+	// UTF8NamingScheme validates metric and label names according to UTF8 naming convention.
 	UTF8NamingScheme NamingScheme = "utf8"
 )
 
@@ -40,10 +40,7 @@ func (s NamingScheme) IsValidLabelName(name string) bool {
 	if s == LegacyNamingScheme {
 		return model.LabelName(name).IsValidLegacy()
 	}
-	if len(name) == 0 {
-		return false
-	}
-	return utf8.ValidString(name)
+	return len(name) > 0 && utf8.ValidString(name)
 }
 
 // IsValidMetricName ensures name adheres to the NamingScheme.
@@ -51,8 +48,5 @@ func (s NamingScheme) IsValidMetricName(name string) bool {
 	if s == LegacyNamingScheme {
 		return model.IsValidLegacyMetricName(name)
 	}
-	if len(name) == 0 {
-		return false
-	}
-	return utf8.ValidString(name)
+	return len(name) > 0 && utf8.ValidString(name)
 }

@@ -178,7 +178,7 @@ type scratchBuilder interface {
 // structs tailored for streaming decoding.
 func (m *MetricStreamingDecoder) Label(b scratchBuilder) error {
 	for _, l := range m.labels {
-		if err := parseLabel(m.mData[l.start:l.end], b, m.namingScheme.IsValidLabelName); err != nil {
+		if err := parseLabel(m.mData[l.start:l.end], b, m.namingScheme); err != nil {
 			return err
 		}
 	}
@@ -187,7 +187,7 @@ func (m *MetricStreamingDecoder) Label(b scratchBuilder) error {
 
 // parseLabel is essentially LabelPair.Unmarshal but directly adding into scratch builder
 // and reusing strings.
-func parseLabel(dAtA []byte, b scratchBuilder, validate func(string) bool) error {
+func parseLabel(dAtA []byte, b scratchBuilder, namingScheme validation.NamingScheme) error {
 	var name, value string
 	l := len(dAtA)
 	iNdEx := 0
@@ -248,7 +248,7 @@ func parseLabel(dAtA []byte, b scratchBuilder, validate func(string) bool) error
 				return io.ErrUnexpectedEOF
 			}
 			name = yoloString(dAtA[iNdEx:postIndex])
-			if !validate(name) {
+			if !namingScheme.IsValidLabelName(name) {
 				return fmt.Errorf("invalid label name: %s", name)
 			}
 			iNdEx = postIndex

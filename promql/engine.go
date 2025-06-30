@@ -152,7 +152,7 @@ type PrometheusQueryOpts struct {
 	enablePerStepStats bool
 	// Lookback delta duration for this query.
 	lookbackDelta time.Duration
-	// nameValidationScheme for validating metric/label names
+	// nameValidationScheme for validating metric/label names.
 	nameValidationScheme validation.NamingScheme
 }
 
@@ -816,8 +816,8 @@ func (ng *Engine) execEvalStmt(ctx context.Context, query *query, s *parser.Eval
 		samplesStats:             query.sampleStats,
 		noStepSubqueryIntervalFn: ng.noStepSubqueryIntervalFn,
 		enableDelayedNameRemoval: ng.enableDelayedNameRemoval,
-		querier:                  querier,
 		enableTypeAndUnitLabels:  ng.enableTypeAndUnitLabels,
+		querier:                  querier,
 		nameValidationScheme:     query.nameValidationScheme,
 	}
 	query.sampleStats.InitStepTracking(evaluator.startTimestamp, evaluator.endTimestamp, evaluator.interval)
