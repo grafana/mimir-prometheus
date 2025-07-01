@@ -48,9 +48,9 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.128.0
 	github.com/ovh/go-ovh v1.8.0
 	github.com/prometheus/alertmanager v0.28.1
-	github.com/prometheus/client_golang v1.22.0
+	github.com/prometheus/client_golang v1.22.1-0.20250704064215-27d159a1744f
 	github.com/prometheus/client_model v0.6.2
-	github.com/prometheus/common v0.65.1-0.20250703115700-7f8b2a0d32d3
+	github.com/prometheus/common v0.65.1-0.20250704064055-d99456f60c11
 	github.com/prometheus/common/assets v0.2.0
 	github.com/prometheus/exporter-toolkit v0.14.0
 	github.com/prometheus/sigv4 v0.2.0
@@ -93,8 +93,6 @@ require (
 	k8s.io/klog v1.0.0
 	k8s.io/klog/v2 v2.130.1
 )
-
-replace github.com/prometheus/common => github.com/juliusmh/common v0.65.1-0.20250704080025-9663093ffd39
 
 replace github.com/prometheus/client_golang => github.com/juliusmh/client_golang v1.22.1-0.20250701110037-ceb5803cbf1f
 
@@ -215,7 +213,7 @@ require (
 	github.com/planetscale/vtprotobuf v0.6.1-0.20240319094008-0393e58bdf10 // indirect
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2 // indirect
 	github.com/prometheus/otlptranslator v0.0.0-20250620074007-94f535e0c588
-	github.com/prometheus/procfs v0.15.1 // indirect
+	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
