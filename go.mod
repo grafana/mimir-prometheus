@@ -94,6 +94,10 @@ require (
 	k8s.io/klog/v2 v2.130.1
 )
 
+replace github.com/prometheus/common => github.com/juliusmh/common v0.65.1-0.20250704080025-9663093ffd39
+
+replace github.com/prometheus/client_golang => github.com/juliusmh/client_golang v1.22.1-0.20250701110037-ceb5803cbf1f
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.36.3 // indirect
 	github.com/aws/aws-sdk-go-v2/config v1.29.14 // indirect
