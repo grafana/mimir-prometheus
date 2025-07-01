@@ -14,6 +14,7 @@
 package parser
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -80,6 +81,8 @@ type Expr interface {
 	// Type returns the type the expression evaluates to. It does not perform
 	// in-depth checks as this is done at parsing-time.
 	Type() ValueType
+	// WriteTo writes the string for this expression into b.
+	WriteTo(b *bytes.Buffer)
 	// PromQLExpr ensures that no other types accidentally implement the interface.
 	PromQLExpr()
 }
@@ -195,7 +198,8 @@ type StepInvariantExpr struct {
 	Expr Expr
 }
 
-func (e *StepInvariantExpr) String() string { return e.Expr.String() }
+func (e *StepInvariantExpr) String() string          { return e.Expr.String() }
+func (e *StepInvariantExpr) WriteTo(b *bytes.Buffer) { e.Expr.WriteTo(b) }
 
 func (e *StepInvariantExpr) PositionRange() posrange.PositionRange {
 	return e.Expr.PositionRange()
