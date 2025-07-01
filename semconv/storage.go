@@ -32,16 +32,31 @@ import (
 
 const schemaURLLabel = "__schema_url__"
 
-// AwareStorage wraps given storage with a semconv awareness that
-// performs versioned read when __schema_url__ matcher is provided.
-// TODO(bwplotka): Technically we only need Querier?
+// AwareStorage is a convenience function for wrapping a Storage's
+// Queryable interface as described in AwareQueryable.
 func AwareStorage(s storage.Storage) (storage.Storage, func(config *config.Config) error) {
-	e := newSchemaEngine()
-	return &awareStorage{Storage: s, engine: e}, e.ApplyConfig
+	aq, applyConfig := AwareQueryable(s)
+	return awareStorage{awareQueryable: aq.(awareQueryable), Storage: s}, applyConfig
 }
 
 type awareStorage struct {
+	awareQueryable
 	storage.Storage
+}
+
+func (s awareStorage) Querier(mint, maxt int64) (storage.Querier, error) {
+	return s.awareQueryable.Querier(mint, maxt)
+}
+
+// AwareQueryable wraps given queriable with a semconv awareness that
+// performs versioned read when __schema_url__ matcher is provided.
+func AwareQueryable(s storage.Queryable) (storage.Queryable, func(config *config.Config) error) {
+	e := newSchemaEngine()
+	return &awareQueryable{Queryable: s, engine: e}, e.ApplyConfig
+}
+
+type awareQueryable struct {
+	storage.Queryable
 
 	engine *schemaEngine
 }
@@ -52,8 +67,8 @@ type awareQuerier struct {
 	engine *schemaEngine
 }
 
-func (s *awareStorage) Querier(mint, maxt int64) (storage.Querier, error) {
-	q, err := s.Storage.Querier(mint, maxt)
+func (s awareQueryable) Querier(mint, maxt int64) (storage.Querier, error) {
+	q, err := s.Queryable.Querier(mint, maxt)
 	if err != nil {
 		return nil, err
 	}
