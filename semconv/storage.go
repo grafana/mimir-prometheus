@@ -146,6 +146,7 @@ func (q *awareQuerier) Select(ctx context.Context, sort bool, hints *storage.Sel
 				q.Querier.Select(ctx, true, hints, m...),
 				q.engine,
 				qCtx,
+				schemaURL,
 			)
 		}(m)
 	}
@@ -163,8 +164,9 @@ func (q *awareQuerier) Select(ctx context.Context, sort bool, hints *storage.Sel
 type awareSeriesSet struct {
 	storage.SeriesSet
 
-	qCtx   queryContext
-	engine *schemaEngine
+	qCtx      queryContext
+	engine    *schemaEngine
+	schemaURL string
 
 	at  storage.Series
 	err error
@@ -172,8 +174,8 @@ type awareSeriesSet struct {
 
 // AwareSeriesSet returns semconv aware SeriesSet that transforms data on the fly
 // based on the __schema_url__ and the requested version.
-func AwareSeriesSet(s storage.SeriesSet, engine *schemaEngine, qCtx queryContext) storage.SeriesSet {
-	return &awareSeriesSet{SeriesSet: s, engine: engine, qCtx: qCtx}
+func AwareSeriesSet(s storage.SeriesSet, engine *schemaEngine, qCtx queryContext, schemaURL string) storage.SeriesSet {
+	return &awareSeriesSet{SeriesSet: s, engine: engine, qCtx: qCtx, schemaURL: schemaURL}
 }
 
 func (s *awareSeriesSet) Err() error {
@@ -204,7 +206,7 @@ func (s *awareSeriesSet) Next() bool {
 	}
 
 	at := s.SeriesSet.At()
-	lbls, vt, err := s.engine.TransformSeries(s.qCtx, at.Labels())
+	lbls, vt, err := s.engine.TransformSeries(s.qCtx, at.Labels(), s.schemaURL)
 	if err != nil {
 		s.err = err
 		return false

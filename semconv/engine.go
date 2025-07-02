@@ -367,14 +367,9 @@ func (t *changeTraverser) traverseForMatchers(revision int, newer bool, b matche
 	return t.traverseForMatchers(revision, newer, b, append(v, b.ToMatchers(t.magicSuffix)))
 }
 
-// TransformSeries returns transformed series and value transformer for a single series that contains __schema__url__.
+// TransformSeries returns transformed series and value transformer for a single series.
 // TODO(bwplotka): Decide what to do if non schematized series are returned, currently we error.
-func (e *schemaEngine) TransformSeries(q queryContext, originalLabels labels.Labels) (lbls labels.Labels, vt valueTransformer, _ error) {
-	schemaURL := originalLabels.Get(schemaURLLabel)
-	if schemaURL == "" {
-		return originalLabels, vt, fmt.Errorf("selected series %v does not contain __schema_url__", originalLabels)
-	}
-
+func (e *schemaEngine) TransformSeries(q queryContext, originalLabels labels.Labels, schemaURL string) (lbls labels.Labels, vt valueTransformer, _ error) {
 	identity := schema.NewMetadataFromLabels(originalLabels)
 	mID, magicSuffix, err := e.findMetricID(schemaURL, identity)
 	if err != nil {
