@@ -37,6 +37,7 @@ var testCaseLabels = []Labels{
 	FromStrings("service.name", "t1", "whatever\\whatever", "t2"),
 	FromStrings("aaa", "111", "xx", s254),
 	FromStrings("aaa", "111", "xx", s255),
+	FromStrings("__name__", "kube_pod_container_status_last_terminated_exitcode", "cluster", "prod-af-north-0", " container", "prometheus", "instance", "kube-state-metrics-0:kube-state-metrics:ksm", "job", "kube-state-metrics/kube-state-metrics", " namespace", "observability-prometheus", "pod", "observability-prometheus-0", "uid", "d3ec90b2-4975-4607-b45d-b9ad64bb417e"),
 }
 
 func TestLabels_String(t *testing.T) {
@@ -46,6 +47,7 @@ func TestLabels_String(t *testing.T) {
 		`{"service.name"="t1", "whatever\\whatever"="t2"}`,
 		`{aaa="111", xx="` + s254 + `"}`,
 		`{aaa="111", xx="` + s255 + `"}`,
+		`{" container"="prometheus", " namespace"="observability-prometheus", __name__="kube_pod_container_status_last_terminated_exitcode", cluster="prod-af-north-0", instance="kube-state-metrics-0:kube-state-metrics:ksm", job="kube-state-metrics/kube-state-metrics", pod="observability-prometheus-0", uid="d3ec90b2-4975-4607-b45d-b9ad64bb417e"}`,
 	}
 	require.Equal(t, len(testCaseLabels), len(expected))
 	for i, c := range expected {
@@ -58,6 +60,13 @@ func BenchmarkString(b *testing.B) {
 	ls := New(benchmarkLabels...)
 	for i := 0; i < b.N; i++ {
 		_ = ls.String()
+	}
+}
+
+func TestSizeOfLabels(t *testing.T) {
+	require.Len(t, expectedByteSize, len(testCaseLabels))
+	for i, c := range expectedByteSize { // Declared in build-tag-specific files, e.g. labels_slicelabels_test.go.
+		require.Equal(t, c, uint64(testCaseLabels[i].ByteSize()))
 	}
 }
 
