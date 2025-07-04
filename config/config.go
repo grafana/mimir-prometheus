@@ -417,6 +417,10 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		if rwcfg == nil {
 			return errors.New("empty or null remote write config section")
 		}
+		rwcfg.MetricNameValidationScheme = c.GlobalConfig.MetricNameValidationScheme
+		if err := rwcfg.Validate(); err != nil {
+			return err
+		}
 		// Skip empty names, we fill their name with their config hash in remote write code.
 		if _, ok := rwNames[rwcfg.Name]; ok && rwcfg.Name != "" {
 			return fmt.Errorf("found multiple remote write configs with job name %q", rwcfg.Name)
@@ -433,6 +437,10 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 			return fmt.Errorf("found multiple remote read configs with job name %q", rrcfg.Name)
 		}
 		rrNames[rrcfg.Name] = struct{}{}
+	}
+	c.AlertingConfig.MetricNameValidationScheme = c.GlobalConfig.MetricNameValidationScheme
+	if err := c.AlertingConfig.Validate(); err != nil {
+		return errors.New("invalid alerting config: " + err.Error())
 	}
 	return nil
 }
@@ -595,15 +603,7 @@ func (c *GlobalConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		return err
 	}
 
-	if err := gc.ExternalLabels.Validate(func(l labels.Label) error {
-		if !model.LabelName(l.Name).IsValid() {
-			return fmt.Errorf("%q is not a valid label name", l.Name)
-		}
-		if !model.LabelValue(l.Value).IsValid() {
-			return fmt.Errorf("%q is not a valid label value", l.Value)
-		}
-		return nil
-	}); err != nil {
+	if err := gc.validateExternalLabels(); err != nil {
 		return err
 	}
 
@@ -635,6 +635,18 @@ func (c *GlobalConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 
 	*c = *gc
 	return nil
+}
+
+func (c GlobalConfig) validateExternalLabels() error {
+	return c.ExternalLabels.Validate(func(l labels.Label) error {
+		if !model.LabelName(l.Name).IsValid(c.MetricNameValidationScheme) {
+			return fmt.Errorf("%q is not a valid label name", l.Name)
+		}
+		if !model.LabelValue(l.Value).IsValid() {
+			return fmt.Errorf("%q is not a valid label value", l.Value)
+		}
+		return nil
+	})
 }
 
 // isZero returns true iff the global config is the zero value.
@@ -781,34 +793,6 @@ func (c *ScrapeConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	if err := discovery.UnmarshalYAMLWithInlineConfigs(c, unmarshal); err != nil {
 		return err
 	}
-	if len(c.JobName) == 0 {
-		return errors.New("job_name is empty")
-	}
-
-	// The UnmarshalYAML method of HTTPClientConfig is not being called because it's not a pointer.
-	// We cannot make it a pointer as the parser panics for inlined pointer structs.
-	// Thus we just do its validation here.
-	if err := c.HTTPClientConfig.Validate(); err != nil {
-		return err
-	}
-
-	// Check for users putting URLs in target groups.
-	if len(c.RelabelConfigs) == 0 {
-		if err := checkStaticTargets(c.ServiceDiscoveryConfigs); err != nil {
-			return err
-		}
-	}
-
-	for _, rlcfg := range c.RelabelConfigs {
-		if rlcfg == nil {
-			return errors.New("empty or null target relabeling rule in scrape config")
-		}
-	}
-	for _, rlcfg := range c.MetricRelabelConfigs {
-		if rlcfg == nil {
-			return errors.New("empty or null metric relabeling rule in scrape config")
-		}
-	}
 
 	return nil
 }
@@ -871,9 +855,14 @@ func (c *ScrapeConfig) Validate(globalConfig GlobalConfig) error {
 		}
 	}
 
-	//nolint:staticcheck
-	if model.NameValidationScheme != model.UTF8Validation {
-		return errors.New("model.NameValidationScheme must be set to UTF8")
+	if len(c.JobName) == 0 {
+		return errors.New("job_name is empty")
+	}
+	// The UnmarshalYAML method of HTTPClientConfig is not being called because it's not a pointer.
+	// We cannot make it a pointer as the parser panics for inlined pointer structs.
+	// Thus we just do its validation here.
+	if err := c.HTTPClientConfig.Validate(); err != nil {
+		return err
 	}
 
 	switch globalConfig.MetricNameValidationScheme {
@@ -929,31 +918,40 @@ func (c *ScrapeConfig) Validate(globalConfig GlobalConfig) error {
 		c.AlwaysScrapeClassicHistograms = &global
 	}
 
+	// Validate relabel configs
+
+	// Check for users putting URLs in target groups.
+	if len(c.RelabelConfigs) == 0 {
+		if err := checkStaticTargets(c.ServiceDiscoveryConfigs); err != nil {
+			return err
+		}
+	}
+
+	for _, rlcfg := range c.RelabelConfigs {
+		if rlcfg == nil {
+			return errors.New("empty or null target relabeling rule in scrape config")
+		}
+		rlcfg.MetricNameValidationScheme = c.MetricNameValidationScheme
+		if err := rlcfg.Validate(); err != nil {
+			return errors.New("invalid relabel config: " + err.Error())
+		}
+	}
+	for _, rlcfg := range c.MetricRelabelConfigs {
+		if rlcfg == nil {
+			return errors.New("empty or null metric relabeling rule in scrape config")
+		}
+		rlcfg.MetricNameValidationScheme = c.MetricNameValidationScheme
+		if err := rlcfg.Validate(); err != nil {
+			return errors.New("invalid metric relabel config: " + err.Error())
+		}
+	}
+
 	return nil
 }
 
 // MarshalYAML implements the yaml.Marshaler interface.
 func (c *ScrapeConfig) MarshalYAML() (interface{}, error) {
 	return discovery.MarshalYAMLWithInlineConfigs(c)
-}
-
-// ToEscapingScheme wraps the equivalent common library function with the
-// desired default behavior based on the given validation scheme. This is a
-// workaround for third party exporters that don't set the escaping scheme.
-func ToEscapingScheme(s string, v model.ValidationScheme) (model.EscapingScheme, error) {
-	if s == "" {
-		switch v {
-		case model.UTF8Validation:
-			return model.NoEscaping, nil
-		case model.LegacyValidation:
-			return model.UnderscoreEscaping, nil
-		case model.UnsetValidation:
-			return model.NoEscaping, fmt.Errorf("v is unset: %s", v)
-		default:
-			panic(fmt.Errorf("unhandled validation scheme: %s", v))
-		}
-	}
-	return model.ToEscapingScheme(s)
 }
 
 // ConvertClassicHistogramsToNHCBEnabled returns whether to convert classic histograms to NHCB.
@@ -1077,8 +1075,9 @@ type ExemplarsConfig struct {
 
 // AlertingConfig configures alerting and alertmanager related configs.
 type AlertingConfig struct {
-	AlertRelabelConfigs []*relabel.Config   `yaml:"alert_relabel_configs,omitempty"`
-	AlertmanagerConfigs AlertmanagerConfigs `yaml:"alertmanagers,omitempty"`
+	AlertRelabelConfigs        []*relabel.Config      `yaml:"alert_relabel_configs,omitempty"`
+	AlertmanagerConfigs        AlertmanagerConfigs    `yaml:"alertmanagers,omitempty"`
+	MetricNameValidationScheme model.ValidationScheme `yaml:"-"`
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -1097,10 +1096,26 @@ func (c *AlertingConfig) UnmarshalYAML(unmarshal func(interface{}) error) error 
 	if err := unmarshal((*plain)(c)); err != nil {
 		return err
 	}
+	return nil
+}
 
+func (c *AlertingConfig) Validate() error {
+	for _, amcfg := range c.AlertmanagerConfigs {
+		if amcfg == nil {
+			return errors.New("empty or null alert manager config")
+		}
+		amcfg.MetricNameValidationScheme = c.MetricNameValidationScheme
+		if err := amcfg.Validate(); err != nil {
+			return err
+		}
+	}
 	for _, rlcfg := range c.AlertRelabelConfigs {
 		if rlcfg == nil {
 			return errors.New("empty or null alert relabeling rule")
+		}
+		rlcfg.MetricNameValidationScheme = c.MetricNameValidationScheme
+		if err := rlcfg.Validate(); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -1174,6 +1189,8 @@ type AlertmanagerConfig struct {
 	RelabelConfigs []*relabel.Config `yaml:"relabel_configs,omitempty"`
 	// Relabel alerts before sending to the specific alertmanager.
 	AlertRelabelConfigs []*relabel.Config `yaml:"alert_relabel_configs,omitempty"`
+
+	MetricNameValidationScheme model.ValidationScheme `yaml:"-"`
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -1188,7 +1205,10 @@ func (c *AlertmanagerConfig) UnmarshalYAML(unmarshal func(interface{}) error) er
 	if err := discovery.UnmarshalYAMLWithInlineConfigs(c, unmarshal); err != nil {
 		return err
 	}
+	return nil
+}
 
+func (c *AlertmanagerConfig) Validate() error {
 	// The UnmarshalYAML method of HTTPClientConfig is not being called because it's not a pointer.
 	// We cannot make it a pointer as the parser panics for inlined pointer structs.
 	// Thus we just do its validation here.
@@ -1210,15 +1230,27 @@ func (c *AlertmanagerConfig) UnmarshalYAML(unmarshal func(interface{}) error) er
 		}
 	}
 
+	if c.MetricNameValidationScheme == model.UnsetValidation {
+		return errors.New("MetricNameValidationScheme must be set")
+	}
+
 	for _, rlcfg := range c.RelabelConfigs {
 		if rlcfg == nil {
 			return errors.New("empty or null Alertmanager target relabeling rule")
+		}
+		rlcfg.MetricNameValidationScheme = c.MetricNameValidationScheme
+		if err := rlcfg.Validate(); err != nil {
+			return fmt.Errorf("invalid relabel config: %w", err)
 		}
 	}
 
 	for _, rlcfg := range c.AlertRelabelConfigs {
 		if rlcfg == nil {
 			return errors.New("empty or null Alertmanager alert relabeling rule")
+		}
+		rlcfg.MetricNameValidationScheme = c.MetricNameValidationScheme
+		if err := rlcfg.Validate(); err != nil {
+			return fmt.Errorf("invalid alert relabel config: %w", err)
 		}
 	}
 
@@ -1322,6 +1354,8 @@ type RemoteWriteConfig struct {
 	SigV4Config      *sigv4.SigV4Config      `yaml:"sigv4,omitempty"`
 	AzureADConfig    *azuread.AzureADConfig  `yaml:"azuread,omitempty"`
 	GoogleIAMConfig  *googleiam.Config       `yaml:"google_iam,omitempty"`
+
+	MetricNameValidationScheme model.ValidationScheme `yaml:"-"`
 }
 
 // SetDirectory joins any relative file paths with dir.
@@ -1336,13 +1370,12 @@ func (c *RemoteWriteConfig) UnmarshalYAML(unmarshal func(interface{}) error) err
 	if err := unmarshal((*plain)(c)); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (c *RemoteWriteConfig) Validate() error {
 	if c.URL == nil {
 		return errors.New("url for remote_write is empty")
-	}
-	for _, rlcfg := range c.WriteRelabelConfigs {
-		if rlcfg == nil {
-			return errors.New("empty or null relabeling rule in remote write config")
-		}
 	}
 	if err := validateHeaders(c.Headers); err != nil {
 		return err
@@ -1354,12 +1387,28 @@ func (c *RemoteWriteConfig) UnmarshalYAML(unmarshal func(interface{}) error) err
 
 	// The UnmarshalYAML method of HTTPClientConfig is not being called because it's not a pointer.
 	// We cannot make it a pointer as the parser panics for inlined pointer structs.
-	// Thus we just do its validation here.
+	// Thus, we just do its validation here.
 	if err := c.HTTPClientConfig.Validate(); err != nil {
 		return err
 	}
 
-	return validateAuthConfigs(c)
+	if err := validateAuthConfigs(c); err != nil {
+		return err
+	}
+
+	if c.MetricNameValidationScheme == model.UnsetValidation {
+		return errors.New("MetricNameValidationScheme must be set")
+	}
+	for _, rlcfg := range c.WriteRelabelConfigs {
+		if rlcfg == nil {
+			return errors.New("empty or null relabeling rule in remote write config")
+		}
+		rlcfg.MetricNameValidationScheme = c.MetricNameValidationScheme
+		if err := rlcfg.Validate(); err != nil {
+			return fmt.Errorf("invalid relabel config: %w", err)
+		}
+	}
+	return nil
 }
 
 // validateAuthConfigs validates that at most one of basic_auth, authorization, oauth2, sigv4, azuread or google_iam must be configured.
@@ -1477,6 +1526,10 @@ type RemoteReadConfig struct {
 
 	// Whether to use the external labels as selectors for the remote read endpoint.
 	FilterExternalLabels bool `yaml:"filter_external_labels,omitempty"`
+
+	// Allow UTF-8 metric and label names. Can be blank in config files but must
+	// have a value if a RemoteReadConfig is created programmatically.
+	MetricNameValidationScheme model.ValidationScheme `yaml:"metric_name_validation_scheme,omitempty"`
 }
 
 // SetDirectory joins any relative file paths with dir.

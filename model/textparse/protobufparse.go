@@ -80,11 +80,21 @@ type ProtobufParser struct {
 	// native histogram.
 	parseClassicHistograms  bool
 	enableTypeAndUnitLabels bool
+
+	validationScheme model.ValidationScheme
+}
+
+type ProtobufParserOption func(p *ProtobufParser)
+
+func WithValidationScheme(scheme model.ValidationScheme) ProtobufParserOption {
+	return func(p *ProtobufParser) {
+		p.validationScheme = scheme
+	}
 }
 
 // NewProtobufParser returns a parser for the payload in the byte slice.
-func NewProtobufParser(b []byte, parseClassicHistograms, enableTypeAndUnitLabels bool, st *labels.SymbolTable) Parser {
-	return &ProtobufParser{
+func NewProtobufParser(b []byte, parseClassicHistograms, enableTypeAndUnitLabels bool, st *labels.SymbolTable, opts ...ProtobufParserOption) Parser {
+	pp := &ProtobufParser{
 		dec:        dto.NewMetricStreamingDecoder(b),
 		entryBytes: &bytes.Buffer{},
 		builder:    labels.NewScratchBuilderWithSymbolTable(st, 16), // TODO(bwplotka): Try base builder.
@@ -92,7 +102,12 @@ func NewProtobufParser(b []byte, parseClassicHistograms, enableTypeAndUnitLabels
 		state:                   EntryInvalid,
 		parseClassicHistograms:  parseClassicHistograms,
 		enableTypeAndUnitLabels: enableTypeAndUnitLabels,
+		validationScheme:        model.UTF8Validation,
 	}
+	for _, opt := range opts {
+		opt(pp)
+	}
+	return pp
 }
 
 // Series returns the bytes of a series with a simple float64 as a
@@ -428,7 +443,7 @@ func (p *ProtobufParser) Next() (Entry, error) {
 		// We are at the beginning of a metric family. Put only the name
 		// into entryBytes and validate only name, help, and type for now.
 		name := p.dec.GetName()
-		if !model.IsValidMetricName(model.LabelValue(name)) {
+		if !model.IsValidMetricName(model.LabelValue(name), p.validationScheme) {
 			return EntryInvalid, fmt.Errorf("invalid metric name: %s", name)
 		}
 		if help := p.dec.GetHelp(); !utf8.ValidString(help) {

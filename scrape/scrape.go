@@ -149,8 +149,11 @@ func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, offsetSeed 
 		return nil, fmt.Errorf("error creating HTTP client: %w", err)
 	}
 
+	if cfg.MetricNameValidationScheme == model.UnsetValidation {
+		return nil, errors.New("MetricNameValidationScheme must be set")
+	}
 	var escapingScheme model.EscapingScheme
-	escapingScheme, err = config.ToEscapingScheme(cfg.MetricNameEscapingScheme, cfg.MetricNameValidationScheme)
+	escapingScheme, err = model.ToEscapingScheme(cfg.MetricNameEscapingScheme)
 	if err != nil {
 		return nil, fmt.Errorf("invalid metric name escaping scheme, %w", err)
 	}
@@ -321,6 +324,9 @@ func (sp *scrapePool) reload(cfg *config.ScrapeConfig) error {
 	sp.config = cfg
 	oldClient := sp.client
 	sp.client = client
+	if cfg.MetricNameValidationScheme == model.UnsetValidation {
+		return errors.New("MetricNameValidationScheme must be set")
+	}
 	sp.validationScheme = cfg.MetricNameValidationScheme
 	var escapingScheme model.EscapingScheme
 	escapingScheme, err = model.ToEscapingScheme(cfg.MetricNameEscapingScheme)
