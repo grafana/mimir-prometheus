@@ -21,15 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var expectedSizeOfLabels = []uint64{ // Values must line up with testCaseLabels.
-	16,
-	0,
-	41,
-	270,
-	271,
-	325,
-}
-
 func TestVarint(t *testing.T) {
 	cases := []struct {
 		v        int
@@ -56,4 +47,13 @@ func TestVarint(t *testing.T) {
 		require.Equal(t, len(buf), m)
 	}
 	require.Panics(t, func() { encodeVarint(buf[:], len(buf), 1<<29) })
+}
+
+var expectedByteSize = []uint64{ // Values must line up with testCaseLabels.
+	8,
+	0,
+	8,
+	8,
+	8,
+	32,
 }

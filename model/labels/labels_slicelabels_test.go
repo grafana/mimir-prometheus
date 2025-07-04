@@ -11,15 +11,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build slicelabels
+//go:build !stringlabels && !dedupelabels
 
 package labels
 
-var expectedSizeOfLabels = []uint64{ // Values must line up with testCaseLabels.
-	72,
+var expectedByteSize = []uint64{ // Values must line up with testCaseLabels.
+	8,
 	0,
-	97,
-	326,
-	327,
-	549,
+	33,
+	262,
+	263,
+	293,
 }
