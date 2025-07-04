@@ -1,0 +1,97 @@
+name: Monitor CI failures for upstream merge PRs
+
+on:
+  workflow_run:
+    workflows: ["ci", "golangci-lint"]
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  ci-failure-notifier:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    steps:
+      - name: Get PR details from workflow run
+        id: get-pr
+        run: |
+          # Get PR details from the workflow run
+          PR_NUMBER=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }} --jq '.pull_requests[0].number')
+          
+          if [ -z "$PR_NUMBER" ] || [ "$PR_NUMBER" = "null" ]; then
+            echo "No PR found for this workflow run"
+            exit 0
+          fi
+          
+          # Get PR details
+          PR_INFO=$(gh pr view "$PR_NUMBER" --json author,headRefName,url)
+          PR_AUTHOR=$(echo "$PR_INFO" | jq -r '.author.login')
+          PR_BRANCH=$(echo "$PR_INFO" | jq -r '.headRefName')
+          PR_URL=$(echo "$PR_INFO" | jq -r '.url')
+          
+          echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "pr_author=$PR_AUTHOR" >> $GITHUB_OUTPUT
+          echo "pr_branch=$PR_BRANCH" >> $GITHUB_OUTPUT
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+          
+          echo "Found PR #$PR_NUMBER by $PR_AUTHOR on branch $PR_BRANCH"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if PR is upstream merge
+        id: check-upstream-pr
+        if: steps.get-pr.outputs.pr_number != ''
+        run: |
+          # Check if this is an upstream merge PR
+          if [[ "$PR_AUTHOR" == "mimir-github-bot[bot]" && "$PR_BRANCH" == bot/main/merge-upstream-* ]]; then
+            echo "is_upstream_merge=true" >> $GITHUB_OUTPUT
+            echo "This is an upstream merge PR"
+          else
+            echo "is_upstream_merge=false" >> $GITHUB_OUTPUT
+            echo "This is not an upstream merge PR (Author: $PR_AUTHOR, Branch: $PR_BRANCH)"
+          fi
+        env:
+          PR_AUTHOR: ${{ steps.get-pr.outputs.pr_author }}
+          PR_BRANCH: ${{ steps.get-pr.outputs.pr_branch }}
+
+      - name: Check if failed workflow is required
+        id: check-required-workflow
+        if: steps.check-upstream-pr.outputs.is_upstream_merge == 'true'
+        run: |
+          WORKFLOW_NAME="${{ github.event.workflow_run.name }}"
+          
+          # Check if this is one of the required workflows
+          if [[ "$WORKFLOW_NAME" == "ci" ]]; then
+            # For ci workflow, check if the stringlabels job failed
+            JOBS_JSON=$(gh api repos/${{ github.repository }}/actions/runs/${{ github.event.workflow_run.id }}/jobs)
+            STRINGLABELS_FAILED=$(echo "$JOBS_JSON" | jq -r '.jobs[] | select(.name == "test (stringlabels)") | .conclusion')
+            
+            if [[ "$STRINGLABELS_FAILED" == "failure" ]]; then
+              echo "required_job_failed=true" >> $GITHUB_OUTPUT
+              echo "failed_job_name=test (stringlabels)" >> $GITHUB_OUTPUT
+            else
+              echo "required_job_failed=false" >> $GITHUB_OUTPUT
+              echo "test (stringlabels) job did not fail"
+            fi
+          elif [[ "$WORKFLOW_NAME" == "golangci-lint" ]]; then
+            echo "required_job_failed=true" >> $GITHUB_OUTPUT
+            echo "failed_job_name=golangci-lint" >> $GITHUB_OUTPUT
+          else
+            echo "required_job_failed=false" >> $GITHUB_OUTPUT
+            echo "This is not a required workflow"
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Slack notification for CI failure
+        if: steps.check-required-workflow.outputs.required_job_failed == 'true'
+        uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
+        with:
+          channel-id: C04AF91LPFX #mimir-ci-notifications
+          payload: |
+            {
+              "text": ":warning: *Required CI job failed for upstream merge PR*\n\n**${{ steps.check-required-workflow.outputs.failed_job_name }}** failed for upstream merge PR: <${{ steps.get-pr.outputs.pr_url }}|PR #${{ steps.get-pr.outputs.pr_number }}>\n\nWorkflow run: <${{ github.event.workflow_run.html_url }}|View failure details>"
+            }
