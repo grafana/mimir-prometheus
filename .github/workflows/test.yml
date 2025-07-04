@@ -110,31 +110,31 @@ jobs:
     steps:
       - name: Check if upstream merge PR and stringlabels failed
         id: check-failure
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
         run: |
           # Check if this is an upstream merge branch
-          if [[ "${{ github.head_ref || github.ref_name }}" == bot/main/merge-upstream-* ]]; then
-            echo "is_upstream_merge=true" >> $GITHUB_OUTPUT
-            
-            # Check if the stringlabels job specifically failed
-            # We'll check by looking for the specific matrix job failure
+          if [[ "$BRANCH_NAME" == bot/main/merge-upstream-* ]]; then
             echo "should_notify=true" >> $GITHUB_OUTPUT
             echo "This is an upstream merge branch and test failed"
-          else
-            echo "is_upstream_merge=false" >> $GITHUB_OUTPUT
-            echo "This is not an upstream merge branch"
           fi
 
       - name: Get PR URL if exists
         id: get-pr-url
         if: steps.check-failure.outputs.should_notify == 'true'
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_HTML_URL: ${{ github.event.pull_request.html_url }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Try to get PR URL for this branch
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "pr_url=${{ github.event.pull_request.html_url }}" >> $GITHUB_OUTPUT
-            echo "pr_number=${{ github.event.pull_request.number }}" >> $GITHUB_OUTPUT
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            echo "pr_url=$PR_HTML_URL" >> $GITHUB_OUTPUT
+            echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           else
             # For push events, try to find the PR
-            BRANCH_NAME="${{ github.head_ref || github.ref_name }}"
             PR_INFO=$(gh pr list --head "$BRANCH_NAME" --json number,url --limit 1)
             if [ "$PR_INFO" != "[]" ]; then
               PR_URL=$(echo "$PR_INFO" | jq -r '.[0].url')
@@ -143,15 +143,20 @@ jobs:
               echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
             fi
           fi
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Send Slack notification for test failure
         if: steps.check-failure.outputs.should_notify == 'true'
+        env:
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          PR_URL: ${{ steps.get-pr-url.outputs.pr_url }}
+          PR_NUMBER: ${{ steps.get-pr-url.outputs.pr_number }}
         uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
         with:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":warning: *Test failed for upstream merge PR*\n\n**test (stringlabels)** failed for upstream merge PR: <${{ steps.get-pr-url.outputs.pr_url || format('{0}/{1}/tree/{2}', github.server_url, github.repository, github.head_ref || github.ref_name) }}|${{ steps.get-pr-url.outputs.pr_number && format('PR #{0}', steps.get-pr-url.outputs.pr_number) || format('Branch {0}', github.head_ref || github.ref_name) }}>\n\nWorkflow run: <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|View failure details>"
+              "text": ":warning: *Test failed for upstream merge PR*\n\n**test (stringlabels)** failed for upstream merge PR: <${{ env.PR_URL || format('{0}/{1}/tree/{2}', env.SERVER_URL, env.REPOSITORY, env.BRANCH_NAME) }}|${{ env.PR_NUMBER && format('PR #{0}', env.PR_NUMBER) || format('Branch {0}', env.BRANCH_NAME) }}>\n\nWorkflow run: <${{ env.SERVER_URL }}/${{ env.REPOSITORY }}/actions/runs/${{ env.RUN_ID }}|View failure details>"
             }
