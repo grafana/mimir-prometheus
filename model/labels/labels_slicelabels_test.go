@@ -11,34 +11,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build slicelabels
+//go:build !stringlabels && !dedupelabels
 
 package labels
 
-import (
-	"testing"
-
-	"github.com/stretchr/testify/require"
-)
-
-func TestByteSize(t *testing.T) {
-	for _, testCase := range []struct {
-		lbls     Labels
-		expected int
-	}{
-		{
-			lbls:     FromStrings("__name__", "foo"),
-			expected: 11,
-		},
-		{
-			lbls:     FromStrings("__name__", "foo", "pod", "bar"),
-			expected: 17,
-		},
-		{
-			lbls:     FromStrings("__name__", "kube_pod_container_status_last_terminated_exitcode", "cluster", "prod-af-north-0", " container", "prometheus", "instance", "kube-state-metrics-0:kube-state-metrics:ksm", "job", "kube-state-metrics/kube-state-metrics", " namespace", "observability-prometheus", "pod", "observability-prometheus-0", "uid", "d3ec90b2-4975-4607-b45d-b9ad64bb417e"),
-			expected: 293,
-		},
-	} {
-		require.Equal(t, testCase.expected, testCase.lbls.ByteSize())
-	}
+var expectedByteSize = []uint64{ // Values must line up with testCaseLabels.
+	8,
+	0,
+	33,
+	262,
+	263,
+	293,
 }
