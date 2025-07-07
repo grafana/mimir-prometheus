@@ -66,12 +66,3 @@ func TestVarint(t *testing.T) {
 	}
 	require.Panics(t, func() { encodeVarint(buf[:], len(buf), 1<<29) })
 }
-
-var expectedByteSize = []uint64{ // Values must line up with testCaseLabels.
-	8,
-	0,
-	8,
-	8,
-	8,
-	32,
-}
