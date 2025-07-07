@@ -329,6 +329,7 @@ func TestFromMetrics(t *testing.T) {
 			Settings{
 				LookbackDelta: defaultLookbackDelta,
 			},
+			promslog.NewNopLogger(),
 		)
 		require.NoError(t, err)
 		require.Empty(t, annots)
