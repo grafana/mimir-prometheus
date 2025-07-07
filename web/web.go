@@ -396,6 +396,7 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.NativeOTLPDeltaIngestion,
 		o.CTZeroIngestionEnabled,
 		o.ValidIntervalCreatedTimestampZeroIngestion,
+		o.LookbackDelta,
 	)
 
 	if o.RoutePrefix != "/" {
