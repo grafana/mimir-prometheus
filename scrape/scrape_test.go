@@ -1476,7 +1476,7 @@ func TestPromTextToProto(t *testing.T) {
 	var got []string
 	for {
 		mf := &dto.MetricFamily{}
-		if err := d.Decode(mf); err != nil {
+		if err := d.Decode(mf, model.UTF8Validation); err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
