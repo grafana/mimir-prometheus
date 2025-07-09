@@ -392,14 +392,6 @@ jobs:
           base: ${{ needs.check-merge.outputs.local_branch }}
           delete-branch: true
 
-      - name: Send Slack notification for successful merge
-        uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
-        with:
-          channel-id: C04AF91LPFX #mimir-ci-notifications
-          payload: |
-            {
-              "text": ":white_check_mark: *Successfully merged upstream prometheus changes* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S05TQM9UAAF> PR created: <${{ steps.create-pr.outputs.pull-request-url }}|Click to review and merge>"
-            }
 
   no-merge-needed:
     runs-on: ubuntu-latest
