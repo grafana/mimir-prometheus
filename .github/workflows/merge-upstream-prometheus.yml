@@ -288,9 +288,9 @@ jobs:
 
       - name: Close PR by force-pushing to HEAD~1
         run: |
-          # Force-push to HEAD~1 to close the existing PR (removes the empty commit, leaving no commits)
+          # Force-push to the same commit as the base branch (removes the empty commit, leaving no commits in the PR).
           # This closes the PR while keeping the branch and instructions as a placeholder
-          git push --force origin HEAD~1:${{ needs.check-merge.outputs.bot_branch }}
+          git push --force origin ${{needs.check-merge.outputs.local_branch}}:${{ needs.check-merge.outputs.bot_branch }}
 
       - name: Send Slack notification for merge conflicts
         uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
