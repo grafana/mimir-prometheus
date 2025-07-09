@@ -450,6 +450,10 @@ func TestPopulateLabels(t *testing.T) {
 	for _, c := range cases {
 		in := maps.Clone(c.in)
 		lb := labels.NewBuilder(labels.EmptyLabels())
+		c.cfg.MetricNameValidationScheme = model.UTF8Validation
+		for i := range c.cfg.RelabelConfigs {
+			c.cfg.RelabelConfigs[i].MetricNameValidationScheme = model.UTF8Validation
+		}
 		res, err := PopulateLabels(lb, c.cfg, c.in, nil)
 		if c.err != "" {
 			require.EqualError(t, err, c.err)
