@@ -71,16 +71,21 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
-	c, err := tsdb.NewLeveledCompactorWithChunkSize(ctx, nil, logger, []int64{0}, nil, segmentSizeMB*1024*1024, nil)
+	opts := tsdb.LeveledCompactorOptions{
+		MaxBlockChunkSegmentSize:    segmentSizeMB * 1024 * 1024,
+		MergeFunc:                   nil,
+		EnableOverlappingCompaction: true,
+	}
+	c, err := tsdb.NewLeveledCompactorWithOptions(ctx, nil, logger, []int64{0}, nil, opts)
 	if err != nil {
 		log.Panicln("creating compactor", err)
 	}
 
-	opts := tsdb.DefaultLeveledCompactorConcurrencyOptions()
-	opts.MaxClosingBlocks = maxClosingBlocks
-	opts.SymbolsFlushersCount = symbolFlushers
-	opts.MaxOpeningBlocks = openConcurrency
-	c.SetConcurrencyOptions(opts)
+	concurrencyOpts := tsdb.DefaultLeveledCompactorConcurrencyOptions()
+	concurrencyOpts.MaxClosingBlocks = maxClosingBlocks
+	concurrencyOpts.SymbolsFlushersCount = symbolFlushers
+	concurrencyOpts.MaxOpeningBlocks = openConcurrency
+	c.SetConcurrencyOptions(concurrencyOpts)
 
 	_, err = c.CompactWithSplitting(outputDir, blockDirs, nil, uint64(shardCount))
 	if err != nil {
