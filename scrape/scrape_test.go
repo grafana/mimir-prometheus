@@ -1471,12 +1471,12 @@ func TestPromTextToProto(t *testing.T) {
 	metricsText = bytes.ReplaceAll(metricsText, []byte("\r"), nil)
 
 	metricsProto := promTextToProto(t, metricsText)
-	d := expfmt.NewDecoder(bytes.NewReader(metricsProto), expfmt.NewFormat(expfmt.TypeProtoDelim))
+	d := expfmt.NewDecoder(bytes.NewReader(metricsProto), expfmt.NewFormat(expfmt.TypeProtoDelim), model.UTF8Validation)
 
 	var got []string
 	for {
 		mf := &dto.MetricFamily{}
-		if err := d.Decode(mf, model.UTF8Validation); err != nil {
+		if err := d.Decode(mf); err != nil {
 			if errors.Is(err, io.EOF) {
 				break
 			}
