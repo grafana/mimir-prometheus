@@ -732,51 +732,57 @@ func TestRelabel(t *testing.T) {
 		},
 	}
 
-	for _, test := range tests {
-		// Setting default fields, mimicking the behaviour in Prometheus.
-		for _, cfg := range test.relabel {
-			if cfg.Action == "" {
-				cfg.Action = DefaultRelabelConfig.Action
+	for i, test := range tests {
+		t.Run(strconv.Itoa(i), func(t *testing.T) {
+			// Setting default fields, mimicking the behaviour in Prometheus.
+			for _, cfg := range test.relabel {
+				if cfg.Action == "" {
+					cfg.Action = DefaultRelabelConfig.Action
+				}
+				if cfg.Separator == "" {
+					cfg.Separator = DefaultRelabelConfig.Separator
+				}
+				if cfg.Regex.Regexp == nil || cfg.Regex.String() == "" {
+					cfg.Regex = DefaultRelabelConfig.Regex
+				}
+				if cfg.Replacement == "" {
+					cfg.Replacement = DefaultRelabelConfig.Replacement
+				}
+				require.NoError(t, cfg.Validate(model.UTF8Validation))
 			}
-			if cfg.Separator == "" {
-				cfg.Separator = DefaultRelabelConfig.Separator
-			}
-			if cfg.Regex.Regexp == nil || cfg.Regex.String() == "" {
-				cfg.Regex = DefaultRelabelConfig.Regex
-			}
-			if cfg.Replacement == "" {
-				cfg.Replacement = DefaultRelabelConfig.Replacement
-			}
-			require.NoError(t, cfg.Validate())
-		}
 
-		res, keep := Process(test.input, test.relabel...)
-		require.Equal(t, !test.drop, keep)
-		if keep {
-			testutil.RequireEqual(t, test.output, res)
-		}
+			res, keep := Process(test.input, test.relabel...)
+			require.Equal(t, !test.drop, keep)
+			if keep {
+				testutil.RequireEqual(t, test.output, res)
+			}
+		})
 	}
 }
 
 func TestRelabelValidate(t *testing.T) {
 	tests := []struct {
 		config   Config
+		scheme   model.ValidationScheme
 		expected string
 	}{
 		{
 			config:   Config{},
+			scheme:   model.LegacyValidation,
 			expected: `relabel action cannot be empty`,
 		},
 		{
 			config: Config{
 				Action: Replace,
 			},
+			scheme:   model.LegacyValidation,
 			expected: `requires 'target_label' value`,
 		},
 		{
 			config: Config{
 				Action: Lowercase,
 			},
+			scheme:   model.LegacyValidation,
 			expected: `requires 'target_label' value`,
 		},
 		{
@@ -785,6 +791,33 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement: DefaultRelabelConfig.Replacement,
 				TargetLabel: "${3}", // With UTF-8 naming, this is now a legal relabel rule.
 			},
+			scheme: model.UnsetValidation, // defaults to UTF8 validation
+		},
+		{
+			config: Config{
+				Action:      Lowercase,
+				Replacement: DefaultRelabelConfig.Replacement,
+				TargetLabel: "${3}", // Fails with legacy validation
+			},
+			scheme:   model.LegacyValidation,
+			expected: "\"${3}\" is invalid 'target_label' for lowercase action",
+		},
+		{
+			config: Config{
+				Action:                     Lowercase,
+				Replacement:                DefaultRelabelConfig.Replacement,
+				TargetLabel:                "${3}", // With UTF-8 naming, this is now a legal relabel rule.
+				MetricNameValidationScheme: model.UTF8Validation,
+			},
+			scheme: model.LegacyValidation, // overridden by the config's scheme
+		},
+		{
+			config: Config{
+				Action:      Lowercase,
+				Replacement: DefaultRelabelConfig.Replacement,
+				TargetLabel: "${3}", // With UTF-8 naming, this is now a legal relabel rule.
+			},
+			scheme: model.UTF8Validation,
 		},
 		{
 			config: Config{
@@ -794,6 +827,7 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement:  "${1}",
 				TargetLabel:  "${3}",
 			},
+			scheme: model.UTF8Validation,
 		},
 		{
 			config: Config{
@@ -803,6 +837,7 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement:  "${1}",
 				TargetLabel:  "0${3}", // With UTF-8 naming this targets a valid label.
 			},
+			scheme: model.UTF8Validation,
 		},
 		{
 			config: Config{
@@ -812,11 +847,12 @@ func TestRelabelValidate(t *testing.T) {
 				Replacement:  "${1}",
 				TargetLabel:  "-${3}", // With UTF-8 naming this targets a valid label.
 			},
+			scheme: model.UTF8Validation,
 		},
 	}
 	for i, test := range tests {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			err := test.config.Validate()
+			err := test.config.Validate(test.scheme)
 			if test.expected == "" {
 				require.NoError(t, err)
 			} else {
