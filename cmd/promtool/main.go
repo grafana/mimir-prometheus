@@ -63,12 +63,6 @@ import (
 
 var promqlEnableDelayedNameRemoval = false
 
-func init() {
-	// This can be removed when the legacy global mode is fully deprecated.
-	//nolint:staticcheck
-	model.NameValidationScheme = model.UTF8Validation
-}
-
 const (
 	successExitCode = 0
 	failureExitCode = 1
@@ -374,7 +368,7 @@ func main() {
 		os.Exit(CheckRules(newRulesLintConfig(*checkRulesLint, *checkRulesLintFatal, *checkRulesIgnoreUnknownFields), *ruleFiles...))
 
 	case checkMetricsCmd.FullCommand():
-		os.Exit(CheckMetrics(*checkMetricsExtended))
+		os.Exit(CheckMetrics(*checkMetricsExtended, model.UTF8Validation))
 
 	case pushMetricsCmd.FullCommand():
 		os.Exit(PushMetrics(remoteWriteURL, httpRoundTripper, *pushMetricsHeaders, *pushMetricsTimeout, *pushMetricsLabels, *metricFiles...))
@@ -1019,11 +1013,11 @@ $ curl -s http://localhost:9090/metrics | promtool check metrics
 `)
 
 // CheckMetrics performs a linting pass on input metrics.
-func CheckMetrics(extended bool) int {
+func CheckMetrics(extended bool, validationScheme model.ValidationScheme) int {
 	var buf bytes.Buffer
 	tee := io.TeeReader(os.Stdin, &buf)
 	l := promlint.New(tee)
-	problems, err := l.Lint()
+	problems, err := l.Lint(validationScheme)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error while linting:", err)
 		return failureExitCode

@@ -233,7 +233,7 @@ func benchExpFmt(b *testing.B, data []byte, expFormatTypeStr string) {
 	for i := 0; i < b.N; i++ {
 		decSamples := make(model.Vector, 0, 50)
 		sdec := expfmt.SampleDecoder{
-			Dec: expfmt.NewDecoder(bytes.NewReader(data), expfmt.NewFormat(expfmtFormatType)),
+			Dec: expfmt.NewDecoder(bytes.NewReader(data), expfmt.NewFormat(expfmtFormatType), model.UTF8Validation),
 			Opts: &expfmt.DecodeOptions{
 				Timestamp: model.TimeFromUnixNano(0),
 			},
