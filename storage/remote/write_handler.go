@@ -544,15 +544,11 @@ func NewOTLPWriteHandler(logger *slog.Logger, _ prometheus.Registerer, appendabl
 	}
 
 	ex := &rwExporter{
-		writeHandler: &writeHandler{
-			logger:     logger,
-			appendable: appendable,
-		},
-		config:                       configFunc,
-		allowDeltaTemporality:        opts.NativeDelta,
-		lookbackDelta:                opts.LookbackDelta,
-		enableCTZeroIngestion:        enableCTZeroIngestion,
-		validIntervalCTZeroIngestion: validIntervalCTZeroIngestion,
+		logger:                logger,
+		appendable:            appendable,
+		config:                configFunc,
+		allowDeltaTemporality: opts.NativeDelta,
+		lookbackDelta:         opts.LookbackDelta,
 	}
 
 	wh := &otlpWriteHandler{logger: logger, defaultConsumer: ex}
@@ -586,7 +582,8 @@ func NewOTLPWriteHandler(logger *slog.Logger, _ prometheus.Registerer, appendabl
 }
 
 type rwExporter struct {
-	*writeHandler
+	logger                *slog.Logger
+	appendable            storage.Appendable
 	config                func() config.Config
 	allowDeltaTemporality bool
 	lookbackDelta         time.Duration
@@ -598,8 +595,11 @@ type rwExporter struct {
 
 func (rw *rwExporter) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
 	otlpCfg := rw.config().OTLPConfig
-
-	converter := otlptranslator.NewPrometheusConverter()
+	app := &timeLimitAppender{
+		Appender: rw.appendable.Appender(ctx),
+		maxTime:  timestamp.FromTime(time.Now().Add(maxAheadTime)),
+	}
+	converter := otlptranslator.NewPrometheusConverter(app, rw.logger)
 	annots, err := converter.FromMetrics(ctx, md, otlptranslator.Settings{
 		AddMetricSuffixes:                 otlpCfg.TranslationStrategy != config.NoTranslation,
 		AllowUTF8:                         otlpCfg.TranslationStrategy != config.UnderscoreEscapingWithSuffixes,
@@ -609,11 +609,7 @@ func (rw *rwExporter) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) er
 		AllowDeltaTemporality:             rw.allowDeltaTemporality,
 		PromoteScopeMetadata:              otlpCfg.PromoteScopeMetadata,
 		LookbackDelta:                     rw.lookbackDelta,
-
-		// Mimir specifics.
-		EnableCreatedTimestampZeroIngestion:        rw.enableCTZeroIngestion,
-		ValidIntervalCreatedTimestampZeroIngestion: rw.validIntervalCTZeroIngestion,
-	}, rw.logger)
+	})
 	if err != nil {
 		rw.logger.Warn("Error translating OTLP metrics to Prometheus write request", "err", err)
 	}
@@ -621,11 +617,6 @@ func (rw *rwExporter) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) er
 	if len(ws) > 0 {
 		rw.logger.Warn("Warnings translating OTLP metrics to Prometheus write request", "warnings", ws)
 	}
-
-	err = rw.write(ctx, &prompb.WriteRequest{
-		Timeseries: converter.TimeSeries(),
-		Metadata:   converter.Metadata(),
-	})
 	return err
 }
 
