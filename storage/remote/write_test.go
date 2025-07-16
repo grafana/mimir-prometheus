@@ -35,7 +35,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	common_config "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -502,12 +501,13 @@ func handleOTLP(t *testing.T, exportRequest pmetricotlp.ExportRequest, otlpCfg c
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/x-protobuf")
 
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	appendable := &mockAppendable{}
-	handler := NewOTLPWriteHandler(promslog.NewNopLogger(), nil, appendable, func() config.Config {
+	handler := NewOTLPWriteHandler(log, nil, appendable, func() config.Config {
 		return config.Config{
 			OTLPConfig: otlpCfg,
 		}
-	}, false, 0, OTLPOptions{})
+	}, OTLPOptions{})
 
 	recorder := httptest.NewRecorder()
 	handler.ServeHTTP(recorder, req)
@@ -603,7 +603,7 @@ func TestOTLPDelta(t *testing.T) {
 	cfg := func() config.Config {
 		return config.Config{OTLPConfig: config.DefaultOTLPConfig}
 	}
-	handler := NewOTLPWriteHandler(log, nil, appendable, cfg, false, 0, OTLPOptions{ConvertDelta: true})
+	handler := NewOTLPWriteHandler(log, nil, appendable, cfg, OTLPOptions{ConvertDelta: true})
 
 	md := pmetric.NewMetrics()
 	ms := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics()
@@ -857,7 +857,7 @@ func BenchmarkOTLP(b *testing.B) {
 					cfgfn := func() config.Config {
 						return config.Config{OTLPConfig: config.DefaultOTLPConfig}
 					}
-					handler := NewOTLPWriteHandler(log, nil, appendable, cfgfn, false, 0, cfg.opts)
+					handler := NewOTLPWriteHandler(log, nil, appendable, cfgfn, cfg.opts)
 
 					fail := make(chan struct{})
 					done := make(chan struct{})
