@@ -141,6 +141,10 @@ var (
 )
 
 func init() {
+	// This can be removed when the legacy global mode is fully deprecated.
+	//nolint:staticcheck
+	model.NameValidationScheme = model.UTF8Validation
+
 	prometheus.MustRegister(versioncollector.NewCollector(strings.ReplaceAll(appName, "-", "_")))
 
 	var err error

@@ -15,11 +15,9 @@ build:
             - netgo
             - builtinassets
             - stringlabels
-            - localvalidationscheme
         windows:
             - builtinassets
             - stringlabels
-            - localvalidationscheme
     ldflags: |
         -X github.com/prometheus/common/version.Version={{.Version}}
         -X github.com/prometheus/common/version.Revision={{.Revision}}
