@@ -378,14 +378,14 @@ grouping_label_list:
 
 grouping_label  : maybe_label
                         {
-                        if !model.LabelName($1.Val).IsValid(yylex.(*parser).validationScheme) {
+                        if (yylex.(*parser).validationScheme == model.LegacyValidation && !model.LabelName($1.Val).IsValidLegacy()) || !model.LabelName($1.Val).IsValid() {
                                 yylex.(*parser).addParseErrf($1.PositionRange(),"invalid label name for grouping: %q", $1.Val)
                         }
                         $$ = $1
                         }
                 | STRING {
                         unquoted := yylex.(*parser).unquoteString($1.Val)
-                        if !model.LabelName(unquoted).IsValid(yylex.(*parser).validationScheme) {
+                        if (yylex.(*parser).validationScheme == model.LegacyValidation && !model.LabelName($1.Val).IsValidLegacy()) || !model.LabelName($1.Val).IsValid() {
                                 yylex.(*parser).addParseErrf($1.PositionRange(),"invalid label name for grouping: %q", unquoted)
                         }
                         $$ = $1

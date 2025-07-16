@@ -112,7 +112,7 @@ func (g *RuleGroups) Validate(node ruleGroups, validationScheme model.Validation
 		}
 
 		for k, v := range g.Labels {
-			if !model.LabelName(k).IsValid(validationScheme) || k == model.MetricNameLabel {
+			if ((validationScheme == model.LegacyValidation && !model.LabelName(k).IsValidLegacy()) || !model.LabelName(k).IsValid()) || k == model.MetricNameLabel {
 				errs = append(
 					errs, fmt.Errorf("invalid label name: %s", k),
 				)
@@ -244,7 +244,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 				node: &node.Record,
 			})
 		}
-		if !model.IsValidMetricName(model.LabelValue(r.Record), validationScheme) {
+		if (validationScheme == model.LegacyValidation && !model.LabelName(r.Record).IsValidLegacy()) || !model.LabelName(r.Record).IsValid() {
 			nodes = append(nodes, WrappedError{
 				err:  fmt.Errorf("invalid recording rule name: %s", r.Record),
 				node: &node.Record,
@@ -261,7 +261,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 	}
 
 	for k, v := range r.Labels {
-		if !model.LabelName(k).IsValid(validationScheme) || k == model.MetricNameLabel {
+		if ((validationScheme == model.LegacyValidation && !model.LabelName(k).IsValidLegacy()) || !model.LabelName(k).IsValid()) || k == model.MetricNameLabel {
 			nodes = append(nodes, WrappedError{
 				err: fmt.Errorf("invalid label name: %s", k),
 			})
@@ -275,7 +275,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 	}
 
 	for k := range r.Annotations {
-		if !model.LabelName(k).IsValid(validationScheme) {
+		if (validationScheme == model.LegacyValidation && !model.LabelName(k).IsValidLegacy()) || !model.LabelName(k).IsValid() {
 			nodes = append(nodes, WrappedError{
 				err: fmt.Errorf("invalid annotation name: %s", k),
 			})

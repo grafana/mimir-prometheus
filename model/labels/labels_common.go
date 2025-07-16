@@ -104,11 +104,11 @@ func (ls *Labels) UnmarshalYAML(unmarshal func(interface{}) error) error {
 func (ls Labels) IsValid(validationScheme model.ValidationScheme) bool {
 	err := ls.Validate(func(l Label) error {
 		if l.Name == model.MetricNameLabel {
-			if !model.IsValidMetricName(model.LabelValue(l.Value), validationScheme) {
+			if (validationScheme == model.LegacyValidation && !model.IsValidLegacyMetricName(l.Value)) || !model.IsValidMetricName(model.LabelValue(l.Value)) {
 				return strconv.ErrSyntax
 			}
 		}
-		if !model.LabelName(l.Name).IsValid(validationScheme) || !model.LabelValue(l.Value).IsValid() {
+		if ((validationScheme == model.LegacyValidation && !model.LabelName(l.Name).IsValidLegacy()) || !model.LabelName(l.Name).IsValid()) || !model.LabelValue(l.Value).IsValid() {
 			return strconv.ErrSyntax
 		}
 		return nil

@@ -132,7 +132,7 @@ func (c *Config) Validate() error {
 		return errors.New("MetricNameValidationScheme must be set in relabel configuration")
 	}
 
-	if c.Action == Replace && !varInRegexTemplate(c.TargetLabel) && !model.LabelName(c.TargetLabel).IsValid(c.MetricNameValidationScheme) {
+	if c.Action == Replace && !varInRegexTemplate(c.TargetLabel) && (c.MetricNameValidationScheme == model.LegacyValidation && !model.LabelName(c.TargetLabel).IsValidLegacy()) || !model.LabelName(c.TargetLabel).IsValid() {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 
@@ -140,12 +140,12 @@ func (c *Config) Validate() error {
 		// UTF-8 allows ${} characters, so standard validation allow $variables by default.
 		// TODO(bwplotka): Relabelling users cannot put $ and ${<...>} characters in metric names or values.
 		// Design escaping mechanism to allow that, once valid use case appears.
-		return model.LabelName(value).IsValid(c.MetricNameValidationScheme)
+		return (c.MetricNameValidationScheme == model.LegacyValidation && !model.LabelName(c.TargetLabel).IsValidLegacy()) || !model.LabelName(c.TargetLabel).IsValid()
 	}
 	if c.Action == Replace && varInRegexTemplate(c.TargetLabel) && !isValidLabelNameWithRegexVarFn(c.TargetLabel) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
-	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && !model.LabelName(c.TargetLabel).IsValid(c.MetricNameValidationScheme) {
+	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && ((c.MetricNameValidationScheme == model.LegacyValidation && !model.LabelName(c.TargetLabel).IsValidLegacy()) || !model.LabelName(c.TargetLabel).IsValid()) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 	if (c.Action == Lowercase || c.Action == Uppercase || c.Action == KeepEqual || c.Action == DropEqual) && c.Replacement != DefaultRelabelConfig.Replacement {
@@ -154,7 +154,7 @@ func (c *Config) Validate() error {
 	if c.Action == LabelMap && !isValidLabelNameWithRegexVarFn(c.Replacement) {
 		return fmt.Errorf("%q is invalid 'replacement' for %s action", c.Replacement, c.Action)
 	}
-	if c.Action == HashMod && !model.LabelName(c.TargetLabel).IsValid(c.MetricNameValidationScheme) {
+	if c.Action == HashMod && ((c.MetricNameValidationScheme == model.LegacyValidation && !model.LabelName(c.TargetLabel).IsValidLegacy()) || !model.LabelName(c.TargetLabel).IsValid()) {
 		return fmt.Errorf("%q is invalid 'target_label' for %s action", c.TargetLabel, c.Action)
 	}
 
@@ -326,7 +326,7 @@ func relabel(cfg *Config, lb *labels.Builder) (keep bool) {
 			break
 		}
 		target := string(cfg.Regex.ExpandString([]byte{}, cfg.TargetLabel, val, indexes))
-		if !model.LabelName(target).IsValid(cfg.MetricNameValidationScheme) {
+		if (cfg.MetricNameValidationScheme == model.LegacyValidation && !model.LabelName(target).IsValidLegacy()) || !model.LabelName(target).IsValid() {
 			break
 		}
 		res := cfg.Regex.ExpandString([]byte{}, cfg.Replacement, val, indexes)

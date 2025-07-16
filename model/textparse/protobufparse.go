@@ -445,7 +445,7 @@ func (p *ProtobufParser) Next() (Entry, error) {
 		// We are at the beginning of a metric family. Put only the name
 		// into entryBytes and validate only name, help, and type for now.
 		name := p.dec.GetName()
-		if !model.IsValidMetricName(model.LabelValue(name), p.validationScheme) {
+		if (p.validationScheme == model.LegacyValidation && !model.LabelName(name).IsValidLegacy()) || !model.LabelName(name).IsValid() {
 			return EntryInvalid, fmt.Errorf("invalid metric name: %s", name)
 		}
 		if help := p.dec.GetHelp(); !utf8.ValidString(help) {

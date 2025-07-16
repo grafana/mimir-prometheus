@@ -792,7 +792,7 @@ func (api *API) labelValues(r *http.Request) (result apiFuncResult) {
 		name = model.UnescapeName(name, model.ValueEncodingEscaping)
 	}
 
-	if !model.LabelName(name).IsValid(cmp.Or(api.ValidationScheme, model.UTF8Validation)) {
+	if (api.ValidationScheme == model.LegacyValidation && !model.LabelName(name).IsValidLegacy()) || !model.LabelName(name).IsValid() {
 		return apiFuncResult{nil, &apiError{errorBadData, fmt.Errorf("invalid label name: %q", name)}, nil, nil}
 	}
 
