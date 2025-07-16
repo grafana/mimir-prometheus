@@ -436,13 +436,13 @@ func TestRangeWithFailedCompactionWontGetSelected(t *testing.T) {
 }
 
 func TestCompactionFailWillCleanUpTempDir(t *testing.T) {
-	compactor, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, promslog.NewNopLogger(), []int64{
+	compactor, err := NewLeveledCompactor(context.Background(), nil, promslog.NewNopLogger(), []int64{
 		20,
 		60,
 		240,
 		720,
 		2160,
-	}, nil, chunks.DefaultChunkSegmentSize, nil)
+	}, nil, nil)
 	require.NoError(t, err)
 
 	tmpdir := t.TempDir()
@@ -537,7 +537,7 @@ func TestCompaction_CompactWithSplitting(t *testing.T) {
 
 		for _, shardCount := range shardCounts {
 			t.Run(fmt.Sprintf("series=%d, shards=%d", series, shardCount), func(t *testing.T) {
-				c, err := NewLeveledCompactorWithChunkSize(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+				c, err := NewLeveledCompactor(ctx, nil, promslog.NewNopLogger(), []int64{0}, nil, nil)
 				require.NoError(t, err)
 
 				blockIDs, err := c.CompactWithSplitting(dir, blockDirs, openBlocks, shardCount)
@@ -671,7 +671,7 @@ func TestCompaction_CompactEmptyBlocks(t *testing.T) {
 		blockDirs = append(blockDirs, bdir)
 	}
 
-	c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+	c, err := NewLeveledCompactor(context.Background(), nil, promslog.NewNopLogger(), []int64{0}, nil, nil)
 	require.NoError(t, err)
 
 	blockIDs, err := c.CompactWithSplitting(dir, blockDirs, nil, 5)
@@ -1227,7 +1227,7 @@ func TestCompaction_populateBlock(t *testing.T) {
 				blocks = append(blocks, &mockBReader{ir: ir, cr: cr, mint: mint, maxt: maxt})
 			}
 
-			c, err := NewLeveledCompactorWithChunkSize(context.Background(), nil, nil, []int64{0}, nil, chunks.DefaultChunkSegmentSize, nil)
+			c, err := NewLeveledCompactor(context.Background(), nil, nil, []int64{0}, nil, nil)
 			require.NoError(t, err)
 
 			meta := &BlockMeta{
