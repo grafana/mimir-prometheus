@@ -11,9 +11,9 @@ const (
 	estimatedRegexMatchCost              = 10.0
 )
 
-// SingleMatchCost returns the fixed cost of running this matcher against an arbitrary label value.
-// TODO benchmark relative cost of different matchers
-// TODO use the complexity of the regex string as a cost
+// SingleMatchCost returns the fixed cost of running this matcher against an arbitrary label value..
+// TODO benchmark relative cost of different matchers.
+// TODO use the complexity of the regex string as a cost.
 func (m *Matcher) SingleMatchCost() float64 {
 	switch m.Type {
 	case MatchEqual, MatchNotEqual:
@@ -42,10 +42,10 @@ func (m *Matcher) SingleMatchCost() float64 {
 }
 
 // EstimateSelectivity is the estimated fraction of all strings that it would match.
-// For example
-// * namespace!="" will match all values, so its selectivity is 1
-// * namespace=~"foo" will match only a single value, so its selectivity across 100 values is 0.01
-// * namespace=~"foo|bar" will match two values, so its selectivity across 100 values is 0.02
+// For example:
+// * namespace!="" will match all values, so its selectivity is 1;
+// * namespace=~"foo" will match only a single value, so its selectivity across 100 values is 0.01;
+// * namespace=~"foo|bar" will match two values, so its selectivity across 100 values is 0.02.
 func (m *Matcher) EstimateSelectivity(totalLabelValues int64) float64 {
 	var selectivity float64
 	switch m.Type {
