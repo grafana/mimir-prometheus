@@ -1023,7 +1023,6 @@ func CheckMetrics(extended bool) int {
 	var buf bytes.Buffer
 	tee := io.TeeReader(os.Stdin, &buf)
 	l := promlint.New(tee)
-	// TODO: Add custom validations to l, to check the validation scheme.
 	problems, err := l.Lint()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error while linting:", err)

@@ -104,11 +104,20 @@ func (ls *Labels) UnmarshalYAML(unmarshal func(interface{}) error) error {
 func (ls Labels) IsValid(validationScheme model.ValidationScheme) bool {
 	err := ls.Validate(func(l Label) error {
 		if l.Name == model.MetricNameLabel {
-			if (validationScheme == model.LegacyValidation && !model.IsValidLegacyMetricName(l.Value)) || !model.IsValidMetricName(model.LabelValue(l.Value)) {
+			// If the default validation scheme has been overridden with legacy mode,
+			// we need to call the special legacy validation checker.
+			if validationScheme == model.LegacyValidation && !model.IsValidLegacyMetricName(string(model.LabelValue(l.Value))) {
+				return strconv.ErrSyntax
+			}
+			if !model.IsValidMetricName(model.LabelValue(l.Value)) {
 				return strconv.ErrSyntax
 			}
 		}
-		if ((validationScheme == model.LegacyValidation && !model.LabelName(l.Name).IsValidLegacy()) || !model.LabelName(l.Name).IsValid()) || !model.LabelValue(l.Value).IsValid() {
+		if validationScheme == model.LegacyValidation {
+			if !model.LabelName(l.Name).IsValidLegacy() || !model.LabelValue(l.Value).IsValid() {
+				return strconv.ErrSyntax
+			}
+		} else if !model.LabelName(l.Name).IsValid() || !model.LabelValue(l.Value).IsValid() {
 			return strconv.ErrSyntax
 		}
 		return nil

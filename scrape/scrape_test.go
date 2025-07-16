@@ -1471,7 +1471,7 @@ func TestPromTextToProto(t *testing.T) {
 	metricsText = bytes.ReplaceAll(metricsText, []byte("\r"), nil)
 
 	metricsProto := promTextToProto(t, metricsText)
-	d := expfmt.NewDecoder(bytes.NewReader(metricsProto), expfmt.NewFormat(expfmt.TypeProtoDelim), model.UTF8Validation)
+	d := expfmt.NewDecoder(bytes.NewReader(metricsProto), expfmt.NewFormat(expfmt.TypeProtoDelim))
 
 	var got []string
 	for {
