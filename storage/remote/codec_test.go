@@ -217,112 +217,86 @@ func TestWriteV2RequestFixture(t *testing.T) {
 
 func TestValidateLabelsAndMetricName(t *testing.T) {
 	tests := []struct {
-		input            []prompb.Label
-		expectedErr      string
-		description      string
-		validationScheme model.ValidationScheme
+		input       []prompb.Label
+		expectedErr string
+		description string
 	}{
 		{
 			input: []prompb.Label{
 				{Name: "__name__", Value: "name"},
 				{Name: "labelName", Value: "labelValue"},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "",
-			description:      "regular labels",
+			expectedErr: "",
+			description: "regular labels",
 		},
 		{
 			input: []prompb.Label{
 				{Name: "__name__", Value: "name"},
 				{Name: "_labelName", Value: "labelValue"},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "",
-			description:      "label name with _",
+			expectedErr: "",
+			description: "label name with _",
 		},
 		{
 			input: []prompb.Label{
 				{Name: "__name__", Value: "name"},
 				{Name: "@labelName\xff", Value: "labelValue"},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "invalid label name: @labelName\xff",
-			description:      "label name with \xff",
+			expectedErr: "invalid label name: @labelName\xff",
+			description: "label name with \xff",
 		},
 		{
 			input: []prompb.Label{
 				{Name: "__name__", Value: "name"},
 				{Name: "", Value: "labelValue"},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "invalid label name: ",
-			description:      "label name is empty string",
+			expectedErr: "invalid label name: ",
+			description: "label name is empty string",
 		},
 		{
 			input: []prompb.Label{
 				{Name: "__name__", Value: "name"},
 				{Name: "labelName", Value: string([]byte{0xff})},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "invalid label value: " + string([]byte{0xff}),
-			description:      "label value is an invalid UTF-8 value",
+			expectedErr: "invalid label value: " + string([]byte{0xff}),
+			description: "label value is an invalid UTF-8 value",
 		},
 		{
 			input: []prompb.Label{
 				{Name: "__name__", Value: "invalid_name\xff"},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "invalid metric name: invalid_name\xff",
-			description:      "metric name has invalid utf8",
+			expectedErr: "invalid metric name: invalid_name\xff",
+			description: "metric name has invalid utf8",
 		},
 		{
 			input: []prompb.Label{
 				{Name: "__name__", Value: "name1"},
 				{Name: "__name__", Value: "name2"},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "duplicate label with name: __name__",
-			description:      "duplicate label names",
+			expectedErr: "duplicate label with name: __name__",
+			description: "duplicate label names",
 		},
 		{
 			input: []prompb.Label{
 				{Name: "label1", Value: "name"},
 				{Name: "label2", Value: "name"},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "",
-			description:      "duplicate label values",
+			expectedErr: "",
+			description: "duplicate label values",
 		},
 		{
 			input: []prompb.Label{
 				{Name: "", Value: "name"},
 				{Name: "label2", Value: "name"},
 			},
-			validationScheme: model.UTF8Validation,
-			expectedErr:      "invalid label name: ",
-			description:      "don't report as duplicate label name",
-		},
-		{
-			input: []prompb.Label{
-				{Name: "__name__", Value: "name1*"},
-			},
-			validationScheme: model.LegacyValidation,
-			expectedErr:      "invalid metric name: name1*",
-			description:      "invalid legacy metric name",
-		},
-		{
-			input: []prompb.Label{
-				{Name: "label1*", Value: "name"},
-			},
-			validationScheme: model.LegacyValidation,
-			expectedErr:      "invalid label name: label1*",
-			description:      "invalid legacy label name",
+			expectedErr: "invalid label name: ",
+			description: "don't report as duplicate label name",
 		},
 	}
 
 	for _, test := range tests {
 		t.Run(test.description, func(t *testing.T) {
-			err := validateLabelsAndMetricName(test.input, test.validationScheme)
+			err := validateLabelsAndMetricName(test.input)
 			if test.expectedErr != "" {
 				require.EqualError(t, err, test.expectedErr)
 			} else {

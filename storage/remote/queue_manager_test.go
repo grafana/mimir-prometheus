@@ -1751,7 +1751,7 @@ func TestQueueManagerMetrics(t *testing.T) {
 	metrics := newQueueManagerMetrics(reg, "name", "http://localhost:1234")
 
 	// Make sure metrics pass linting.
-	problems, err := client_testutil.GatherAndLint(reg, model.UTF8Validation)
+	problems, err := client_testutil.GatherAndLint(reg)
 	require.NoError(t, err)
 	require.Empty(t, problems, "Metric linting problems detected: %v", problems)
 

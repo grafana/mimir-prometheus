@@ -499,10 +499,9 @@ func TestEndpoints(t *testing.T) {
 		err = remote.ApplyConfig(&config.Config{
 			RemoteReadConfigs: []*config.RemoteReadConfig{
 				{
-					URL:                        &config_util.URL{URL: u},
-					RemoteTimeout:              model.Duration(1 * time.Second),
-					ReadRecent:                 true,
-					MetricNameValidationScheme: model.UTF8Validation,
+					URL:           &config_util.URL{URL: u},
+					RemoteTimeout: model.Duration(1 * time.Second),
+					ReadRecent:    true,
 				},
 			},
 		})
@@ -4646,7 +4645,7 @@ func TestExtractQueryOpts(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			req := &http.Request{Form: test.form}
-			opts, err := extractQueryOpts(req, model.UTF8Validation)
+			opts, err := extractQueryOpts(req)
 			require.Equal(t, test.expect, opts)
 			if test.err == nil {
 				require.NoError(t, err)

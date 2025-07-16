@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/common/model"
 	"gopkg.in/yaml.v3"
 
+	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
@@ -112,7 +113,7 @@ func (g *RuleGroups) Validate(node ruleGroups, validationScheme model.Validation
 		}
 
 		for k, v := range g.Labels {
-			if ((validationScheme == model.LegacyValidation && !model.LabelName(k).IsValidLegacy()) || !model.LabelName(k).IsValid()) || k == model.MetricNameLabel {
+			if !labels.IsValidLabelName(k, validationScheme) || k == model.MetricNameLabel {
 				errs = append(
 					errs, fmt.Errorf("invalid label name: %s", k),
 				)
@@ -244,7 +245,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 				node: &node.Record,
 			})
 		}
-		if (validationScheme == model.LegacyValidation && !model.LabelName(r.Record).IsValidLegacy()) || !model.LabelName(r.Record).IsValid() {
+		if !labels.IsValidMetricName(r.Record, validationScheme) {
 			nodes = append(nodes, WrappedError{
 				err:  fmt.Errorf("invalid recording rule name: %s", r.Record),
 				node: &node.Record,
@@ -261,7 +262,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 	}
 
 	for k, v := range r.Labels {
-		if ((validationScheme == model.LegacyValidation && !model.LabelName(k).IsValidLegacy()) || !model.LabelName(k).IsValid()) || k == model.MetricNameLabel {
+		if !labels.IsValidLabelName(k, validationScheme) || k == model.MetricNameLabel {
 			nodes = append(nodes, WrappedError{
 				err: fmt.Errorf("invalid label name: %s", k),
 			})
@@ -275,7 +276,7 @@ func (r *Rule) Validate(node RuleNode, validationScheme model.ValidationScheme) 
 	}
 
 	for k := range r.Annotations {
-		if (validationScheme == model.LegacyValidation && !model.LabelName(k).IsValidLegacy()) || !model.LabelName(k).IsValid() {
+		if !labels.IsValidLabelName(k, validationScheme) {
 			nodes = append(nodes, WrappedError{
 				err: fmt.Errorf("invalid annotation name: %s", k),
 			})
