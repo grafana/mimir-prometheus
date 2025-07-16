@@ -3,7 +3,7 @@ package labels
 import (
 	"testing"
 
-	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSingleMatchCost(t *testing.T) {
@@ -92,13 +92,13 @@ func TestSingleMatchCost(t *testing.T) {
 
 	for _, tt := range tests {
 		matcher, err := NewMatcher(tt.t, tt.l, tt.v)
-		assert.NoError(t, err)
+		require.NoError(t, err)
 		matcherStr := matcher.String()
 		if truncatelen := 50; len(matcherStr) > truncatelen {
 			matcherStr = matcherStr[:truncatelen]
 		}
 		t.Run(matcherStr, func(t *testing.T) {
-			assert.Equal(t, tt.cost, matcher.SingleMatchCost())
+			require.Equal(t, tt.cost, matcher.SingleMatchCost())
 		})
 	}
 }
