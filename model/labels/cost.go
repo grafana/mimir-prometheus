@@ -3,7 +3,7 @@ package labels
 import "github.com/grafana/regexp/syntax"
 
 const (
-	// TODO verify relative magnitude of these costs
+	// TODO verify relative magnitude of these costs.
 	estimatedStringEqualityCost          = 1.0
 	estimatedStingHasPrefixCost          = 0.5
 	estimatedSliceContainsCostPerElement = 1.0
@@ -11,7 +11,7 @@ const (
 	estimatedRegexMatchCost              = 10.0
 )
 
-// FixedCost returns the fixed cost of running this matcher against an arbitrary label value.
+// SingleMatchCost returns the fixed cost of running this matcher against an arbitrary label value.
 // TODO benchmark relative cost of different matchers
 // TODO use the complexity of the regex string as a cost
 func (m *Matcher) SingleMatchCost() float64 {
@@ -69,7 +69,6 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues int64) float64 {
 
 		// For unoptimized regex, assume we'll match ~10% of values
 		selectivity = 0.1
-		break
 	}
 
 	switch m.Type {
@@ -87,7 +86,7 @@ func (m *FastRegexMatcher) SingleMatchCost() float64 {
 	return costEstimate(parsed)
 }
 
-// TODO this doesn't account for backtracking, which can come with a large cost
+// TODO this doesn't account for backtracking, which can come with a large cost.
 func costEstimate(re *syntax.Regexp) float64 {
 	switch re.Op {
 	case syntax.OpBeginText:
@@ -109,7 +108,7 @@ func costEstimate(re *syntax.Regexp) float64 {
 	case syntax.OpCapture:
 		return costEstimate(re.Sub[0])
 	case syntax.OpConcat:
-		var total float64 = 0
+		var total float64
 		for _, sub := range re.Sub {
 			total += costEstimate(sub)
 		}
