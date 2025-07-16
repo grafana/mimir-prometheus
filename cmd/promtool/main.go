@@ -1013,11 +1013,12 @@ $ curl -s http://localhost:9090/metrics | promtool check metrics
 `)
 
 // CheckMetrics performs a linting pass on input metrics.
-func CheckMetrics(extended bool, validationScheme model.ValidationScheme) int {
+func CheckMetrics(extended bool, _ model.ValidationScheme) int {
 	var buf bytes.Buffer
 	tee := io.TeeReader(os.Stdin, &buf)
 	l := promlint.New(tee)
-	problems, err := l.Lint(validationScheme)
+	// TODO: Add custom validations to l, to check the validation scheme.
+	problems, err := l.Lint()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "error while linting:", err)
 		return failureExitCode

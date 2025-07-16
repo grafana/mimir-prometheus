@@ -614,7 +614,7 @@ func (c *GlobalConfig) UnmarshalYAML(unmarshal func(interface{}) error) error {
 	}
 
 	if err := gc.ExternalLabels.Validate(func(l labels.Label) error {
-		if !model.LabelName(l.Name).IsValid(c.MetricNameValidationScheme) {
+		if (c.MetricNameValidationScheme == model.LegacyValidation && !model.LabelName(l.Name).IsValidLegacy()) || !model.LabelName(l.Name).IsValid() {
 			return fmt.Errorf("%q is not a valid label name", l.Name)
 		}
 		if !model.LabelValue(l.Value).IsValid() {
