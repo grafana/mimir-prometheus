@@ -631,19 +631,13 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 		schemaURL:  "https://schema.com",
 		attributes: scopeAttrs,
 	}
-	now := time.Now()
-	nowUnixNano := pcommon.Timestamp(now.UnixNano())
-	// nowMinus2m30s := pcommon.Timestamp(now.Add(-2 * time.Minute).Add(-30 * time.Second).UnixNano())
-	// nowMinus6m := pcommon.Timestamp(now.Add(-6 * time.Minute).UnixNano())
-	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
 
 	tests := []struct {
-		name                  string
-		metric                func() pmetric.Metric
-		scope                 scope
-		promoteScope          bool
-		overrideValidInterval time.Duration
-		wantSeries            func() map[uint64]*prompb.TimeSeries
+		name         string
+		metric       func() pmetric.Metric
+		scope        scope
+		promoteScope bool
+		wantSeries   func() map[uint64]*prompb.TimeSeries
 	}{
 		{
 			name: "histogram data points with same labels and without scope promotion",
@@ -845,207 +839,11 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				}
 			},
 		},
-		{
-			name: "histogram with start time and without scope conversion",
-			metric: func() pmetric.Metric {
-				metric := pmetric.NewMetric()
-				metric.SetName("test_exponential_hist")
-				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
-
-				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
-				pt.SetTimestamp(nowUnixNano)
-				pt.SetStartTimestamp(nowUnixNano)
-
-				return metric
-			},
-			scope:        defaultScope,
-			promoteScope: false,
-			wantSeries: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
-				}
-				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
-						Histograms: []prompb.Histogram{
-							{
-								Timestamp: convertTimeStamp(nowUnixNano),
-								Count: &prompb.Histogram_CountInt{
-									CountInt: 0,
-								},
-								ZeroCount: &prompb.Histogram_ZeroCountInt{
-									ZeroCountInt: 0,
-								},
-								ZeroThreshold: defaultZeroThreshold,
-							},
-						},
-					},
-				}
-			},
-		},
-		{
-			name: "histogram without start time and without scope conversion",
-			metric: func() pmetric.Metric {
-				metric := pmetric.NewMetric()
-				metric.SetName("test_exponential_hist")
-				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
-
-				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
-				pt.SetTimestamp(nowUnixNano)
-
-				return metric
-			},
-			scope:        defaultScope,
-			promoteScope: false,
-			wantSeries: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
-				}
-				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
-						Histograms: []prompb.Histogram{
-							{
-								Timestamp: convertTimeStamp(nowUnixNano),
-								Count: &prompb.Histogram_CountInt{
-									CountInt: 0,
-								},
-								ZeroCount: &prompb.Histogram_ZeroCountInt{
-									ZeroCountInt: 0,
-								},
-								ZeroThreshold: defaultZeroThreshold,
-							},
-						},
-					},
-				}
-			},
-		},
-		//  TODO(@jesusvazquez) Reenable after OOO NH is stable
-		// {
-		// 	name: "histogram with start time within default valid interval to sample timestamp",
-		// 	metric: func() pmetric.Metric {
-		// 		metric := pmetric.NewMetric()
-		// 		metric.SetName("test_exponential_hist")
-		// 		metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
-
-		// 		pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
-		// 		pt.SetTimestamp(nowUnixNano)
-		// 		pt.SetStartTimestamp(nowMinus2m30s)
-
-		// 		return metric
-		// 	},
-		// 	scope:        defaultScope,
-		// 	promoteScope: false,
-		// 	wantSeries: func() map[uint64]*prompb.TimeSeries {
-		// 		labels := []prompb.Label{
-		// 			{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
-		// 		}
-		// 		return map[uint64]*prompb.TimeSeries{
-		// 			timeSeriesSignature(labels): {
-		// 				Labels: labels,
-		// 				Histograms: []prompb.Histogram{
-		// 					{
-		// 						Timestamp: convertTimeStamp(nowMinus2m30s),
-		// 					},
-		// 					{
-		// 						Timestamp: convertTimeStamp(nowUnixNano),
-		// 						Count: &prompb.Histogram_CountInt{
-		// 							CountInt: 0,
-		// 						},
-		// 						ZeroCount: &prompb.Histogram_ZeroCountInt{
-		// 							ZeroCountInt: 0,
-		// 						},
-		// 						ZeroThreshold: defaultZeroThreshold,
-		// 					},
-		// 				},
-		// 			},
-		// 		}
-		// 	},
-		// },
-		// {
-		// 	name: "histogram with start time within overiden valid interval to sample timestamp",
-		// 	metric: func() pmetric.Metric {
-		// 		metric := pmetric.NewMetric()
-		// 		metric.SetName("test_exponential_hist")
-		// 		metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
-
-		// 		pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
-		// 		pt.SetTimestamp(nowUnixNano)
-		// 		pt.SetStartTimestamp(nowMinus6m)
-
-		// 		return metric
-		// 	},
-		// 	scope:        defaultScope,
-		// 	promoteScope: false,
-		// 	wantSeries: func() map[uint64]*prompb.TimeSeries {
-		// 		labels := []prompb.Label{
-		// 			{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
-		// 		}
-		// 		return map[uint64]*prompb.TimeSeries{
-		// 			timeSeriesSignature(labels): {
-		// 				Labels: labels,
-		// 				Histograms: []prompb.Histogram{
-		// 					{
-		// 						Timestamp: convertTimeStamp(nowMinus6m),
-		// 					},
-		// 					{
-		// 						Timestamp: convertTimeStamp(nowUnixNano),
-		// 						Count: &prompb.Histogram_CountInt{
-		// 							CountInt: 0,
-		// 						},
-		// 						ZeroCount: &prompb.Histogram_ZeroCountInt{
-		// 							ZeroCountInt: 0,
-		// 						},
-		// 						ZeroThreshold: defaultZeroThreshold,
-		// 					},
-		// 				},
-		// 			},
-		// 		}
-		// 	},
-		// 	overrideValidInterval: 10 * time.Minute,
-		// },
-		{
-			name: "histogram with start time older than default valid interval to sample timestamp and without scope conversion",
-			metric: func() pmetric.Metric {
-				metric := pmetric.NewMetric()
-				metric.SetName("test_exponential_hist")
-				metric.SetEmptyExponentialHistogram().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
-
-				pt := metric.ExponentialHistogram().DataPoints().AppendEmpty()
-				pt.SetTimestamp(nowUnixNano)
-				pt.SetStartTimestamp(nowMinus1h)
-
-				return metric
-			},
-			scope:        defaultScope,
-			promoteScope: false,
-			wantSeries: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_exponential_hist"},
-				}
-				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
-						Histograms: []prompb.Histogram{
-							{
-								Timestamp: convertTimeStamp(nowUnixNano),
-								Count: &prompb.Histogram_CountInt{
-									CountInt: 0,
-								},
-								ZeroCount: &prompb.Histogram_ZeroCountInt{
-									ZeroCountInt: 0,
-								},
-								ZeroThreshold: defaultZeroThreshold,
-							},
-						},
-					},
-				}
-			},
-		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			metric := tt.metric()
+
 			converter := NewPrometheusConverter()
 			namer := otlptranslator.MetricNamer{
 				WithMetricSuffixes: true,
@@ -1055,10 +853,8 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 				metric.ExponentialHistogram().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric:                        true,
-					PromoteScopeMetadata:                       tt.promoteScope,
-					EnableCreatedTimestampZeroIngestion:        true,
-					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
+					ExportCreatedMetric:  true,
+					PromoteScopeMetadata: tt.promoteScope,
 				},
 				namer.Build(TranslatorMetricFromOtelMetric(metric)),
 				pmetric.AggregationTemporalityCumulative,

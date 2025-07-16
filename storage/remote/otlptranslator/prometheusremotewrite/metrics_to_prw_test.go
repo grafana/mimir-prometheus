@@ -23,7 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/common/promslog"
 	"github.com/prometheus/otlptranslator"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
@@ -103,7 +102,6 @@ func TestFromMetrics(t *testing.T) {
 					context.Background(),
 					payload.Metrics(),
 					tc.settings,
-					promslog.NewNopLogger(),
 				)
 				require.NoError(t, err)
 				require.Empty(t, annots)
@@ -163,7 +161,6 @@ func TestFromMetrics(t *testing.T) {
 				context.Background(),
 				request.Metrics(),
 				Settings{ConvertHistogramsToNHCB: convertHistogramsToNHCB},
-				promslog.NewNopLogger(),
 			)
 			require.NoError(t, err)
 			require.Empty(t, annots)
@@ -191,7 +188,7 @@ func TestFromMetrics(t *testing.T) {
 		cancel()
 		payload, _ := createExportRequest(5, 128, 128, 2, 0, settings, pmetric.AggregationTemporalityCumulative)
 
-		annots, err := converter.FromMetrics(ctx, payload.Metrics(), settings, promslog.NewNopLogger())
+		annots, err := converter.FromMetrics(ctx, payload.Metrics(), settings)
 		require.ErrorIs(t, err, context.Canceled)
 		require.Empty(t, annots)
 	})
@@ -204,7 +201,7 @@ func TestFromMetrics(t *testing.T) {
 		t.Cleanup(cancel)
 		payload, _ := createExportRequest(5, 128, 128, 2, 0, settings, pmetric.AggregationTemporalityCumulative)
 
-		annots, err := converter.FromMetrics(ctx, payload.Metrics(), settings, promslog.NewNopLogger())
+		annots, err := converter.FromMetrics(ctx, payload.Metrics(), settings)
 		require.ErrorIs(t, err, context.DeadlineExceeded)
 		require.Empty(t, annots)
 	})
@@ -232,7 +229,7 @@ func TestFromMetrics(t *testing.T) {
 		}
 
 		converter := NewPrometheusConverter()
-		annots, err := converter.FromMetrics(context.Background(), request.Metrics(), Settings{}, promslog.NewNopLogger())
+		annots, err := converter.FromMetrics(context.Background(), request.Metrics(), Settings{})
 		require.NoError(t, err)
 		require.NotEmpty(t, annots)
 		ws, infos := annots.AsStrings("", 0, 0)
@@ -269,7 +266,6 @@ func TestFromMetrics(t *testing.T) {
 			context.Background(),
 			request.Metrics(),
 			Settings{ConvertHistogramsToNHCB: true},
-			promslog.NewNopLogger(),
 		)
 		require.NoError(t, err)
 		require.NotEmpty(t, annots)
@@ -329,7 +325,6 @@ func TestFromMetrics(t *testing.T) {
 			Settings{
 				LookbackDelta: defaultLookbackDelta,
 			},
-			promslog.NewNopLogger(),
 		)
 		require.NoError(t, err)
 		require.Empty(t, annots)
@@ -584,7 +579,7 @@ func TestTemporality(t *testing.T) {
 				ConvertHistogramsToNHCB: tc.convertToNHCB,
 			}
 
-			_, err := c.FromMetrics(context.Background(), metrics, settings, promslog.NewNopLogger())
+			_, err := c.FromMetrics(context.Background(), metrics, settings)
 
 			if tc.expectedError != "" {
 				require.EqualError(t, err, tc.expectedError)
@@ -996,7 +991,7 @@ func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
 
 											for range b.N {
 												converter := NewPrometheusConverter()
-												annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), settings, promslog.NewNopLogger())
+												annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), settings)
 												require.NoError(b, err)
 												require.Empty(b, annots)
 												require.NotNil(b, converter.TimeSeries())
