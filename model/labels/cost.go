@@ -38,7 +38,7 @@ func (m *Matcher) SingleMatchCost() float64 {
 		return m.re.SingleMatchCost()
 	}
 
-	panic("labels.Matcher.SingleMatchCost: invalid match type " + m.Type.String())
+	panic("labels.Matcher.SingleMatchCost: invalid match type " + m.Type.String() + m.String())
 }
 
 // EstimateSelectivity is the estimated fraction of all strings that it would match.
