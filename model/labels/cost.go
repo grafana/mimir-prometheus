@@ -5,7 +5,7 @@ import "github.com/grafana/regexp/syntax"
 const (
 	// TODO verify relative magnitude of these costs.
 	estimatedStringEqualityCost          = 1.0
-	estimatedStingHasPrefixCost          = 0.5
+	estimatedStringHasPrefixCost         = 0.5
 	estimatedSliceContainsCostPerElement = 1.0
 	estimatedMapContainsCostPerElement   = 0.01
 	estimatedRegexMatchCost              = 10.0
@@ -32,13 +32,13 @@ func (m *Matcher) SingleMatchCost() float64 {
 
 		// If we have a prefix optimization, use that
 		if m.re.prefix != "" {
-			return estimatedStingHasPrefixCost
+			return estimatedStringHasPrefixCost
 		}
 
 		return m.re.SingleMatchCost()
 	}
 
-	panic("labels.Matcher.FixedCost: invalid match type " + m.Type.String())
+	panic("labels.Matcher.SingleMatchCost: invalid match type " + m.Type.String())
 }
 
 // EstimateSelectivity is the estimated fraction of all strings that it would match.
