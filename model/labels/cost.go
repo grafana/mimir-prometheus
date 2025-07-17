@@ -42,11 +42,15 @@ func (m *Matcher) SingleMatchCost() float64 {
 }
 
 // EstimateSelectivity is the estimated fraction of all strings that it would match.
+// If totalLabelValues is 0, then the selectivity is assumed to be 1.0.
 // For example:
 // * namespace!="" will match all values, so its selectivity is 1;
 // * namespace=~"foo" will match only a single value, so its selectivity across 100 values is 0.01;
 // * namespace=~"foo|bar" will match two values, so its selectivity across 100 values is 0.02.
 func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
+	if totalLabelValues == 0 {
+		return 1.0
+	}
 	var selectivity float64
 	// First estimate the selectivity of the operation without taking into account whether it's an inclusive or exclusive matcher.
 	switch m.Type {
@@ -75,6 +79,7 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
 		// For unoptimized regex, assume we'll match ~10% of values
 		selectivity = 0.1
 	}
+	selectivity = max(0.0, min(selectivity, 1.0))
 
 	switch m.Type {
 	case MatchNotEqual, MatchNotRegexp:

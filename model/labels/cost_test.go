@@ -1,6 +1,8 @@
 package labels
 
 import (
+	"fmt"
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -99,6 +101,55 @@ func TestSingleMatchCost(t *testing.T) {
 		}
 		t.Run(matcherStr, func(t *testing.T) {
 			require.Equal(t, tt.cost, matcher.SingleMatchCost())
+		})
+	}
+}
+
+func TestSelectivity(t *testing.T) {
+	tests := []struct {
+		numSeries   uint64
+		selectivity float64
+		l           string
+		t           MatchType
+		v           string
+	}{
+		{0, 1.0, "name", MatchEqual, "up"},
+		{0, 1.0, "name", MatchEqual, ""},
+		{0, 1.0, "name", MatchNotEqual, "up"},
+		{0, 1.0, "name", MatchNotEqual, ""},
+		{0, 1.0, "name", MatchRegexp, "up|kube_pod_info"},
+		{0, 1.0, "name", MatchRegexp, ".+"},
+		{0, 1.0, "name", MatchNotRegexp, "up|kube_pod_info"},
+		{0, 1.0, "name", MatchNotRegexp, ".+"},
+
+		{1, 1.0, "name", MatchRegexp, "up|kube_pod_info"},
+		{1, 0.0, "name", MatchNotRegexp, "up|kube_pod_info"},
+		{2, 1.0, "name", MatchRegexp, "up|kube_pod_info"},
+		{8, 0.25, "name", MatchRegexp, "up|kube_pod_info"},
+		{8, 0.75, "name", MatchNotRegexp, "up|kube_pod_info"},
+		{8, 0.375, "name", MatchRegexp, "up|kube_pod_info|down"},
+
+		{8, 0.125, "name", MatchEqual, "up"},
+		{8, 0.875, "name", MatchNotEqual, "up"},
+		{8, 0.125, "name", MatchRegexp, "up"},
+		{8, 0.875, "name", MatchNotRegexp, "up"},
+
+		{8, 0.1, "name", MatchRegexp, ".*(foo|bar).*"},
+		{8, 0.9, "name", MatchNotRegexp, ".*(foo|bar).*"},
+		{8, 0.1, "name", MatchRegexp, "(foo|bar).*"},
+
+		{math.MaxUint64, 0, "name", MatchEqual, "up"},
+		{math.MaxUint64, 0, "name", MatchRegexp, "up|kube_pod_info"},
+	}
+
+	for _, tt := range tests {
+		matcher, err := NewMatcher(tt.t, tt.l, tt.v)
+		require.NoError(t, err)
+		t.Run(fmt.Sprintf("%d series {%s}", tt.numSeries, matcher), func(t *testing.T) {
+			// Tolerate a single value error in 10M values
+			const tolerance = 1e-7
+			actualSelectivity := matcher.EstimateSelectivity(tt.numSeries)
+			require.InDelta(t, tt.selectivity, actualSelectivity, tolerance)
 		})
 	}
 }
