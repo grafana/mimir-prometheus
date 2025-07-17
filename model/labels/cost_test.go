@@ -134,6 +134,13 @@ func TestSelectivity(t *testing.T) {
 		{8, 0.125, "name", MatchRegexp, "up"},
 		{8, 0.875, "name", MatchNotRegexp, "up"},
 
+		{8, 0.0, "name", MatchRegexp, ""},
+		{8, 1.0, "name", MatchNotRegexp, ""},
+		{8, 0.0, "name", MatchEqual, ""},
+		{8, 1.0, "name", MatchNotEqual, ""},
+
+		{8, 1.0, "name", MatchRegexp, ".+"},
+		{8, 0.0, "name", MatchNotRegexp, ".+"},
 		{8, 0.1, "name", MatchRegexp, ".*(foo|bar).*"},
 		{8, 0.9, "name", MatchNotRegexp, ".*(foo|bar).*"},
 		{8, 0.1, "name", MatchRegexp, "(foo|bar).*"},

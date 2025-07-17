@@ -67,17 +67,17 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
 		// We assume that all of them will be present in the corpus we're testing against.
 		if setMatchesSize := len(m.re.setMatches); setMatchesSize > 0 {
 			selectivity = float64(setMatchesSize) / float64(totalLabelValues)
-			break
-		}
-
-		// For prefix matches, estimate we'll match ~10% of values.
-		if m.re.prefix != "" {
+		} else if m.Value == "" {
+			selectivity = 0
+		} else if m.re.prefix != "" {
+			// For prefix matches, estimate we'll match ~10% of values.
 			selectivity = 0.1
-			break
+		} else if m.Value == ".+" || m.Value == ".*" {
+			selectivity = 1.0
+		} else {
+			// For unoptimized regex, assume we'll match ~10% of values
+			selectivity = 0.1
 		}
-
-		// For unoptimized regex, assume we'll match ~10% of values
-		selectivity = 0.1
 	}
 	selectivity = max(0.0, min(selectivity, 1.0))
 
