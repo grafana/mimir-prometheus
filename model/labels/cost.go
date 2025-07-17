@@ -46,7 +46,7 @@ func (m *Matcher) SingleMatchCost() float64 {
 // * namespace!="" will match all values, so its selectivity is 1;
 // * namespace=~"foo" will match only a single value, so its selectivity across 100 values is 0.01;
 // * namespace=~"foo|bar" will match two values, so its selectivity across 100 values is 0.02.
-func (m *Matcher) EstimateSelectivity(totalLabelValues int64) float64 {
+func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
 	var selectivity float64
 	// First estimate the selectivity of the operation without taking into account whether it's an inclusive or exclusive matcher.
 	switch m.Type {
