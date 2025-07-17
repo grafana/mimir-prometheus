@@ -408,6 +408,7 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 			require.NoError(b, err)
 
 			b.ResetTimer()
+			b.ReportMetric(m.SingleMatchCost(), "cost")
 			for i := 0; i < b.N; i++ {
 				for _, text := range texts {
 					_ = m.MatchString(text)
