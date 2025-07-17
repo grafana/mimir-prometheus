@@ -48,10 +48,15 @@ func (m *Matcher) SingleMatchCost() float64 {
 // * namespace=~"foo|bar" will match two values, so its selectivity across 100 values is 0.02.
 func (m *Matcher) EstimateSelectivity(totalLabelValues int64) float64 {
 	var selectivity float64
+	// First estimate the selectivity of the operation without taking into account whether it's an inclusive or exclusive matcher.
 	switch m.Type {
 	case MatchEqual, MatchNotEqual:
-		// For exact match, we expect to match exactly one value
-		selectivity = 1.0 / float64(totalLabelValues)
+		if m.Value == "" {
+			selectivity = 0
+		} else {
+			// For exact match, we expect to match exactly one value
+			selectivity = 1.0 / float64(totalLabelValues)
+		}
 
 	case MatchRegexp, MatchNotRegexp:
 		// If we have optimized set matches, we know exactly how many values we'll match.
