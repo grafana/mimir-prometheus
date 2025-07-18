@@ -670,7 +670,7 @@ func (a *FloatHistogramAppender) writeXorValue(old *xorValue, v float64) {
 // continue appending, use the returned Appender rather than the receiver of
 // this method.
 func (a *FloatHistogramAppender) recode(
-	h *histogram.FloatHistogram,
+	// h *histogram.FloatHistogram,
 	positiveInserts, negativeInserts []Insert,
 	positiveSpans, negativeSpans []histogram.Span,
 ) (Chunk, Appender) {
@@ -691,10 +691,10 @@ func (a *FloatHistogramAppender) recode(
 	for it.Next() == ValFloatHistogram {
 		tOld, hOld := it.AtFloatHistogram(nil)
 
-		var savedFH *histogram.FloatHistogram
-		if debugRecode {
-			savedFH = hOld.Copy()
-		}
+		// var savedFH *histogram.FloatHistogram
+		// if debugRecode {
+		// 	savedFH = hOld.Copy()
+		// }
 
 		// We have to newly allocate slices for the modified buckets
 		// here because they are kept by the appender until the next
@@ -717,12 +717,12 @@ func (a *FloatHistogramAppender) recode(
 			hOld.NegativeBuckets = insert(hOld.NegativeBuckets, negativeBuckets, negativeInserts, false)
 		}
 
-		if savedFH != nil {
-			if err := hOld.Validate(); err != nil {
-				fmt.Printf("DEBUG_RECODE(recode) trigger %s old %s new %s\n",
-					floatHistogramDetails(h), floatHistogramDetails(savedFH), floatHistogramDetails(hOld))
-			}
-		}
+		// if savedFH != nil {
+		// 	if err := hOld.Validate(); err != nil {
+		// 		fmt.Printf("DEBUG_RECODE(recode) trigger %s old %s new %s\n",
+		// 			floatHistogramDetails(h), floatHistogramDetails(savedFH), floatHistogramDetails(hOld))
+		// 	}
+		// }
 
 		happ.appendFloatHistogram(tOld, hOld)
 	}
@@ -835,9 +835,10 @@ func (a *FloatHistogramAppender) AppendFloatHistogram(prev *FloatHistogramAppend
 
 			if savedFH != nil {
 				if err := h.Validate(); err != nil {
-					fmt.Printf("DEBUG_RECODE(AppendFloatHistogram): old %s new %s pfi=%v nfi=%v\n",
+					fmt.Printf("DEBUG_RECODE(AppendFloatHistogram): old %s new %s pfi=%v nfi=%v chunkps=%v chunkns=%v\n",
 						floatHistogramDetails(savedFH), floatHistogramDetails(h),
 						pForwardInserts, nForwardInserts,
+						a.pSpans, a.nSpans,
 					)
 				}
 			}
@@ -849,7 +850,7 @@ func (a *FloatHistogramAppender) AppendFloatHistogram(prev *FloatHistogramAppend
 				return nil, false, a, fmt.Errorf("float histogram layout change with %d positive and %d negative forwards inserts", len(pForwardInserts), len(nForwardInserts))
 			}
 			chk, app := a.recode(
-				h,
+				// h,
 				pForwardInserts, nForwardInserts,
 				h.PositiveSpans, h.NegativeSpans,
 			)
@@ -890,7 +891,7 @@ func (a *FloatHistogramAppender) AppendFloatHistogram(prev *FloatHistogramAppend
 			return nil, false, a, fmt.Errorf("float gauge histogram layout change with %d positive and %d negative forwards inserts", len(pForwardInserts), len(nForwardInserts))
 		}
 		chk, app := a.recode(
-			h,
+			// h,
 			pForwardInserts, nForwardInserts,
 			h.PositiveSpans, h.NegativeSpans,
 		)
