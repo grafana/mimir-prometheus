@@ -76,37 +76,40 @@ var ErrNotReady = errors.New("TSDB not ready")
 // millisecond precision timestamps.
 func DefaultOptions() *Options {
 	return &Options{
-		WALSegmentSize:              wlog.DefaultSegmentSize,
-		MaxBlockChunkSegmentSize:    chunks.DefaultChunkSegmentSize,
-		RetentionDuration:           int64(15 * 24 * time.Hour / time.Millisecond),
-		MinBlockDuration:            DefaultBlockDuration,
-		MaxBlockDuration:            DefaultBlockDuration,
-		NoLockfile:                  false,
-		SamplesPerChunk:             DefaultSamplesPerChunk,
-		WALCompression:              compression.None,
-		StripeSize:                  DefaultStripeSize,
-		HeadChunksWriteBufferSize:   chunks.DefaultWriteBufferSize,
-		IsolationDisabled:           defaultIsolationDisabled,
-		HeadChunksWriteQueueSize:    chunks.DefaultWriteQueueSize,
-		OutOfOrderCapMax:            DefaultOutOfOrderCapMax,
-		EnableOverlappingCompaction: true,
-		EnableSharding:              false,
-		EnableDelayedCompaction:     false,
-		CompactionDelayMaxPercent:   DefaultCompactionDelayMaxPercent,
-		CompactionDelay:             time.Duration(0),
-		PostingsDecoderFactory:      DefaultPostingsDecoderFactory,
-
-		HeadChunksEndTimeVariance:             0,
-		HeadPostingsForMatchersCacheTTL:       DefaultPostingsForMatchersCacheTTL,
-		HeadPostingsForMatchersCacheMaxItems:  DefaultPostingsForMatchersCacheMaxItems,
-		HeadPostingsForMatchersCacheMaxBytes:  DefaultPostingsForMatchersCacheMaxBytes,
-		HeadPostingsForMatchersCacheForce:     DefaultPostingsForMatchersCacheForce,
-		HeadPostingsForMatchersCacheMetrics:   NewPostingsForMatchersCacheMetrics(nil),
-		BlockPostingsForMatchersCacheTTL:      DefaultPostingsForMatchersCacheTTL,
-		BlockPostingsForMatchersCacheMaxItems: DefaultPostingsForMatchersCacheMaxItems,
-		BlockPostingsForMatchersCacheMaxBytes: DefaultPostingsForMatchersCacheMaxBytes,
-		BlockPostingsForMatchersCacheForce:    DefaultPostingsForMatchersCacheForce,
-		BlockPostingsForMatchersCacheMetrics:  NewPostingsForMatchersCacheMetrics(nil),
+		WALSegmentSize:                              wlog.DefaultSegmentSize,
+		MaxBlockChunkSegmentSize:                    chunks.DefaultChunkSegmentSize,
+		RetentionDuration:                           int64(15 * 24 * time.Hour / time.Millisecond),
+		MinBlockDuration:                            DefaultBlockDuration,
+		MaxBlockDuration:                            DefaultBlockDuration,
+		NoLockfile:                                  false,
+		SamplesPerChunk:                             DefaultSamplesPerChunk,
+		WALCompression:                              compression.None,
+		StripeSize:                                  DefaultStripeSize,
+		HeadChunksWriteBufferSize:                   chunks.DefaultWriteBufferSize,
+		IsolationDisabled:                           defaultIsolationDisabled,
+		HeadChunksWriteQueueSize:                    chunks.DefaultWriteQueueSize,
+		OutOfOrderCapMax:                            DefaultOutOfOrderCapMax,
+		EnableOverlappingCompaction:                 true,
+		EnableSharding:                              false,
+		EnableDelayedCompaction:                     false,
+		CompactionDelayMaxPercent:                   DefaultCompactionDelayMaxPercent,
+		CompactionDelay:                             time.Duration(0),
+		PostingsDecoderFactory:                      DefaultPostingsDecoderFactory,
+		HeadChunksEndTimeVariance:                   0,
+		HeadPostingsForMatchersCacheInvalidation:    DefaultPostingsForMatchersCacheInvalidation,
+		HeadPostingsForMatchersCacheVersions:        DefaultPostingsForMatchersCacheVersions,
+		HeadPostingsForMatchersCacheVersionsStripes: DefaultPostingsForMatchersCacheVersionsStripes,
+		HeadPostingsForMatchersCacheTTL:             DefaultPostingsForMatchersCacheTTL,
+		HeadPostingsForMatchersCacheMaxItems:        DefaultPostingsForMatchersCacheMaxItems,
+		HeadPostingsForMatchersCacheMaxBytes:        DefaultPostingsForMatchersCacheMaxBytes,
+		HeadPostingsForMatchersCacheForce:           DefaultPostingsForMatchersCacheForce,
+		HeadPostingsForMatchersCacheMetrics:         NewPostingsForMatchersCacheMetrics(nil),
+		BlockPostingsForMatchersCacheFactory:        DefaultPostingsForMatchersCacheFactory,
+		BlockPostingsForMatchersCacheTTL:            DefaultPostingsForMatchersCacheTTL,
+		BlockPostingsForMatchersCacheMaxItems:       DefaultPostingsForMatchersCacheMaxItems,
+		BlockPostingsForMatchersCacheMaxBytes:       DefaultPostingsForMatchersCacheMaxBytes,
+		BlockPostingsForMatchersCacheForce:          DefaultPostingsForMatchersCacheForce,
+		BlockPostingsForMatchersCacheMetrics:        NewPostingsForMatchersCacheMetrics(nil),
 	}
 }
 
@@ -241,6 +244,22 @@ type Options struct {
 	// without requiring 1.5x the chunk range worth of data in the head.
 	TimelyCompaction bool
 
+	// SharedPostingsForMatchersCache indicates whether the PostingsForMatchersCache should be shared across blocks, as
+	// opposed to instantiated per block. With a shared cache, one cache is created for head blocks, and one for non-head blocks.
+	SharedPostingsForMatchersCache bool
+
+	// PostingsForMatchersCacheKeyFunc allows additional cache key information to be provided for shared caches.
+	PostingsForMatchersCacheKeyFunc CacheKeyFunc
+
+	// HeadPostingsForMatchersCacheInvalidation indicates whether postings should be tracked and invalidated when they change.
+	HeadPostingsForMatchersCacheInvalidation bool
+
+	// HeadPostingsForMatchersCacheVersions is the number of metricVersions to store in the cache
+	HeadPostingsForMatchersCacheVersions int
+
+	// HeadPostingsForMatchersCacheVersionsStripes is the number of lock stripes used to guard the cache versions
+	HeadPostingsForMatchersCacheVersionsStripes int
+
 	// HeadPostingsForMatchersCacheTTL is the TTL of the postings for matchers cache in the Head.
 	// If it's 0, the cache will only deduplicate in-flight requests, deleting the results once the first request has finished.
 	HeadPostingsForMatchersCacheTTL time.Duration
@@ -258,6 +277,9 @@ type Options struct {
 
 	// HeadPostingsForMatchersCacheMetrics holds the metrics tracked by PostingsForMatchers cache when querying the Head.
 	HeadPostingsForMatchersCacheMetrics *PostingsForMatchersCacheMetrics
+
+	// BlockPostingsForMatchersCacheFactory returns a factory for creating PostingsForMatchersCache instances for compacted blocks.
+	BlockPostingsForMatchersCacheFactory PostingsForMatchersCacheFactory
 
 	// BlockPostingsForMatchersCacheTTL is the TTL of the postings for matchers cache of each compacted block.
 	// If it's 0, the cache will only deduplicate in-flight requests, deleting the results once the first request has finished.
@@ -708,7 +730,7 @@ func (db *DBReadOnly) Blocks() ([]BlockReader, error) {
 		return nil, ErrClosed
 	default:
 	}
-	loadable, corrupted, err := openBlocks(db.logger, db.dir, nil, nil, DefaultPostingsDecoderFactory, nil, DefaultPostingsForMatchersCacheTTL, DefaultPostingsForMatchersCacheMaxItems, DefaultPostingsForMatchersCacheMaxBytes, DefaultPostingsForMatchersCacheForce, NewPostingsForMatchersCacheMetrics(nil))
+	loadable, corrupted, err := openBlocks(db.logger, db.dir, nil, nil, DefaultPostingsDecoderFactory, nil, DefaultPostingsForMatchersCacheFactory)
 	if err != nil {
 		return nil, err
 	}
@@ -887,6 +909,18 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	if opts.OutOfOrderTimeWindow < 0 {
 		opts.OutOfOrderTimeWindow = 0
 	}
+	if opts.PostingsForMatchersCacheKeyFunc == nil {
+		opts.PostingsForMatchersCacheKeyFunc = DefaultPostingsForMatchersCacheKeyFunc
+	}
+	if opts.HeadPostingsForMatchersCacheVersions == 0 {
+		opts.HeadPostingsForMatchersCacheVersions = DefaultPostingsForMatchersCacheVersions
+	}
+	if opts.HeadPostingsForMatchersCacheVersionsStripes == 0 {
+		opts.HeadPostingsForMatchersCacheVersionsStripes = DefaultPostingsForMatchersCacheVersionsStripes
+	}
+	if opts.BlockPostingsForMatchersCacheFactory == nil {
+		opts.BlockPostingsForMatchersCacheFactory = DefaultPostingsForMatchersCacheFactory
+	}
 
 	if len(rngs) == 0 {
 		// Start with smallest block duration and create exponential buckets until the exceed the
@@ -1002,6 +1036,19 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		db.blockChunkQuerierFunc = opts.BlockChunkQuerierFunc
 	}
 
+	opts.BlockPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(
+		opts.SharedPostingsForMatchersCache,
+		opts.PostingsForMatchersCacheKeyFunc,
+		false,
+		0,
+		0,
+		opts.BlockPostingsForMatchersCacheTTL,
+		opts.BlockPostingsForMatchersCacheMaxItems,
+		opts.BlockPostingsForMatchersCacheMaxBytes,
+		opts.BlockPostingsForMatchersCacheForce,
+		opts.BlockPostingsForMatchersCacheMetrics,
+	)
+
 	var wal, wbl *wlog.WL
 	segmentSize := wlog.DefaultSegmentSize
 	// Wal is enabled.
@@ -1045,11 +1092,18 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 	headOpts.OutOfOrderCapMax.Store(opts.OutOfOrderCapMax)
 	headOpts.EnableSharding = opts.EnableSharding
 	headOpts.TimelyCompaction = opts.TimelyCompaction
-	headOpts.PostingsForMatchersCacheTTL = opts.HeadPostingsForMatchersCacheTTL
-	headOpts.PostingsForMatchersCacheMaxItems = opts.HeadPostingsForMatchersCacheMaxItems
-	headOpts.PostingsForMatchersCacheMaxBytes = opts.HeadPostingsForMatchersCacheMaxBytes
-	headOpts.PostingsForMatchersCacheForce = opts.HeadPostingsForMatchersCacheForce
-	headOpts.PostingsForMatchersCacheMetrics = opts.HeadPostingsForMatchersCacheMetrics
+	headOpts.PostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(
+		opts.SharedPostingsForMatchersCache,
+		opts.PostingsForMatchersCacheKeyFunc,
+		opts.HeadPostingsForMatchersCacheInvalidation,
+		opts.HeadPostingsForMatchersCacheVersions,
+		opts.HeadPostingsForMatchersCacheVersionsStripes,
+		opts.HeadPostingsForMatchersCacheTTL,
+		opts.HeadPostingsForMatchersCacheMaxItems,
+		opts.HeadPostingsForMatchersCacheMaxBytes,
+		opts.HeadPostingsForMatchersCacheForce,
+		opts.HeadPostingsForMatchersCacheMetrics,
+	)
 	headOpts.SecondaryHashFunction = opts.SecondaryHashFunction
 	if opts.WALReplayConcurrency > 0 {
 		headOpts.WALReplayConcurrency = opts.WALReplayConcurrency
@@ -1683,7 +1737,7 @@ func (db *DB) reloadBlocks() (err error) {
 	}()
 
 	db.mtx.RLock()
-	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.PostingsDecoderFactory, db.opts.SeriesHashCache, db.opts.BlockPostingsForMatchersCacheTTL, db.opts.BlockPostingsForMatchersCacheMaxItems, db.opts.BlockPostingsForMatchersCacheMaxBytes, db.opts.BlockPostingsForMatchersCacheForce, db.opts.BlockPostingsForMatchersCacheMetrics)
+	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.PostingsDecoderFactory, db.opts.SeriesHashCache, db.opts.BlockPostingsForMatchersCacheFactory)
 	db.mtx.RUnlock()
 	if err != nil {
 		return err
@@ -1783,7 +1837,7 @@ func (db *DB) reloadBlocks() (err error) {
 	return nil
 }
 
-func openBlocks(l *slog.Logger, dir string, loaded []*Block, chunkPool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory, cache *hashcache.SeriesHashCache, postingsCacheTTL time.Duration, postingsCacheMaxItems int, postingsCacheMaxBytes int64, postingsCacheForce bool, postingsCacheMetrics *PostingsForMatchersCacheMetrics) (blocks []*Block, corrupted map[ulid.ULID]error, err error) {
+func openBlocks(l *slog.Logger, dir string, loaded []*Block, chunkPool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory, cache *hashcache.SeriesHashCache, postingsCacheFactory PostingsForMatchersCacheFactory) (blocks []*Block, corrupted map[ulid.ULID]error, err error) {
 	bDirs, err := blockDirs(dir)
 	if err != nil {
 		return nil, nil, fmt.Errorf("find blocks: %w", err)
@@ -1805,7 +1859,7 @@ func openBlocks(l *slog.Logger, dir string, loaded []*Block, chunkPool chunkenc.
 				cacheProvider = cache.GetBlockCacheProvider(meta.ULID.String())
 			}
 
-			block, err = OpenBlockWithOptions(l, bDir, chunkPool, postingsDecoderFactory, cacheProvider, postingsCacheTTL, postingsCacheMaxItems, postingsCacheMaxBytes, postingsCacheForce, postingsCacheMetrics)
+			block, err = OpenBlockWithOptions(l, bDir, chunkPool, postingsDecoderFactory, cacheProvider, postingsCacheFactory)
 			if err != nil {
 				corrupted[meta.ULID] = err
 				continue
