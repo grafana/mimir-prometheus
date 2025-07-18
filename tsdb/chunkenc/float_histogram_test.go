@@ -258,7 +258,7 @@ func TestFloatHistogramChunkBucketChanges(t *testing.T) {
 	require.Empty(t, backwardNegativeInserts)
 	require.True(t, ok) // Only new buckets came in.
 	require.False(t, cr)
-	c, app = hApp.recode(nil, posInterjections, negInterjections, h2.PositiveSpans, h2.NegativeSpans)
+	c, app = hApp.recode(posInterjections, negInterjections, h2.PositiveSpans, h2.NegativeSpans)
 	chk, _, _, err = app.AppendFloatHistogram(nil, ts2, h2.ToFloat(nil), false)
 	require.NoError(t, err)
 	require.Nil(t, chk)
