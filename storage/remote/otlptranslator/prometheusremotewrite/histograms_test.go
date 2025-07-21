@@ -707,7 +707,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "histogram data points with same labels and with scope promotion",
+			name: "histogram data points with same labels",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist")
@@ -1292,7 +1292,6 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 		schemaURL:  "https://schema.com",
 		attributes: scopeAttrs,
 	}
-
 	tests := []struct {
 		name         string
 		metric       func() pmetric.Metric
@@ -1362,7 +1361,7 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 			},
 		},
 		{
-			name: "histogram data points with same labels and with scope promotion",
+			name: "histogram data points with same labels",
 			metric: func() pmetric.Metric {
 				metric := pmetric.NewMetric()
 				metric.SetName("test_hist_to_nhcb")
