@@ -26,7 +26,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/common/model"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -1302,7 +1301,7 @@ load 10s
 
 	for _, c := range cases {
 		t.Run(c.Query, func(t *testing.T) {
-			opts := promql.NewPrometheusQueryOpts(true, 0, model.UTF8Validation)
+			opts := promql.NewPrometheusQueryOpts(true, 0)
 			engine := promqltest.NewTestEngine(t, true, 0, promqltest.DefaultMaxSamplesPerQuery)
 
 			runQuery := func(expErr error) *stats.Statistics {
@@ -3344,7 +3343,7 @@ metric 0 1 2
 			storage := promqltest.LoadedStorage(t, load)
 			t.Cleanup(func() { storage.Close() })
 
-			opts := promql.NewPrometheusQueryOpts(false, c.queryLookback, model.UTF8Validation)
+			opts := promql.NewPrometheusQueryOpts(false, c.queryLookback)
 			qry, err := engine.NewInstantQuery(context.Background(), storage, opts, query, c.ts)
 			require.NoError(t, err)
 

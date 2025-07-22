@@ -768,21 +768,21 @@ func TestRelabelValidate(t *testing.T) {
 	}{
 		{
 			config: Config{
-				MetricNameValidationScheme: model.LegacyValidation,
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 			expected: `relabel action cannot be empty`,
 		},
 		{
 			config: Config{
 				Action:                     Replace,
-				MetricNameValidationScheme: model.LegacyValidation,
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 			expected: `requires 'target_label' value`,
 		},
 		{
 			config: Config{
 				Action:                     Lowercase,
-				MetricNameValidationScheme: model.LegacyValidation,
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 			expected: `requires 'target_label' value`,
 		},

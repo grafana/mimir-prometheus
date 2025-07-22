@@ -4611,7 +4611,7 @@ func TestExtractQueryOpts(t *testing.T) {
 			form: url.Values{
 				"stats": []string{"all"},
 			},
-			expect: promql.NewPrometheusQueryOpts(true, 0, model.UTF8Validation),
+			expect: promql.NewPrometheusQueryOpts(true, 0),
 
 			err: nil,
 		},
@@ -4620,7 +4620,7 @@ func TestExtractQueryOpts(t *testing.T) {
 			form: url.Values{
 				"stats": []string{"none"},
 			},
-			expect: promql.NewPrometheusQueryOpts(false, 0, model.UTF8Validation),
+			expect: promql.NewPrometheusQueryOpts(false, 0),
 			err:    nil,
 		},
 		{
@@ -4629,7 +4629,7 @@ func TestExtractQueryOpts(t *testing.T) {
 				"stats":          []string{"all"},
 				"lookback_delta": []string{"30s"},
 			},
-			expect: promql.NewPrometheusQueryOpts(true, 30*time.Second, model.UTF8Validation),
+			expect: promql.NewPrometheusQueryOpts(true, 30*time.Second),
 			err:    nil,
 		},
 		{
