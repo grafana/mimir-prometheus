@@ -810,6 +810,8 @@ func (a *FloatHistogramAppender) AppendFloatHistogram(prev *FloatHistogramAppend
 				h.NegativeSpans = adjustForInserts(h.NegativeSpans, nBackwardInserts)
 			}
 
+			a.recodeHistogram(h, pBackwardInserts, nBackwardInserts)
+
 			if savedFH != nil {
 				if err := h.Validate(); err != nil {
 					fmt.Printf("DEBUG_RECODE(AppendFloatHistogram): old %s new %s pbi=%v nbi=%v pfi=%v nfi=%v chunk ps=%v ns=%v pb=%v nb=%v\n",
@@ -821,8 +823,6 @@ func (a *FloatHistogramAppender) AppendFloatHistogram(prev *FloatHistogramAppend
 					)
 				}
 			}
-
-			a.recodeHistogram(h, pBackwardInserts, nBackwardInserts)
 		}
 		if len(pForwardInserts) > 0 || len(nForwardInserts) > 0 {
 			if appendOnly {
