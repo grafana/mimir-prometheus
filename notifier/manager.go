@@ -314,7 +314,8 @@ func (n *Manager) Send(alerts ...*Alert) {
 
 	for i, rc := range n.opts.RelabelConfigs {
 		if rc.MetricNameValidationScheme == model.UnsetValidation {
-			n.opts.RelabelConfigs[i].MetricNameValidationScheme = model.UTF8Validation
+			//nolint:staticcheck // model.NameValidationScheme is deprecated.
+			n.opts.RelabelConfigs[i].MetricNameValidationScheme = model.NameValidationScheme
 		}
 	}
 	alerts = relabelAlerts(n.opts.RelabelConfigs, n.opts.ExternalLabels, alerts)
