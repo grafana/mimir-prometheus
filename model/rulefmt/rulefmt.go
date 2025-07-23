@@ -353,10 +353,11 @@ func WithValidationScheme(scheme model.ValidationScheme) ParseOption {
 }
 
 // Parse parses and validates a set of rules.
-// The default metric/label name validation scheme is model.UTF8Validation.
+// The default metric/label name validation scheme is model.NameValidationScheme.
 func Parse(content []byte, ignoreUnknownFields bool, opts ...ParseOption) (*RuleGroups, []error) {
 	args := &parseArgs{
-		validationScheme: model.UTF8Validation,
+		//nolint:staticcheck // model.NameValidationScheme is deprecated.
+		validationScheme: model.NameValidationScheme,
 	}
 	for _, opt := range opts {
 		opt(args)
