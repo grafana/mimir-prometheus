@@ -115,7 +115,8 @@ func (c *Config) UnmarshalYAML(unmarshal func(interface{}) error) error {
 		c.Regex = MustNewRegexp("")
 	}
 	if c.MetricNameValidationScheme == model.UnsetValidation {
-		c.MetricNameValidationScheme = model.UTF8Validation
+		//nolint:staticcheck // model.NameValidationScheme is deprecated.
+		c.MetricNameValidationScheme = model.NameValidationScheme
 	}
 	return c.Validate()
 }
