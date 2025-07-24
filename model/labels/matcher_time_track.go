@@ -19,24 +19,18 @@ import (
 	"go.uber.org/atomic"
 )
 
-// RegexpTimeTrackingSampleRate determines how often we measure regex matching performance.
-// We use 64 because it's a power of 2, allowing the compiler to optimize
-// the modulo operation into a fast bitwise AND instead of division.
-// This provides a reasonable balance between measurement accuracy and overhead.
-const RegexpTimeTrackingSampleRate = 64
-
 // NewMatcherWithTimeTracker returns a matcher which can track the time spent running regular expression matchers.
 // duration is incremented when the MatchType is MatchRegexp or MatchNotRegexp.
-// duration is incremented every RegexpTimeTrackingSampleRate Matcher.Matches() invocations and multiplied by RegexpTimeTrackingSampleRate;
-// the assumption is that all previous 63 invocations took the same time.
-func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Duration) (*Matcher, error) {
+// duration is incremented every sampleRate Matcher.Matches() invocations and multiplied by sampleRate;
+// the assumption is that all previous invocations took the same time.
+func NewMatcherWithTimeTracker(t MatchType, n, v string, sampleRate int64, duration *atomic.Duration) (*Matcher, error) {
 	m := &Matcher{
 		Type:  t,
 		Name:  n,
 		Value: v,
 	}
 	if t == MatchRegexp || t == MatchNotRegexp {
-		re, err := NewFastRegexMatcherWithTimeTracker(v, duration)
+		re, err := NewFastRegexMatcherWithTimeTracker(v, sampleRate, duration)
 		if err != nil {
 			return nil, err
 		}
@@ -46,55 +40,9 @@ func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Durati
 }
 
 // NewFastRegexMatcherWithTimeTracker returns a matcher which will track the time spent running the matcher.
-// duration is incremented every RegexpTimeTrackingSampleRate Matcher.Matches() invocations and multiplied by RegexpTimeTrackingSampleRate;
-// the assumption is that all previous 63 invocations took the same time.
-func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration) (*FastRegexMatcher, error) {
-	m, err := NewFastRegexMatcher(regex)
-	if err != nil {
-		return nil, err
-	}
-	withDifferentObserver := *m
-	sampler := atomic.NewInt64(-1)
-	oldMatchString := m.matchString
-	withDifferentObserver.matchString = func(s string) bool {
-		if tick := sampler.Inc(); tick%RegexpTimeTrackingSampleRate == 0 {
-			defer func(start time.Time) {
-				d := time.Since(start)
-				if tick != 0 {
-					d *= RegexpTimeTrackingSampleRate
-				}
-				duration.Add(d)
-			}(time.Now())
-		}
-		return oldMatchString(s)
-	}
-	return &withDifferentObserver, nil
-}
-
-func NewFastRegexMatcherWithTimeTracker128(regex string, duration *atomic.Duration) (*FastRegexMatcher, error) {
-	m, err := NewFastRegexMatcher(regex)
-	if err != nil {
-		return nil, err
-	}
-	withDifferentObserver := *m
-	sampler := atomic.NewInt64(-1)
-	oldMatchString := m.matchString
-	withDifferentObserver.matchString = func(s string) bool {
-		if tick := sampler.Inc(); tick%128 == 0 {
-			defer func(start time.Time) {
-				d := time.Since(start)
-				if tick != 0 {
-					d *= 128
-				}
-				duration.Add(d)
-			}(time.Now())
-		}
-		return oldMatchString(s)
-	}
-	return &withDifferentObserver, nil
-}
-
-func NewFastRegexMatcherWithTimeTrackerAndSampleRate(regex string, sampleRate int64, duration *atomic.Duration) (*FastRegexMatcher, error) {
+// duration is incremented every sampleRate Matcher.Matches() invocations and multiplied by sampleRate;
+// the assumption is that all previous invocations took the same time.
+func NewFastRegexMatcherWithTimeTracker(regex string, sampleRate int64, duration *atomic.Duration) (*FastRegexMatcher, error) {
 	m, err := NewFastRegexMatcher(regex)
 	if err != nil {
 		return nil, err
