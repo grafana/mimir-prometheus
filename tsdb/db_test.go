@@ -3065,15 +3065,14 @@ func TestCompactHead(t *testing.T) {
 	dbDir := t.TempDir()
 
 	// Open a DB and append data to the WAL.
-	tsdbCfg := &Options{
-		RetentionDuration:                    int64(time.Hour * 24 * 15 / time.Millisecond),
-		NoLockfile:                           true,
-		MinBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
-		MaxBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
-		WALCompression:                       compression.Snappy,
-		HeadPostingsForMatchersCacheMetrics:  NewPostingsForMatchersCacheMetrics(nil),
-		BlockPostingsForMatchersCacheMetrics: NewPostingsForMatchersCacheMetrics(nil),
-	}
+	tsdbCfg := DefaultOptions()
+	tsdbCfg.RetentionDuration = int64(time.Hour * 24 * 15 / time.Millisecond)
+	tsdbCfg.NoLockfile = true
+	tsdbCfg.MinBlockDuration = int64(time.Hour * 2 / time.Millisecond)
+	tsdbCfg.MaxBlockDuration = int64(time.Hour * 2 / time.Millisecond)
+	tsdbCfg.WALCompression = compression.Snappy
+	tsdbCfg.HeadPostingsForMatchersCacheMetrics = NewPostingsForMatchersCacheMetrics(nil)
+	tsdbCfg.BlockPostingsForMatchersCacheMetrics = NewPostingsForMatchersCacheMetrics(nil)
 
 	db, err := Open(dbDir, promslog.NewNopLogger(), prometheus.NewRegistry(), tsdbCfg, nil)
 	require.NoError(t, err)

@@ -747,7 +747,7 @@ func createFileReaderWithOptions(ctx context.Context, tb testing.TB, input index
 
 	var ir *Reader
 	if withCache {
-		ir, err = NewFileReaderWithOptions(fn, DecodePostingsRaw, hashcache.NewSeriesHashCache(1024*1024*1024).GetBlockCacheProvider("test"))
+		ir, err = NewFileReaderWithOptions(fn, DecodePostingsRaw, &ScanEmptyMatchersLookupPlanner{}, hashcache.NewSeriesHashCache(1024*1024*1024).GetBlockCacheProvider("test"))
 	} else {
 		ir, err = NewFileReader(fn, DecodePostingsRaw)
 	}
