@@ -732,32 +732,30 @@ func TestRelabel(t *testing.T) {
 		},
 	}
 
-	for i, test := range tests {
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
-			// Setting default fields, mimicking the behaviour in Prometheus.
-			for _, cfg := range test.relabel {
-				if cfg.Action == "" {
-					cfg.Action = DefaultRelabelConfig.Action
-				}
-				if cfg.Separator == "" {
-					cfg.Separator = DefaultRelabelConfig.Separator
-				}
-				if cfg.Regex.Regexp == nil || cfg.Regex.String() == "" {
-					cfg.Regex = DefaultRelabelConfig.Regex
-				}
-				if cfg.Replacement == "" {
-					cfg.Replacement = DefaultRelabelConfig.Replacement
-				}
-				cfg.MetricNameValidationScheme = model.UTF8Validation
-				require.NoError(t, cfg.Validate())
+	for _, test := range tests {
+		// Setting default fields, mimicking the behaviour in Prometheus.
+		for _, cfg := range test.relabel {
+			if cfg.Action == "" {
+				cfg.Action = DefaultRelabelConfig.Action
 			}
+			if cfg.Separator == "" {
+				cfg.Separator = DefaultRelabelConfig.Separator
+			}
+			if cfg.Regex.Regexp == nil || cfg.Regex.String() == "" {
+				cfg.Regex = DefaultRelabelConfig.Regex
+			}
+			if cfg.Replacement == "" {
+				cfg.Replacement = DefaultRelabelConfig.Replacement
+			}
+			cfg.MetricNameValidationScheme = model.UTF8Validation
+			require.NoError(t, cfg.Validate())
+		}
 
-			res, keep := Process(test.input, test.relabel...)
-			require.Equal(t, !test.drop, keep)
-			if keep {
-				testutil.RequireEqual(t, test.output, res)
-			}
-		})
+		res, keep := Process(test.input, test.relabel...)
+		require.Equal(t, !test.drop, keep)
+		if keep {
+			testutil.RequireEqual(t, test.output, res)
+		}
 	}
 }
 
