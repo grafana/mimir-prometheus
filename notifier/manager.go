@@ -106,7 +106,9 @@ func NewManager(o *Options, logger *slog.Logger) *Manager {
 	}
 
 	for i, rc := range o.RelabelConfigs {
-		if rc.MetricNameValidationScheme == model.UnsetValidation {
+		switch rc.MetricNameValidationScheme {
+		case model.LegacyValidation, model.UTF8Validation:
+		default:
 			//nolint:staticcheck // model.NameValidationScheme is deprecated.
 			o.RelabelConfigs[i].MetricNameValidationScheme = model.NameValidationScheme
 		}
@@ -142,7 +144,9 @@ func (n *Manager) ApplyConfig(conf *config.Config) error {
 	n.opts.ExternalLabels = conf.GlobalConfig.ExternalLabels
 	n.opts.RelabelConfigs = conf.AlertingConfig.AlertRelabelConfigs
 	for i, rc := range n.opts.RelabelConfigs {
-		if rc.MetricNameValidationScheme == model.UnsetValidation {
+		switch rc.MetricNameValidationScheme {
+		case model.LegacyValidation, model.UTF8Validation:
+		default:
 			//nolint:staticcheck // model.NameValidationScheme is deprecated.
 			n.opts.RelabelConfigs[i].MetricNameValidationScheme = model.NameValidationScheme
 		}
