@@ -33,6 +33,8 @@ func TestParseFileSuccess(t *testing.T) {
 	require.Empty(t, errs, "unexpected errors parsing file")
 	_, errs = ParseFile("testdata/utf-8_annotation.good.yaml")
 	require.Empty(t, errs, "unexpected errors parsing file")
+	_, errs = ParseFile("testdata/legacy_validation_annotation.good.yaml", WithValidationScheme(model.LegacyValidation))
+	require.Empty(t, errs, "unexpected errors parsing file")
 }
 
 func TestParseFileSuccessWithAliases(t *testing.T) {
@@ -109,7 +111,7 @@ func TestParseFileFailure(t *testing.T) {
 			errMsg:   "invalid field 'keep_firing_for' in recording rule",
 		},
 		{
-			filename: "utf-8_annotation.bad.yaml",
+			filename: "legacy_validation_annotation.bad.yaml",
 			opts:     []ParseOption{WithValidationScheme(model.LegacyValidation)},
 			errMsg:   "invalid annotation name: ins-tance",
 		},
