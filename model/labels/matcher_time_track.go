@@ -19,9 +19,15 @@ import (
 	"go.uber.org/atomic"
 )
 
+// RegexpTimeTrackingSampleRate determines how often we measure regex matching performance.
+// We use 64 because it's a power of 2, allowing the compiler to optimize
+// the modulo operation into a fast bitwise AND instead of division.
+// This provides a reasonable balance between measurement accuracy and overhead.
+const RegexpTimeTrackingSampleRate = 64
+
 // NewMatcherWithTimeTracker returns a matcher which can track the time spent running regular expression matchers.
 // duration is incremented when the MatchType is MatchRegexp or MatchNotRegexp.
-// duration is incremented every 64 Matcher.Matches() invocations and multiplied by 64;
+// duration is incremented every RegexpTimeTrackingSampleRate Matcher.Matches() invocations and multiplied by RegexpTimeTrackingSampleRate;
 // the assumption is that all previous 63 invocations took the same time.
 func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Duration) (*Matcher, error) {
 	m := &Matcher{
@@ -40,7 +46,7 @@ func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Durati
 }
 
 // NewFastRegexMatcherWithTimeTracker returns a matcher which will track the time spent running the matcher.
-// duration is incremented every 64 Matcher.Matches() invocations and multiplied by 64;
+// duration is incremented every RegexpTimeTrackingSampleRate Matcher.Matches() invocations and multiplied by RegexpTimeTrackingSampleRate;
 // the assumption is that all previous 63 invocations took the same time.
 func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration) (*FastRegexMatcher, error) {
 	m, err := NewFastRegexMatcher(regex)
@@ -51,12 +57,11 @@ func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration)
 	sampler := atomic.NewInt64(-1)
 	oldMatchString := m.matchString
 	withDifferentObserver.matchString = func(s string) bool {
-		const sampleRate = 64
-		if tick := sampler.Inc(); tick%sampleRate == 0 {
+		if tick := sampler.Inc(); tick%RegexpTimeTrackingSampleRate == 0 {
 			defer func(start time.Time) {
 				d := time.Since(start)
 				if tick != 0 {
-					d *= sampleRate
+					d *= RegexpTimeTrackingSampleRate
 				}
 				duration.Add(d)
 			}(time.Now())
