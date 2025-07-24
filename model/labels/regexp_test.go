@@ -29,6 +29,7 @@ import (
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
 )
 
 var (
@@ -402,18 +403,48 @@ func TestFastRegexMatcher_SetMatches_ShouldReturnACopy(t *testing.T) {
 func BenchmarkFastRegexMatcher(b *testing.B) {
 	texts := generateRandomValues()
 
-	for _, r := range regexes {
-		b.Run(getTestNameFromRegexp(r), func(b *testing.B) {
-			m, err := NewFastRegexMatcher(r)
+	constructors := map[string]func(pattern string) *FastRegexMatcher{
+		"withTimeTracking=true/sampleRate=64/withDynamicSampling=false": func(pattern string) *FastRegexMatcher {
+			m, err := NewFastRegexMatcherWithTimeTracker(pattern, &atomic.Duration{})
 			require.NoError(b, err)
+			return m
+		},
+		"withTimeTracking=true/sampleRate=128/withDynamicSampling=false": func(pattern string) *FastRegexMatcher {
+			m, err := NewFastRegexMatcherWithTimeTracker128(pattern, &atomic.Duration{})
+			require.NoError(b, err)
+			return m
+		},
+		"withTimeTracking=true/sampleRate=128/withDynamicSampling=true": func(pattern string) *FastRegexMatcher {
+			m, err := NewFastRegexMatcherWithTimeTrackerAndSampleRate(pattern, 128, &atomic.Duration{})
+			require.NoError(b, err)
+			return m
+		},
+		"withTimeTracking=true/sampleRate=64/withDynamicSampling=true": func(pattern string) *FastRegexMatcher {
+			m, err := NewFastRegexMatcherWithTimeTrackerAndSampleRate(pattern, 64, &atomic.Duration{})
+			require.NoError(b, err)
+			return m
+		},
+		"withTimeTracking=false": func(pattern string) *FastRegexMatcher {
+			m, err := NewFastRegexMatcher(pattern)
+			require.NoError(b, err)
+			return m
+		},
+	}
 
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				for _, text := range texts {
-					_ = m.MatchString(text)
+	for name, constructor := range constructors {
+		for _, r := range regexes {
+			b.Run(fmt.Sprintf("%s/%s", getTestNameFromRegexp(r), name), func(b *testing.B) {
+				m := constructor(r)
+
+				b.ReportAllocs()
+				b.ResetTimer()
+				for i := 0; i < b.N; i++ {
+					for _, text := range texts {
+						_ = m.MatchString(text)
+					}
 				}
-			}
-		})
+			})
+		}
 	}
 }
 

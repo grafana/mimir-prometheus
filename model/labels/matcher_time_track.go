@@ -70,3 +70,49 @@ func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration)
 	}
 	return &withDifferentObserver, nil
 }
+
+func NewFastRegexMatcherWithTimeTracker128(regex string, duration *atomic.Duration) (*FastRegexMatcher, error) {
+	m, err := NewFastRegexMatcher(regex)
+	if err != nil {
+		return nil, err
+	}
+	withDifferentObserver := *m
+	sampler := atomic.NewInt64(-1)
+	oldMatchString := m.matchString
+	withDifferentObserver.matchString = func(s string) bool {
+		if tick := sampler.Inc(); tick%128 == 0 {
+			defer func(start time.Time) {
+				d := time.Since(start)
+				if tick != 0 {
+					d *= 128
+				}
+				duration.Add(d)
+			}(time.Now())
+		}
+		return oldMatchString(s)
+	}
+	return &withDifferentObserver, nil
+}
+
+func NewFastRegexMatcherWithTimeTrackerAndSampleRate(regex string, sampleRate int64, duration *atomic.Duration) (*FastRegexMatcher, error) {
+	m, err := NewFastRegexMatcher(regex)
+	if err != nil {
+		return nil, err
+	}
+	withDifferentObserver := *m
+	sampler := atomic.NewInt64(-1)
+	oldMatchString := m.matchString
+	withDifferentObserver.matchString = func(s string) bool {
+		if tick := sampler.Inc(); tick%sampleRate == 0 {
+			defer func(start time.Time) {
+				d := time.Since(start)
+				if tick != 0 {
+					d *= time.Duration(sampleRate)
+				}
+				duration.Add(d)
+			}(time.Now())
+		}
+		return oldMatchString(s)
+	}
+	return &withDifferentObserver, nil
+}
