@@ -159,7 +159,8 @@ func newScrapePool(cfg *config.ScrapeConfig, app storage.Appendable, offsetSeed 
 	default:
 		return nil, errors.New("cfg.MetricNameValidationScheme must be set in scrape configuration")
 	}
-	escapingScheme, err := config.ToEscapingScheme(cfg.MetricNameEscapingScheme, cfg.MetricNameValidationScheme)
+	var escapingScheme model.EscapingScheme
+	escapingScheme, err = config.ToEscapingScheme(cfg.MetricNameEscapingScheme, cfg.MetricNameValidationScheme)
 	if err != nil {
 		return nil, fmt.Errorf("invalid metric name escaping scheme, %w", err)
 	}
