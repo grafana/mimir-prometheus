@@ -747,6 +747,7 @@ func TestRelabel(t *testing.T) {
 			if cfg.Replacement == "" {
 				cfg.Replacement = DefaultRelabelConfig.Replacement
 			}
+			cfg.MetricNameValidationScheme = model.UTF8Validation
 			require.NoError(t, cfg.Validate())
 		}
 
@@ -764,53 +765,70 @@ func TestRelabelValidate(t *testing.T) {
 		expected string
 	}{
 		{
-			config:   Config{},
+			config: Config{
+				MetricNameValidationScheme: model.UTF8Validation,
+			},
 			expected: `relabel action cannot be empty`,
 		},
 		{
 			config: Config{
-				Action: Replace,
+				Action:                     Replace,
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 			expected: `requires 'target_label' value`,
 		},
 		{
 			config: Config{
-				Action: Lowercase,
+				Action:                     Lowercase,
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 			expected: `requires 'target_label' value`,
 		},
 		{
 			config: Config{
-				Action:      Lowercase,
-				Replacement: DefaultRelabelConfig.Replacement,
-				TargetLabel: "${3}", // With UTF-8 naming, this is now a legal relabel rule.
+				Action:                     Lowercase,
+				Replacement:                DefaultRelabelConfig.Replacement,
+				TargetLabel:                "${3}", // With UTF-8 naming, this is now a legal relabel rule.
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 		},
 		{
 			config: Config{
-				SourceLabels: model.LabelNames{"a"},
-				Regex:        MustNewRegexp("some-([^-]+)-([^,]+)"),
-				Action:       Replace,
-				Replacement:  "${1}",
-				TargetLabel:  "${3}",
+				Action:                     Lowercase,
+				Replacement:                DefaultRelabelConfig.Replacement,
+				TargetLabel:                "${3}", // Fails with legacy validation
+				MetricNameValidationScheme: model.LegacyValidation,
+			},
+			expected: "\"${3}\" is invalid 'target_label' for lowercase action",
+		},
+		{
+			config: Config{
+				SourceLabels:               model.LabelNames{"a"},
+				Regex:                      MustNewRegexp("some-([^-]+)-([^,]+)"),
+				Action:                     Replace,
+				Replacement:                "${1}",
+				TargetLabel:                "${3}",
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 		},
 		{
 			config: Config{
-				SourceLabels: model.LabelNames{"a"},
-				Regex:        MustNewRegexp("some-([^-]+)-([^,]+)"),
-				Action:       Replace,
-				Replacement:  "${1}",
-				TargetLabel:  "0${3}", // With UTF-8 naming this targets a valid label.
+				SourceLabels:               model.LabelNames{"a"},
+				Regex:                      MustNewRegexp("some-([^-]+)-([^,]+)"),
+				Action:                     Replace,
+				Replacement:                "${1}",
+				TargetLabel:                "0${3}", // With UTF-8 naming this targets a valid label.
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 		},
 		{
 			config: Config{
-				SourceLabels: model.LabelNames{"a"},
-				Regex:        MustNewRegexp("some-([^-]+)-([^,]+)"),
-				Action:       Replace,
-				Replacement:  "${1}",
-				TargetLabel:  "-${3}", // With UTF-8 naming this targets a valid label.
+				SourceLabels:               model.LabelNames{"a"},
+				Regex:                      MustNewRegexp("some-([^-]+)-([^,]+)"),
+				Action:                     Replace,
+				Replacement:                "${1}",
+				TargetLabel:                "-${3}", // With UTF-8 naming this targets a valid label.
+				MetricNameValidationScheme: model.UTF8Validation,
 			},
 		},
 	}
