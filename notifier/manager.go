@@ -111,6 +111,11 @@ func NewManager(o *Options, logger *slog.Logger) *Manager {
 		default:
 			//nolint:staticcheck // model.NameValidationScheme is deprecated.
 			o.RelabelConfigs[i].MetricNameValidationScheme = model.NameValidationScheme
+			logger.Warn(
+				"notifier.NewManager: using default metric/label name validation scheme",
+				"relabel_config", i,
+				"scheme", o.RelabelConfigs[i].MetricNameValidationScheme,
+			)
 		}
 	}
 
