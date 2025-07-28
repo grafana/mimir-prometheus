@@ -50,6 +50,7 @@ func TestSingleMatchCost(t *testing.T) {
 		{1, "namespace", MatchRegexp, "asserts"},
 		{1, "namespace", MatchRegexp, "mimir-ops-03"},
 		{4, "route", MatchRegexp, "api_(v1|prom)_push|otlp_v1_metrics|api_v1_push_influx_write"},
+		{47, "route", MatchRegexp, ".*v1.*|.*prom.*"},
 		{0.5, "job", MatchRegexp, "(cortex-prod-13)/((gateway|cortex-gw.*))"},
 		{0.5, "job", MatchRegexp, "(mimir-ops-03)/((compactor.*|cortex|mimir))"},
 		{1, "namespace", MatchRegexp, "loki-prod-031"},
@@ -144,6 +145,7 @@ func TestSelectivity(t *testing.T) {
 		{8, 0.1, "name", MatchRegexp, ".*(foo|bar).*"},
 		{8, 0.9, "name", MatchNotRegexp, ".*(foo|bar).*"},
 		{8, 0.1, "name", MatchRegexp, "(foo|bar).*"},
+		{8, 0.1, "name", MatchRegexp, ".*foo.*|.*bar.*"},
 
 		{math.MaxUint64, 0, "name", MatchEqual, "up"},
 		{math.MaxUint64, 0, "name", MatchRegexp, "up|kube_pod_info"},
