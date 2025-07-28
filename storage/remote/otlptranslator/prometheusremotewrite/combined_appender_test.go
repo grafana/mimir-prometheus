@@ -48,7 +48,7 @@ type combinedHistogram struct {
 	es   []exemplar.Exemplar
 }
 
-func (m *mockCombinedAppender) AppendSample(ls labels.Labels, meta metadata.Metadata, t, ct int64, v float64, es []exemplar.Exemplar) error {
+func (m *mockCombinedAppender) AppendSample(_ string, ls labels.Labels, meta metadata.Metadata, t, ct int64, v float64, es []exemplar.Exemplar) error {
 	m.samples = append(m.samples, combinedSample{
 		ls:   ls,
 		meta: meta,
@@ -60,7 +60,7 @@ func (m *mockCombinedAppender) AppendSample(ls labels.Labels, meta metadata.Meta
 	return nil
 }
 
-func (m *mockCombinedAppender) AppendHistogram(ls labels.Labels, meta metadata.Metadata, t, ct int64, h *histogram.Histogram, es []exemplar.Exemplar) error {
+func (m *mockCombinedAppender) AppendHistogram(_ string, ls labels.Labels, meta metadata.Metadata, t, ct int64, h *histogram.Histogram, es []exemplar.Exemplar) error {
 	m.histograms = append(m.histograms, combinedHistogram{
 		ls:   ls,
 		meta: meta,
