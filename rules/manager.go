@@ -309,7 +309,7 @@ type GroupLoader interface {
 type FileLoader struct{}
 
 func (FileLoader) Load(identifier string, ignoreUnknownFields bool) (*rulefmt.RuleGroups, []error) {
-	return rulefmt.ParseFile(identifier, rulefmt.WithIgnoreUnknownFields(ignoreUnknownFields))
+	return rulefmt.ParseFile(identifier, ignoreUnknownFields)
 }
 
 func (FileLoader) Parse(query string) (parser.Expr, error) { return parser.ParseExpr(query) }
@@ -627,7 +627,7 @@ func ParseFiles(patterns []string) error {
 		}
 	}
 	for fn, pat := range files {
-		_, errs := rulefmt.ParseFile(fn)
+		_, errs := rulefmt.ParseFile(fn, false)
 		if len(errs) > 0 {
 			return fmt.Errorf("parse rules from file %q (pattern: %q): %w", fn, pat, errors.Join(errs...))
 		}
