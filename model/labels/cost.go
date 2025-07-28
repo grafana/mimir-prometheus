@@ -52,7 +52,7 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
 		return 1.0
 	}
 	var selectivity float64
-	// First estimate the selectivity of the operation without taking into account whether it's an inclusive or exclusive matcher.
+	// First, estimate the selectivity of the operation without taking into account whether it's an inclusive or exclusive matcher.
 	switch m.Type {
 	case MatchEqual, MatchNotEqual:
 		if m.Value == "" {
@@ -82,6 +82,7 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
 	}
 	selectivity = max(0.0, min(selectivity, 1.0))
 
+	// Finally, we adjust for exclusive matchers.
 	switch m.Type {
 	case MatchNotEqual, MatchNotRegexp:
 		selectivity = 1.0 - selectivity
