@@ -101,14 +101,8 @@ func (m *FastRegexMatcher) SingleMatchCost() float64 {
 // TODO this doesn't account for backtracking, which can come with a large cost.
 func costEstimate(re *syntax.Regexp) float64 {
 	switch re.Op {
-	case syntax.OpBeginText:
-		return 1
-	case syntax.OpEndText:
-		return 1
 	case syntax.OpLiteral:
 		return float64(len(re.Rune))
-	case syntax.OpEmptyMatch:
-		return 1
 	case syntax.OpStar:
 		return 10
 	case syntax.OpAlternate:
