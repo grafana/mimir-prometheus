@@ -362,7 +362,7 @@ func (c *PrometheusConverter) addHistogramDataPoints(ctx context.Context, dataPo
 			labels := createLabels(metadata.MetricFamilyName+createdSuffix, baseLabels)
 			c.addTimeSeriesIfNeeded(labels, startTimestampMs, pt.Timestamp())
 		}
-		logger.Debug("addHistogramDataPoints", "labels", labelsStringer(createLabels(baseName, baseLabels)), "start_ts", startTimestampMs, "sample_ts", timestamp, "type", "histogram")
+		logger.Debug("addHistogramDataPoints", "labels", labelsStringer(createLabels(metadata.MetricFamilyName, baseLabels)), "start_ts", startTimestampMs, "sample_ts", timestamp, "type", "histogram")
 	}
 
 	return nil
@@ -544,7 +544,7 @@ func (c *PrometheusConverter) addSummaryDataPoints(ctx context.Context, dataPoin
 			c.addTimeSeriesIfNeeded(createdLabels, startTimestampMs, pt.Timestamp())
 		}
 
-		logger.Debug("addSummaryDataPoints", "labels", labelsStringer(createLabels(baseName, baseLabels)), "start_ts", startTimestampMs, "sample_ts", timestamp, "type", "summary")
+		logger.Debug("addSummaryDataPoints", "labels", labelsStringer(createLabels(metadata.MetricFamilyName, baseLabels)), "start_ts", startTimestampMs, "sample_ts", timestamp, "type", "summary")
 	}
 
 	return nil
