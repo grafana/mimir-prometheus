@@ -1060,7 +1060,7 @@ func TestPrometheusConverter_addExponentialHistogramDataPoints(t *testing.T) {
 					EnableCreatedTimestampZeroIngestion:        true,
 					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
 				},
-				namer.Build(TranslatorMetricFromOtelMetric(metric)),
+				prompb.MetricMetadata{MetricFamilyName: namer.Build(TranslatorMetricFromOtelMetric(metric))},
 				pmetric.AggregationTemporalityCumulative,
 				tt.scope,
 			)
@@ -1517,7 +1517,7 @@ func TestPrometheusConverter_addCustomBucketsHistogramDataPoints(t *testing.T) {
 					ConvertHistogramsToNHCB: true,
 					PromoteScopeMetadata:    tt.promoteScope,
 				},
-				namer.Build(TranslatorMetricFromOtelMetric(metric)),
+				prompb.MetricMetadata{MetricFamilyName: namer.Build(TranslatorMetricFromOtelMetric(metric))},
 				pmetric.AggregationTemporalityCumulative,
 				tt.scope,
 			)
