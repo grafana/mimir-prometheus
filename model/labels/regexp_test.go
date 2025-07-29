@@ -407,6 +407,7 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 			m, err := NewFastRegexMatcher(r)
 			require.NoError(b, err)
 
+			b.ReportMetric(m.SingleMatchCost(), "cost")
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				for _, text := range texts {
@@ -860,6 +861,7 @@ func FuzzFastRegexMatcher_WithFuzzyRegularExpressions(f *testing.F) {
 		}
 
 		require.Equalf(t, reg.MatchString(text), m.MatchString(text), "regexp: %s text: %s", reg.String(), text)
+		require.Greaterf(t, m.SingleMatchCost(), 0.0, "regexp: %s", reg.String())
 	})
 }
 
