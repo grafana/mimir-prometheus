@@ -108,7 +108,7 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Check if upstream merge PR and stringlabels failed
+      - name: Check if upstream merge PR failed
         id: check-failure
         env:
           BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
