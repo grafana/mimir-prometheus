@@ -41,9 +41,7 @@ jobs:
         run: |
           gh pr review "$PR_URL" \
             --approve -b "**I'm approving** this upstream merge PR.
-            
             This PR merges changes from prometheus/prometheus upstream repository.
-            
             Related GitHub action is defined [here](https://github.com/grafana/mimir-prometheus/tree/main/.github/workflows/vendor_reviewer.yml)."
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
