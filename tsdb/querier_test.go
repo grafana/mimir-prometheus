@@ -2486,6 +2486,10 @@ func (m mockIndex) LabelNames(_ context.Context, matchers ...*labels.Matcher) ([
 	return l, nil
 }
 
+func (m mockIndex) IndexLookupPlanner() index.LookupPlanner {
+	return &index.ScanEmptyMatchersLookupPlanner{}
+}
+
 func BenchmarkQueryIterator(b *testing.B) {
 	cases := []struct {
 		numBlocks                   int
@@ -3424,6 +3428,10 @@ func (m mockMatcherIndex) PostingsForAllLabelValues(context.Context, string) ind
 	return index.ErrPostings(errors.New("PostingsForAllLabelValues called"))
 }
 
+func (m mockMatcherIndex) IndexLookupPlanner() index.LookupPlanner {
+	return &index.ScanEmptyMatchersLookupPlanner{}
+}
+
 func TestPostingsForMatcher(t *testing.T) {
 	ctx := context.Background()
 
@@ -4006,6 +4014,10 @@ func (m mockReaderOfLabels) Series(storage.SeriesRef, *labels.ScratchBuilder, *[
 
 func (m mockReaderOfLabels) Symbols() index.StringIter {
 	panic("Series called")
+}
+
+func (m mockReaderOfLabels) IndexLookupPlanner() index.LookupPlanner {
+	return &index.ScanEmptyMatchersLookupPlanner{}
 }
 
 func (m mockReaderOfLabels) LabelValuesExcluding(index.Postings, string) storage.LabelValues {
