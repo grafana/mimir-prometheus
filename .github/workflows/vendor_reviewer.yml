@@ -36,19 +36,13 @@ jobs:
           private-key: ${{ env.PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
 
-      # Approve the PR using the GitHub App Token
-      - name: Approve
+      # Approve the PR and enable auto-merge using the GitHub App Token
+      - name: Approve and enable auto-merge
         run: |
           gh pr review "$PR_URL" \
             --approve -b "**I'm approving** this upstream merge PR.
             This PR merges changes from prometheus/prometheus upstream repository.
             Related GitHub action is defined [here](https://github.com/grafana/mimir-prometheus/tree/main/.github/workflows/vendor_reviewer.yml)."
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GITHUB_TOKEN: ${{ steps.approve-app-token.outputs.token }}
-
-      - name: Enable auto-merge
-        run: |
           gh pr merge --auto "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
