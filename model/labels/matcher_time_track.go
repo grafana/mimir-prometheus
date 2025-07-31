@@ -14,6 +14,7 @@
 package labels
 
 import (
+	"sync"
 	"time"
 
 	"go.uber.org/atomic"
@@ -21,16 +22,15 @@ import (
 
 // NewMatcherWithTimeTracker returns a matcher which can track the time spent running regular expression matchers.
 // duration is incremented when the MatchType is MatchRegexp or MatchNotRegexp.
-// duration is incremented every sampleRate Matcher.Matches() invocations and multiplied by sampleRate;
-// the assumption is that all previous invocations took the same time.
-func NewMatcherWithTimeTracker(t MatchType, n, v string, sampleRate int64, duration *atomic.Duration) (*Matcher, error) {
+// duration is incremented every power-of-two invocation of Matcher.Matches() (1st, 2nd, 4th, 8th, 16th, ...) and scaled to the sample rate.
+func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Duration) (*Matcher, error) {
 	m := &Matcher{
 		Type:  t,
 		Name:  n,
 		Value: v,
 	}
 	if t == MatchRegexp || t == MatchNotRegexp {
-		re, err := NewFastRegexMatcherWithTimeTracker(v, sampleRate, duration)
+		re, err := NewFastRegexMatcherWithTimeTracker(v, duration)
 		if err != nil {
 			return nil, err
 		}
@@ -39,28 +39,28 @@ func NewMatcherWithTimeTracker(t MatchType, n, v string, sampleRate int64, durat
 	return m, nil
 }
 
+var (
+	startAmortizedClock = &sync.Once{}
+	amortizedNow        = atomic.NewTime(time.Now())
+)
+
 // NewFastRegexMatcherWithTimeTracker returns a matcher which will track the time spent running the matcher.
-// duration is incremented every sampleRate Matcher.Matches() invocations and multiplied by sampleRate;
-// the assumption is that all previous invocations took the same time.
-func NewFastRegexMatcherWithTimeTracker(regex string, sampleRate int64, duration *atomic.Duration) (*FastRegexMatcher, error) {
+// duration is incremented every power-of-two invocation of Matcher.Matches() (1st, 2nd, 4th, 8th, 16th, ...) and scaled to the sample rate.
+func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration) (*FastRegexMatcher, error) {
 	m, err := NewFastRegexMatcher(regex)
 	if err != nil {
 		return nil, err
 	}
+	startAmortizedClock.Do(func() {
+		go func() {
+			// Have roughly 100ns precision for our time measurement
+			for tickTime := range time.Tick(time.Microsecond / 10) {
+				amortizedNow.Store(tickTime)
+			}
+		}()
+	})
 	withDifferentObserver := *m
-	sampler := atomic.NewInt64(-1)
-	oldMatchString := m.matchString
-	withDifferentObserver.matchString = func(s string) bool {
-		if tick := sampler.Inc(); tick%sampleRate == 0 {
-			defer func(start time.Time) {
-				d := time.Since(start)
-				if tick != 0 {
-					d *= time.Duration(sampleRate)
-				}
-				duration.Add(d)
-			}(time.Now())
-		}
-		return oldMatchString(s)
-	}
+	withDifferentObserver.matchesWallClockDuration = duration
+	withDifferentObserver.sampler = 0
 	return &withDifferentObserver, nil
 }
