@@ -26,8 +26,8 @@ func TestPostingsForMatchersCacheFactory(t *testing.T) {
 		t.Run(fmt.Sprintf("shared=%t", shared), func(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			f := NewPostingsForMatchersCacheFactory(shared, DefaultPostingsForMatchersCacheKeyFunc, false, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes, time.Second, 5, 500, false, NewPostingsForMatchersCacheMetrics(reg))
-			c1 := f(nil)
-			c2 := f(nil)
+			c1 := f.NewPostingsForMatchersCache(nil)
+			c2 := f.NewPostingsForMatchersCache(nil)
 
 			if shared {
 				require.Same(t, c1, c2)
@@ -41,7 +41,7 @@ func TestPostingsForMatchersCacheFactory(t *testing.T) {
 func TestPostingsForMatchersCache(t *testing.T) {
 	// newPostingsForMatchersCache tests the NewPostingsForMatcherCache constructor, but overrides the postingsForMatchers func
 	newPostingsForMatchersCache := func(shared, invalidation bool, ttl time.Duration, maxItems int, maxBytes int64, pfm func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error), timeMock *timeNowMock, force bool, reg prometheus.Registerer) *PostingsForMatchersCache {
-		c := NewPostingsForMatchersCacheFactory(shared, DefaultPostingsForMatchersCacheKeyFunc, invalidation, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes, ttl, maxItems, maxBytes, force, NewPostingsForMatchersCacheMetrics(reg))(nil)
+		c := NewPostingsForMatchersCacheFactory(shared, DefaultPostingsForMatchersCacheKeyFunc, invalidation, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes, ttl, maxItems, maxBytes, force, NewPostingsForMatchersCacheMetrics(reg)).NewPostingsForMatchersCache(nil)
 		if c.postingsForMatchers == nil {
 			t.Fatalf("NewPostingsForMatchersCache() didn't assign postingsForMatchers func")
 		}
@@ -1108,7 +1108,7 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 		timeMock   = &timeNowMock{}
 	)
 
-	c := NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, false, 0, 0, ttl, 1000, 1024*1024, true, NewPostingsForMatchersCacheMetrics(reg))(nil)
+	c := NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, false, 0, 0, ttl, 1000, 1024*1024, true, NewPostingsForMatchersCacheMetrics(reg)).NewPostingsForMatchersCache(nil)
 	c.timeNow = timeMock.timeNow
 
 	// Issue a first call to cache the postings.
@@ -1221,7 +1221,7 @@ func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellati
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
-	c := NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, false, 0, 0, time.Hour, 5, 1000, true, NewPostingsForMatchersCacheMetrics(reg))(nil)
+	c := NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, false, 0, 0, time.Hour, 5, 1000, true, NewPostingsForMatchersCacheMetrics(reg)).NewPostingsForMatchersCache(nil)
 
 	c.postingsForMatchers = func(ctx context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
 		callsCount.Inc()
@@ -1395,7 +1395,7 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 			}
 			b.Run(fmt.Sprintf("no evictions, shared=%t, invalidation=%t", shared, invalidation), func(b *testing.B) {
 				// Configure the cache to never evict.
-				cache := NewPostingsForMatchersCacheFactory(shared, DefaultPostingsForMatchersCacheKeyFunc, invalidation, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes, time.Hour, 1000000, 1024*1024*1024, true, NewPostingsForMatchersCacheMetrics(nil))(nil)
+				cache := NewPostingsForMatchersCacheFactory(shared, DefaultPostingsForMatchersCacheKeyFunc, invalidation, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes, time.Hour, 1000000, 1024*1024*1024, true, NewPostingsForMatchersCacheMetrics(nil)).NewPostingsForMatchersCache(nil)
 				cache.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
 					return index.NewListPostings(refs), nil
 				}
@@ -1412,7 +1412,7 @@ func BenchmarkPostingsForMatchersCache(b *testing.B) {
 
 			b.Run(fmt.Sprintf("high eviction rate, shared=%t, invalidation=%t", shared, invalidation), func(b *testing.B) {
 				// Configure the cache to evict continuously.
-				cache := NewPostingsForMatchersCacheFactory(shared, DefaultPostingsForMatchersCacheKeyFunc, invalidation, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes, time.Hour, 0, 0, true, NewPostingsForMatchersCacheMetrics(nil))(nil)
+				cache := NewPostingsForMatchersCacheFactory(shared, DefaultPostingsForMatchersCacheKeyFunc, invalidation, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes, time.Hour, 0, 0, true, NewPostingsForMatchersCacheMetrics(nil)).NewPostingsForMatchersCache(nil)
 				cache.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
 					return index.NewListPostings(refs), nil
 				}
@@ -1457,7 +1457,7 @@ func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.
 	}
 
 	// Configure the cache to evict continuously.
-	cache := NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, false, 0, 0, time.Hour, 0, 0, true, NewPostingsForMatchersCacheMetrics(nil))(nil)
+	cache := NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, false, 0, 0, time.Hour, 0, 0, true, NewPostingsForMatchersCacheMetrics(nil)).NewPostingsForMatchersCache(nil)
 	cache.postingsForMatchers = func(_ context.Context, _ IndexPostingsReader, _ ...*labels.Matcher) (index.Postings, error) {
 		return index.NewListPostings(refs), nil
 	}

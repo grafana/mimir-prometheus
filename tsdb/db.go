@@ -251,7 +251,8 @@ type Options struct {
 	// PostingsForMatchersCacheKeyFunc allows additional cache key information to be provided for shared caches.
 	PostingsForMatchersCacheKeyFunc CacheKeyFunc
 
-	// HeadPostingsForMatchersCacheInvalidation indicates whether postings should be tracked and invalidated when they change.
+	// HeadPostingsForMatchersCacheInvalidation indicates whether postings should be tracked and invalidated when they
+	// change. This setting is only valid when SharedPostingsForMatchersCache is also true.
 	HeadPostingsForMatchersCacheInvalidation bool
 
 	// HeadPostingsForMatchersCacheVersions is the number of metricVersions to store in the cache

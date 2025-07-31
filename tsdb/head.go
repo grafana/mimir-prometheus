@@ -302,7 +302,7 @@ func NewHead(r prometheus.Registerer, l *slog.Logger, wal, wbl *wlog.WL, opts *H
 		stats:             stats,
 		reg:               r,
 		secondaryHashFunc: shf,
-		pfmc:              opts.PostingsForMatchersCacheFactory([]attribute.KeyValue{attribute.String("block", headULID.String())}),
+		pfmc:              opts.PostingsForMatchersCacheFactory.NewPostingsForMatchersCache([]attribute.KeyValue{attribute.String("block", headULID.String())}),
 	}
 	if err := h.resetInMemoryState(); err != nil {
 		return nil, err

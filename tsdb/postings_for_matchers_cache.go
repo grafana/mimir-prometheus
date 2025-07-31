@@ -55,7 +55,26 @@ var DefaultPostingsForMatchersCacheKeyFunc = func(_ context.Context) (string, er
 
 // PostingsForMatchersCacheFactory gets or creates PostingsForMatchersCache instances.
 // `tracingKV` specifies attributes for tracing purposes, which are appended to the default attributes.
-type PostingsForMatchersCacheFactory func(tracingKV []attribute.KeyValue) *PostingsForMatchersCache
+type PostingsForMatchersCacheFactory interface {
+	NewPostingsForMatchersCache(tracingKV []attribute.KeyValue) *PostingsForMatchersCache
+}
+
+type sharedPostingsForMatchersCacheFactory struct {
+	instance *PostingsForMatchersCache
+}
+
+func (f *sharedPostingsForMatchersCacheFactory) NewPostingsForMatchersCache(_ []attribute.KeyValue) *PostingsForMatchersCache {
+	// Additional attributes are not propagated for shared caches
+	return f.instance
+}
+
+type nonSharedPostingsForMatchersCacheFactory struct {
+	factoryFunc func(tracingKV []attribute.KeyValue) *PostingsForMatchersCache
+}
+
+func (f *nonSharedPostingsForMatchersCacheFactory) NewPostingsForMatchersCache(tracingKV []attribute.KeyValue) *PostingsForMatchersCache {
+	return f.factoryFunc(tracingKV)
+}
 
 var DefaultPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, DefaultPostingsForMatchersCacheInvalidation, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes,
 	DefaultPostingsForMatchersCacheTTL, DefaultPostingsForMatchersCacheMaxItems, DefaultPostingsForMatchersCacheMaxBytes, DefaultPostingsForMatchersCacheForce, NewPostingsForMatchersCacheMetrics(nil))
@@ -108,13 +127,9 @@ func NewPostingsForMatchersCacheFactory(shared bool, keyFunc CacheKeyFunc, inval
 		}
 	}
 	if shared {
-		singleton := factoryFunc([]attribute.KeyValue{})
-		return func(_ []attribute.KeyValue) *PostingsForMatchersCache {
-			// additional attributes are not propagated for shared caches
-			return singleton
-		}
+		return &sharedPostingsForMatchersCacheFactory{instance: factoryFunc([]attribute.KeyValue{})}
 	}
-	return factoryFunc
+	return &nonSharedPostingsForMatchersCacheFactory{factoryFunc: factoryFunc}
 }
 
 // IndexPostingsReader is a subset of IndexReader methods, the minimum required to evaluate PostingsForMatchers.

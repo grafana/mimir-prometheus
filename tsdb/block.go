@@ -380,7 +380,7 @@ func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, p
 	if err != nil {
 		return nil, err
 	}
-	pfmc := postingsCacheFactory([]attribute.KeyValue{attribute.String("block", meta.ULID.String())})
+	pfmc := postingsCacheFactory.NewPostingsForMatchersCache([]attribute.KeyValue{attribute.String("block", meta.ULID.String())})
 	ir := indexReaderWithPostingsForMatchers{meta.ULID, indexReader, pfmc}
 	closers = append(closers, ir)
 
