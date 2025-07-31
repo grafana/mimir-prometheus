@@ -362,7 +362,7 @@ func (m *FastRegexMatcher) MatchString(s string) bool {
 				// If the CAS fails, then some other goroutine updated it.
 				// In that case either of these goroutines wasn't the "right" goroutine to update it because of a race on `sampler`
 				// We accept that data race so that we don't pay the price of synchronisa tion on sampler.
-				// Using an atomic makes Matches() ~30% slower in benchamrks.
+				// Using an atomic makes Matches() ~30% slower in benchmarks.
 				_ = m.matchesWallClockDuration.CompareAndSwap(durationAtStart, durationAtStart+previousInvocationsDuration)
 			}(time.Now(), m.matchesWallClockDuration.Load())
 		}
