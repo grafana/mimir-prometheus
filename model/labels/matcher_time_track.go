@@ -17,10 +17,10 @@ import (
 	"go.uber.org/atomic"
 )
 
-// NewMatcherWithTimeTracker returns a matcher which can track the time spent running regular expression matchers.
+// NewMatcherWithRegexTimeTracker returns a matcher which can track the time spent running regular expression matchers.
 // duration is incremented when the MatchType is MatchRegexp or MatchNotRegexp.
 // duration is incremented every power-of-two invocation of Matcher.Matches() (1st, 2nd, 4th, 8th, 16th, ...) and scaled to the sample rate.
-func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Duration) (*Matcher, error) {
+func NewMatcherWithRegexTimeTracker(t MatchType, n, v string, duration *atomic.Duration) (*Matcher, error) {
 	m := &Matcher{
 		Type:  t,
 		Name:  n,
