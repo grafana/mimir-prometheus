@@ -27,7 +27,7 @@ func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Durati
 		Value: v,
 	}
 	if t == MatchRegexp || t == MatchNotRegexp {
-		re, err := NewFastRegexMatcherWithTimeTracker(v, -1, duration)
+		re, err := NewFastRegexMatcherWithTimeTracker(v, duration)
 		if err != nil {
 			return nil, err
 		}
@@ -38,7 +38,7 @@ func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Durati
 
 // NewFastRegexMatcherWithTimeTracker returns a matcher which will track the time spent running the matcher.
 // duration is incremented every power-of-two invocation of Matcher.Matches() (1st, 2nd, 4th, 8th, 16th, ...) and scaled to the sample rate.
-func NewFastRegexMatcherWithTimeTracker(regex string, sampleRate int64, duration *atomic.Duration) (*FastRegexMatcher, error) {
+func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration) (*FastRegexMatcher, error) {
 	m, err := NewFastRegexMatcher(regex)
 	if err != nil {
 		return nil, err
@@ -46,6 +46,5 @@ func NewFastRegexMatcherWithTimeTracker(regex string, sampleRate int64, duration
 	withDifferentObserver := *m
 	withDifferentObserver.matchesWallClockDuration = duration
 	withDifferentObserver.sampler = 0
-	withDifferentObserver.sampleRate = sampleRate
 	return &withDifferentObserver, nil
 }
