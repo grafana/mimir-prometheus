@@ -7,46 +7,6 @@ goarch: arm64
 pkg: github.com/prometheus/prometheus/model/labels
 cpu: Apple M1 Pro
 BenchmarkFastRegexMatcher
-BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withPrimitiveVar-10         	14743425	        80.35 ns/op
-BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withPrimitiveVar-10         	15067213	        80.62 ns/op
-BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withPrimitiveVar-10         	14932816	        80.38 ns/op
-BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withPrimitiveVar-10       	14793818	        80.89 ns/op
-BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withPrimitiveVar-10       	15008332	        80.40 ns/op
-BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withPrimitiveVar-10       	14734819	        80.79 ns/op
-BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10      	14529207	        82.93 ns/op
-BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10      	14622696	        82.75 ns/op
-BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10      	14554840	        82.67 ns/op
-BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withPrimitiveVar-10    	12508327	        97.38 ns/op
-BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withPrimitiveVar-10    	12216884	        97.25 ns/op
-BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withPrimitiveVar-10    	12356823	        97.60 ns/op
-BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10     	12357135	        97.18 ns/op
-BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10     	12407487	        97.21 ns/op
-BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10     	12384645	        96.50 ns/op
-BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withPrimitiveVar-10         	10535067	       129.7 ns/op
-BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withPrimitiveVar-10         	 9720954	       132.9 ns/op
-BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withPrimitiveVar-10         	 8988379	       130.0 ns/op
-BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 8643900	       140.3 ns/op
-BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 7975214	       180.5 ns/op
-BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 8255431	       138.2 ns/op
-BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 8020771	       181.4 ns/op
-BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 7985234	       155.1 ns/op
-BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 8094129	       153.7 ns/op
-BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8046991	       149.2 ns/op
-BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8084931	       149.2 ns/op
-BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8062944	       150.0 ns/op
-BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withPrimitiveVar
-BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 7646968	       150.2 ns/op
-BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8075485	       150.0 ns/op
-BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8059162	       151.3 ns/op
 BenchmarkFastRegexMatcher//withTimeTracking=nil-duration
 BenchmarkFastRegexMatcher//withTimeTracking=nil-duration-10                                      	15773431	        76.43 ns/op
 BenchmarkFastRegexMatcher//withTimeTracking=nil-duration-10                                      	15750632	        79.05 ns/op
@@ -87,6 +47,46 @@ BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=nil-duration
 BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=nil-duration-10                               	 8763596	       137.4 ns/op
 BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=nil-duration-10                               	 8780992	       136.8 ns/op
 BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=nil-duration-10                               	 8883752	       136.8 ns/op
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withPrimitiveVar-10         	14743425	        80.35 ns/op
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withPrimitiveVar-10         	15067213	        80.62 ns/op
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withPrimitiveVar-10         	14932816	        80.38 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withPrimitiveVar-10       	14793818	        80.89 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withPrimitiveVar-10       	15008332	        80.40 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withPrimitiveVar-10       	14734819	        80.79 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10      	14529207	        82.93 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10      	14622696	        82.75 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10      	14554840	        82.67 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withPrimitiveVar-10    	12508327	        97.38 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withPrimitiveVar-10    	12216884	        97.25 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withPrimitiveVar-10    	12356823	        97.60 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10     	12357135	        97.18 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10     	12407487	        97.21 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10     	12384645	        96.50 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withPrimitiveVar-10         	10535067	       129.7 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withPrimitiveVar-10         	 9720954	       132.9 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withPrimitiveVar-10         	 8988379	       130.0 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 8643900	       140.3 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 7975214	       180.5 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 8255431	       138.2 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 8020771	       181.4 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 7985234	       155.1 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withPrimitiveVar-10             	 8094129	       153.7 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8046991	       149.2 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8084931	       149.2 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8062944	       150.0 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withPrimitiveVar
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 7646968	       150.2 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8075485	       150.0 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withPrimitiveVar-10           	 8059162	       151.3 ns/op
 BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withAtomic
 BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withAtomic-10         	 8900799	       131.8 ns/op
 BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withAtomic-10         	 9061646	       131.7 ns/op
