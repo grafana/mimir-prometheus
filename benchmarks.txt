@@ -128,4 +128,43 @@ BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withAtomic-10
 BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withAtomic-10           	 7697235	       173.8 ns/op
 BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withAtomic-10           	 7147504	       157.0 ns/op
 
-Process finished with the exit code 0
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withTimeNow-10         	14956306	        81.29 ns/op
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withTimeNow-10         	14938556	        80.54 ns/op
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withTimeNow-10         	14958567	        80.90 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withTimeNow-10       	15040915	        80.76 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withTimeNow-10       	15048286	        80.33 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withTimeNow-10       	15004414	        80.80 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withTimeNow-10      	14265462	        85.43 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withTimeNow-10      	14265892	        84.02 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withTimeNow-10      	14513794	        85.02 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withTimeNow-10    	12341535	        97.45 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withTimeNow-10    	12329980	        97.62 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withTimeNow-10    	12331558	        96.85 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withTimeNow-10     	12392319	        97.46 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withTimeNow-10     	12281538	        97.88 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withTimeNow-10     	12353887	        98.01 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withTimeNow-10         	10425542	       115.2 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withTimeNow-10         	10399990	       115.5 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withTimeNow-10         	10543464	       115.1 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withTimeNow-10             	 8671694	       136.1 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withTimeNow-10             	 8787126	       137.0 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withTimeNow-10             	 8851672	       137.6 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withTimeNow-10             	 8177401	       148.3 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withTimeNow-10             	 8073166	       147.5 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withTimeNow-10             	 8099524	       148.3 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withTimeNow-10           	 8121217	       147.9 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withTimeNow-10           	 8093497	       147.9 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withTimeNow-10           	 8098677	       150.5 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withTimeNow
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withTimeNow-10           	 7085248	       150.0 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withTimeNow-10           	 8086168	       148.7 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withTimeNow-10           	 8033709	       148.9 ns/op

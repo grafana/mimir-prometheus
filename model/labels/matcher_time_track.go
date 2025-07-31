@@ -14,9 +14,6 @@
 package labels
 
 import (
-	"sync"
-	"time"
-
 	"go.uber.org/atomic"
 )
 
@@ -39,11 +36,6 @@ func NewMatcherWithTimeTracker(t MatchType, n, v string, duration *atomic.Durati
 	return m, nil
 }
 
-var (
-	startAmortizedClock = &sync.Once{}
-	amortizedNow        = atomic.NewTime(time.Now())
-)
-
 // NewFastRegexMatcherWithTimeTracker returns a matcher which will track the time spent running the matcher.
 // duration is incremented every power-of-two invocation of Matcher.Matches() (1st, 2nd, 4th, 8th, 16th, ...) and scaled to the sample rate.
 func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration) (*FastRegexMatcher, error) {
@@ -51,16 +43,8 @@ func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration)
 	if err != nil {
 		return nil, err
 	}
-	startAmortizedClock.Do(func() {
-		go func() {
-			// Have roughly 100ns precision for our time measurement
-			for tickTime := range time.Tick(time.Microsecond / 10) {
-				amortizedNow.Store(tickTime)
-			}
-		}()
-	})
 	withDifferentObserver := *m
 	withDifferentObserver.matchesWallClockDuration = duration
-	withDifferentObserver.sampler = atomic.NewInt64(0)
+	withDifferentObserver.sampler = 0
 	return &withDifferentObserver, nil
 }
