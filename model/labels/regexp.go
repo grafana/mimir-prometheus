@@ -71,7 +71,7 @@ type FastRegexMatcher struct {
 
 	// time tracking
 	matchesWallClockDuration *atomic.Duration
-	sampler                  int64
+	sampler                  *atomic.Int64
 }
 
 func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
@@ -350,12 +350,11 @@ func tooManyMatches(matches []string, added ...string) bool {
 func (m *FastRegexMatcher) MatchString(s string) bool {
 	if m.matchesWallClockDuration != nil {
 		// here we allow for data races.
-		m.sampler++
-		tick := m.sampler
+		tick := m.sampler.Inc()
 		// Check if it's a power of two; if yes, then we record.
 		// This way we amortize the cost of recording latency.
 		if tick&(tick-1) == 0 {
-			defer func(start time.Time, durationAtStart time.Duration) {
+			defer func(start time.Time) {
 				// Use an amortized time.Now() to amortize the cost.
 				// amortizedNow has a lower precision, but is cheaper to access than time.Now()
 				// Using time.Now() makes Matches() TODO
@@ -366,8 +365,8 @@ func (m *FastRegexMatcher) MatchString(s string) bool {
 				// In that case either of these goroutines wasn't the "right" goroutine to update it because of a race on `sampler`
 				// We accept that data race so that we don't pay the price of synchronisa tion on sampler.
 				// Using an atomic makes Matches() 30% slower in benchamrks. TODO
-				_ = m.matchesWallClockDuration.CompareAndSwap(durationAtStart, durationAtStart+previousInvocationsDuration)
-			}(amortizedNow.Load(), m.matchesWallClockDuration.Load())
+				_ = m.matchesWallClockDuration.Add(previousInvocationsDuration)
+			}(amortizedNow.Load())
 		}
 	}
 	return m.matchString(s)

@@ -404,7 +404,7 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 	texts := generateRandomValues()
 
 	constructors := map[string]func(pattern string) *FastRegexMatcher{
-		"withTimeTracking=true/sampleRate=withPrimitiveVar": func(pattern string) *FastRegexMatcher {
+		"withTimeTracking=true/sampleRate=withAtomic": func(pattern string) *FastRegexMatcher {
 			m, err := NewFastRegexMatcherWithTimeTracker(pattern, &atomic.Duration{})
 			require.NoError(b, err)
 			return m
@@ -414,11 +414,11 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 		//	require.NoError(b, err)
 		//	return m
 		//},
-		"withTimeTracking=nil-duration": func(pattern string) *FastRegexMatcher {
-			m, err := NewFastRegexMatcherWithTimeTracker(pattern, nil)
-			require.NoError(b, err)
-			return m
-		},
+		//"withTimeTracking=nil-duration": func(pattern string) *FastRegexMatcher {
+		//	m, err := NewFastRegexMatcherWithTimeTracker(pattern, nil)
+		//	require.NoError(b, err)
+		//	return m
+		//},
 		//"withTimeTracking=false": func(pattern string) *FastRegexMatcher {
 		//	m, err := NewFastRegexMatcher(pattern)
 		//	require.NoError(b, err)

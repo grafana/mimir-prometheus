@@ -87,6 +87,45 @@ BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=nil-duration
 BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=nil-duration-10                               	 8763596	       137.4 ns/op
 BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=nil-duration-10                               	 8780992	       136.8 ns/op
 BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=nil-duration-10                               	 8883752	       136.8 ns/op
-PASS
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withAtomic-10         	 8900799	       131.8 ns/op
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withAtomic-10         	 9061646	       131.7 ns/op
+BenchmarkFastRegexMatcher//withTimeTracking=true/sampleRate=withAtomic-10         	 9131104	       132.1 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withAtomic-10       	 9045132	       131.8 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withAtomic-10       	 9098352	       131.9 ns/op
+BenchmarkFastRegexMatcher/()/withTimeTracking=true/sampleRate=withAtomic-10       	 9005256	       131.9 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withAtomic-10      	 9017546	       131.8 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withAtomic-10      	 9073314	       131.6 ns/op
+BenchmarkFastRegexMatcher/foo/withTimeTracking=true/sampleRate=withAtomic-10      	 9100549	       131.9 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withAtomic-10    	 9044078	       132.1 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withAtomic-10    	 9151543	       132.3 ns/op
+BenchmarkFastRegexMatcher/foo()/withTimeTracking=true/sampleRate=withAtomic-10    	 9138058	       132.3 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withAtomic-10     	 9051571	       132.4 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withAtomic-10     	 9090283	       131.8 ns/op
+BenchmarkFastRegexMatcher/^foo/withTimeTracking=true/sampleRate=withAtomic-10     	 9049898	       132.4 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withAtomic-10         	 8998104	       132.9 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withAtomic-10         	 9117002	       132.1 ns/op
+BenchmarkFastRegexMatcher/(foo|bar)/withTimeTracking=true/sampleRate=withAtomic-10         	 9029599	       132.4 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withAtomic-10             	 8518287	       141.0 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withAtomic-10             	 8547687	       140.9 ns/op
+BenchmarkFastRegexMatcher/foo.*/withTimeTracking=true/sampleRate=withAtomic-10             	 8575687	       140.8 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withAtomic-10             	 7717930	       155.5 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withAtomic-10             	 7738966	       156.0 ns/op
+BenchmarkFastRegexMatcher/.*foo/withTimeTracking=true/sampleRate=withAtomic-10             	 7689310	       155.4 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withAtomic-10           	 7727686	       157.9 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withAtomic-10           	 7649713	       156.0 ns/op
+BenchmarkFastRegexMatcher/^.*foo$/withTimeTracking=true/sampleRate=withAtomic-10           	 7751703	       156.3 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withAtomic
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withAtomic-10           	 7504598	       163.2 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withAtomic-10           	 7697235	       173.8 ns/op
+BenchmarkFastRegexMatcher/^.+foo$/withTimeTracking=true/sampleRate=withAtomic-10           	 7147504	       157.0 ns/op
 
 Process finished with the exit code 0

@@ -61,6 +61,6 @@ func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration)
 	})
 	withDifferentObserver := *m
 	withDifferentObserver.matchesWallClockDuration = duration
-	withDifferentObserver.sampler = 0
+	withDifferentObserver.sampler = atomic.NewInt64(0)
 	return &withDifferentObserver, nil
 }
