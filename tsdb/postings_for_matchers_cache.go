@@ -70,8 +70,8 @@ var DefaultPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(
 //   - `shared` indicates whether the factory will return a cache that is shared across all invocations.
 //   - `keyFunc` allows `shared` caches to provide a key that better distinguishes entries.
 //   - `invalidation` can be enabled for `shared` caches to invalidate head block cache entries when postings change for a metric.
-//   - `cacheVersions` determines the size the metric versions cache when `invalidation` is enabled.
-//   - `cacheVersionStripes` determines the size the striped lock that guards the versions cache when `invalidation` is enabled.
+//   - `cacheVersions` determines the size of the metric versions cache when `invalidation` is enabled.
+//   - `cacheVersionStripes` determines the size of the striped lock that guards the versions cache when `invalidation` is enabled.
 //   - `ttl` indicates the time-to-live for cache entries, else when 0, only in-flight requests are de-duplicated.
 //   - `force` indicates that all requests should go through cache, regardless of the `concurrent` param provided to the PostingsForMatchers method.
 //   - `metrics` the metrics that should be used by the produced caches.
