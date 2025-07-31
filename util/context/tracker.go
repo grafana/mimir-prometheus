@@ -67,7 +67,7 @@ func (t *ContextsTracker) Add(ctx context.Context) error {
 }
 
 // Close the tracker. When the tracker is closed, the execution context is canceled
-// and resources releases.
+// and resources released.
 //
 // This function must be called once done to not leak resources.
 func (t *ContextsTracker) Close() {
