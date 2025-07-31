@@ -25,7 +25,7 @@ func (e ErrContextsTrackerCanceled) Error() string {
 }
 
 // ContextsTracker is responsible to monitor multiple context.Context and provides an execution
-// that gets canceled once all monitored context.Context have done.
+// that gets canceled once all monitored context.Context instances are done.
 //
 // This type is concurrency safe.
 type ContextsTracker struct {
@@ -38,6 +38,8 @@ type ContextsTracker struct {
 	trackedStopFuncs []func() bool // The stop watching functions for all tracked contexts.
 }
 
+// NewContextsTracker returns a new ContextsTracker along with a context.Context that is done when all the tracked
+// context.Context instances are done.
 func NewContextsTracker() (*ContextsTracker, context.Context) {
 	t := &ContextsTracker{}
 
