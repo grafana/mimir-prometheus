@@ -20,6 +20,7 @@ import (
 // NewMatcherWithRegexTimeTracker returns a matcher which can track the time spent running regular expression matchers.
 // duration is incremented when the MatchType is MatchRegexp or MatchNotRegexp.
 // duration is incremented every power-of-two invocation of Matcher.Matches() (1st, 2nd, 4th, 8th, 16th, ...) and scaled to the sample rate.
+// The time-tracking is not goroutine-safe, so there will be data races if this matcher is used concurrently. The data races only affect the accuracy of the observed durations.
 func NewMatcherWithRegexTimeTracker(t MatchType, n, v string, duration *atomic.Duration) (*Matcher, error) {
 	m := &Matcher{
 		Type:  t,
@@ -38,6 +39,7 @@ func NewMatcherWithRegexTimeTracker(t MatchType, n, v string, duration *atomic.D
 
 // NewFastRegexMatcherWithTimeTracker returns a matcher which will track the time spent running the matcher.
 // duration is incremented every power-of-two invocation of Matcher.Matches() (1st, 2nd, 4th, 8th, 16th, ...) and scaled to the sample rate.
+// The time-tracking is not goroutine-safe, so there will be data races if this matcher is used concurrently. The data races only affect the accuracy of the observed durations.
 func NewFastRegexMatcherWithTimeTracker(regex string, duration *atomic.Duration) (*FastRegexMatcher, error) {
 	m, err := NewFastRegexMatcher(regex)
 	if err != nil {
