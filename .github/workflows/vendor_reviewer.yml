@@ -24,8 +24,8 @@ jobs:
         uses: grafana/shared-workflows/actions/get-vault-secrets@28361cdb22223e5f1e34358c86c20908e7248760 # v1.1.0
         with:
           repo_secrets: |
-            APP_ID=mimir-github-bot:app_id
-            PRIVATE_KEY=mimir-github-bot:private_key
+            APP_ID=mimir-vendoring:app-id
+            PRIVATE_KEY=mimir-vendoring:app-pem-key
 
       # Generate GitHub App Token for approving PRs
       - name: Generate GitHub App Token
