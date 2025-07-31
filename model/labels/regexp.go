@@ -72,6 +72,7 @@ type FastRegexMatcher struct {
 	// time tracking
 	matchesWallClockDuration *atomic.Duration
 	sampler                  int64
+	sampleRate               int64
 }
 
 func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
@@ -354,10 +355,10 @@ func (m *FastRegexMatcher) MatchString(s string) bool {
 		tick := m.sampler
 		// Check if it's a power of two; if yes, then we record.
 		// This way we amortize the cost of recording latency.
-		if tick&(tick-1) == 0 {
+		if tick%m.sampleRate == 0 {
 			defer func(start time.Time, durationAtStart time.Duration) {
 				thisInvocationDuration := time.Since(start)
-				previousInvocationsDuration := thisInvocationDuration * time.Duration(max(1, tick/2))
+				previousInvocationsDuration := thisInvocationDuration * time.Duration(tick*m.sampleRate)
 
 				// If the CAS fails, then some other goroutine updated it.
 				// In that case either of these goroutines wasn't the "right" goroutine to update it because of a race on `sampler`
