@@ -25,19 +25,17 @@ import (
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/index"
 	promContext "github.com/prometheus/prometheus/util/context"
-	promSync "github.com/prometheus/prometheus/util/sync"
 )
 
 const (
 	// NOTE: keep them exported to reference them in Mimir.
 
-	DefaultPostingsForMatchersCacheTTL             = 10 * time.Second
-	DefaultPostingsForMatchersCacheMaxItems        = 100
-	DefaultPostingsForMatchersCacheMaxBytes        = 10 * 1024 * 1024 // DefaultPostingsForMatchersCacheMaxBytes is based on the default max items, 10MB / 100 = 100KB per cached entry on average.
-	DefaultPostingsForMatchersCacheForce           = false
-	DefaultPostingsForMatchersCacheInvalidation    = false
-	DefaultPostingsForMatchersCacheVersions        = 2 * 1024 * 1024 // The number of metric versions to store across all metric names
-	DefaultPostingsForMatchersCacheVersionsStripes = 256             // The number of lock stripes used to guard metric versions
+	DefaultPostingsForMatchersCacheTTL          = 10 * time.Second
+	DefaultPostingsForMatchersCacheMaxItems     = 100
+	DefaultPostingsForMatchersCacheMaxBytes     = 10 * 1024 * 1024 // DefaultPostingsForMatchersCacheMaxBytes is based on the default max items, 10MB / 100 = 100KB per cached entry on average.
+	DefaultPostingsForMatchersCacheForce        = false
+	DefaultPostingsForMatchersCacheInvalidation = false
+	DefaultPostingsForMatchersCacheVersions     = 2 * 1024 * 1024 // The number of metric versions to store across all metric names
 )
 
 const (
@@ -76,7 +74,7 @@ func (f *nonSharedPostingsForMatchersCacheFactory) NewPostingsForMatchersCache(t
 	return f.factoryFunc(tracingKV)
 }
 
-var DefaultPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, DefaultPostingsForMatchersCacheInvalidation, DefaultPostingsForMatchersCacheVersions, DefaultPostingsForMatchersCacheVersionsStripes,
+var DefaultPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(false, DefaultPostingsForMatchersCacheKeyFunc, DefaultPostingsForMatchersCacheInvalidation, DefaultPostingsForMatchersCacheVersions,
 	DefaultPostingsForMatchersCacheTTL, DefaultPostingsForMatchersCacheMaxItems, DefaultPostingsForMatchersCacheMaxBytes, DefaultPostingsForMatchersCacheForce, NewPostingsForMatchersCacheMetrics(nil))
 
 // NewPostingsForMatchersCacheFactory creates a factory for building PostingsForMatchersCache instances. A few
@@ -90,16 +88,14 @@ var DefaultPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(
 //   - `keyFunc` allows `shared` caches to provide a key that better distinguishes entries.
 //   - `invalidation` can be enabled for `shared` caches to invalidate head block cache entries when postings change for a metric.
 //   - `cacheVersions` determines the size of the metric versions cache when `invalidation` is enabled.
-//   - `cacheVersionStripes` determines the size of the striped lock that guards the versions cache when `invalidation` is enabled.
 //   - `ttl` indicates the time-to-live for cache entries, else when 0, only in-flight requests are de-duplicated.
 //   - `force` indicates that all requests should go through cache, regardless of the `concurrent` param provided to the PostingsForMatchers method.
 //   - `metrics` the metrics that should be used by the produced caches.
-func NewPostingsForMatchersCacheFactory(shared bool, keyFunc CacheKeyFunc, invalidation bool, cacheVersions, cacheVersionsStripes int, ttl time.Duration, maxItems int, maxBytes int64, force bool, metrics *PostingsForMatchersCacheMetrics) PostingsForMatchersCacheFactory {
+func NewPostingsForMatchersCacheFactory(shared bool, keyFunc CacheKeyFunc, invalidation bool, cacheVersions int, ttl time.Duration, maxItems int, maxBytes int64, force bool, metrics *PostingsForMatchersCacheMetrics) PostingsForMatchersCacheFactory {
 	var mv *metricVersions
 	if shared && invalidation {
 		mv = &metricVersions{
-			versions:    make([]int, cacheVersions),
-			stripedLock: promSync.NewStripedLock(cacheVersionsStripes),
+			versions: make([]atomic.Int64, cacheVersions),
 		}
 	}
 	factoryFunc := func(tracingKV []attribute.KeyValue) *PostingsForMatchersCache {
@@ -264,28 +260,19 @@ func metricNameFromMatchers(ms []*labels.Matcher) (string, bool) {
 }
 
 // metricVersions stores versions for metric names.
-// This type is concurrency safe and is guarded by a StripedLock for low contention access.
+// This type is concurrency safe.
 type metricVersions struct {
-	versions    []int
-	stripedLock *promSync.StripedLock
+	versions []atomic.Int64
 }
 
-// GetVersion gets the version for the metricName.
+// getMetricVersion gets the version for the key and metricName.
 func (mv *metricVersions) getVersion(key, metricName string) int {
-	var version int
-	vi := mv.getIndex(key, metricName)
-	mv.stripedLock.WithRLock(vi, func() {
-		version = mv.versions[vi]
-	})
-	return version
+	return int(mv.versions[mv.getIndex(key, metricName)].Load())
 }
 
-// IncrementVersion atomically increments the version for the metricName.
+// incrementMetricVersion increments the version for the key and metricName.
 func (mv *metricVersions) incrementVersion(key, metricName string) {
-	vi := mv.getIndex(key, metricName)
-	mv.stripedLock.WithLock(vi, func() {
-		mv.versions[vi]++
-	})
+	mv.versions[mv.getIndex(key, metricName)].Inc()
 }
 
 func (mv *metricVersions) getIndex(key, metricName string) int {

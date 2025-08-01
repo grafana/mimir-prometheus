@@ -76,39 +76,38 @@ var ErrNotReady = errors.New("TSDB not ready")
 // millisecond precision timestamps.
 func DefaultOptions() *Options {
 	return &Options{
-		WALSegmentSize:                              wlog.DefaultSegmentSize,
-		MaxBlockChunkSegmentSize:                    chunks.DefaultChunkSegmentSize,
-		RetentionDuration:                           int64(15 * 24 * time.Hour / time.Millisecond),
-		MinBlockDuration:                            DefaultBlockDuration,
-		MaxBlockDuration:                            DefaultBlockDuration,
-		NoLockfile:                                  false,
-		SamplesPerChunk:                             DefaultSamplesPerChunk,
-		WALCompression:                              compression.None,
-		StripeSize:                                  DefaultStripeSize,
-		HeadChunksWriteBufferSize:                   chunks.DefaultWriteBufferSize,
-		IsolationDisabled:                           defaultIsolationDisabled,
-		HeadChunksWriteQueueSize:                    chunks.DefaultWriteQueueSize,
-		OutOfOrderCapMax:                            DefaultOutOfOrderCapMax,
-		EnableOverlappingCompaction:                 true,
-		EnableSharding:                              false,
-		EnableDelayedCompaction:                     false,
-		CompactionDelayMaxPercent:                   DefaultCompactionDelayMaxPercent,
-		CompactionDelay:                             time.Duration(0),
-		PostingsDecoderFactory:                      DefaultPostingsDecoderFactory,
-IndexLookupPlanner:          &index.ScanEmptyMatchersLookupPlanner{},		HeadChunksEndTimeVariance:                   0,
-		HeadPostingsForMatchersCacheInvalidation:    DefaultPostingsForMatchersCacheInvalidation,
-		HeadPostingsForMatchersCacheVersions:        DefaultPostingsForMatchersCacheVersions,
-		HeadPostingsForMatchersCacheVersionsStripes: DefaultPostingsForMatchersCacheVersionsStripes,
-		HeadPostingsForMatchersCacheTTL:             DefaultPostingsForMatchersCacheTTL,
-		HeadPostingsForMatchersCacheMaxItems:        DefaultPostingsForMatchersCacheMaxItems,
-		HeadPostingsForMatchersCacheMaxBytes:        DefaultPostingsForMatchersCacheMaxBytes,
-		HeadPostingsForMatchersCacheForce:           DefaultPostingsForMatchersCacheForce,
-		HeadPostingsForMatchersCacheMetrics:         NewPostingsForMatchersCacheMetrics(nil),
-		BlockPostingsForMatchersCacheTTL:            DefaultPostingsForMatchersCacheTTL,
-		BlockPostingsForMatchersCacheMaxItems:       DefaultPostingsForMatchersCacheMaxItems,
-		BlockPostingsForMatchersCacheMaxBytes:       DefaultPostingsForMatchersCacheMaxBytes,
-		BlockPostingsForMatchersCacheForce:          DefaultPostingsForMatchersCacheForce,
-		BlockPostingsForMatchersCacheMetrics:        NewPostingsForMatchersCacheMetrics(nil),
+		WALSegmentSize:                           wlog.DefaultSegmentSize,
+		MaxBlockChunkSegmentSize:                 chunks.DefaultChunkSegmentSize,
+		RetentionDuration:                        int64(15 * 24 * time.Hour / time.Millisecond),
+		MinBlockDuration:                         DefaultBlockDuration,
+		MaxBlockDuration:                         DefaultBlockDuration,
+		NoLockfile:                               false,
+		SamplesPerChunk:                          DefaultSamplesPerChunk,
+		WALCompression:                           compression.None,
+		StripeSize:                               DefaultStripeSize,
+		HeadChunksWriteBufferSize:                chunks.DefaultWriteBufferSize,
+		IsolationDisabled:                        defaultIsolationDisabled,
+		HeadChunksWriteQueueSize:                 chunks.DefaultWriteQueueSize,
+		OutOfOrderCapMax:                         DefaultOutOfOrderCapMax,
+		EnableOverlappingCompaction:              true,
+		EnableSharding:                           false,
+		EnableDelayedCompaction:                  false,
+		CompactionDelayMaxPercent:                DefaultCompactionDelayMaxPercent,
+		CompactionDelay:                          time.Duration(0),
+		PostingsDecoderFactory:                   DefaultPostingsDecoderFactory,
+IndexLookupPlanner:          &index.ScanEmptyMatchersLookupPlanner{},		HeadChunksEndTimeVariance:                0,
+		HeadPostingsForMatchersCacheInvalidation: DefaultPostingsForMatchersCacheInvalidation,
+		HeadPostingsForMatchersCacheVersions:     DefaultPostingsForMatchersCacheVersions,
+		HeadPostingsForMatchersCacheTTL:          DefaultPostingsForMatchersCacheTTL,
+		HeadPostingsForMatchersCacheMaxItems:     DefaultPostingsForMatchersCacheMaxItems,
+		HeadPostingsForMatchersCacheMaxBytes:     DefaultPostingsForMatchersCacheMaxBytes,
+		HeadPostingsForMatchersCacheForce:        DefaultPostingsForMatchersCacheForce,
+		HeadPostingsForMatchersCacheMetrics:      NewPostingsForMatchersCacheMetrics(nil),
+		BlockPostingsForMatchersCacheTTL:         DefaultPostingsForMatchersCacheTTL,
+		BlockPostingsForMatchersCacheMaxItems:    DefaultPostingsForMatchersCacheMaxItems,
+		BlockPostingsForMatchersCacheMaxBytes:    DefaultPostingsForMatchersCacheMaxBytes,
+		BlockPostingsForMatchersCacheForce:       DefaultPostingsForMatchersCacheForce,
+		BlockPostingsForMatchersCacheMetrics:     NewPostingsForMatchersCacheMetrics(nil),
 	}
 }
 
@@ -256,9 +255,6 @@ type Options struct {
 
 	// HeadPostingsForMatchersCacheVersions is the number of metricVersions to store in the cache
 	HeadPostingsForMatchersCacheVersions int
-
-	// HeadPostingsForMatchersCacheVersionsStripes is the number of lock stripes used to guard the cache versions
-	HeadPostingsForMatchersCacheVersionsStripes int
 
 	// HeadPostingsForMatchersCacheTTL is the TTL of the postings for matchers cache in the Head.
 	// If it's 0, the cache will only deduplicate in-flight requests, deleting the results once the first request has finished.
@@ -921,9 +917,6 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	if opts.HeadPostingsForMatchersCacheVersions == 0 {
 		opts.HeadPostingsForMatchersCacheVersions = DefaultPostingsForMatchersCacheVersions
 	}
-	if opts.HeadPostingsForMatchersCacheVersionsStripes == 0 {
-		opts.HeadPostingsForMatchersCacheVersionsStripes = DefaultPostingsForMatchersCacheVersionsStripes
-	}
 
 	if len(rngs) == 0 {
 		// Start with smallest block duration and create exponential buckets until the exceed the
@@ -1044,7 +1037,6 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		opts.PostingsForMatchersCacheKeyFunc,
 		false,
 		0,
-		0,
 		opts.BlockPostingsForMatchersCacheTTL,
 		opts.BlockPostingsForMatchersCacheMaxItems,
 		opts.BlockPostingsForMatchersCacheMaxBytes,
@@ -1100,7 +1092,6 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		opts.PostingsForMatchersCacheKeyFunc,
 		opts.HeadPostingsForMatchersCacheInvalidation,
 		opts.HeadPostingsForMatchersCacheVersions,
-		opts.HeadPostingsForMatchersCacheVersionsStripes,
 		opts.HeadPostingsForMatchersCacheTTL,
 		opts.HeadPostingsForMatchersCacheMaxItems,
 		opts.HeadPostingsForMatchersCacheMaxBytes,
