@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/oklog/ulid/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
@@ -756,18 +757,23 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.NoError(t, err)
 		require.EqualError(t, p.Err(), "result from call 2")
 
+		// fifth call with non-head block misses
+		p, err = c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, ulid.MustParse("0000000000XXXXXXXXXXXXXFOO"), expectedMatchers...)
+		require.NoError(t, err)
+		require.EqualError(t, p.Err(), "result from call 3")
+
 		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 454
+			postings_for_matchers_cache_bytes_total 681
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
-			postings_for_matchers_cache_entries_total 2
+			postings_for_matchers_cache_entries_total 3
 
 			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_requests_total counter
-			postings_for_matchers_cache_requests_total 4
+			postings_for_matchers_cache_requests_total 5
 
 			# HELP postings_for_matchers_cache_hits_total Total number of postings lists returned from the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_hits_total counter
@@ -779,7 +785,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 			# HELP postings_for_matchers_cache_misses_total Total number of requests to the PostingsForMatchers cache for which there is no valid cached entry. The subsequent result is cached.
 			# TYPE postings_for_matchers_cache_misses_total counter
-			postings_for_matchers_cache_misses_total 2
+			postings_for_matchers_cache_misses_total 3
 
 			# HELP postings_for_matchers_cache_skips_total Total number of requests to the PostingsForMatchers cache that have been skipped the cache. The subsequent result is not cached.
 			# TYPE postings_for_matchers_cache_skips_total counter
