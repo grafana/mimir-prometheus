@@ -1032,17 +1032,19 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		db.blockChunkQuerierFunc = opts.BlockChunkQuerierFunc
 	}
 
-	db.blockPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(
-		opts.SharedPostingsForMatchersCache,
-		opts.PostingsForMatchersCacheKeyFunc,
-		false,
-		0,
-		opts.BlockPostingsForMatchersCacheTTL,
-		opts.BlockPostingsForMatchersCacheMaxItems,
-		opts.BlockPostingsForMatchersCacheMaxBytes,
-		opts.BlockPostingsForMatchersCacheForce,
-		opts.BlockPostingsForMatchersCacheMetrics,
-	)
+	if db.blockPostingsForMatchersCacheFactory == nil {
+		db.blockPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(
+			opts.SharedPostingsForMatchersCache,
+			opts.PostingsForMatchersCacheKeyFunc,
+			false,
+			0,
+			opts.BlockPostingsForMatchersCacheTTL,
+			opts.BlockPostingsForMatchersCacheMaxItems,
+			opts.BlockPostingsForMatchersCacheMaxBytes,
+			opts.BlockPostingsForMatchersCacheForce,
+			opts.BlockPostingsForMatchersCacheMetrics,
+		)
+	}
 
 	var wal, wbl *wlog.WL
 	segmentSize := wlog.DefaultSegmentSize

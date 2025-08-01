@@ -46,7 +46,8 @@ const (
 	evictionReasonsLength
 )
 
-// CacheKeyFunc provides a cache key for a Context. This can be used as an additional way of separating cache entries.
+// CacheKeyFunc provides a cache key for a Context. The cache key can be used to better distinguish cache entries, along
+// with the metric name from queries, such as for different users.
 type CacheKeyFunc func(ctx context.Context) (string, error)
 
 var DefaultPostingsForMatchersCacheKeyFunc = func(_ context.Context) (string, error) { return "", nil }
@@ -119,7 +120,7 @@ func NewPostingsForMatchersCacheFactory(shared bool, keyFunc CacheKeyFunc, inval
 			},
 			postingsForMatchers: PostingsForMatchers,
 			// Clone the slice so we don't end up sharding it with the parent.
-			additionalAttributes: append(slices.Clone(tracingKV), attribute.Stringer("ttl", ttl), attribute.Bool("force", force)),
+			additionalAttributes: append(slices.Clone(tracingKV), attribute.Bool("shared", shared), attribute.Stringer("ttl", ttl), attribute.Bool("force", force)),
 		}
 	}
 	if shared {
@@ -194,26 +195,10 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 		)
 	}(time.Now())
 
-	// Skip caching of non-concurrent non-forced calls
-	skipCache := !concurrent && !c.force
+	metricVersion, cacheKey, sharedKeyOk := c.sharedKeyForMatchers(ctx, blockID, ms...)
 
-	var metricVersion int
-	var cacheKey string
-	var cacheKeyError error
-	if c.shared {
-		if cacheKey, cacheKeyError = c.keyFunc(ctx); cacheKeyError != nil {
-			// Skip caching when using a shared cache where the keyFunc returns an error, since cache keys are important in shared caches
-			skipCache = true
-		} else if c.metricVersions != nil && blockID == headULID {
-			// Get metric version for invalidation
-			if metricName, ok := metricNameFromMatchers(ms); !ok {
-				// Skip caching when using invalidation with head blocks where a metric name matcher is missing, since this is needed for invalidation
-				skipCache = true
-			} else {
-				metricVersion = c.metricVersions.getVersion(cacheKey, metricName)
-			}
-		}
-	}
+	// Skip caching of non-concurrent non-forced calls, or where a shared cache key is not ok
+	skipCache := !concurrent && !c.force || !sharedKeyOk
 
 	if skipCache {
 		c.metrics.skipsBecauseIneligible.Inc()
@@ -235,6 +220,30 @@ func (c *PostingsForMatchersCache) PostingsForMatchers(ctx context.Context, ix I
 		span.RecordError(err)
 	}
 	return p, err
+}
+
+// sharedKeyForMatchers returns a metric version and cache key for the blockID and matchers. For non-shared caches,
+// returns ok. For shared caches, returns ok when a cache key is computed and a metric name is retrievable from a head
+// block.
+func (c *PostingsForMatchersCache) sharedKeyForMatchers(ctx context.Context, blockID ulid.ULID, ms ...*labels.Matcher) (metricVersion int, cacheKey string, ok bool) {
+	ok = true
+	if c.shared {
+		var cacheKeyError error
+		if cacheKey, cacheKeyError = c.keyFunc(ctx); cacheKeyError != nil {
+			// Skip caching when using a shared cache where the keyFunc returns an error, since cache keys are important in shared caches
+			ok = false
+		} else if c.metricVersions != nil && blockID == headULID {
+			// Get metric version for invalidation
+			// This is only necessary for head blocks since postings can change for them. For compacted blocks, postings are considered immutable.
+			if metricName, mok := metricNameFromMatchers(ms); !mok {
+				// Skip caching when using invalidation with head blocks where a metric name matcher is missing, since this is needed for invalidation
+				ok = false
+			} else {
+				metricVersion = c.metricVersions.getVersion(cacheKey, metricName)
+			}
+		}
+	}
+	return
 }
 
 // InvalidateMetric invalidates cache entries for a key and metric name contained in the labels by incrementing its
