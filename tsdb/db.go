@@ -104,7 +104,6 @@ IndexLookupPlanner:          &index.ScanEmptyMatchersLookupPlanner{},		HeadChunk
 		HeadPostingsForMatchersCacheMaxBytes:        DefaultPostingsForMatchersCacheMaxBytes,
 		HeadPostingsForMatchersCacheForce:           DefaultPostingsForMatchersCacheForce,
 		HeadPostingsForMatchersCacheMetrics:         NewPostingsForMatchersCacheMetrics(nil),
-		BlockPostingsForMatchersCacheFactory:        DefaultPostingsForMatchersCacheFactory,
 		BlockPostingsForMatchersCacheTTL:            DefaultPostingsForMatchersCacheTTL,
 		BlockPostingsForMatchersCacheMaxItems:       DefaultPostingsForMatchersCacheMaxItems,
 		BlockPostingsForMatchersCacheMaxBytes:       DefaultPostingsForMatchersCacheMaxBytes,
@@ -279,9 +278,6 @@ type Options struct {
 	// HeadPostingsForMatchersCacheMetrics holds the metrics tracked by PostingsForMatchers cache when querying the Head.
 	HeadPostingsForMatchersCacheMetrics *PostingsForMatchersCacheMetrics
 
-	// BlockPostingsForMatchersCacheFactory returns a factory for creating PostingsForMatchersCache instances for compacted blocks.
-	BlockPostingsForMatchersCacheFactory PostingsForMatchersCacheFactory
-
 	// BlockPostingsForMatchersCacheTTL is the TTL of the postings for matchers cache of each compacted block.
 	// If it's 0, the cache will only deduplicate in-flight requests, deleting the results once the first request has finished.
 	BlockPostingsForMatchersCacheTTL time.Duration
@@ -383,6 +379,9 @@ type DB struct {
 	blockQuerierFunc BlockQuerierFunc
 
 	blockChunkQuerierFunc BlockChunkQuerierFunc
+
+	// blockPostingsForMatchersCacheFactory returns a factory for creating PostingsForMatchersCache instances for compacted blocks.
+	blockPostingsForMatchersCacheFactory PostingsForMatchersCacheFactory
 }
 
 type dbMetrics struct {
@@ -925,9 +924,6 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	if opts.HeadPostingsForMatchersCacheVersionsStripes == 0 {
 		opts.HeadPostingsForMatchersCacheVersionsStripes = DefaultPostingsForMatchersCacheVersionsStripes
 	}
-	if opts.BlockPostingsForMatchersCacheFactory == nil {
-		opts.BlockPostingsForMatchersCacheFactory = DefaultPostingsForMatchersCacheFactory
-	}
 
 	if len(rngs) == 0 {
 		// Start with smallest block duration and create exponential buckets until the exceed the
@@ -1043,7 +1039,7 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		db.blockChunkQuerierFunc = opts.BlockChunkQuerierFunc
 	}
 
-	opts.BlockPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(
+	db.blockPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(
 		opts.SharedPostingsForMatchersCache,
 		opts.PostingsForMatchersCacheKeyFunc,
 		false,
@@ -1747,7 +1743,7 @@ func (db *DB) reloadBlocks() (err error) {
 	}()
 
 	db.mtx.RLock()
-	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.PostingsDecoderFactory, db.opts.IndexLookupPlanner, db.opts.SeriesHashCache, db.opts.BlockPostingsForMatchersCacheFactory)
+	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.PostingsDecoderFactory, db.opts.IndexLookupPlanner, db.opts.SeriesHashCache, db.blockPostingsForMatchersCacheFactory)
 	db.mtx.RUnlock()
 	if err != nil {
 		return err
