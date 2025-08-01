@@ -555,8 +555,11 @@ func (c *PostingsForMatchersCache) evictHead(now time.Time) (reason int) {
 	c.calls.Delete(oldest.key)
 	c.cached.Remove(front)
 	c.cachedBytes -= oldest.sizeBytes
-	c.metrics.entries.Set(float64(c.cached.Len()))
-	c.metrics.bytes.Set(float64(c.cachedBytes))
+	if c.shared {
+		// Only set values when caches are shared, so separate per block caches do not interfere
+		c.metrics.entries.Set(float64(c.cached.Len()))
+		c.metrics.bytes.Set(float64(c.cachedBytes))
+	}
 
 	return
 }
@@ -598,8 +601,11 @@ func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, k
 			sizeBytes: sizeBytes,
 		})
 		c.cachedBytes += sizeBytes
-		c.metrics.entries.Set(float64(c.cached.Len()))
-		c.metrics.bytes.Set(float64(c.cachedBytes))
+		if c.shared {
+			// Only set values when caches are shared, so separate per block caches do not interfere
+			c.metrics.entries.Set(float64(c.cached.Len()))
+			c.metrics.bytes.Set(float64(c.cachedBytes))
+		}
 		lastCachedBytes = c.cachedBytes
 
 		c.cachedMtx.Unlock()
