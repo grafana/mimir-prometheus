@@ -228,7 +228,7 @@ func DefaultHeadOptions() *HeadOptions {
 		IsolationDisabled:               defaultIsolationDisabled,
 		PostingsForMatchersCacheFactory: DefaultPostingsForMatchersCacheFactory,
 		WALReplayConcurrency:            defaultWALReplayConcurrency,
-		IndexLookupPlanner:               &index.ScanEmptyMatchersLookupPlanner{},
+		IndexLookupPlanner:              &index.ScanEmptyMatchersLookupPlanner{},
 	}
 	ho.OutOfOrderCapMax.Store(DefaultOutOfOrderCapMax)
 	return ho
