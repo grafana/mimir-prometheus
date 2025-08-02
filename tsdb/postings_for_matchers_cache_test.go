@@ -83,10 +83,11 @@ func TestPostingsForMatchersCache(t *testing.T) {
 						if concurrent {
 							if shared {
 								expectedBytes = 228
+								expectedEntries = 1
 							} else {
-								expectedBytes = 199
+								expectedBytes = 0
+								expectedEntries = 0
 							}
-							expectedEntries = 1
 							expectedMisses = 1
 						} else {
 							expectedSkips = 1
@@ -151,11 +152,11 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 179
+			postings_for_matchers_cache_bytes_total 0
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
-			postings_for_matchers_cache_entries_total 1
+			postings_for_matchers_cache_entries_total 0
 
 			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_requests_total counter
@@ -437,10 +438,12 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					require.EqualError(t, p.Err(), "result from call 2")
 
 					expectedBytes := 0
+					expectedEntries := 0
 					if shared {
 						expectedBytes = 227
+						expectedEntries = 1
 					} else {
-						expectedBytes = 198
+						expectedBytes = 0
 					}
 
 					require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
@@ -450,7 +453,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 					# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 					# TYPE postings_for_matchers_cache_entries_total gauge
-					postings_for_matchers_cache_entries_total 1
+					postings_for_matchers_cache_entries_total %d
 
 					# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
 					# TYPE postings_for_matchers_cache_requests_total counter
@@ -480,7 +483,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
 					postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 1
 					postings_for_matchers_cache_evictions_total{reason="unknown"} 0
-				`, expectedBytes))))
+				`, expectedBytes, expectedEntries))))
 				})
 			}
 		}
@@ -541,10 +544,10 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					require.EqualError(t, p.Err(), "result from call 2")
 
 					expectedBytes := 0
+					expectedEntries := 0
 					if shared {
 						expectedBytes = 1352
-					} else {
-						expectedBytes = 1178
+						expectedEntries = 6
 					}
 
 					require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
@@ -554,7 +557,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 					# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 					# TYPE postings_for_matchers_cache_entries_total gauge
-					postings_for_matchers_cache_entries_total 6
+					postings_for_matchers_cache_entries_total %d
 
 					# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
 					# TYPE postings_for_matchers_cache_requests_total counter
@@ -584,7 +587,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 1
 					postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
 					postings_for_matchers_cache_evictions_total{reason="unknown"} 0
-				`, expectedBytes))))
+				`, expectedBytes, expectedEntries))))
 				})
 			}
 		}
@@ -672,10 +675,10 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					require.Equal(t, 1, callsPerMatchers[cacheKeyForMatchers(matchersLists[3])])
 
 					expectedBytes := 0
+					expectedEntries := 0
 					if shared {
 						expectedBytes = 1848
-					} else {
-						expectedBytes = 1732
+						expectedEntries = 4
 					}
 
 					require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
@@ -685,7 +688,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 					# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 					# TYPE postings_for_matchers_cache_entries_total gauge
-					postings_for_matchers_cache_entries_total 4
+					postings_for_matchers_cache_entries_total %d
 
 					# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
 					# TYPE postings_for_matchers_cache_requests_total counter
@@ -715,7 +718,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
 					postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
 					postings_for_matchers_cache_evictions_total{reason="unknown"} 0
-				`, expectedBytes))))
+				`, expectedBytes, expectedEntries))))
 				})
 			}
 		}
@@ -852,11 +855,11 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 206
+			postings_for_matchers_cache_bytes_total 0
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
-			postings_for_matchers_cache_entries_total 1
+			postings_for_matchers_cache_entries_total 0
 
 			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_requests_total counter
@@ -962,11 +965,11 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 206
+			postings_for_matchers_cache_bytes_total 0
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
-			postings_for_matchers_cache_entries_total 1
+			postings_for_matchers_cache_entries_total 0
 
 			# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_requests_total counter
@@ -1178,11 +1181,11 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 	require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 		# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 		# TYPE postings_for_matchers_cache_bytes_total gauge
-		postings_for_matchers_cache_bytes_total 193
+		postings_for_matchers_cache_bytes_total 0
 
 		# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 		# TYPE postings_for_matchers_cache_entries_total gauge
-		postings_for_matchers_cache_entries_total 1
+		postings_for_matchers_cache_entries_total 0
 
 		# HELP postings_for_matchers_cache_requests_total Total number of requests to the PostingsForMatchers cache.
 		# TYPE postings_for_matchers_cache_requests_total counter

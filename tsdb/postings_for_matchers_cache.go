@@ -274,26 +274,22 @@ type metricVersions struct {
 	versions []atomic.Int64
 }
 
-// getMetricVersion gets the version for the key and metricName.
+// getVersion gets the version for the key and metricName.
 func (mv *metricVersions) getVersion(key, metricName string) int {
 	return int(mv.versions[mv.getIndex(key, metricName)].Load())
 }
 
-// incrementMetricVersion increments the version for the key and metricName.
+// incrementVersion increments the version for the key and metricName.
 func (mv *metricVersions) incrementVersion(key, metricName string) {
 	mv.versions[mv.getIndex(key, metricName)].Inc()
 }
 
+// getIndex returns the index of the versions entry for the key and metricName.
 func (mv *metricVersions) getIndex(key, metricName string) int {
-	return int(hashKey(key, metricName) % uint64(len(mv.versions)))
-}
-
-// hashKey calculates a 64-bit hash for the key and metricName.
-func hashKey(key, metricName string) uint64 {
 	h := fnv.New64a()
 	h.Write([]byte(key))
 	h.Write([]byte(metricName))
-	return h.Sum64()
+	return int(h.Sum64() % uint64(len(mv.versions)))
 }
 
 type postingsForMatcherPromise struct {
