@@ -29,6 +29,7 @@ import (
 	"github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
+	"github.com/prometheus/otlptranslator"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v2"
 
@@ -173,7 +174,7 @@ var expectedConf = &Config{
 		PromoteResourceAttributes: []string{
 			"k8s.cluster.name", "k8s.job.name", "k8s.namespace.name",
 		},
-		TranslationStrategy: UnderscoreEscapingWithSuffixes,
+		TranslationStrategy: otlptranslator.UnderscoreEscapingWithSuffixes,
 	},
 
 	RemoteReadConfigs: []*RemoteReadConfig{
@@ -1846,7 +1847,7 @@ func TestOTLPAllowUTF8(t *testing.T) {
 		verify := func(t *testing.T, conf *Config, err error) {
 			t.Helper()
 			require.NoError(t, err)
-			require.Equal(t, NoUTF8EscapingWithSuffixes, conf.OTLPConfig.TranslationStrategy)
+			require.Equal(t, otlptranslator.NoUTF8EscapingWithSuffixes, conf.OTLPConfig.TranslationStrategy)
 		}
 
 		t.Run("LoadFile", func(t *testing.T) {
@@ -1886,7 +1887,7 @@ func TestOTLPAllowUTF8(t *testing.T) {
 		verify := func(t *testing.T, conf *Config, err error) {
 			t.Helper()
 			require.NoError(t, err)
-			require.Equal(t, NoTranslation, conf.OTLPConfig.TranslationStrategy)
+			require.Equal(t, otlptranslator.NoTranslation, conf.OTLPConfig.TranslationStrategy)
 		}
 
 		t.Run("LoadFile", func(t *testing.T) {
@@ -1945,7 +1946,7 @@ func TestOTLPAllowUTF8(t *testing.T) {
 		verify := func(t *testing.T, conf *Config, err error) {
 			t.Helper()
 			require.NoError(t, err)
-			require.Equal(t, UnderscoreEscapingWithSuffixes, conf.OTLPConfig.TranslationStrategy)
+			require.Equal(t, otlptranslator.UnderscoreEscapingWithSuffixes, conf.OTLPConfig.TranslationStrategy)
 		}
 
 		t.Run("LoadFile", func(t *testing.T) {
