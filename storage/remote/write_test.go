@@ -36,6 +36,7 @@ import (
 	common_config "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/promslog"
+	"github.com/prometheus/otlptranslator"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -393,7 +394,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 		{
 			name: "NoTranslation/NoTypeAndUnitLabels",
 			otlpCfg: config.OTLPConfig{
-				TranslationStrategy: config.NoTranslation,
+				TranslationStrategy: otlptranslator.NoTranslation,
 			},
 			expectedSamples: []mockSample{
 				{
@@ -419,7 +420,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 		{
 			name: "NoTranslation/WithTypeAndUnitLabels",
 			otlpCfg: config.OTLPConfig{
-				TranslationStrategy: config.NoTranslation,
+				TranslationStrategy: otlptranslator.NoTranslation,
 			},
 			typeAndUnitLabels: true,
 			expectedSamples: []mockSample{
@@ -448,7 +449,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 		{
 			name: "UnderscoreEscapingWithSuffixes/NoTypeAndUnitLabels",
 			otlpCfg: config.OTLPConfig{
-				TranslationStrategy: config.UnderscoreEscapingWithSuffixes,
+				TranslationStrategy: otlptranslator.UnderscoreEscapingWithSuffixes,
 			},
 			expectedSamples: []mockSample{
 				{
@@ -474,7 +475,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 		{
 			name: "UnderscoreEscapingWithoutSuffixes",
 			otlpCfg: config.OTLPConfig{
-				TranslationStrategy: config.UnderscoreEscapingWithoutSuffixes,
+				TranslationStrategy: otlptranslator.UnderscoreEscapingWithoutSuffixes,
 			},
 			expectedSamples: []mockSample{
 				{
@@ -500,7 +501,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 		{
 			name: "UnderscoreEscapingWithSuffixes/WithTypeAndUnitLabels",
 			otlpCfg: config.OTLPConfig{
-				TranslationStrategy: config.UnderscoreEscapingWithSuffixes,
+				TranslationStrategy: otlptranslator.UnderscoreEscapingWithSuffixes,
 			},
 			typeAndUnitLabels: true,
 			expectedSamples: []mockSample{
@@ -529,7 +530,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 		{
 			name: "NoUTF8EscapingWithSuffixes/NoTypeAndUnitLabels",
 			otlpCfg: config.OTLPConfig{
-				TranslationStrategy: config.NoUTF8EscapingWithSuffixes,
+				TranslationStrategy: otlptranslator.NoUTF8EscapingWithSuffixes,
 			},
 			expectedSamples: []mockSample{
 				{
@@ -555,7 +556,7 @@ func TestOTLPWriteHandler(t *testing.T) {
 		{
 			name: "NoUTF8EscapingWithSuffixes/WithTypeAndUnitLabels",
 			otlpCfg: config.OTLPConfig{
-				TranslationStrategy: config.NoUTF8EscapingWithSuffixes,
+				TranslationStrategy: otlptranslator.NoUTF8EscapingWithSuffixes,
 			},
 			typeAndUnitLabels: true,
 			expectedSamples: []mockSample{
