@@ -20,10 +20,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log/slog"
 	"math"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/prometheus/otlptranslator"
@@ -46,7 +44,6 @@ type Settings struct {
 	ExternalLabels                    map[string]string
 	DisableTargetInfo                 bool
 	AddMetricSuffixes                 bool
-	SendMetadata                      bool
 	AllowUTF8                         bool
 	PromoteResourceAttributes         *PromoteResourceAttributes
 	KeepIdentifyingResourceAttributes bool
@@ -57,17 +54,6 @@ type Settings struct {
 	// PromoteScopeMetadata controls whether to promote OTel scope metadata to metric labels.
 	PromoteScopeMetadata    bool
 	EnableTypeAndUnitLabels bool
-
-	// Mimir specifics.
-	EnableCreatedTimestampZeroIngestion        bool
-	EnableStartTimeQuietZero                   bool
-	ValidIntervalCreatedTimestampZeroIngestion time.Duration
-}
-
-type StartTsAndTs struct {
-	Labels  []prompb.Label
-	StartTs int64
-	Ts      int64
 }
 
 // PrometheusConverter converts from OTel write format to Prometheus remote write format.
@@ -128,7 +114,7 @@ func newScopeFromScopeMetrics(scopeMetrics pmetric.ScopeMetrics) scope {
 }
 
 // FromMetrics converts pmetric.Metrics to Prometheus remote write format.
-func (c *PrometheusConverter) FromMetrics(ctx context.Context, md pmetric.Metrics, settings Settings, logger *slog.Logger) (annots annotations.Annotations, errs error) {
+func (c *PrometheusConverter) FromMetrics(ctx context.Context, md pmetric.Metrics, settings Settings) (annots annotations.Annotations, errs error) {
 	namer := otlptranslator.MetricNamer{
 		Namespace:          settings.Namespace,
 		WithMetricSuffixes: settings.AddMetricSuffixes,
@@ -218,7 +204,7 @@ func (c *PrometheusConverter) FromMetrics(ctx context.Context, md pmetric.Metric
 						errs = multierr.Append(errs, fmt.Errorf("empty data points. %s is dropped", metric.Name()))
 						break
 					}
-					if err := c.addSumNumberDataPoints(ctx, dataPoints, resource, metric, settings, metadata, scope, logger); err != nil {
+					if err := c.addSumNumberDataPoints(ctx, dataPoints, resource, settings, metadata, scope); err != nil {
 						errs = multierr.Append(errs, err)
 						if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 							return
@@ -242,7 +228,7 @@ func (c *PrometheusConverter) FromMetrics(ctx context.Context, md pmetric.Metric
 							}
 						}
 					} else {
-						if err := c.addHistogramDataPoints(ctx, dataPoints, resource, settings, metadata, scope, logger); err != nil {
+						if err := c.addHistogramDataPoints(ctx, dataPoints, resource, settings, metadata, scope); err != nil {
 							errs = multierr.Append(errs, err)
 							if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 								return
@@ -277,7 +263,7 @@ func (c *PrometheusConverter) FromMetrics(ctx context.Context, md pmetric.Metric
 						errs = multierr.Append(errs, fmt.Errorf("empty data points. %s is dropped", metric.Name()))
 						break
 					}
-					if err := c.addSummaryDataPoints(ctx, dataPoints, resource, settings, metadata, scope, logger); err != nil {
+					if err := c.addSummaryDataPoints(ctx, dataPoints, resource, settings, metadata, scope); err != nil {
 						errs = multierr.Append(errs, err)
 						if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 							return
@@ -400,19 +386,4 @@ func (s *PromoteResourceAttributes) promotedAttributes(resourceAttributes pcommo
 	}
 	sort.Stable(ByLabelName(promotedAttrs))
 	return promotedAttrs
-}
-
-type labelsStringer []prompb.Label
-
-func (ls labelsStringer) String() string {
-	var seriesBuilder strings.Builder
-	seriesBuilder.WriteString("{")
-	for i, l := range ls {
-		if i > 0 {
-			seriesBuilder.WriteString(",")
-		}
-		seriesBuilder.WriteString(fmt.Sprintf("%s=%s", l.Name, l.Value))
-	}
-	seriesBuilder.WriteString("}")
-	return seriesBuilder.String()
 }
