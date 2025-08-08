@@ -300,9 +300,6 @@ type Options struct {
 
 	Gatherer   prometheus.Gatherer
 	Registerer prometheus.Registerer
-
-	// Our Grafana Cloud additions. Leaving them separately for the updates with upstream.
-	ValidIntervalCreatedTimestampZeroIngestion time.Duration
 }
 
 // New initializes a new web Handler.
@@ -396,7 +393,6 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.ConvertOTLPDelta,
 		o.NativeOTLPDeltaIngestion,
 		o.CTZeroIngestionEnabled,
-		o.ValidIntervalCreatedTimestampZeroIngestion,
 		o.LookbackDelta,
 		o.EnableTypeAndUnitLabels,
 	)
