@@ -2486,7 +2486,7 @@ func (m mockIndex) LabelNames(_ context.Context, matchers ...*labels.Matcher) ([
 	return l, nil
 }
 
-func (m mockIndex) IndexLookupPlanner() index.LookupPlanner {
+func (mockIndex) IndexLookupPlanner() index.LookupPlanner {
 	return &index.ScanEmptyMatchersLookupPlanner{}
 }
 
@@ -3428,7 +3428,7 @@ func (mockMatcherIndex) PostingsForAllLabelValues(context.Context, string) index
 	return index.ErrPostings(errors.New("PostingsForAllLabelValues called"))
 }
 
-func (m mockMatcherIndex) IndexLookupPlanner() index.LookupPlanner {
+func (mockMatcherIndex) IndexLookupPlanner() index.LookupPlanner {
 	return &index.ScanEmptyMatchersLookupPlanner{}
 }
 
@@ -4016,19 +4016,19 @@ func (mockReaderOfLabels) Symbols() index.StringIter {
 	panic("Series called")
 }
 
-func (m mockReaderOfLabels) IndexLookupPlanner() index.LookupPlanner {
+func (mockReaderOfLabels) IndexLookupPlanner() index.LookupPlanner {
 	return &index.ScanEmptyMatchersLookupPlanner{}
 }
 
-func (m mockReaderOfLabels) LabelValuesExcluding(index.Postings, string) storage.LabelValues {
+func (mockReaderOfLabels) LabelValuesExcluding(index.Postings, string) storage.LabelValues {
 	panic("LabelValuesExcluding called")
 }
 
-func (m mockReaderOfLabels) LabelValuesFor(index.Postings, string) storage.LabelValues {
+func (mockReaderOfLabels) LabelValuesFor(index.Postings, string) storage.LabelValues {
 	panic("LabelValuesFor called")
 }
 
-func (m mockReaderOfLabels) PostingsForMatchers(context.Context, bool, ...*labels.Matcher) (index.Postings, error) {
+func (mockReaderOfLabels) PostingsForMatchers(context.Context, bool, ...*labels.Matcher) (index.Postings, error) {
 	panic("PostingsForMatchers called")
 }
 

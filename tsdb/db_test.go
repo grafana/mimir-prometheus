@@ -9227,7 +9227,7 @@ func (c *mockCompactorFn) Compact(string, []string, []*Block) ([]ulid.ULID, erro
 	return c.compactFn()
 }
 
-func (c *mockCompactorFn) CompactOOO(_ string, _ *OOOCompactionHead) (result []ulid.ULID, err error) {
+func (*mockCompactorFn) CompactOOO(_ string, _ *OOOCompactionHead) (result []ulid.ULID, err error) {
 	panic("implement me")
 }
 

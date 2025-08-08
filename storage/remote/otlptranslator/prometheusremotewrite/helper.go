@@ -631,21 +631,6 @@ func (c *PrometheusConverter) getOrCreateTimeSeries(lbls []prompb.Label) (*promp
 	return ts, true
 }
 
-// addTimeSeriesIfNeeded adds a corresponding time series if it doesn't already exist.
-// If the time series doesn't already exist, it gets added with startTimestamp for its value and timestamp for its timestamp,
-// both converted to milliseconds.
-func (c *PrometheusConverter) addTimeSeriesIfNeeded(lbls []prompb.Label, startTimestamp int64, timestamp pcommon.Timestamp) {
-	ts, created := c.getOrCreateTimeSeries(lbls)
-	if created {
-		ts.Samples = []prompb.Sample{
-			{
-				Value:     float64(startTimestamp),
-				Timestamp: convertTimeStamp(timestamp),
-			},
-		}
-	}
-}
-
 // defaultIntervalForStartTimestamps is hardcoded to 5 minutes in milliseconds.
 // Assuming a DPM of 1 and knowing that Grafana's $__rate_interval is typically 4 times the write interval that would give
 // us 4 minutes. We add an extra minute for delays.

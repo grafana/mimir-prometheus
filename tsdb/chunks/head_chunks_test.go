@@ -660,6 +660,6 @@ func newUnsupportedChunk() *unsupportedChunk {
 	return &unsupportedChunk{chunkenc.NewXORChunk()}
 }
 
-func (c *unsupportedChunk) Encoding() chunkenc.Encoding {
+func (*unsupportedChunk) Encoding() chunkenc.Encoding {
 	return EncUnsupportedXOR
 }
