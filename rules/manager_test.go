@@ -377,7 +377,7 @@ func TestForStateRestore(t *testing.T) {
 				Queryable:       storage,
 				Context:         context.Background(),
 				Logger:          promslog.NewNopLogger(),
-				NotifyFunc:      func(_ context.Context, _ string, _ ...*Alert) {},
+				NotifyFunc:      func(context.Context, string, ...*Alert) {},
 				OutageTolerance: 30 * time.Minute,
 				ForGracePeriod:  10 * time.Minute,
 			}
@@ -1529,7 +1529,7 @@ func TestRuleGroupEvalIterationFunc(t *testing.T) {
 		testValue = 3
 	}
 
-	skipEvalIterationFunc := func(_ context.Context, _ *Group, _ time.Time) {
+	skipEvalIterationFunc := func(context.Context, *Group, time.Time) {
 		testValue = 4
 	}
 
@@ -1568,7 +1568,7 @@ func TestRuleGroupEvalIterationFunc(t *testing.T) {
 			Queryable:       storage,
 			Context:         context.Background(),
 			Logger:          promslog.NewNopLogger(),
-			NotifyFunc:      func(_ context.Context, _ string, _ ...*Alert) {},
+			NotifyFunc:      func(context.Context, string, ...*Alert) {},
 			OutageTolerance: 30 * time.Minute,
 			ForGracePeriod:  10 * time.Minute,
 		}
@@ -1701,7 +1701,7 @@ func TestManager_LoadGroups_ShouldCheckWhetherEachRuleHasDependentsAndDependenci
 		Context:    context.Background(),
 		Logger:     promslog.NewNopLogger(),
 		Appendable: storage,
-		QueryFunc:  func(_ context.Context, _ string, _ time.Time) (promql.Vector, error) { return nil, nil },
+		QueryFunc:  func(context.Context, string, time.Time) (promql.Vector, error) { return nil, nil },
 	})
 
 	t.Run("load a mix of dependent and independent rules", func(t *testing.T) {
@@ -2473,11 +2473,11 @@ func TestNewRuleGroupRestoration(t *testing.T) {
 	option := optsFactory(store, &maxInflight, &inflightQueries, maxConcurrency)
 	option.Queryable = store
 	option.Appendable = store
-	option.NotifyFunc = func(_ context.Context, _ string, _ ...*Alert) {}
+	option.NotifyFunc = func(context.Context, string, ...*Alert) {}
 
 	var evalCount atomic.Int32
 	ch := make(chan int32)
-	noopEvalIterFunc := func(_ context.Context, _ *Group, _ time.Time) {
+	noopEvalIterFunc := func(context.Context, *Group, time.Time) {
 		evalCount.Inc()
 		ch <- evalCount.Load()
 	}
@@ -2537,11 +2537,11 @@ func TestNewRuleGroupRestorationWithRestoreNewGroupOption(t *testing.T) {
 	option.Queryable = store
 	option.Appendable = store
 	option.RestoreNewRuleGroups = true
-	option.NotifyFunc = func(_ context.Context, _ string, _ ...*Alert) {}
+	option.NotifyFunc = func(context.Context, string, ...*Alert) {}
 
 	var evalCount atomic.Int32
 	ch := make(chan int32)
-	noopEvalIterFunc := func(_ context.Context, _ *Group, _ time.Time) {
+	noopEvalIterFunc := func(context.Context, *Group, time.Time) {
 		evalCount.Inc()
 		ch <- evalCount.Load()
 	}
@@ -2843,7 +2843,7 @@ func TestRuleDependencyController_AnalyseRules(t *testing.T) {
 				Context:    context.Background(),
 				Logger:     promslog.NewNopLogger(),
 				Appendable: storage,
-				QueryFunc:  func(_ context.Context, _ string, _ time.Time) (promql.Vector, error) { return nil, nil },
+				QueryFunc:  func(context.Context, string, time.Time) (promql.Vector, error) { return nil, nil },
 			})
 
 			groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, false, tc.ruleFile)
@@ -2872,7 +2872,7 @@ func BenchmarkRuleDependencyController_AnalyseRules(b *testing.B) {
 		Context:    context.Background(),
 		Logger:     promslog.NewNopLogger(),
 		Appendable: storage,
-		QueryFunc:  func(_ context.Context, _ string, _ time.Time) (promql.Vector, error) { return nil, nil },
+		QueryFunc:  func(context.Context, string, time.Time) (promql.Vector, error) { return nil, nil },
 	})
 
 	groups, errs := ruleManager.LoadGroups(time.Second, labels.EmptyLabels(), "", nil, false, "fixtures/rules_multiple.yaml")

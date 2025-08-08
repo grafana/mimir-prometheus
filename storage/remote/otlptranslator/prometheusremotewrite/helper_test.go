@@ -609,9 +609,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				sumLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
 				}
-				createdLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
-				}
 				return map[uint64]*prompb.TimeSeries{
 					timeSeriesSignature(countLabels): {
 						Labels: countLabels,
@@ -623,12 +620,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(createdLabels): {
-						Labels: createdLabels,
-						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(nowUnixNano)), Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -653,9 +644,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
 				}
-				createdLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
-				}
 				sumLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
 				}
@@ -670,12 +658,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(createdLabels): {
-						Labels: createdLabels,
-						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(nowUnixNano)), Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -698,9 +680,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
 				}
-				createdLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
-				}
 				sumLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
 				}
@@ -717,12 +696,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 						Samples: []prompb.Sample{
 							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus2m30s)},
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(createdLabels): {
-						Labels: createdLabels,
-						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(nowMinus2m30s)), Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -746,9 +719,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
 				}
-				createdLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
-				}
 				sumLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
 				}
@@ -765,12 +735,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 						Samples: []prompb.Sample{
 							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus6m)},
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(createdLabels): {
-						Labels: createdLabels,
-						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(nowMinus6m)), Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -793,9 +757,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				labels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
 				}
-				createdLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + createdSuffix},
-				}
 				sumLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
 				}
@@ -810,12 +771,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(createdLabels): {
-						Labels: createdLabels,
-						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(nowMinus1h)), Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -865,12 +820,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				sumLabels := append([]prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
 				}, scopeLabels...)
-				createdLabels := append([]prompb.Label{
-					{
-						Name:  model.MetricNameLabel,
-						Value: "test_summary" + createdSuffix,
-					},
-				}, scopeLabels...)
 				return map[uint64]*prompb.TimeSeries{
 					timeSeriesSignature(countLabels): {
 						Labels: countLabels,
@@ -882,12 +831,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(createdLabels): {
-						Labels: createdLabels,
-						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(nowUnixNano)), Timestamp: convertTimeStamp(nowUnixNano)},
 						},
 					},
 				}
@@ -941,7 +884,6 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				metric.Summary().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric:                        true,
 					PromoteScopeMetadata:                       tt.promoteScope,
 					EnableCreatedTimestampZeroIngestion:        true,
 					EnableStartTimeQuietZero:                   true,
@@ -1003,9 +945,6 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 				countLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist" + countStr},
 				}
-				createdLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_hist" + createdSuffix},
-				}
 				infLabels := []prompb.Label{
 					{Name: model.MetricNameLabel, Value: "test_hist_bucket"},
 					{Name: model.BucketLabel, Value: "+Inf"},
@@ -1021,12 +960,6 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 						Labels: infLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
-						},
-					},
-					timeSeriesSignature(createdLabels): {
-						Labels: createdLabels,
-						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(ts)), Timestamp: convertTimeStamp(ts)},
 						},
 					},
 				}
@@ -1077,9 +1010,6 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 					{Name: model.MetricNameLabel, Value: "test_hist_bucket"},
 					{Name: model.BucketLabel, Value: "+Inf"},
 				}, scopeLabels...)
-				createdLabels := append([]prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_hist" + createdSuffix},
-				}, scopeLabels...)
 				return map[uint64]*prompb.TimeSeries{
 					timeSeriesSignature(countLabels): {
 						Labels: countLabels,
@@ -1091,12 +1021,6 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 						Labels: infLabels,
 						Samples: []prompb.Sample{
 							{Value: 0, Timestamp: convertTimeStamp(ts)},
-						},
-					},
-					timeSeriesSignature(createdLabels): {
-						Labels: createdLabels,
-						Samples: []prompb.Sample{
-							{Value: float64(convertTimeStamp(ts)), Timestamp: convertTimeStamp(ts)},
 						},
 					},
 				}
@@ -1149,7 +1073,6 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 				metric.Histogram().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					ExportCreatedMetric:                 true,
 					PromoteScopeMetadata:                tt.promoteScope,
 					EnableCreatedTimestampZeroIngestion: true,
 				},
