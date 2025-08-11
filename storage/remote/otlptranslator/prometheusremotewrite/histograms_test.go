@@ -28,9 +28,9 @@ import (
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
-	"github.com/prometheus/prometheus/model/exemplar"
+	"github.com/prometheus/prometheus/mimir/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
-	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/mimir/labels"
 	"github.com/prometheus/prometheus/model/metadata"
 )
 

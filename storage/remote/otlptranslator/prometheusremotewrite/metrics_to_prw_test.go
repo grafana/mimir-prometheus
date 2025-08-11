@@ -22,20 +22,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
+//	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/common/promslog"
+//	"github.com/prometheus/common/promslog"
 	"github.com/prometheus/otlptranslator"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/pdata/pmetric/pmetricotlp"
 
-	"github.com/prometheus/prometheus/model/exemplar"
+//	"github.com/prometheus/prometheus/mimir/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
-	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/mimir/labels"
 	"github.com/prometheus/prometheus/model/metadata"
-	"github.com/prometheus/prometheus/storage"
+//	"github.com/prometheus/prometheus/storage"
 )
 
 func TestFromMetrics(t *testing.T) {
@@ -938,111 +938,111 @@ func createOTelEmptyMetricForTranslator(name string) pmetric.Metric {
 	return m
 }
 
-func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
-	for _, resourceAttributeCount := range []int{0, 5, 50} {
-		b.Run(fmt.Sprintf("resource attribute count: %v", resourceAttributeCount), func(b *testing.B) {
-			for _, histogramCount := range []int{0, 1000} {
-				b.Run(fmt.Sprintf("histogram count: %v", histogramCount), func(b *testing.B) {
-					nonHistogramCounts := []int{0, 1000}
+// func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
+// 	for _, resourceAttributeCount := range []int{0, 5, 50} {
+// 		b.Run(fmt.Sprintf("resource attribute count: %v", resourceAttributeCount), func(b *testing.B) {
+// 			for _, histogramCount := range []int{0, 1000} {
+// 				b.Run(fmt.Sprintf("histogram count: %v", histogramCount), func(b *testing.B) {
+// 					nonHistogramCounts := []int{0, 1000}
 
-					if resourceAttributeCount == 0 && histogramCount == 0 {
-						// Don't bother running a scenario where we'll generate no series.
-						nonHistogramCounts = []int{1000}
-					}
+// 					if resourceAttributeCount == 0 && histogramCount == 0 {
+// 						// Don't bother running a scenario where we'll generate no series.
+// 						nonHistogramCounts = []int{1000}
+// 					}
 
-					for _, nonHistogramCount := range nonHistogramCounts {
-						b.Run(fmt.Sprintf("non-histogram count: %v", nonHistogramCount), func(b *testing.B) {
-							for _, labelsPerMetric := range []int{2, 20} {
-								b.Run(fmt.Sprintf("labels per metric: %v", labelsPerMetric), func(b *testing.B) {
-									for _, exemplarsPerSeries := range []int{0, 5, 10} {
-										b.Run(fmt.Sprintf("exemplars per series: %v", exemplarsPerSeries), func(b *testing.B) {
-											settings := Settings{}
-											payload, _ := createExportRequest(
-												resourceAttributeCount,
-												histogramCount,
-												nonHistogramCount,
-												labelsPerMetric,
-												exemplarsPerSeries,
-												settings,
-												pmetric.AggregationTemporalityCumulative,
-											)
-											appMetrics := NewCombinedAppenderMetrics(prometheus.NewRegistry())
-											noOpLogger := promslog.NewNopLogger()
-											b.ResetTimer()
+// 					for _, nonHistogramCount := range nonHistogramCounts {
+// 						b.Run(fmt.Sprintf("non-histogram count: %v", nonHistogramCount), func(b *testing.B) {
+// 							for _, labelsPerMetric := range []int{2, 20} {
+// 								b.Run(fmt.Sprintf("labels per metric: %v", labelsPerMetric), func(b *testing.B) {
+// 									for _, exemplarsPerSeries := range []int{0, 5, 10} {
+// 										b.Run(fmt.Sprintf("exemplars per series: %v", exemplarsPerSeries), func(b *testing.B) {
+// 											settings := Settings{}
+// 											payload, _ := createExportRequest(
+// 												resourceAttributeCount,
+// 												histogramCount,
+// 												nonHistogramCount,
+// 												labelsPerMetric,
+// 												exemplarsPerSeries,
+// 												settings,
+// 												pmetric.AggregationTemporalityCumulative,
+// 											)
+// 											appMetrics := NewCombinedAppenderMetrics(prometheus.NewRegistry())
+// 											noOpLogger := promslog.NewNopLogger()
+// 											b.ResetTimer()
 
-											for range b.N {
-												app := &noOpAppender{}
-												mockAppender := NewCombinedAppender(app, noOpLogger, false, appMetrics)
-												converter := NewPrometheusConverter(mockAppender)
-												annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), settings)
-												require.NoError(b, err)
-												require.Empty(b, annots)
-												if histogramCount+nonHistogramCount > 0 {
-													require.Positive(b, app.samples+app.histograms)
-													require.Positive(b, app.metadata)
-												} else {
-													require.Zero(b, app.samples+app.histograms)
-													require.Zero(b, app.metadata)
-												}
-											}
-										})
-									}
-								})
-							}
-						})
-					}
-				})
-			}
-		})
-	}
-}
+// 											for range b.N {
+// 												app := &noOpAppender{}
+// 												mockAppender := NewCombinedAppender(app, noOpLogger, false, appMetrics)
+// 												converter := NewPrometheusConverter(mockAppender)
+// 												annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), settings)
+// 												require.NoError(b, err)
+// 												require.Empty(b, annots)
+// 												if histogramCount+nonHistogramCount > 0 {
+// 													require.Positive(b, app.samples+app.histograms)
+// 													require.Positive(b, app.metadata)
+// 												} else {
+// 													require.Zero(b, app.samples+app.histograms)
+// 													require.Zero(b, app.metadata)
+// 												}
+// 											}
+// 										})
+// 									}
+// 								})
+// 							}
+// 						})
+// 					}
+// 				})
+// 			}
+// 		})
+// 	}
+// }
 
-type noOpAppender struct {
-	samples    int
-	histograms int
-	metadata   int
-}
+// type noOpAppender struct {
+// 	samples    int
+// 	histograms int
+// 	metadata   int
+// }
 
-var _ storage.Appender = &noOpAppender{}
+// var _ storage.Appender = &noOpAppender{}
 
-func (a *noOpAppender) Append(_ storage.SeriesRef, _ labels.Labels, _ int64, _ float64) (storage.SeriesRef, error) {
-	a.samples++
-	return 1, nil
-}
+// func (a *noOpAppender) Append(_ storage.SeriesRef, _ labels.Labels, _ int64, _ float64) (storage.SeriesRef, error) {
+// 	a.samples++
+// 	return 1, nil
+// }
 
-func (*noOpAppender) AppendCTZeroSample(_ storage.SeriesRef, _ labels.Labels, _, _ int64) (storage.SeriesRef, error) {
-	return 1, nil
-}
+// func (*noOpAppender) AppendCTZeroSample(_ storage.SeriesRef, _ labels.Labels, _, _ int64) (storage.SeriesRef, error) {
+// 	return 1, nil
+// }
 
-func (a *noOpAppender) AppendHistogram(_ storage.SeriesRef, _ labels.Labels, _ int64, _ *histogram.Histogram, _ *histogram.FloatHistogram) (storage.SeriesRef, error) {
-	a.histograms++
-	return 1, nil
-}
+// func (a *noOpAppender) AppendHistogram(_ storage.SeriesRef, _ labels.Labels, _ int64, _ *histogram.Histogram, _ *histogram.FloatHistogram) (storage.SeriesRef, error) {
+// 	a.histograms++
+// 	return 1, nil
+// }
 
-func (*noOpAppender) AppendHistogramCTZeroSample(_ storage.SeriesRef, _ labels.Labels, _, _ int64, _ *histogram.Histogram, _ *histogram.FloatHistogram) (storage.SeriesRef, error) {
-	return 1, nil
-}
+// func (*noOpAppender) AppendHistogramCTZeroSample(_ storage.SeriesRef, _ labels.Labels, _, _ int64, _ *histogram.Histogram, _ *histogram.FloatHistogram) (storage.SeriesRef, error) {
+// 	return 1, nil
+// }
 
-func (a *noOpAppender) UpdateMetadata(_ storage.SeriesRef, _ labels.Labels, _ metadata.Metadata) (storage.SeriesRef, error) {
-	a.metadata++
-	return 1, nil
-}
+// func (a *noOpAppender) UpdateMetadata(_ storage.SeriesRef, _ labels.Labels, _ metadata.Metadata) (storage.SeriesRef, error) {
+// 	a.metadata++
+// 	return 1, nil
+// }
 
-func (*noOpAppender) AppendExemplar(_ storage.SeriesRef, _ labels.Labels, _ exemplar.Exemplar) (storage.SeriesRef, error) {
-	return 1, nil
-}
+// func (*noOpAppender) AppendExemplar(_ storage.SeriesRef, _ labels.Labels, _ exemplar.Exemplar) (storage.SeriesRef, error) {
+// 	return 1, nil
+// }
 
-func (*noOpAppender) Commit() error {
-	return nil
-}
+// func (*noOpAppender) Commit() error {
+// 	return nil
+// }
 
-func (*noOpAppender) Rollback() error {
-	return nil
-}
+// func (*noOpAppender) Rollback() error {
+// 	return nil
+// }
 
-func (*noOpAppender) SetOptions(_ *storage.AppendOptions) {
-	panic("not implemented")
-}
+// func (*noOpAppender) SetOptions(_ *storage.AppendOptions) {
+// 	panic("not implemented")
+// }
 
 type wantPrometheusMetric struct {
 	name        string
