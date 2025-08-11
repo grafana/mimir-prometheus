@@ -16,16 +16,16 @@ package prometheusremotewrite
 import (
 	// "errors"
 	// "fmt"
-	// "log/slog"
+	"log/slog"
 
-	// "github.com/prometheus/client_golang/prometheus"
-	// "github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	"github.com/prometheus/prometheus/mimir/exemplar"
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/mimir/labels"
 	"github.com/prometheus/prometheus/model/metadata"
-	// "github.com/prometheus/prometheus/storage"
+	"github.com/prometheus/prometheus/storage"
 )
 
 // CombinedAppender is similar to storage.Appender, but combines updates to
@@ -39,75 +39,77 @@ type CombinedAppender interface {
 	AppendHistogram(metricFamilyName string, ls labels.Labels, meta metadata.Metadata, t, ct int64, h *histogram.Histogram, es []exemplar.Exemplar) error
 }
 
-// // CombinedAppenderMetrics is for the metrics observed by the
-// // combinedAppender implementation.
-// type CombinedAppenderMetrics struct {
-// 	samplesAppendedWithoutMetadata prometheus.Counter
-// 	outOfOrderExemplars            prometheus.Counter
-// }
+// CombinedAppenderMetrics is for the metrics observed by the
+// combinedAppender implementation.
+type CombinedAppenderMetrics struct {
+	samplesAppendedWithoutMetadata prometheus.Counter
+	outOfOrderExemplars            prometheus.Counter
+}
 
-// func NewCombinedAppenderMetrics(reg prometheus.Registerer) CombinedAppenderMetrics {
-// 	return CombinedAppenderMetrics{
-// 		samplesAppendedWithoutMetadata: promauto.With(reg).NewCounter(prometheus.CounterOpts{
-// 			Namespace: "prometheus",
-// 			Subsystem: "api",
-// 			Name:      "otlp_without_metadata_appended_samples_total",
-// 			Help:      "The total number of received OTLP data points which were ingested without corresponding metadata.",
-// 		}),
-// 		outOfOrderExemplars: promauto.With(reg).NewCounter(prometheus.CounterOpts{
-// 			Namespace: "prometheus",
-// 			Subsystem: "api",
-// 			Name:      "otlp_out_of_order_exemplars_total",
-// 			Help:      "The total number of received OTLP exemplars which were rejected because they were out of order.",
-// 		}),
-// 	}
-// }
+func NewCombinedAppenderMetrics(reg prometheus.Registerer) CombinedAppenderMetrics {
+	return CombinedAppenderMetrics{
+		samplesAppendedWithoutMetadata: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+			Namespace: "prometheus",
+			Subsystem: "api",
+			Name:      "otlp_without_metadata_appended_samples_total",
+			Help:      "The total number of received OTLP data points which were ingested without corresponding metadata.",
+		}),
+		outOfOrderExemplars: promauto.With(reg).NewCounter(prometheus.CounterOpts{
+			Namespace: "prometheus",
+			Subsystem: "api",
+			Name:      "otlp_out_of_order_exemplars_total",
+			Help:      "The total number of received OTLP exemplars which were rejected because they were out of order.",
+		}),
+	}
+}
 
-// // NewCombinedAppender creates a combined appender that sets start times and
-// // updates metadata for each series only once, and appends samples and
-// // exemplars for each call.
-// func NewCombinedAppender(app storage.Appender, logger *slog.Logger, ingestCTZeroSample bool, metrics CombinedAppenderMetrics) CombinedAppender {
-// 	return &combinedAppender{
-// 		app:                            app,
-// 		logger:                         logger,
-// 		ingestCTZeroSample:             ingestCTZeroSample,
-// 		refs:                           make(map[uint64]seriesRef),
-// 		samplesAppendedWithoutMetadata: metrics.samplesAppendedWithoutMetadata,
-// 		outOfOrderExemplars:            metrics.outOfOrderExemplars,
-// 	}
-// }
+// NewCombinedAppender creates a combined appender that sets start times and
+// updates metadata for each series only once, and appends samples and
+// exemplars for each call.
+func NewCombinedAppender(app storage.Appender, logger *slog.Logger, ingestCTZeroSample bool, metrics CombinedAppenderMetrics) CombinedAppender {
+	return &combinedAppender{
+		app:                            app,
+		logger:                         logger,
+		ingestCTZeroSample:             ingestCTZeroSample,
+		refs:                           make(map[uint64]seriesRef),
+		samplesAppendedWithoutMetadata: metrics.samplesAppendedWithoutMetadata,
+		outOfOrderExemplars:            metrics.outOfOrderExemplars,
+	}
+}
 
-// type seriesRef struct {
-// 	ref  storage.SeriesRef
-// 	ct   int64
-// 	ls   labels.Labels
-// 	meta metadata.Metadata
-// }
+type seriesRef struct {
+	ref  storage.SeriesRef
+	ct   int64
+	ls   labels.Labels
+	meta metadata.Metadata
+}
 
-// type combinedAppender struct {
-// 	app                            storage.Appender
-// 	logger                         *slog.Logger
-// 	samplesAppendedWithoutMetadata prometheus.Counter
-// 	outOfOrderExemplars            prometheus.Counter
-// 	ingestCTZeroSample             bool
-// 	// Used to ensure we only update metadata and created timestamps once, and to share storage.SeriesRefs.
-// 	// To detect hash collision it also stores the labels.
-// 	// There is no overflow/conflict list, the TSDB will handle that part.
-// 	refs map[uint64]seriesRef
-// }
+type combinedAppender struct {
+	app                            storage.Appender
+	logger                         *slog.Logger
+	samplesAppendedWithoutMetadata prometheus.Counter
+	outOfOrderExemplars            prometheus.Counter
+	ingestCTZeroSample             bool
+	// Used to ensure we only update metadata and created timestamps once, and to share storage.SeriesRefs.
+	// To detect hash collision it also stores the labels.
+	// There is no overflow/conflict list, the TSDB will handle that part.
+	refs map[uint64]seriesRef
+}
 
-// func (b *combinedAppender) AppendSample(_ string, ls labels.Labels, meta metadata.Metadata, t, ct int64, v float64, es []exemplar.Exemplar) (err error) {
-// 	return b.appendFloatOrHistogram(ls, meta, t, ct, v, nil, es)
-// }
+func (b *combinedAppender) AppendSample(_ string, ls labels.Labels, meta metadata.Metadata, t, ct int64, v float64, es []exemplar.Exemplar) (err error) {
+	return nil
+	// return b.appendFloatOrHistogram(ls, meta, t, ct, v, nil, es)
+}
 
-// func (b *combinedAppender) AppendHistogram(_ string, ls labels.Labels, meta metadata.Metadata, t, ct int64, h *histogram.Histogram, es []exemplar.Exemplar) (err error) {
-// 	if h == nil {
-// 		// Sanity check, we should never get here with a nil histogram.
-// 		b.logger.Error("Received nil histogram in CombinedAppender.AppendHistogram", "series", ls.String())
-// 		return nil
-// 	}
-// 	return b.appendFloatOrHistogram(ls, meta, t, ct, 0, h, es)
-// }
+func (b *combinedAppender) AppendHistogram(_ string, ls labels.Labels, meta metadata.Metadata, t, ct int64, h *histogram.Histogram, es []exemplar.Exemplar) (err error) {
+	return nil
+	// if h == nil {
+	// 	// Sanity check, we should never get here with a nil histogram.
+	// 	b.logger.Error("Received nil histogram in CombinedAppender.AppendHistogram", "series", ls.String())
+	// 	return nil
+	// }
+	// return b.appendFloatOrHistogram(ls, meta, t, ct, 0, h, es)
+}
 
 // func (b *combinedAppender) appendFloatOrHistogram(ls labels.Labels, meta metadata.Metadata, t, ct int64, v float64, h *histogram.Histogram, es []exemplar.Exemplar) (err error) {
 // 	hash := ls.Hash()
