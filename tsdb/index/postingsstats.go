@@ -15,7 +15,6 @@ package index
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"slices"
 	"time"
@@ -143,12 +142,7 @@ func (p *MemPostings) labelValuesSketchForLabelName(name string) *LabelValuesSke
 
 // LabelValuesCount returns the number of values for a given label name.
 func (lvs *LabelsValuesSketches) LabelValuesCount(_ context.Context, name string) (uint64, error) {
-	sketch, ok := lvs.labelNames[name]
-	if !ok {
-		return 0, fmt.Errorf("no sketch found for label %q", name)
-	}
-
-	return sketch.distinctValues, nil
+	return lvs.labelNames[name].distinctValues, nil
 }
 
 // LabelValuesCardinality calculates the cardinality of a given label name according to a count-min sketch.
@@ -157,7 +151,7 @@ func (lvs *LabelsValuesSketches) LabelValuesCount(_ context.Context, name string
 func (lvs *LabelsValuesSketches) LabelValuesCardinality(_ context.Context, name string, values ...string) (uint64, error) {
 	sketch, ok := lvs.labelNames[name]
 	if !ok {
-		return 0, fmt.Errorf("no sketch found for label %q", name)
+		return 0, nil
 	}
 
 	if len(values) == 0 {
