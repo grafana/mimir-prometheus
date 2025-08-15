@@ -113,7 +113,7 @@ type Head struct {
 
 	// TODO(codesome): Extend MemPostings to return only OOOPostings, Set OOOStatus, ... Like an additional map of ooo postings.
 	postings      *index.MemPostings // Postings lists for terms.
-	postingsStats index.Statistics
+	postingsStats atomic.Pointer[index.Statistics]
 	pfmc          *PostingsForMatchersCache
 
 	tombstones *tombstones.MemTombstones
@@ -336,11 +336,6 @@ func NewHead(r prometheus.Registerer, l *slog.Logger, wal, wbl *wlog.WL, opts *H
 	}
 	h.metrics = newHeadMetrics(h, r)
 
-	start := time.Now()
-	h.postingsStats = newFullHeadStatistics(h)
-	h.metrics.headStatisticsTimeToUpdate.Set(time.Since(start).Seconds())
-	h.metrics.headStatisticsLastUpdate.Set(float64(time.Now().Unix()))
-
 	return h, nil
 }
 
@@ -405,16 +400,29 @@ func (h *Head) resetWLReplayResources() {
 // and the total number of series in the head. It then updates postingsStats to point to the new statistics.
 func (h *Head) updateHeadStatistics() {
 	start := time.Now()
-	stats := newFullHeadStatistics(h)
+	stats := index.Statistics(newFullHeadStatistics(h))
 	// TODO (casie): We wait until stats are generated to update the postingsStats pointer. Does this matter?
-	h.postingsStats = stats
+	h.postingsStats.Store(&stats)
 	h.metrics.headStatisticsTimeToUpdate.Set(time.Since(start).Seconds())
 	h.metrics.headStatisticsLastUpdate.Set(float64(time.Now().Unix()))
 	// TODO (casie): Any specific introspected data to log here?
 	//  Also, there's not really a "failure" mode, except perhaps label names that are skipped due to
 	//  a head compaction removing label names from MemPostings, or perhaps new label names coming in
 	//  while sketches are being calculated.
-	h.logger.Info("successfully updated head statistics")
+	h.logger.Info("successfully updated head statistics",
+		"duration", time.Since(start).String(),
+		"series", stats.TotalSeries(),
+	)
+}
+
+func (h *Head) Statistics(context.Context) (index.Statistics, error) {
+	// If the statistics are not up to date, we update them.
+	s := h.postingsStats.Load()
+	if s == nil {
+		return nil, fmt.Errorf("head statistics are not available yet")
+	}
+
+	return *s, nil
 }
 
 type headMetrics struct {
@@ -737,6 +745,7 @@ const cardinalityCacheExpirationTime = time.Duration(30) * time.Second
 // limits the ingested samples to the head min valid time.
 func (h *Head) Init(minValidTime int64) error {
 	h.minValidTime.Store(minValidTime)
+	defer h.updateHeadStatistics()
 	defer h.resetWLReplayResources()
 	defer func() {
 		h.postings.EnsureOrder(h.opts.WALReplayConcurrency)
