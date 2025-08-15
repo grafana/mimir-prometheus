@@ -1230,9 +1230,12 @@ func (db *DB) BlockMetas() []BlockMeta {
 func (db *DB) run(ctx context.Context) {
 	defer close(db.donec)
 
-	// TODO (casie): I don't love that this allocates a ticker even if we don't have head statistics collection enabled.
-	headStatsUpdateTicker := time.NewTicker(db.opts.HeadStatisticsCollectionFrequency)
-	defer headStatsUpdateTicker.Stop()
+	var headStatsUpdateTicker <-chan time.Time
+	if db.opts.CollectHeadStatistics {
+		t := time.NewTicker(db.opts.HeadStatisticsCollectionFrequency)
+		defer t.Stop()
+		headStatsUpdateTicker = t.C
+	}
 
 	backoff := time.Duration(0)
 
@@ -1272,21 +1275,13 @@ func (db *DB) run(ctx context.Context) {
 				db.metrics.compactionsSkipped.Inc()
 			}
 			db.autoCompactMtx.Unlock()
+		case <-headStatsUpdateTicker:
+			// We spin this off as a new goroutine to avoid blocking on it;
+			// the postings mutex will be taken to update statistics on a per-label-name basis,
+			// which should be able to be superseded or interrupted by other signals such as compaction.
+			go db.head.updateHeadStatistics()
 		case <-db.stopc:
 			return
-		}
-
-		if db.opts.CollectHeadStatistics {
-			// Periodically update head statistics, if enabled.
-			select {
-			case <-db.stopc:
-				return
-			case <-headStatsUpdateTicker.C:
-				// We spin this off as a new goroutine to avoid blocking on it;
-				// the postings mutex will be taken to update statistics on a per-label-name basis,
-				// which should be able to be superseded or interrupted by other signals such as compaction.
-				go db.head.updateHeadStatistics()
-			}
 		}
 	}
 }
