@@ -142,7 +142,11 @@ func (p *MemPostings) labelValuesSketchForLabelName(name string) *LabelValuesSke
 
 // LabelValuesCount returns the number of values for a given label name.
 func (lvs *LabelsValuesSketches) LabelValuesCount(_ context.Context, name string) (uint64, error) {
-	return lvs.labelNames[name].distinctValues, nil
+	s := lvs.labelNames[name]
+	if s == nil {
+		return 0, nil
+	}
+	return s.distinctValues, nil
 }
 
 // LabelValuesCardinality calculates the cardinality of a given label name according to a count-min sketch.
