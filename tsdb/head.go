@@ -331,12 +331,11 @@ func NewHead(r prometheus.Registerer, l *slog.Logger, wal, wbl *wlog.WL, opts *H
 	}
 	h.metrics = newHeadMetrics(h, r)
 
-	start := time.Now()
-	h.postingsStats = newFullHeadStatistics(h)
-	h.metrics.headStatisticsTimeToUpdate.Set(time.Since(start).Seconds())
-	h.metrics.headStatisticsLastUpdate.Set(float64(time.Now().Unix()))
-
 	return h, nil
+}
+
+func (h *Head) PostingsStats() index.Statistics {
+	return h.postingsStats
 }
 
 func (h *Head) resetInMemoryState() error {
@@ -405,11 +404,11 @@ func (h *Head) updateHeadStatistics() {
 	h.postingsStats = stats
 	h.metrics.headStatisticsTimeToUpdate.Set(time.Since(start).Seconds())
 	h.metrics.headStatisticsLastUpdate.Set(float64(time.Now().Unix()))
-	// TODO (casie): Any specific introspected data to log here?
-	//  Also, there's not really a "failure" mode, except perhaps label names that are skipped due to
-	//  a head compaction removing label names from MemPostings, or perhaps new label names coming in
-	//  while sketches are being calculated.
-	h.logger.Info("successfully updated head statistics")
+	h.logger.Info("successfully updated head statistics",
+		"duration", time.Since(start),
+		"num_series", h.postingsStats.TotalSeries(),
+		"num_label_names", len(h.postings.LabelNames()),
+	)
 }
 
 type headMetrics struct {
@@ -740,6 +739,8 @@ const cardinalityCacheExpirationTime = time.Duration(30) * time.Second
 // limits the ingested samples to the head min valid time.
 func (h *Head) Init(minValidTime int64) error {
 	h.minValidTime.Store(minValidTime)
+	// We wait to calculate head statistics until after the WAL is replayed.
+	defer h.updateHeadStatistics()
 	defer h.resetWLReplayResources()
 	defer func() {
 		h.postings.EnsureOrder(h.opts.WALReplayConcurrency)
