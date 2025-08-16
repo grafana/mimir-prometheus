@@ -64,6 +64,7 @@ require (
 	github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c
 	github.com/stackitcloud/stackit-sdk-go/core v0.17.2
 	github.com/stretchr/testify v1.10.0
+	github.com/tylertreat/BoomFilters v0.0.0-20250630160909-db6545748bc4
 	github.com/vultr/govultr/v2 v2.17.2
 	go.opentelemetry.io/collector/component v1.35.0
 	go.opentelemetry.io/collector/consumer v1.35.0
@@ -112,6 +113,7 @@ require (
 	github.com/cenkalti/backoff/v5 v5.0.2 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
+	github.com/d4l3k/messagediff v1.2.1 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/golang/glog v1.2.4 // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
