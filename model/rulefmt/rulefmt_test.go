@@ -26,14 +26,14 @@ import (
 )
 
 func TestParseFileSuccess(t *testing.T) {
-	_, errs := ParseFile("testdata/test.yaml")
+	_, errs := ParseFile("testdata/test.yaml", false, model.UTF8Validation)
 	require.Empty(t, errs, "unexpected errors parsing file")
 
-	_, errs = ParseFile("testdata/utf-8_lname.good.yaml")
+	_, errs = ParseFile("testdata/utf-8_lname.good.yaml", false, model.UTF8Validation)
 	require.Empty(t, errs, "unexpected errors parsing file")
-	_, errs = ParseFile("testdata/utf-8_annotation.good.yaml")
+	_, errs = ParseFile("testdata/utf-8_annotation.good.yaml", false, model.UTF8Validation)
 	require.Empty(t, errs, "unexpected errors parsing file")
-	_, errs = ParseFile("testdata/legacy_validation_annotation.good.yaml", WithValidationScheme(model.LegacyValidation))
+	_, errs = ParseFile("testdata/legacy_validation_annotation.good.yaml", false, model.LegacyValidation)
 	require.Empty(t, errs, "unexpected errors parsing file")
 }
 
@@ -42,7 +42,7 @@ func TestParseFileSuccessWithAliases(t *testing.T) {
 /
 sum without(instance) (rate(requests_total[5m]))
 `
-	rgs, errs := ParseFile("testdata/test_aliases.yaml")
+	rgs, errs := ParseFile("testdata/test_aliases.yaml", false, model.UTF8Validation)
 	require.Empty(t, errs, "unexpected errors parsing file")
 	for _, rg := range rgs.Groups {
 		require.Equal(t, "HighAlert", rg.Rules[0].Alert)
@@ -66,9 +66,9 @@ sum without(instance) (rate(requests_total[5m]))
 
 func TestParseFileFailure(t *testing.T) {
 	for _, c := range []struct {
-		filename string
-		errMsg   string
-		opts     []ParseOption
+		filename             string
+		errMsg               string
+		nameValidationScheme model.ValidationScheme
 	}{
 		{
 			filename: "duplicate_grp.bad.yaml",
@@ -111,13 +111,16 @@ func TestParseFileFailure(t *testing.T) {
 			errMsg:   "invalid field 'keep_firing_for' in recording rule",
 		},
 		{
-			filename: "legacy_validation_annotation.bad.yaml",
-			opts:     []ParseOption{WithValidationScheme(model.LegacyValidation)},
-			errMsg:   "invalid annotation name: ins-tance",
+			filename:             "legacy_validation_annotation.bad.yaml",
+			nameValidationScheme: model.LegacyValidation,
+			errMsg:               "invalid annotation name: ins-tance",
 		},
 	} {
 		t.Run(c.filename, func(t *testing.T) {
-			_, errs := ParseFile(filepath.Join("testdata", c.filename), c.opts...)
+			if c.nameValidationScheme == model.UnsetValidation {
+				c.nameValidationScheme = model.UTF8Validation
+			}
+			_, errs := ParseFile(filepath.Join("testdata", c.filename), false, c.nameValidationScheme)
 			require.NotEmpty(t, errs, "Expected error parsing %s but got none", c.filename)
 			require.ErrorContainsf(t, errs[0], c.errMsg, "Expected error for %s.", c.filename)
 		})
@@ -213,7 +216,7 @@ groups:
 	}
 
 	for _, tst := range tests {
-		rgs, errs := Parse([]byte(tst.ruleString))
+		rgs, errs := Parse([]byte(tst.ruleString), false, model.UTF8Validation)
 		require.NotNil(t, rgs, "Rule parsing, rule=\n"+tst.ruleString)
 		passed := (tst.shouldPass && len(errs) == 0) || (!tst.shouldPass && len(errs) > 0)
 		require.True(t, passed, "Rule validation failed, rule=\n"+tst.ruleString)
@@ -240,7 +243,7 @@ groups:
     annotations:
       summary: "Instance {{ $labels.instance }} up"
 `
-	_, errs := Parse([]byte(group))
+	_, errs := Parse([]byte(group), false, model.UTF8Validation)
 	require.Len(t, errs, 2, "Expected two errors")
 	var err00 *Error
 	require.ErrorAs(t, errs[0], &err00)
@@ -448,7 +451,7 @@ groups:
 	}
 	for _, tt := range tc {
 		t.Run(tt.name, func(t *testing.T) {
-			rgs, errs := Parse([]byte(tt.ruleString))
+			rgs, errs := Parse([]byte(tt.ruleString), false, model.UTF8Validation)
 			require.Empty(t, errs)
 
 			require.Equal(t, tt.output, rgs.Groups[0])
