@@ -188,11 +188,12 @@ func TestPopulateLabels(t *testing.T) {
 				ScrapeTimeout:  model.Duration(time.Second),
 				RelabelConfigs: []*relabel.Config{
 					{
-						Action:       relabel.Replace,
-						Regex:        relabel.MustNewRegexp("(.*)"),
-						SourceLabels: model.LabelNames{"custom"},
-						Replacement:  "${1}",
-						TargetLabel:  string(model.AddressLabel),
+						Action:               relabel.Replace,
+						Regex:                relabel.MustNewRegexp("(.*)"),
+						SourceLabels:         model.LabelNames{"custom"},
+						Replacement:          "${1}",
+						TargetLabel:          string(model.AddressLabel),
+						NameValidationScheme: model.UTF8Validation,
 					},
 				},
 			},
@@ -226,11 +227,12 @@ func TestPopulateLabels(t *testing.T) {
 				ScrapeTimeout:  model.Duration(time.Second),
 				RelabelConfigs: []*relabel.Config{
 					{
-						Action:       relabel.Replace,
-						Regex:        relabel.MustNewRegexp("(.*)"),
-						SourceLabels: model.LabelNames{"custom"},
-						Replacement:  "${1}",
-						TargetLabel:  string(model.AddressLabel),
+						Action:               relabel.Replace,
+						Regex:                relabel.MustNewRegexp("(.*)"),
+						SourceLabels:         model.LabelNames{"custom"},
+						Replacement:          "${1}",
+						TargetLabel:          string(model.AddressLabel),
+						NameValidationScheme: model.UTF8Validation,
 					},
 				},
 			},
@@ -452,7 +454,7 @@ func TestPopulateLabels(t *testing.T) {
 		lb := labels.NewBuilder(labels.EmptyLabels())
 		c.cfg.MetricNameValidationScheme = model.UTF8Validation
 		for i := range c.cfg.RelabelConfigs {
-			c.cfg.RelabelConfigs[i].MetricNameValidationScheme = model.UTF8Validation
+			c.cfg.RelabelConfigs[i].NameValidationScheme = model.UTF8Validation
 		}
 		res, err := PopulateLabels(lb, c.cfg, c.in, nil)
 		if c.err != "" {
