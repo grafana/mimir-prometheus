@@ -1,0 +1,49 @@
+name: Auto-review upstream merge PRs
+
+on:
+  pull_request:
+    types: [opened]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  upstream-merge-reviewer:
+    runs-on: ubuntu-latest
+    permissions:
+      # The approval is not done by the workflow's GITHUB_TOKEN itself, but rather a separate GitHub app.
+      contents: read
+      id-token: write
+    if: ${{ github.event.pull_request.user.login == 'mimir-github-bot[bot]' && startsWith(github.event.pull_request.head.ref, 'bot/main/merge-upstream-') }}
+
+    steps:
+      # Retrieve GitHub App Credentials from Vault for mimir-github-bot (generic app that should be able to approve the PR)
+      - name: Retrieve GitHub App Credentials from Vault
+        id: get-secrets
+        uses: grafana/shared-workflows/actions/get-vault-secrets@28361cdb22223e5f1e34358c86c20908e7248760 # v1.1.0
+        with:
+          repo_secrets: |
+            APP_ID=mimir-vendoring:app-id
+            PRIVATE_KEY=mimir-vendoring:app-pem-key
+
+      # Generate GitHub App Token for approving PRs
+      - name: Generate GitHub App Token
+        id: approve-app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1.12.0
+        with:
+          app-id: ${{ env.APP_ID }}
+          private-key: ${{ env.PRIVATE_KEY }}
+          owner: ${{ github.repository_owner }}
+
+      # Approve the PR and enable auto-merge using the GitHub App Token
+      - name: Approve and enable auto-merge
+        run: |
+          gh pr review "$PR_URL" \
+            --approve -b "**I'm approving** this upstream merge PR.
+            This PR merges changes from prometheus/prometheus upstream repository.
+            Related GitHub action is defined [here](https://github.com/grafana/mimir-prometheus/tree/main/.github/workflows/vendor_reviewer.yml)."
+          gh pr merge --auto --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GITHUB_TOKEN: ${{ steps.approve-app-token.outputs.token }}

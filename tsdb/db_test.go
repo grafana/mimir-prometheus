@@ -1184,6 +1184,7 @@ func testWALReplayRaceOnSamplesLoggedBeforeSeries(t *testing.T, numSamplesBefore
 }
 
 func TestTombstoneClean(t *testing.T) {
+	t.Parallel()
 	const numSamples int64 = 10
 
 	db := openTestDB(t, nil, nil)
@@ -1278,6 +1279,7 @@ func TestTombstoneClean(t *testing.T) {
 // TestTombstoneCleanResultEmptyBlock tests that a TombstoneClean that results in empty blocks (no timeseries)
 // will also delete the resultant block.
 func TestTombstoneCleanResultEmptyBlock(t *testing.T) {
+	t.Parallel()
 	numSamples := int64(10)
 
 	db := openTestDB(t, nil, nil)
@@ -1322,6 +1324,7 @@ func TestTombstoneCleanResultEmptyBlock(t *testing.T) {
 // When TombstoneClean errors the original block that should be rebuilt doesn't get deleted so
 // if TombstoneClean leaves any blocks behind these will overlap.
 func TestTombstoneCleanFail(t *testing.T) {
+	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -1423,6 +1426,7 @@ func (*mockCompactorFailing) CompactOOO(string, *OOOCompactionHead) (result []ul
 }
 
 func TestTimeRetention(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		name              string
 		blocks            []*BlockMeta
@@ -1499,6 +1503,7 @@ func TestRetentionDurationMetric(t *testing.T) {
 }
 
 func TestSizeRetention(t *testing.T) {
+	t.Parallel()
 	opts := DefaultOptions()
 	opts.OutOfOrderTimeWindow = 100
 	db := openTestDB(t, opts, []int64{100})
@@ -1565,7 +1570,7 @@ func TestSizeRetention(t *testing.T) {
 	// Create a WAL checkpoint, and compare sizes.
 	first, last, err := wlog.Segments(db.Head().wal.Dir())
 	require.NoError(t, err)
-	_, err = wlog.Checkpoint(promslog.NewNopLogger(), db.Head().wal, first, last-1, func(_ chunks.HeadSeriesRef, _ int) bool { return false }, 0)
+	_, err = wlog.Checkpoint(promslog.NewNopLogger(), db.Head().wal, first, last-1, func(chunks.HeadSeriesRef, int) bool { return false }, 0)
 	require.NoError(t, err)
 	blockSize = int64(prom_testutil.ToFloat64(db.metrics.blocksBytes)) // Use the actual internal metrics.
 	walSize, err = db.Head().wal.Size()
@@ -1848,6 +1853,7 @@ func TestOverlappingBlocksDetectsAllOverlaps(t *testing.T) {
 
 // Regression test for https://github.com/prometheus/tsdb/issues/347
 func TestChunkAtBlockBoundary(t *testing.T) {
+	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -1904,6 +1910,7 @@ func TestChunkAtBlockBoundary(t *testing.T) {
 }
 
 func TestQuerierWithBoundaryChunks(t *testing.T) {
+	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -1948,6 +1955,7 @@ func TestQuerierWithBoundaryChunks(t *testing.T) {
 //   - with blocks no WAL: set to the last block maxT
 //   - with blocks with WAL: same as above
 func TestInitializeHeadTimestamp(t *testing.T) {
+	t.Parallel()
 	t.Run("clean", func(t *testing.T) {
 		dir := t.TempDir()
 
@@ -2050,6 +2058,7 @@ func TestInitializeHeadTimestamp(t *testing.T) {
 }
 
 func TestNoEmptyBlocks(t *testing.T) {
+	t.Parallel()
 	db := openTestDB(t, nil, []int64{100})
 	ctx := context.Background()
 	defer func() {
@@ -2161,7 +2170,7 @@ func TestDB_LabelNames(t *testing.T) {
 		sampleLabels1 [][2]string // For checking head and disk separately.
 		// To test Head+Disk, sampleLabels2 should have
 		// at least 1 unique label name which is not in sampleLabels1.
-		sampleLabels2 [][2]string // // For checking head and disk together.
+		sampleLabels2 [][2]string // For checking head and disk together.
 		exp1          []string    // after adding sampleLabels1.
 		exp2          []string    // after adding sampleLabels1 and sampleLabels2.
 	}{
@@ -2258,6 +2267,7 @@ func TestDB_LabelNames(t *testing.T) {
 }
 
 func TestCorrectNumTombstones(t *testing.T) {
+	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -2308,6 +2318,7 @@ func TestCorrectNumTombstones(t *testing.T) {
 // This ensures that a snapshot that includes the head and creates a block with a custom time range
 // will not overlap with the first block created by the next compaction.
 func TestBlockRanges(t *testing.T) {
+	t.Parallel()
 	logger := promslog.New(&promslog.Config{})
 	ctx := context.Background()
 
@@ -2391,6 +2402,7 @@ func TestBlockRanges(t *testing.T) {
 // TestDBReadOnly ensures that opening a DB in readonly mode doesn't modify any files on the disk.
 // It also checks that the API calls return equivalent results as a normal db.Open() mode.
 func TestDBReadOnly(t *testing.T) {
+	t.Parallel()
 	var (
 		dbDir     string
 		logger    = promslog.New(&promslog.Config{})
@@ -2510,6 +2522,7 @@ func TestDBReadOnly(t *testing.T) {
 // TestDBReadOnlyClosing ensures that after closing the db
 // all api methods return an ErrClosed.
 func TestDBReadOnlyClosing(t *testing.T) {
+	t.Parallel()
 	sandboxDir := t.TempDir()
 	db, err := OpenDBReadOnly(t.TempDir(), sandboxDir, promslog.New(&promslog.Config{}))
 	require.NoError(t, err)
@@ -2526,6 +2539,7 @@ func TestDBReadOnlyClosing(t *testing.T) {
 }
 
 func TestDBReadOnly_FlushWAL(t *testing.T) {
+	t.Parallel()
 	var (
 		dbDir  string
 		logger = promslog.New(&promslog.Config{})
@@ -3016,6 +3030,7 @@ func TestRangeForTimestamp(t *testing.T) {
 // TestChunkReader_ConcurrentReads checks that the chunk result can be read concurrently.
 // Regression test for https://github.com/prometheus/prometheus/pull/6514.
 func TestChunkReader_ConcurrentReads(t *testing.T) {
+	t.Parallel()
 	chks := []chunks.Meta{
 		assureChunkFromSamples(t, []chunks.Sample{sample{1, 1, nil, nil}}),
 		assureChunkFromSamples(t, []chunks.Sample{sample{1, 2, nil, nil}}),
@@ -3062,18 +3077,18 @@ func TestChunkReader_ConcurrentReads(t *testing.T) {
 // * compacts the head; and
 // * queries the db to ensure the samples are present from the compacted head.
 func TestCompactHead(t *testing.T) {
+	t.Parallel()
 	dbDir := t.TempDir()
 
 	// Open a DB and append data to the WAL.
-	tsdbCfg := &Options{
-		RetentionDuration:                    int64(time.Hour * 24 * 15 / time.Millisecond),
-		NoLockfile:                           true,
-		MinBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
-		MaxBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
-		WALCompression:                       compression.Snappy,
-		HeadPostingsForMatchersCacheMetrics:  NewPostingsForMatchersCacheMetrics(nil),
-		BlockPostingsForMatchersCacheMetrics: NewPostingsForMatchersCacheMetrics(nil),
-	}
+	tsdbCfg := DefaultOptions()
+	tsdbCfg.RetentionDuration = int64(time.Hour * 24 * 15 / time.Millisecond)
+	tsdbCfg.NoLockfile = true
+	tsdbCfg.MinBlockDuration = int64(time.Hour * 2 / time.Millisecond)
+	tsdbCfg.MaxBlockDuration = int64(time.Hour * 2 / time.Millisecond)
+	tsdbCfg.WALCompression = compression.Snappy
+	tsdbCfg.HeadPostingsForMatchersCacheMetrics = NewPostingsForMatchersCacheMetrics(nil)
+	tsdbCfg.BlockPostingsForMatchersCacheMetrics = NewPostingsForMatchersCacheMetrics(nil)
 
 	db, err := Open(dbDir, promslog.NewNopLogger(), prometheus.NewRegistry(), tsdbCfg, nil)
 	require.NoError(t, err)
@@ -3281,6 +3296,7 @@ func TestOpen_VariousBlockStates(t *testing.T) {
 }
 
 func TestOneCheckpointPerCompactCall(t *testing.T) {
+	t.Parallel()
 	blockRange := int64(1000)
 	tsdbCfg := &Options{
 		RetentionDuration: blockRange * 1000,
@@ -5215,6 +5231,7 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario, addExtraSample
 // TestOOOCompactionWithNormalCompaction tests if OOO compaction is performed
 // when the normal head's compaction is done.
 func TestOOOCompactionWithNormalCompaction(t *testing.T) {
+	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOOOCompactionWithNormalCompaction(t, scenario)
@@ -5223,6 +5240,7 @@ func TestOOOCompactionWithNormalCompaction(t *testing.T) {
 }
 
 func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScenario) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -5324,6 +5342,7 @@ func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScen
 // configured to not have wal and wbl but its able to compact both the in-order
 // and out-of-order head.
 func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
+	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOOOCompactionWithDisabledWriteLog(t, scenario)
@@ -5332,6 +5351,7 @@ func TestOOOCompactionWithDisabledWriteLog(t *testing.T) {
 }
 
 func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScenario) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -5435,6 +5455,7 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScen
 // missing after a restart while snapshot was enabled, but the query still returns the right
 // data from the mmap chunks.
 func TestOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T) {
+	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t, scenario)
@@ -5617,7 +5638,7 @@ func testQuerierOOOQuery(t *testing.T,
 	series1 := labels.FromStrings("foo", "bar1")
 
 	type filterFunc func(t int64) bool
-	defaultFilterFunc := func(_ int64) bool { return true }
+	defaultFilterFunc := func(int64) bool { return true }
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
@@ -5947,7 +5968,7 @@ func testChunkQuerierOOOQuery(t *testing.T,
 	series1 := labels.FromStrings("foo", "bar1")
 
 	type filterFunc func(t int64) bool
-	defaultFilterFunc := func(_ int64) bool { return true }
+	defaultFilterFunc := func(int64) bool { return true }
 
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
 	addSample := func(db *DB, fromMins, toMins, queryMinT, queryMaxT int64, expSamples []chunks.Sample, filter filterFunc, counterReset bool) ([]chunks.Sample, int) {
@@ -6226,7 +6247,7 @@ func testOOONativeHistogramsWithCounterResets(t *testing.T, scenario sampleTypeS
 	opts.OutOfOrderTimeWindow = 24 * time.Hour.Milliseconds()
 
 	type resetFunc func(v int64) bool
-	defaultResetFunc := func(_ int64) bool { return false }
+	defaultResetFunc := func(int64) bool { return false }
 
 	lbls := labels.FromStrings("foo", "bar1")
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
@@ -7520,6 +7541,7 @@ func copyWithCounterReset(s sample, hint histogram.CounterResetHint) sample {
 }
 
 func TestOOOCompactionFailure(t *testing.T) {
+	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOOOCompactionFailure(t, scenario)
@@ -7945,6 +7967,7 @@ func testOOOMmapCorruption(t *testing.T, scenario sampleTypeScenario) {
 }
 
 func TestOutOfOrderRuntimeConfig(t *testing.T) {
+	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testOutOfOrderRuntimeConfig(t, scenario)
@@ -8185,6 +8208,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 }
 
 func TestNoGapAfterRestartWithOOO(t *testing.T) {
+	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testNoGapAfterRestartWithOOO(t, scenario)
@@ -8426,6 +8450,7 @@ func testPanicOnApplyConfig(t *testing.T, scenario sampleTypeScenario) {
 }
 
 func TestDiskFillingUpAfterDisablingOOO(t *testing.T) {
+	t.Parallel()
 	for name, scenario := range sampleTypeScenarios {
 		t.Run(name, func(t *testing.T) {
 			testDiskFillingUpAfterDisablingOOO(t, scenario)
@@ -8434,6 +8459,7 @@ func TestDiskFillingUpAfterDisablingOOO(t *testing.T) {
 }
 
 func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenario) {
+	t.Parallel()
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -8795,6 +8821,7 @@ func testHistogramAppendAndQueryHelper(t *testing.T, floatHistogram bool) {
 }
 
 func TestQueryHistogramFromBlocksWithCompaction(t *testing.T) {
+	t.Parallel()
 	minute := func(m int) int64 { return int64(m) * time.Minute.Milliseconds() }
 
 	testBlockQuerying := func(t *testing.T, blockSeries ...[]storage.Series) {
@@ -9146,6 +9173,7 @@ func compareSeries(t require.TestingT, expected, actual map[string][]chunks.Samp
 // can be read in parallel and we should be able to make a copy of the chunk without
 // worrying about the parallel write.
 func TestChunkQuerierReadWriteRace(t *testing.T) {
+	t.Parallel()
 	db := openTestDB(t, nil, nil)
 	defer func() {
 		require.NoError(t, db.Close())
@@ -9220,19 +9248,19 @@ type mockCompactorFn struct {
 	writeFn   func() ([]ulid.ULID, error)
 }
 
-func (c *mockCompactorFn) Plan(_ string) ([]string, error) {
+func (c *mockCompactorFn) Plan(string) ([]string, error) {
 	return c.planFn()
 }
 
-func (c *mockCompactorFn) Compact(_ string, _ []string, _ []*Block) ([]ulid.ULID, error) {
+func (c *mockCompactorFn) Compact(string, []string, []*Block) ([]ulid.ULID, error) {
 	return c.compactFn()
 }
 
-func (c *mockCompactorFn) CompactOOO(_ string, _ *OOOCompactionHead) (result []ulid.ULID, err error) {
+func (*mockCompactorFn) CompactOOO(_ string, _ *OOOCompactionHead) (result []ulid.ULID, err error) {
 	panic("implement me")
 }
 
-func (c *mockCompactorFn) Write(_ string, _ BlockReader, _, _ int64, _ *BlockMeta) ([]ulid.ULID, error) {
+func (c *mockCompactorFn) Write(string, BlockReader, int64, int64, *BlockMeta) ([]ulid.ULID, error) {
 	return c.writeFn()
 }
 
@@ -9282,7 +9310,7 @@ func TestNewCompactorFunc(t *testing.T) {
 	opts := DefaultOptions()
 	block1 := ulid.MustNew(1, nil)
 	block2 := ulid.MustNew(2, nil)
-	opts.NewCompactorFunc = func(_ context.Context, _ prometheus.Registerer, _ *slog.Logger, _ []int64, _ chunkenc.Pool, _ *Options) (Compactor, error) {
+	opts.NewCompactorFunc = func(context.Context, prometheus.Registerer, *slog.Logger, []int64, chunkenc.Pool, *Options) (Compactor, error) {
 		return &mockCompactorFn{
 			planFn: func() ([]string, error) {
 				return []string{block1.String(), block2.String()}, nil
@@ -9489,7 +9517,7 @@ func TestGenerateCompactionDelay(t *testing.T) {
 type blockedResponseRecorder struct {
 	r *httptest.ResponseRecorder
 
-	// writeblocked is used to block writing until the test wants it to resume.
+	// writeBlocked is used to block writing until the test wants it to resume.
 	writeBlocked chan struct{}
 	// writeStarted is closed by blockedResponseRecorder to signal that writing has started.
 	writeStarted chan struct{}

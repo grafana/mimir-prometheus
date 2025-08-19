@@ -314,9 +314,11 @@ func TestFromMetrics(t *testing.T) {
 			}
 
 			namer := otlptranslator.MetricNamer{}
+			name, err := namer.Build(TranslatorMetricFromOtelMetric(m))
+			require.NoError(t, err)
 			expMetadata = append(expMetadata, prompb.MetricMetadata{
 				Type:             otelMetricTypeToPromMetricType(m),
-				MetricFamilyName: namer.Build(TranslatorMetricFromOtelMetric(m)),
+				MetricFamilyName: name,
 				Help:             m.Description(),
 				Unit:             m.Unit(),
 			})
@@ -999,8 +1001,13 @@ func BenchmarkPrometheusConverter_FromMetrics(b *testing.B) {
 												annots, err := converter.FromMetrics(context.Background(), payload.Metrics(), settings, promslog.NewNopLogger())
 												require.NoError(b, err)
 												require.Empty(b, annots)
-												require.NotNil(b, converter.TimeSeries())
-												require.NotNil(b, converter.Metadata())
+												if histogramCount+nonHistogramCount > 0 {
+													require.NotEmpty(b, converter.TimeSeries())
+													require.NotEmpty(b, converter.Metadata())
+												} else {
+													require.Empty(b, converter.TimeSeries())
+													require.Empty(b, converter.Metadata())
+												}
 											}
 										})
 									}

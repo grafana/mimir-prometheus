@@ -48,6 +48,7 @@ func BenchmarkQuerier(b *testing.B) {
 	}
 
 	for n := 0; n < 10; n++ {
+		addSeries(labels.FromStrings("a", strconv.Itoa(n)+postingsBenchSuffix))
 		for i := 0; i < 100000; i++ {
 			addSeries(labels.FromStrings("i", strconv.Itoa(i)+postingsBenchSuffix, "n", strconv.Itoa(n)+postingsBenchSuffix, "j", "foo", "i_times_n", strconv.Itoa(i*n)))
 			// Have some series that won't be matched, to properly test inverted matches.
@@ -102,7 +103,9 @@ func BenchmarkQuerier(b *testing.B) {
 func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 	ctx := context.Background()
 
+	a1 := labels.MustNewMatcher(labels.MatchEqual, "a", "1"+postingsBenchSuffix)
 	n1 := labels.MustNewMatcher(labels.MatchEqual, "n", "1"+postingsBenchSuffix)
+	n0_1 := labels.MustNewMatcher(labels.MatchEqual, "n", "0_1"+postingsBenchSuffix)
 	nX := labels.MustNewMatcher(labels.MatchEqual, "n", "X"+postingsBenchSuffix)
 
 	jFoo := labels.MustNewMatcher(labels.MatchEqual, "j", "foo")
@@ -139,6 +142,7 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 		{`j="foo",n="1"`, []*labels.Matcher{jFoo, n1}},
 		{`n="1",j!="foo"`, []*labels.Matcher{n1, jNotFoo}},
 		{`n="1",i!="2"`, []*labels.Matcher{n1, iNot2}},
+		{`n="0_1",j="foo,a="1"`, []*labels.Matcher{n0_1, jFoo, a1}},
 		{`n="X",j!="foo"`, []*labels.Matcher{nX, jNotFoo}},
 		{`i=~"1[0-9]",j=~"foo|bar"`, []*labels.Matcher{iCharSet, jFooBar}},
 		{`j=~"foo|bar"`, []*labels.Matcher{jFooBar}},
@@ -179,8 +183,12 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_, err := PostingsForMatchers(ctx, ir, c.matchers...)
+				p, err := PostingsForMatchers(ctx, ir, c.matchers...)
 				require.NoError(b, err)
+				// Iterate over the postings
+				for p.Next() {
+					// Do nothing
+				}
 			}
 		})
 	}
@@ -351,7 +359,7 @@ func BenchmarkQuerierSelect(b *testing.B) {
 
 	seriesHashCache := hashcache.NewSeriesHashCache(1024 * 1024 * 1024)
 	blockdir := createBlockFromHead(b, tmpdir, h)
-	block, err := OpenBlockWithOptions(nil, blockdir, nil, nil, seriesHashCache.GetBlockCacheProvider("test"), DefaultPostingsForMatchersCacheTTL, DefaultPostingsForMatchersCacheMaxItems, DefaultPostingsForMatchersCacheMaxBytes, DefaultPostingsForMatchersCacheForce, NewPostingsForMatchersCacheMetrics(nil))
+	block, err := OpenBlockWithOptions(nil, blockdir, nil, nil, &index.ScanEmptyMatchersLookupPlanner{}, seriesHashCache.GetBlockCacheProvider("test"), DefaultPostingsForMatchersCacheFactory)
 	require.NoError(b, err)
 	defer func() {
 		require.NoError(b, block.Close())
