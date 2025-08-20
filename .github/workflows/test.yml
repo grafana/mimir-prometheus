@@ -15,6 +15,7 @@ jobs:
           - slicelabels # there's no such tag when this is being written, but it makes the CI job name more obvious.
           - stringlabels
           - dedupelabels
+      fail-fast: false
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repo
