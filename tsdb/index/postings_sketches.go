@@ -3,7 +3,6 @@ package index
 import (
 	"context"
 	"fmt"
-	"time"
 	"unsafe"
 
 	boom "github.com/tylertreat/BoomFilters"
@@ -24,7 +23,6 @@ type LabelsValuesSketches struct {
 type LabelValuesSketch struct {
 	s              *boom.CountMinSketch
 	distinctValues uint64
-	lastUpdated    int64 // epoch time of last update
 }
 
 // LabelsValuesSketches builds a LabelsValuesSketches based on the label names and values
@@ -68,7 +66,6 @@ func (p *MemPostings) labelValuesSketchForLabelName(name string) *LabelValuesSke
 	sketch := LabelValuesSketch{
 		s:              boom.NewCountMinSketch(0.01, 0.01),
 		distinctValues: uint64(len(labelValuesPostings)),
-		lastUpdated:    time.Now().Unix(),
 	}
 	for value, postings := range labelValuesPostings {
 		valBytes := yoloBytes(value)
@@ -82,7 +79,9 @@ func (p *MemPostings) labelValuesSketchForLabelName(name string) *LabelValuesSke
 func (lvs *LabelsValuesSketches) LabelValuesCount(_ context.Context, name string) (uint64, error) {
 	sketch, ok := lvs.labelNames[name]
 	if !ok {
-		return 0, fmt.Errorf("no sketch found for label %q", name)
+		// If we don't find a sketch for a label name, we return 0 but no error, since we assume that the nonexistence
+		// of a sketch is equivalent to the nonexistence of values for the label name.
+		return 0, nil
 	}
 
 	return sketch.distinctValues, nil
