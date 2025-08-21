@@ -1277,10 +1277,9 @@ func (db *DB) run(ctx context.Context) {
 			db.autoCompactMtx.Unlock()
 
 		case <-headStatsUpdateTicker:
-			// We spin this off as a new goroutine to avoid blocking on it;
-			// the postings mutex will be taken to update statistics on a per-label-name basis,
-			// which should be able to be superseded or interrupted by other signals such as compaction.
-			go db.head.updateHeadStatistics()
+			// If needed, this could instead be spun off concurrently as an optimization to allow
+			// head compaction to interrupt statistics collection (by taking the postings mutex).
+			db.head.updateHeadStatistics()
 		case <-db.stopc:
 			return
 		}

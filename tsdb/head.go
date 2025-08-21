@@ -115,7 +115,7 @@ type Head struct {
 
 	// TODO(codesome): Extend MemPostings to return only OOOPostings, Set OOOStatus, ... Like an additional map of ooo postings.
 	postings      *index.MemPostings // Postings lists for terms.
-	postingsStats index.Statistics
+	postingsStats atomic.Pointer[index.Statistics]
 	pfmc          *PostingsForMatchersCache
 
 	tombstones *tombstones.MemTombstones
@@ -335,7 +335,7 @@ func NewHead(r prometheus.Registerer, l *slog.Logger, wal, wbl *wlog.WL, opts *H
 }
 
 func (h *Head) PostingsStats() index.Statistics {
-	return h.postingsStats
+	return *h.postingsStats.Load()
 }
 
 func (h *Head) resetInMemoryState() error {
@@ -399,14 +399,13 @@ func (h *Head) resetWLReplayResources() {
 // and the total number of series in the head. It then updates postingsStats to point to the new statistics.
 func (h *Head) updateHeadStatistics() {
 	start := time.Now()
-	stats := newFullHeadStatistics(h)
-	// TODO (casie): We wait until stats are generated to update the postingsStats pointer. Does this matter?
-	h.postingsStats = stats
+	stats := index.Statistics(newFullHeadStatistics(h))
+	h.postingsStats.Store(&stats)
 	h.metrics.headStatisticsTimeToUpdate.Set(time.Since(start).Seconds())
 	h.metrics.headStatisticsLastUpdate.Set(float64(time.Now().Unix()))
 	h.logger.Info("successfully updated head statistics",
 		"duration", time.Since(start),
-		"num_series", h.postingsStats.TotalSeries(),
+		"num_series", stats.TotalSeries(),
 		"num_label_names", len(h.postings.LabelNames()),
 	)
 }
