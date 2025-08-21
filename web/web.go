@@ -399,6 +399,7 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.ValidIntervalCreatedTimestampZeroIngestion,
 		o.LookbackDelta,
 		o.EnableTypeAndUnitLabels,
+		nil,
 	)
 
 	if o.RoutePrefix != "/" {
