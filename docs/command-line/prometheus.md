@@ -37,6 +37,8 @@ The Prometheus monitoring server
 | <code class="text-nowrap">--storage.tsdb.retention.time</code> | How long to retain samples in storage. If neither this flag nor "storage.tsdb.retention.size" is set, the retention time defaults to 15d. Units Supported: y, w, d, h, m, s, ms. Use with server mode only. |  |
 | <code class="text-nowrap">--storage.tsdb.retention.size</code> | Maximum number of bytes that can be stored for blocks. A unit is required, supported units: B, KB, MB, GB, TB, PB, EB. Ex: "512MB". Based on powers-of-2, so 1KB is 1024B. Use with server mode only. |  |
 | <code class="text-nowrap">--storage.tsdb.no-lockfile</code> | Do not create lockfile in data directory. Use with server mode only. | `false` |
+| <code class="text-nowrap">--storage.tsdb.collect-head-statistics</code> | Enable periodic collection of TSDB head statistics. Used for optimization of query execution. Use with server mode only. | `false` |
+| <code class="text-nowrap">--storage.tsdb.head-statistics-collection-frequency</code> | How frequently to collect head statistics. Must enable collect-head-statistics to take effect. Use with server mode only. | `10m` |
 | <code class="text-nowrap">--storage.tsdb.head-chunks-write-queue-size</code> | Size of the queue through which head chunks are written to the disk to be m-mapped, 0 disables the queue completely. Experimental. Use with server mode only. | `0` |
 | <code class="text-nowrap">--storage.agent.path</code> | Base path for metrics storage. Use with agent mode only. | `data-agent/` |
 | <code class="text-nowrap">--storage.agent.wal-compression</code> | Compress the agent WAL. If false, the --storage.agent.wal-compression-type flag is ignored. Use with agent mode only. | `true` |

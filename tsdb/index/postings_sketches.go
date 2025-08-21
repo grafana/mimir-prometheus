@@ -2,7 +2,6 @@ package index
 
 import (
 	"context"
-	"fmt"
 	"unsafe"
 
 	boom "github.com/tylertreat/BoomFilters"
@@ -93,7 +92,9 @@ func (lvs *LabelsValuesSketches) LabelValuesCount(_ context.Context, name string
 func (lvs *LabelsValuesSketches) LabelValuesCardinality(_ context.Context, name string, values ...string) (uint64, error) {
 	sketch, ok := lvs.labelNames[name]
 	if !ok {
-		return 0, fmt.Errorf("no sketch found for label %q", name)
+		// If we don't find a sketch for a label name, we return 0 but no error, since we assume that the nonexistence
+		// of a label name is equivalent to 0 cardinality
+		return 0, nil
 	}
 
 	if len(values) == 0 {
