@@ -274,11 +274,8 @@ type Options struct {
 	// HeadPostingsForMatchersCacheMetrics holds the metrics tracked by PostingsForMatchers cache when querying the Head.
 	HeadPostingsForMatchersCacheMetrics *PostingsForMatchersCacheMetrics
 
-	// CollectHeadStatistics enables periodic collection of label name cardinality from postings in the Head.
-	// These statistics are used for optimization of query execution.
-	CollectHeadStatistics bool
-
-	// HeadStatisticsCollectionFrequency determines how often head statistics are updated.
+	// HeadStatisticsCollectionFrequency determines how often label name cardinality statistics should be calculated
+	// from postings in the Head. These statistics are used for optimization of query execution. 0 to disable.
 	HeadStatisticsCollectionFrequency time.Duration
 
 	// BlockPostingsForMatchersCacheTTL is the TTL of the postings for matchers cache of each compacted block.
@@ -1231,7 +1228,7 @@ func (db *DB) run(ctx context.Context) {
 	defer close(db.donec)
 
 	var headStatsUpdateTicker <-chan time.Time
-	if db.opts.CollectHeadStatistics {
+	if db.opts.HeadStatisticsCollectionFrequency > 0 {
 		t := time.NewTicker(db.opts.HeadStatisticsCollectionFrequency)
 		defer t.Stop()
 		headStatsUpdateTicker = t.C

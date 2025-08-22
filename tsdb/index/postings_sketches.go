@@ -12,14 +12,14 @@ type Statistics interface {
 	TotalSeries() uint64
 
 	// LabelValuesCount returns the number of values for a label name. If the given label name does not exist,
-	// it is valid to return 0 without an error.
-	LabelValuesCount(ctx context.Context, name string) (uint64, error)
+	// it is valid to return 0.
+	LabelValuesCount(ctx context.Context, name string) uint64
 
 	// LabelValuesCardinality returns the cardinality of a given label name (i.e., the number of series which
 	// contain that label name). If values are provided, it returns the combined cardinality of all given values;
 	// otherwise, it returns the total cardinality across all values for the label name. If the label name does not exist,
-	// it is valid to return 0 without an error.
-	LabelValuesCardinality(ctx context.Context, name string, values ...string) (uint64, error)
+	// it is valid to return 0.
+	LabelValuesCardinality(ctx context.Context, name string, values ...string) uint64
 }
 
 // LabelsValuesSketches contains count-min sketches of the values for each label name.
@@ -84,37 +84,39 @@ func (p *MemPostings) labelValuesSketchForLabelName(name string) *LabelValuesSke
 }
 
 // LabelValuesCount returns the number of values for a given label name.
-func (lvs *LabelsValuesSketches) LabelValuesCount(_ context.Context, name string) (uint64, error) {
+func (lvs *LabelsValuesSketches) LabelValuesCount(_ context.Context, name string) uint64 {
 	sketch, ok := lvs.labelNames[name]
 	if !ok {
 		// If we don't find a sketch for a label name, we return 0 but no error, since we assume that the nonexistence
 		// of a sketch is equivalent to the nonexistence of values for the label name.
-		return 0, nil
+		return 0
 	}
 
-	return sketch.distinctValues, nil
+	return sketch.distinctValues
 }
 
 // LabelValuesCardinality calculates the cardinality of a given label name according to a count-min sketch.
-// If values are provided, it returns the combined cardinality of all given values; otherwise,
-// it returns the total cardinality across all values for the label name.
-func (lvs *LabelsValuesSketches) LabelValuesCardinality(_ context.Context, name string, values ...string) (uint64, error) {
+// If values are provided, it returns the combined cardinality of all given values (i.e.,
+// the count of all series which contain any value for the label name); otherwise,
+// it returns the total cardinality across all values for the label name (i.e.,
+// the count of all series which have matching label values for the given label name)
+func (lvs *LabelsValuesSketches) LabelValuesCardinality(_ context.Context, name string, values ...string) uint64 {
 	sketch, ok := lvs.labelNames[name]
 	if !ok {
 		// If we don't find a sketch for a label name, we return 0 but no error, since we assume that the nonexistence
 		// of a label name is equivalent to 0 cardinality
-		return 0, nil
+		return 0
 	}
 
 	if len(values) == 0 {
-		return sketch.s.TotalCount(), nil
+		return sketch.s.TotalCount()
 	}
 	totalCount := uint64(0)
 	for _, val := range values {
 		valBytes := yoloBytes(val)
 		totalCount += sketch.s.Count(valBytes)
 	}
-	return totalCount, nil
+	return totalCount
 }
 
 func yoloBytes(s string) []byte {

@@ -456,11 +456,8 @@ func main() {
 	serverOnlyFlag(a, "storage.tsdb.allow-overlapping-compaction", "Allow compaction of overlapping blocks. If set to false, TSDB stops vertical compaction and leaves overlapping blocks there. The use case is to let another component handle the compaction of overlapping blocks.").
 		Default("true").Hidden().BoolVar(&cfg.tsdb.EnableOverlappingCompaction)
 
-	serverOnlyFlag(a, "storage.tsdb.collect-head-statistics", "Enable periodic collection of TSDB head statistics. Used for optimization of query execution.").
-		Default("false").BoolVar(&cfg.tsdb.CollectHeadStatistics)
-
-	serverOnlyFlag(a, "storage.tsdb.head-statistics-collection-frequency", "How frequently to collect head statistics. Must enable collect-head-statistics to take effect.").
-		Default("10m").SetValue(&cfg.tsdb.HeadStatisticsCollectionFrequency)
+	serverOnlyFlag(a, "storage.tsdb.head-statistics-collection-frequency", "How frequently to collect label name cardinality statistics from the TSDB head. 0 to disable.").
+		Default("0m").SetValue(&cfg.tsdb.HeadStatisticsCollectionFrequency)
 
 	var (
 		tsdbWALCompression     bool
@@ -1883,7 +1880,6 @@ type tsdbOptions struct {
 	CompactionDelayMaxPercent         int
 	EnableOverlappingCompaction       bool
 	UseUncachedIO                     bool
-	CollectHeadStatistics             bool
 	HeadStatisticsCollectionFrequency model.Duration
 }
 
@@ -1909,7 +1905,6 @@ func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
 		CompactionDelayMaxPercent:         opts.CompactionDelayMaxPercent,
 		EnableOverlappingCompaction:       opts.EnableOverlappingCompaction,
 		UseUncachedIO:                     opts.UseUncachedIO,
-		CollectHeadStatistics:             opts.CollectHeadStatistics,
 		HeadStatisticsCollectionFrequency: time.Duration(opts.HeadStatisticsCollectionFrequency),
 	}
 }
