@@ -99,7 +99,7 @@ func (lvs *LabelsValuesSketches) LabelValuesCount(_ context.Context, name string
 // If values are provided, it returns the combined cardinality of all given values (i.e.,
 // the count of all series which contain any value for the label name); otherwise,
 // it returns the total cardinality across all values for the label name (i.e.,
-// the count of all series which have matching label values for the given label name)
+// the count of all series which have matching label values for the given label name).
 func (lvs *LabelsValuesSketches) LabelValuesCardinality(_ context.Context, name string, values ...string) uint64 {
 	sketch, ok := lvs.labelNames[name]
 	if !ok {
