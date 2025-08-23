@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"fmt"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/stretchr/testify/require"
@@ -197,4 +198,38 @@ func TestLabelsValuesSketches_LabelValue(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestLabelName_ManySeries tests the accuracy of label value sketches at high volume.
+// It evenly distributes 6M series across 1k labels, and expects the result to be within 60k (i.e., 1% of 6M)
+// of 6000 (6M / 1k).
+func TestLabelName_ManySeries(t *testing.T) {
+	labelName := "test_label"
+	p := NewMemPostings()
+	numSeries := int(6e6)
+	numLabelValues := int(1e3)
+	for i := 0; i < numSeries; i++ {
+		p.addFor(storage.SeriesRef(i), labels.Label{
+			Name: labelName,
+			// Set the label value to something [0-numLabelValues]
+			Value: fmt.Sprint(i % numLabelValues),
+		})
+	}
+
+	ctx := context.Background()
+	s := p.LabelsValuesSketches()
+
+	require.Equal(t, uint64(numLabelValues), s.LabelValuesCount(ctx, labelName))
+	require.Equal(t, uint64(numSeries), s.LabelValuesCardinality(ctx, labelName))
+
+	for i := 0; i < numLabelValues; i++ {
+		// The cardinality for every label should be within 1% of the total number of series to the expected cardinality.
+		// Technically, it should be within 1% of the total increments seen by the count-min sketch,
+		// but that's more opaque to understand. The total increments seen will always be equal or greater than the number of series.
+		require.InDeltaf(t, uint64(numSeries/numLabelValues), s.LabelValuesCardinality(ctx, labelName, fmt.Sprint(i)),
+			float64(numSeries)*.01, // 1% of total number of series
+			fmt.Sprintf("Cardinality for label %d is not within %d of expected", i, numSeries/100),
+		)
+	}
+
 }
