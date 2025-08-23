@@ -103,9 +103,7 @@ func TestLabelsValuesSketches_LabelName(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewMemPostings()
 			for seriesRef, ls := range tt.seriesRefToLabels {
-				for _, l := range ls {
-					p.addFor(seriesRef, l)
-				}
+				p.Add(seriesRef, ls)
 			}
 			sketches := p.LabelsValuesSketches()
 			ctx := context.Background()
@@ -185,9 +183,7 @@ func TestLabelsValuesSketches_LabelValue(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			p := NewMemPostings()
 			for seriesRef, ls := range tt.seriesRefToLabels {
-				for _, l := range ls {
-					p.addFor(seriesRef, l)
-				}
+				p.Add(seriesRef, ls)
 			}
 			sketches := p.LabelsValuesSketches()
 			ctx := context.Background()
