@@ -2,6 +2,7 @@ package index
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"testing"
 
@@ -197,8 +198,8 @@ func TestLabelsValuesSketches_LabelValue(t *testing.T) {
 }
 
 // TestLabelName_ManySeries tests the accuracy of label value sketches at high volume.
-// It evenly distributes 6M series across 1k labels, and expects the result to be within 60k (i.e., 1% of 6M)
-// of 6000 (6M / 1k).
+// It evenly distributes 6M series across 1k labels,
+// and expects the result to be within 30k (i.e., 0.5% or countMinEpsilon of 6M) of 6000 (6M / 1k).
 func TestLabelName_ManySeries(t *testing.T) {
 	labelName := "test_label"
 	p := NewMemPostings()
@@ -219,12 +220,57 @@ func TestLabelName_ManySeries(t *testing.T) {
 	require.Equal(t, uint64(numSeries), s.LabelValuesCardinality(ctx, labelName))
 
 	for i := 0; i < numLabelValues; i++ {
-		// The cardinality for every label should be within 1% of the total number of series to the expected cardinality.
-		// Technically, it should be within 1% of the total increments seen by the count-min sketch,
+		// The cardinality for every label should be within epsilon of the total number of series to the expected cardinality.
+		// Technically, it should be within epsilon of the total increments seen by the count-min sketch,
 		// but that's more opaque to understand. The total increments seen will always be equal or greater than the number of series.
 		require.InDeltaf(t, uint64(numSeries/numLabelValues), s.LabelValuesCardinality(ctx, labelName, strconv.Itoa(i)),
-			float64(numSeries)*.01, // 1% of total number of series
-			"Cardinality for label %d is not within %d of expected", i, numSeries/100,
+			float64(numSeries)*countMinEpsilon,
+			"Cardinality for label %d is not within %d of expected", i, float64(numSeries)*countMinEpsilon,
 		)
+	}
+}
+
+// TestLabelName_NonUniformValueDistribution tests that for a given label, if one value is much lower-cardinality
+// than all others, the resulting count-min sketch reflects that difference in order of magnitude against all
+// higher-cardinality label values.
+func TestLabelName_NonUniformValueDistribution(t *testing.T) {
+	labelName := "test_label"
+	numSeries := int(6e6)
+	lowCard := 10
+	lowCardValue := "low"
+	numHighOccurrenceValues := int(1e3)
+
+	p := NewMemPostings()
+	require.Less(t, lowCard+numHighOccurrenceValues, numSeries)
+
+	for i := 0; i < numSeries-lowCard; i++ {
+		p.addFor(storage.SeriesRef(i), labels.Label{
+			Name: labelName,
+			// Set the label value to something [0-numLabelValues]
+			Value: strconv.Itoa(i % numHighOccurrenceValues),
+		})
+	}
+
+	// cardinality of "low" value will be 10
+	for i := numSeries - lowCard; i < numSeries; i++ {
+		p.addFor(storage.SeriesRef(i), labels.Label{
+			Name:  labelName,
+			Value: lowCardValue,
+		})
+	}
+
+	ctx := context.Background()
+	s := p.LabelsValuesSketches()
+
+	lowValCard := s.LabelValuesCardinality(ctx, labelName, lowCardValue)
+
+	// The cardinality of every other value should be ≥6000. We care about these values being correct in magnitude,
+	// i.e., floor(log(highOccurrenceCardinality) / log(lowOccurrenceCardinality)) should be consistent every time.
+	// We add a little margin since the margin of error (30k) is enough to push us one power up, but not two.
+	for i := 0; i < numHighOccurrenceValues; i++ {
+		card := s.LabelValuesCardinality(ctx, labelName, strconv.Itoa(i))
+		mag := math.Log(float64(card)) / math.Log(float64(lowValCard))
+		require.GreaterOrEqual(t, int(math.Floor(mag)), 3)
+		require.Less(t, int(math.Floor(mag)), 5)
 	}
 }
