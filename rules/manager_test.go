@@ -17,6 +17,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
+	"maps"
 	"math"
 	"os"
 	"path"
@@ -821,9 +822,7 @@ func TestUpdate(t *testing.T) {
 	err = ruleManager.Update(10*time.Second, []string{tmpFile.Name()}, labels.EmptyLabels(), "", nil)
 	require.NoError(t, err)
 
-	for h, g := range ruleManager.groups {
-		ogs[h] = g
-	}
+	maps.Copy(ogs, ruleManager.groups)
 
 	// Update interval and reload.
 	for i, g := range rgs.Groups {
@@ -1222,6 +1221,7 @@ func TestMetricsUpdate(t *testing.T) {
 }
 
 func TestGroupStalenessOnRemoval(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping test in short mode.")
 	}
@@ -1300,6 +1300,7 @@ func TestGroupStalenessOnRemoval(t *testing.T) {
 }
 
 func TestMetricsStalenessOnManagerShutdown(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping test in short mode.")
 	}
@@ -1369,6 +1370,7 @@ func countStaleNaN(t *testing.T, st storage.Storage) int {
 }
 
 func TestRuleMovedBetweenGroups(t *testing.T) {
+	t.Parallel()
 	if testing.Short() {
 		t.Skip("skipping test in short mode.")
 	}
@@ -1512,6 +1514,7 @@ func TestRuleHealthUpdates(t *testing.T) {
 }
 
 func TestRuleGroupEvalIterationFunc(t *testing.T) {
+	t.Parallel()
 	storage := promqltest.LoadedStorage(t, `
 		load 5m
 		http_requests{instance="0"}	75  85 50 0 0 25 0 0 40 0 120
@@ -2491,6 +2494,7 @@ func TestAsyncRuleEvaluation(t *testing.T) {
 }
 
 func TestNewRuleGroupRestoration(t *testing.T) {
+	t.Parallel()
 	store := teststorage.New(t)
 	t.Cleanup(func() { store.Close() })
 	var (
@@ -2554,6 +2558,7 @@ func TestNewRuleGroupRestoration(t *testing.T) {
 }
 
 func TestNewRuleGroupRestorationWithRestoreNewGroupOption(t *testing.T) {
+	t.Parallel()
 	store := teststorage.New(t)
 	t.Cleanup(func() { store.Close() })
 	var (
@@ -2648,8 +2653,6 @@ func TestBoundedRuleEvalConcurrency(t *testing.T) {
 	// Evaluate groups concurrently (like they normally do).
 	var wg sync.WaitGroup
 	for _, group := range groups {
-		group := group
-
 		wg.Add(1)
 		go func() {
 			group.Eval(ctx, time.Now())
@@ -2700,7 +2703,7 @@ func TestGroup_Eval_RaceConditionOnStoppingGroupEvaluationWhileRulesAreEvaluated
 	<-ruleManager.block
 
 	// Update the group a decent number of times to simulate start and stopping in the middle of an evaluation.
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		err := ruleManager.Update(time.Second, files, labels.EmptyLabels(), "", nil)
 		require.NoError(t, err)
 
