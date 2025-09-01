@@ -208,9 +208,9 @@ func TestIndexRW_Postings(t *testing.T) {
 			actualShards := make(map[uint64][]storage.SeriesRef)
 			actualPostings := make([]storage.SeriesRef, 0, len(expected))
 
-		for shardIndex := range shardCount {
-			p, err = ir.Postings(ctx, "a", "1")
-			require.NoError(t, err)
+			for shardIndex := range shardCount {
+				p, err = ir.Postings(ctx, "a", "1")
+				require.NoError(t, err)
 
 				p = ir.ShardedPostings(p, shardIndex, shardCount)
 				for p.Next() {
