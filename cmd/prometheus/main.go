@@ -676,7 +676,7 @@ func main() {
 	// Set Go runtime parameters before we get too far into initialization.
 	updateGoGC(cfgFile, logger)
 	if cfg.maxprocsEnable {
-		l := func(format string, a ...interface{}) {
+		l := func(format string, a ...any) {
 			logger.Info(fmt.Sprintf(strings.TrimPrefix(format, "maxprocs: "), a...), "component", "automaxprocs")
 		}
 		if _, err := maxprocs.Set(maxprocs.Logger(l)); err != nil {
@@ -785,7 +785,7 @@ func main() {
 	var (
 		localStorage  = &readyStorage{stats: tsdb.NewDBStats()}
 		scraper       = &readyScrapeManager{}
-		remoteStorage = remote.NewStorage(logger.With("component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper)
+		remoteStorage = remote.NewStorage(logger.With("component", "remote"), prometheus.DefaultRegisterer, localStorage.StartTime, localStoragePath, time.Duration(cfg.RemoteFlushDeadline), scraper, cfg.scrape.EnableTypeAndUnitLabels)
 		fanoutStorage = storage.NewFanout(logger, localStorage, remoteStorage)
 	)
 

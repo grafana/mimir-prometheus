@@ -125,9 +125,7 @@ func TestFastRegexMatcher_MatchString(t *testing.T) {
 	testValues = append(testValues, generateRandomValues()...)
 
 	for _, r := range regexes {
-		r := r
 		for _, v := range testValues {
-			v := v
 			t.Run(readable(r)+` on "`+readable(v)+`"`, func(t *testing.T) {
 				t.Parallel()
 				m, err := NewFastRegexMatcher(r)
@@ -365,7 +363,6 @@ func TestFindSetMatches(t *testing.T) {
 		// too many combinations
 		{"[a-z][a-z]", nil, false},
 	} {
-		c := c
 		t.Run(c.pattern, func(t *testing.T) {
 			t.Parallel()
 			parsed, err := syntax.Parse(c.pattern, syntax.Perl|syntax.DotNL)
@@ -543,7 +540,6 @@ func TestStringMatcherFromRegexp(t *testing.T) {
 		{"foo.?", &literalPrefixSensitiveStringMatcher{prefix: "foo", right: &zeroOrOneCharacterStringMatcher{matchNL: true}}},
 		{"f.?o", nil},
 	} {
-		c := c
 		t.Run(c.pattern, func(t *testing.T) {
 			t.Parallel()
 			parsed, err := syntax.Parse(c.pattern, syntax.Perl|syntax.DotNL)
@@ -810,7 +806,7 @@ func randString(randGenerator *rand.Rand, length int) string {
 
 func randStrings(randGenerator *rand.Rand, many, length int) []string {
 	out := make([]string, 0, many)
-	for i := 0; i < many; i++ {
+	for range many {
 		out = append(out, randString(randGenerator, length))
 	}
 	return out
