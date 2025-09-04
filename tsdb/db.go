@@ -76,26 +76,26 @@ var ErrNotReady = errors.New("TSDB not ready")
 // millisecond precision timestamps.
 func DefaultOptions() *Options {
 	return &Options{
-		WALSegmentSize:              wlog.DefaultSegmentSize,
-		MaxBlockChunkSegmentSize:    chunks.DefaultChunkSegmentSize,
-		RetentionDuration:           int64(15 * 24 * time.Hour / time.Millisecond),
-		MinBlockDuration:            DefaultBlockDuration,
-		MaxBlockDuration:            DefaultBlockDuration,
-		NoLockfile:                  false,
-		SamplesPerChunk:             DefaultSamplesPerChunk,
-		WALCompression:              compression.None,
-		StripeSize:                  DefaultStripeSize,
-		HeadChunksWriteBufferSize:   chunks.DefaultWriteBufferSize,
-		IsolationDisabled:           defaultIsolationDisabled,
-		HeadChunksWriteQueueSize:    chunks.DefaultWriteQueueSize,
-		OutOfOrderCapMax:            DefaultOutOfOrderCapMax,
-		EnableOverlappingCompaction: true,
-		EnableSharding:              false,
-		EnableDelayedCompaction:     false,
-		CompactionDelayMaxPercent:   DefaultCompactionDelayMaxPercent,
-		CompactionDelay:             time.Duration(0),
-		PostingsDecoderFactory:      DefaultPostingsDecoderFactory,
-		IndexLookupPlanner:          &index.ScanEmptyMatchersLookupPlanner{}, HeadChunksEndTimeVariance: 0,
+		WALSegmentSize:                           wlog.DefaultSegmentSize,
+		MaxBlockChunkSegmentSize:                 chunks.DefaultChunkSegmentSize,
+		RetentionDuration:                        int64(15 * 24 * time.Hour / time.Millisecond),
+		MinBlockDuration:                         DefaultBlockDuration,
+		MaxBlockDuration:                         DefaultBlockDuration,
+		NoLockfile:                               false,
+		SamplesPerChunk:                          DefaultSamplesPerChunk,
+		WALCompression:                           compression.None,
+		StripeSize:                               DefaultStripeSize,
+		HeadChunksWriteBufferSize:                chunks.DefaultWriteBufferSize,
+		IsolationDisabled:                        defaultIsolationDisabled,
+		HeadChunksWriteQueueSize:                 chunks.DefaultWriteQueueSize,
+		OutOfOrderCapMax:                         DefaultOutOfOrderCapMax,
+		EnableOverlappingCompaction:              true,
+		EnableSharding:                           false,
+		EnableDelayedCompaction:                  false,
+		CompactionDelayMaxPercent:                DefaultCompactionDelayMaxPercent,
+		CompactionDelay:                          time.Duration(0),
+		PostingsDecoderFactory:                   DefaultPostingsDecoderFactory,
+		HeadChunksEndTimeVariance:                0,
 		HeadPostingsForMatchersCacheInvalidation: DefaultPostingsForMatchersCacheInvalidation,
 		HeadPostingsForMatchersCacheVersions:     DefaultPostingsForMatchersCacheVersions,
 		HeadPostingsForMatchersCacheTTL:          DefaultPostingsForMatchersCacheTTL,
@@ -314,12 +314,8 @@ type Options struct {
 	// UseUncachedIO allows bypassing the page cache when appropriate.
 	UseUncachedIO bool
 
-	// IndexLookupPlanner can be optionally used when querying the index of blocks.
-	IndexLookupPlanner index.LookupPlanner
-
 	// IndexLookupPlannerFunc is a function to return index.LookupPlanner from a BlockReader.
 	// Similar to BlockChunkQuerierFunc, this allows per-block planner creation.
-	// If both IndexLookupPlanner and IndexLookupPlannerFunc are set, IndexLookupPlannerFunc takes precedence.
 	IndexLookupPlannerFunc IndexLookupPlannerFunc
 }
 
@@ -740,9 +736,8 @@ func (db *DBReadOnly) Blocks() ([]BlockReader, error) {
 		return nil, ErrClosed
 	default:
 	}
-	loadable, corrupted, err := openBlocks(db.logger, db.dir, nil, nil, DefaultPostingsDecoderFactory, func(BlockReader) index.LookupPlanner {
-		return &index.ScanEmptyMatchersLookupPlanner{}
-	}, nil, DefaultPostingsForMatchersCacheFactory)
+	plannerFunc := func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
+	loadable, corrupted, err := openBlocks(db.logger, db.dir, nil, nil, DefaultPostingsDecoderFactory, plannerFunc, nil, DefaultPostingsForMatchersCacheFactory)
 	if err != nil {
 		return nil, err
 	}
@@ -920,9 +915,6 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	}
 	if opts.OutOfOrderTimeWindow < 0 {
 		opts.OutOfOrderTimeWindow = 0
-	}
-	if opts.IndexLookupPlanner == nil {
-		opts.IndexLookupPlanner = &index.ScanEmptyMatchersLookupPlanner{}
 	}
 	if opts.PostingsForMatchersCacheKeyFunc == nil {
 		opts.PostingsForMatchersCacheKeyFunc = DefaultPostingsForMatchersCacheKeyFunc
@@ -1114,11 +1106,13 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		opts.HeadPostingsForMatchersCacheMetrics,
 	)
 	headOpts.SecondaryHashFunction = opts.SecondaryHashFunction
-	if opts.IndexLookupPlanner != nil {
-		headOpts.IndexLookupPlanner = opts.IndexLookupPlanner
+	if opts.IndexLookupPlannerFunc != nil {
+		// Create a planner for the head using the function
+		headOpts.IndexLookupPlanner = opts.IndexLookupPlannerFunc(nil) // Head doesn't have BlockReader metadata
+	} else {
+		// Use default planner for head if no function provided
+		headOpts.IndexLookupPlanner = &index.ScanEmptyMatchersLookupPlanner{}
 	}
-	// For now, IndexLookupPlannerFunc is only used for on-disk blocks, not for the head
-	// The head continues to use the regular IndexLookupPlanner (if provided)
 	if opts.WALReplayConcurrency > 0 {
 		headOpts.WALReplayConcurrency = opts.WALReplayConcurrency
 	}
@@ -1773,11 +1767,9 @@ func (db *DB) reloadBlocks() (err error) {
 	}()
 
 	db.mtx.RLock()
-	var plannerFunc IndexLookupPlannerFunc
-	if db.opts.IndexLookupPlannerFunc != nil {
-		plannerFunc = db.opts.IndexLookupPlannerFunc
-	} else if db.opts.IndexLookupPlanner != nil {
-		plannerFunc = func(BlockReader) index.LookupPlanner { return db.opts.IndexLookupPlanner }
+	plannerFunc := db.opts.IndexLookupPlannerFunc
+	if plannerFunc == nil {
+		plannerFunc = func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
 	}
 	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.PostingsDecoderFactory, plannerFunc, db.opts.SeriesHashCache, db.blockPostingsForMatchersCacheFactory)
 	db.mtx.RUnlock()
