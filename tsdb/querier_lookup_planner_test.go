@@ -38,7 +38,7 @@ type mockLookupPlanner struct {
 	errorToReturn error
 }
 
-func (m *mockLookupPlanner) PlanIndexLookup(ctx context.Context, plan index.LookupPlan, minT, maxT int64) (index.LookupPlan, error) {
+func (m *mockLookupPlanner) PlanIndexLookup(_ context.Context, plan index.LookupPlan, minT, maxT int64) (index.LookupPlan, error) {
 	if m.returnError {
 		if m.errorToReturn != nil {
 			return nil, m.errorToReturn
@@ -102,7 +102,7 @@ func (m *mockBlockReader) Meta() BlockMeta {
 	return m.meta
 }
 
-func (m *mockBlockReader) Size() int64 {
+func (*mockBlockReader) Size() int64 {
 	return 1024 // dummy size
 }
 
@@ -286,7 +286,7 @@ func testQuerierWithIndexLookupPlanner[L storage.Labels, S seriesSetWithLabels[L
 		// Should return series 5 (metric3 with empty job)
 		require.Len(t, actualSeries, 1)
 		require.Equal(t, "metric3", actualSeries[0].Get("__name__"))
-		require.Equal(t, "", actualSeries[0].Get("job"))
+		require.Empty(t, actualSeries[0].Get("job"))
 		require.Equal(t, "a", actualSeries[0].Get("instance"))
 	})
 }
