@@ -1118,11 +1118,7 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		return nil, err
 	}
 	db.head.writeNotified = db.writeNotified
-	if opts.IndexLookupPlannerFunc != nil {
-		db.head.opts.IndexLookupPlanner = opts.IndexLookupPlannerFunc(db.head)
-	} else {
-		db.head.opts.IndexLookupPlanner = &index.ScanEmptyMatchersLookupPlanner{}
-	}
+	db.head.opts.IndexLookupPlannerFunc = opts.IndexLookupPlannerFunc
 
 	// Register metrics after assigning the head block.
 	db.metrics = newDBMetrics(db, r)
