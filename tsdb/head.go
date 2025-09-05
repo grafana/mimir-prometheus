@@ -195,8 +195,8 @@ type HeadOptions struct {
 	// EnableSharding enables ShardedPostings() support in the Head.
 	EnableSharding bool
 
-	// IndexLookupPlanner can be optionally used when querying the index of the Head.
-	IndexLookupPlanner index.LookupPlanner
+	// IndexLookupPlannerFunc can be optionally used when querying the index of the Head.
+	IndexLookupPlannerFunc IndexLookupPlannerFunc
 
 	// Timely compaction allows head compaction to happen when min block range can no longer be appended,
 	// without requiring 1.5x the chunk range worth of data in the head.
@@ -231,7 +231,7 @@ func DefaultHeadOptions() *HeadOptions {
 		IsolationDisabled:               defaultIsolationDisabled,
 		PostingsForMatchersCacheFactory: DefaultPostingsForMatchersCacheFactory,
 		WALReplayConcurrency:            defaultWALReplayConcurrency,
-		IndexLookupPlanner:              &index.ScanEmptyMatchersLookupPlanner{},
+		IndexLookupPlannerFunc:          func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} },
 	}
 	ho.OutOfOrderCapMax.Store(DefaultOutOfOrderCapMax)
 	return ho
