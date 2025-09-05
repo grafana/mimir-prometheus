@@ -994,6 +994,10 @@ func (r *Reader) IndexLookupPlanner() LookupPlanner {
 	return r.lookupPlanner
 }
 
+func (r *Reader) SetLookupPlanner(planner LookupPlanner) {
+	r.lookupPlanner = planner
+}
+
 type postingOffset struct {
 	value string
 	off   int
@@ -1032,11 +1036,11 @@ func NewReaderWithCache(b ByteSlice, decoder PostingsDecoder, cacheProvider Read
 
 // NewFileReader returns a new index reader against the given index file.
 func NewFileReader(path string, decoder PostingsDecoder) (*Reader, error) {
-	return NewFileReaderWithOptions(path, decoder, func(*Reader) LookupPlanner { return &ScanEmptyMatchersLookupPlanner{} }, nil)
+	return NewFileReaderWithOptions(path, decoder, nil)
 }
 
 // NewFileReaderWithOptions is like NewFileReader but allows to pass a cache provider.
-func NewFileReaderWithOptions(path string, decoder PostingsDecoder, plannerFunc IndexLookupPlannerFunc, cacheProvider ReaderCacheProvider) (*Reader, error) {
+func NewFileReaderWithOptions(path string, decoder PostingsDecoder, cacheProvider ReaderCacheProvider) (*Reader, error) {
 	f, err := fileutil.OpenMmapFile(path)
 	if err != nil {
 		return nil, err
@@ -1048,9 +1052,6 @@ func NewFileReaderWithOptions(path string, decoder PostingsDecoder, plannerFunc 
 			f.Close(),
 		).Err()
 	}
-
-	// Call the planner function with the reader and set the resulting planner
-	r.lookupPlanner = plannerFunc(r)
 
 	return r, nil
 }
