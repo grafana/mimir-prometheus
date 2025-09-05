@@ -1891,17 +1891,7 @@ func openBlocks(l *slog.Logger, dir string, loaded []*Block, chunkPool chunkenc.
 				cacheProvider = cache.GetBlockCacheProvider(meta.ULID.String())
 			}
 
-			// First open the block temporarily to get a BlockReader for plannerFunc
-			tempBlock, err := OpenBlockWithOptions(l, bDir, chunkPool, postingsDecoderFactory, &index.ScanEmptyMatchersLookupPlanner{}, cacheProvider, postingsCacheFactory)
-			if err != nil {
-				corrupted[meta.ULID] = err
-				continue
-			}
-			blockPlanner := plannerFunc(tempBlock)
-			// Close the temporary block since we'll reopen with the correct planner
-			tempBlock.Close()
-
-			block, err = OpenBlockWithOptions(l, bDir, chunkPool, postingsDecoderFactory, blockPlanner, cacheProvider, postingsCacheFactory)
+			block, err = OpenBlockWithOptions(l, bDir, chunkPool, postingsDecoderFactory, plannerFunc, cacheProvider, postingsCacheFactory)
 			if err != nil {
 				corrupted[meta.ULID] = err
 				continue

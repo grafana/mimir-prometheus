@@ -120,6 +120,8 @@ type PostingsEncoder func(*encoding.Encbuf, []uint32) error
 
 type PostingsDecoder func(encoding.Decbuf) (int, Postings, error)
 
+type IndexLookupPlannerFunc func(*Reader) LookupPlanner
+
 // Writer implements the IndexWriter interface for the standard
 // serialization format.
 type Writer struct {
@@ -1030,22 +1032,25 @@ func NewReaderWithCache(b ByteSlice, decoder PostingsDecoder, cacheProvider Read
 
 // NewFileReader returns a new index reader against the given index file.
 func NewFileReader(path string, decoder PostingsDecoder) (*Reader, error) {
-	return NewFileReaderWithOptions(path, decoder, &ScanEmptyMatchersLookupPlanner{}, nil)
+	return NewFileReaderWithOptions(path, decoder, func(*Reader) LookupPlanner { return &ScanEmptyMatchersLookupPlanner{} }, nil)
 }
 
 // NewFileReaderWithOptions is like NewFileReader but allows to pass a cache provider.
-func NewFileReaderWithOptions(path string, decoder PostingsDecoder, planner LookupPlanner, cacheProvider ReaderCacheProvider) (*Reader, error) {
+func NewFileReaderWithOptions(path string, decoder PostingsDecoder, plannerFunc IndexLookupPlannerFunc, cacheProvider ReaderCacheProvider) (*Reader, error) {
 	f, err := fileutil.OpenMmapFile(path)
 	if err != nil {
 		return nil, err
 	}
-	r, err := newReader(realByteSlice(f.Bytes()), f, decoder, planner, cacheProvider)
+	r, err := newReader(realByteSlice(f.Bytes()), f, decoder, &ScanEmptyMatchersLookupPlanner{}, cacheProvider)
 	if err != nil {
 		return nil, tsdb_errors.NewMulti(
 			err,
 			f.Close(),
 		).Err()
 	}
+
+	// Call the planner function with the reader and set the resulting planner
+	r.lookupPlanner = plannerFunc(r)
 
 	return r, nil
 }

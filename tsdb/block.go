@@ -347,11 +347,11 @@ type Block struct {
 // OpenBlock opens the block in the directory. It can be passed a chunk pool, which is used
 // to instantiate chunk structs.
 func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory) (pb *Block, err error) {
-	return OpenBlockWithOptions(logger, dir, pool, postingsDecoderFactory, &index.ScanEmptyMatchersLookupPlanner{}, nil, DefaultPostingsForMatchersCacheFactory)
+	return OpenBlockWithOptions(logger, dir, pool, postingsDecoderFactory, func(*index.Reader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }, nil, DefaultPostingsForMatchersCacheFactory)
 }
 
 // OpenBlockWithOptions is like OpenBlock but allows to pass a cache provider and sharding function.
-func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory, planner index.LookupPlanner, cache index.ReaderCacheProvider, postingsCacheFactory PostingsForMatchersCacheFactory) (pb *Block, err error) {
+func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory, plannerFunc index.IndexLookupPlannerFunc, cache index.ReaderCacheProvider, postingsCacheFactory PostingsForMatchersCacheFactory) (pb *Block, err error) {
 	if logger == nil {
 		logger = promslog.NewNopLogger()
 	}
@@ -376,7 +376,7 @@ func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, p
 	if postingsDecoderFactory != nil {
 		decoder = postingsDecoderFactory(meta)
 	}
-	indexReader, err := index.NewFileReaderWithOptions(filepath.Join(dir, indexFilename), decoder, planner, cache)
+	indexReader, err := index.NewFileReaderWithOptions(filepath.Join(dir, indexFilename), decoder, plannerFunc, cache)
 	if err != nil {
 		return nil, err
 	}
