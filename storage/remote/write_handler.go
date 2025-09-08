@@ -541,7 +541,7 @@ type OTLPOptions struct {
 
 // NewOTLPWriteHandler creates a http.Handler that accepts OTLP write requests and
 // writes them to the provided appendable.
-func NewOTLPWriteHandler(logger *slog.Logger, _ prometheus.Registerer, appendable storage.Appendable, configFunc func() config.Config, enableCTZeroIngestion bool, validIntervalCTZeroIngestion time.Duration, opts OTLPOptions) http.Handler {
+func NewOTLPWriteHandler(logger *slog.Logger, _ prometheus.Registerer, appendable storage.Appendable, configFunc func() config.Config, opts OTLPOptions) http.Handler {
 	if opts.NativeDelta && opts.ConvertDelta {
 		// This should be validated when iterating through feature flags, so not expected to fail here.
 		panic("cannot enable native delta ingestion and delta2cumulative conversion at the same time")
@@ -552,12 +552,10 @@ func NewOTLPWriteHandler(logger *slog.Logger, _ prometheus.Registerer, appendabl
 			logger:     logger,
 			appendable: appendable,
 		},
-		config:                       configFunc,
-		allowDeltaTemporality:        opts.NativeDelta,
-		lookbackDelta:                opts.LookbackDelta,
-		enableTypeAndUnitLabels:      opts.EnableTypeAndUnitLabels,
-		enableCTZeroIngestion:        enableCTZeroIngestion,
-		validIntervalCTZeroIngestion: validIntervalCTZeroIngestion,
+		config:                  configFunc,
+		allowDeltaTemporality:   opts.NativeDelta,
+		lookbackDelta:           opts.LookbackDelta,
+		enableTypeAndUnitLabels: opts.EnableTypeAndUnitLabels,
 	}
 
 	wh := &otlpWriteHandler{logger: logger, defaultConsumer: ex}
@@ -596,10 +594,6 @@ type rwExporter struct {
 	allowDeltaTemporality   bool
 	lookbackDelta           time.Duration
 	enableTypeAndUnitLabels bool
-
-	// Mimir specifics.
-	enableCTZeroIngestion        bool
-	validIntervalCTZeroIngestion time.Duration
 }
 
 func (rw *rwExporter) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) error {
@@ -617,11 +611,7 @@ func (rw *rwExporter) ConsumeMetrics(ctx context.Context, md pmetric.Metrics) er
 		AllowDeltaTemporality:             rw.allowDeltaTemporality,
 		LookbackDelta:                     rw.lookbackDelta,
 		EnableTypeAndUnitLabels:           rw.enableTypeAndUnitLabels,
-
-		// Mimir specifics.
-		EnableCreatedTimestampZeroIngestion:        rw.enableCTZeroIngestion,
-		ValidIntervalCreatedTimestampZeroIngestion: rw.validIntervalCTZeroIngestion,
-	}, rw.logger)
+	})
 	if err != nil {
 		rw.logger.Warn("Error translating OTLP metrics to Prometheus write request", "err", err)
 	}

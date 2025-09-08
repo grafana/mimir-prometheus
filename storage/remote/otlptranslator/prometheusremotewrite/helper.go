@@ -21,7 +21,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
-	"log/slog"
 	"math"
 	"slices"
 	"sort"
@@ -287,7 +286,7 @@ func aggregationTemporality(metric pmetric.Metric) (pmetric.AggregationTemporali
 // However, work is under way to resolve this shortcoming through a feature called native histograms custom buckets:
 // https://github.com/prometheus/prometheus/issues/13485.
 func (c *PrometheusConverter) addHistogramDataPoints(ctx context.Context, dataPoints pmetric.HistogramDataPointSlice,
-	resource pcommon.Resource, settings Settings, metadata prompb.MetricMetadata, scope scope, logger *slog.Logger,
+	resource pcommon.Resource, settings Settings, metadata prompb.MetricMetadata, scope scope,
 ) error {
 	for x := 0; x < dataPoints.Len(); x++ {
 		if err := c.everyN.checkContext(ctx); err != nil {
@@ -296,8 +295,6 @@ func (c *PrometheusConverter) addHistogramDataPoints(ctx context.Context, dataPo
 
 		pt := dataPoints.At(x)
 		timestamp := convertTimeStamp(pt.Timestamp())
-		startTimestampNs := pt.StartTimestamp()
-		startTimestampMs := convertTimeStamp(startTimestampNs)
 		baseLabels, err := createAttributes(resource, pt.Attributes(), scope, settings, nil, false, metadata)
 		if err != nil {
 			return err
@@ -307,7 +304,6 @@ func (c *PrometheusConverter) addHistogramDataPoints(ctx context.Context, dataPo
 		// omitted
 		if pt.HasSum() {
 			// treat sum as a sample in an individual TimeSeries
-			sumlabels := createLabels(metadata.MetricFamilyName+sumStr, baseLabels)
 			sum := &prompb.Sample{
 				Value:     pt.Sum(),
 				Timestamp: timestamp,
@@ -316,7 +312,7 @@ func (c *PrometheusConverter) addHistogramDataPoints(ctx context.Context, dataPo
 				sum.Value = math.Float64frombits(value.StaleNaN)
 			}
 
-			c.handleStartTime(startTimestampMs, timestamp, sumlabels, settings, "histogram_sum", sum.Value, logger)
+			sumlabels := createLabels(metadata.MetricFamilyName+sumStr, baseLabels)
 			c.addSample(sum, sumlabels)
 		}
 
@@ -330,7 +326,6 @@ func (c *PrometheusConverter) addHistogramDataPoints(ctx context.Context, dataPo
 		}
 
 		countlabels := createLabels(metadata.MetricFamilyName+countStr, baseLabels)
-		c.handleStartTime(startTimestampMs, timestamp, countlabels, settings, "histogram_count", count.Value, logger)
 		c.addSample(count, countlabels)
 
 		// cumulative count for conversion to cumulative histogram
@@ -355,7 +350,6 @@ func (c *PrometheusConverter) addHistogramDataPoints(ctx context.Context, dataPo
 			}
 			boundStr := strconv.FormatFloat(bound, 'f', -1, 64)
 			labels := createLabels(metadata.MetricFamilyName+bucketStr, baseLabels, leStr, boundStr)
-			c.handleStartTime(startTimestampMs, timestamp, labels, settings, "histogram_bucket", bucket.Value, logger)
 			ts := c.addSample(bucket, labels)
 
 			bucketBounds = append(bucketBounds, bucketBoundsData{ts: ts, bound: bound})
@@ -370,15 +364,12 @@ func (c *PrometheusConverter) addHistogramDataPoints(ctx context.Context, dataPo
 			infBucket.Value = float64(pt.Count())
 		}
 		infLabels := createLabels(metadata.MetricFamilyName+bucketStr, baseLabels, leStr, pInfStr)
-		c.handleStartTime(startTimestampMs, timestamp, infLabels, settings, "histogram_inf_bucket", infBucket.Value, logger)
 		ts := c.addSample(infBucket, infLabels)
 
 		bucketBounds = append(bucketBounds, bucketBoundsData{ts: ts, bound: math.Inf(1)})
 		if err := c.addExemplars(ctx, pt, bucketBounds); err != nil {
 			return err
 		}
-
-		logger.Debug("addHistogramDataPoints", "labels", labelsStringer(createLabels(metadata.MetricFamilyName, baseLabels)), "start_ts", startTimestampMs, "sample_ts", timestamp, "type", "histogram")
 	}
 
 	return nil
@@ -502,7 +493,7 @@ func findMinAndMaxTimestamps(metric pmetric.Metric, minTimestamp, maxTimestamp p
 }
 
 func (c *PrometheusConverter) addSummaryDataPoints(ctx context.Context, dataPoints pmetric.SummaryDataPointSlice, resource pcommon.Resource,
-	settings Settings, metadata prompb.MetricMetadata, scope scope, logger *slog.Logger,
+	settings Settings, metadata prompb.MetricMetadata, scope scope,
 ) error {
 	for x := 0; x < dataPoints.Len(); x++ {
 		if err := c.everyN.checkContext(ctx); err != nil {
@@ -511,7 +502,6 @@ func (c *PrometheusConverter) addSummaryDataPoints(ctx context.Context, dataPoin
 
 		pt := dataPoints.At(x)
 		timestamp := convertTimeStamp(pt.Timestamp())
-		startTimestampMs := convertTimeStamp(pt.StartTimestamp())
 		baseLabels, err := createAttributes(resource, pt.Attributes(), scope, settings, nil, false, metadata)
 		if err != nil {
 			return err
@@ -527,7 +517,6 @@ func (c *PrometheusConverter) addSummaryDataPoints(ctx context.Context, dataPoin
 		}
 		// sum and count of the summary should append suffix to baseName
 		sumlabels := createLabels(metadata.MetricFamilyName+sumStr, baseLabels)
-		c.handleStartTime(startTimestampMs, timestamp, sumlabels, settings, "summary_sum", sum.Value, logger)
 		c.addSample(sum, sumlabels)
 
 		// treat count as a sample in an individual TimeSeries
@@ -539,7 +528,6 @@ func (c *PrometheusConverter) addSummaryDataPoints(ctx context.Context, dataPoin
 			count.Value = math.Float64frombits(value.StaleNaN)
 		}
 		countlabels := createLabels(metadata.MetricFamilyName+countStr, baseLabels)
-		c.handleStartTime(startTimestampMs, timestamp, countlabels, settings, "summary_count", count.Value, logger)
 		c.addSample(count, countlabels)
 
 		// process each percentile/quantile
@@ -554,11 +542,8 @@ func (c *PrometheusConverter) addSummaryDataPoints(ctx context.Context, dataPoin
 			}
 			percentileStr := strconv.FormatFloat(qt.Quantile(), 'f', -1, 64)
 			qtlabels := createLabels(metadata.MetricFamilyName, baseLabels, quantileStr, percentileStr)
-			c.handleStartTime(startTimestampMs, timestamp, qtlabels, settings, "summary_quantile", quantile.Value, logger)
 			c.addSample(quantile, qtlabels)
 		}
-
-		logger.Debug("addSummaryDataPoints", "labels", labelsStringer(createLabels(metadata.MetricFamilyName, baseLabels)), "start_ts", startTimestampMs, "sample_ts", timestamp, "type", "summary")
 	}
 
 	return nil
@@ -629,48 +614,6 @@ func (c *PrometheusConverter) getOrCreateTimeSeries(lbls []prompb.Label) (*promp
 	}
 	c.unique[h] = ts
 	return ts, true
-}
-
-// defaultIntervalForStartTimestamps is hardcoded to 5 minutes in milliseconds.
-// Assuming a DPM of 1 and knowing that Grafana's $__rate_interval is typically 4 times the write interval that would give
-// us 4 minutes. We add an extra minute for delays.
-const defaultIntervalForStartTimestamps = int64(300_000)
-
-// handleStartTime adds a zero sample at startTs only if startTs is within validIntervalForStartTimestamps of the sample timestamp.
-// The reason for doing this is that PRW v1 doesn't support Created Timestamps. After switching to PRW v2's direct CT support,
-// make use of its direct support fort Created Timestamps instead.
-// See https://github.com/prometheus/prometheus/issues/14600 for context.
-// See https://opentelemetry.io/docs/specs/otel/metrics/data-model/#resets-and-gaps to know more about how OTel handles
-// resets for cumulative metrics.
-func (c *PrometheusConverter) handleStartTime(startTs, ts int64, labels []prompb.Label, settings Settings, typ string, val float64, logger *slog.Logger) {
-	if !settings.EnableCreatedTimestampZeroIngestion {
-		return
-	}
-	// We want to ignore the write in three cases.
-	// - We've seen samples with the start timestamp set to epoch meaning it wasn't set by the sender so we skip those.
-	// - If StartTimestamp equals Timestamp ist means we don't know at which time the metric restarted according to the spec.
-	// - StartTimestamp can never be greater than the sample timestamp.
-	if startTs <= 0 || startTs == ts || startTs > ts {
-		return
-	}
-
-	threshold := defaultIntervalForStartTimestamps
-	if settings.ValidIntervalCreatedTimestampZeroIngestion != 0 {
-		threshold = settings.ValidIntervalCreatedTimestampZeroIngestion.Milliseconds()
-	}
-
-	// The difference between the start and the actual timestamp is more than a reasonable time, so we skip this sample.
-	if ts-startTs > threshold {
-		return
-	}
-
-	logger.Debug("adding zero value at start_ts", "type", typ, "labels", labelsStringer(labels), "start_ts", startTs, "sample_ts", ts, "sample_value", val)
-
-	var createdTimeValue float64
-	if settings.EnableStartTimeQuietZero {
-		createdTimeValue = math.Float64frombits(value.QuietZeroNaN)
-	}
-	c.addSample(&prompb.Sample{Timestamp: startTs, Value: createdTimeValue}, labels)
 }
 
 // addResourceTargetInfo converts the resource to the target info metric.
