@@ -316,6 +316,8 @@ type Options struct {
 
 	// IndexLookupPlannerFunc is a function to return index.LookupPlanner from a BlockReader.
 	// Similar to BlockChunkQuerierFunc, this allows per-block planner creation.
+	// For on-disk blocks, IndexLookupPlannerFunc is invoked once when they are opened.
+	// For in-memory blocks IndexLookupPlannerFunc is invoked every time statistics are genearted, which happens according to HeadStatisticsCollectionFrequency.
 	IndexLookupPlannerFunc IndexLookupPlannerFunc
 }
 
@@ -916,6 +918,9 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 	if opts.OutOfOrderTimeWindow < 0 {
 		opts.OutOfOrderTimeWindow = 0
 	}
+	if opts.IndexLookupPlannerFunc == nil {
+		opts.IndexLookupPlannerFunc = func(b BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
+	}
 	if opts.PostingsForMatchersCacheKeyFunc == nil {
 		opts.PostingsForMatchersCacheKeyFunc = DefaultPostingsForMatchersCacheKeyFunc
 	}
@@ -1106,6 +1111,9 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		opts.HeadPostingsForMatchersCacheMetrics,
 	)
 	headOpts.SecondaryHashFunction = opts.SecondaryHashFunction
+	if opts.IndexLookupPlannerFunc != nil {
+		headOpts.IndexLookupPlannerFunc = opts.IndexLookupPlannerFunc
+	}
 	if opts.WALReplayConcurrency > 0 {
 		headOpts.WALReplayConcurrency = opts.WALReplayConcurrency
 	}
@@ -1118,7 +1126,6 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 		return nil, err
 	}
 	db.head.writeNotified = db.writeNotified
-	db.head.opts.IndexLookupPlannerFunc = opts.IndexLookupPlannerFunc
 
 	// Register metrics after assigning the head block.
 	db.metrics = newDBMetrics(db, r)
@@ -1761,11 +1768,7 @@ func (db *DB) reloadBlocks() (err error) {
 	}()
 
 	db.mtx.RLock()
-	plannerFunc := db.opts.IndexLookupPlannerFunc
-	if plannerFunc == nil {
-		plannerFunc = func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
-	}
-	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.PostingsDecoderFactory, plannerFunc, db.opts.SeriesHashCache, db.blockPostingsForMatchersCacheFactory)
+	loadable, corrupted, err := openBlocks(db.logger, db.dir, db.blocks, db.chunkPool, db.opts.PostingsDecoderFactory, db.opts.IndexLookupPlannerFunc, db.opts.SeriesHashCache, db.blockPostingsForMatchersCacheFactory)
 	db.mtx.RUnlock()
 	if err != nil {
 		return err
