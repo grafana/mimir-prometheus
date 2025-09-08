@@ -401,8 +401,8 @@ func (h *Head) resetWLReplayResources() {
 func (h *Head) updateHeadStatistics() {
 	start := time.Now()
 	stats := index.Statistics(newFullHeadStatistics(h))
-	planner := h.opts.IndexLookupPlannerFunc(h)
 	h.postingsStats.Store(&stats)
+	planner := h.opts.IndexLookupPlannerFunc(h)
 	h.planner.Store(&planner)
 	h.metrics.headStatisticsTimeToUpdate.Set(time.Since(start).Seconds())
 	h.metrics.headStatisticsLastUpdate.Set(float64(time.Now().Unix()))
