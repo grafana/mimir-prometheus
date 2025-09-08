@@ -396,7 +396,6 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.ConvertOTLPDelta,
 		o.NativeOTLPDeltaIngestion,
 		o.CTZeroIngestionEnabled,
-		o.ValidIntervalCreatedTimestampZeroIngestion,
 		o.LookbackDelta,
 		o.EnableTypeAndUnitLabels,
 		nil,

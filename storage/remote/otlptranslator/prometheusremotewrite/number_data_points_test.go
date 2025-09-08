@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
@@ -122,8 +121,7 @@ func TestPrometheusConverter_addGaugeNumberDataPoints(t *testing.T) {
 				metric.Gauge().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					PromoteScopeMetadata:                tt.promoteScope,
-					EnableCreatedTimestampZeroIngestion: true,
+					PromoteScopeMetadata: tt.promoteScope,
 				},
 				prompb.MetricMetadata{MetricFamilyName: metric.Name()},
 				tt.scope,
@@ -349,14 +347,11 @@ func TestPrometheusConverter_addSumNumberDataPoints(t *testing.T) {
 				context.Background(),
 				metric.Sum().DataPoints(),
 				pcommon.NewResource(),
-				metric,
 				Settings{
-					PromoteScopeMetadata:                tt.promoteScope,
-					EnableCreatedTimestampZeroIngestion: true,
+					PromoteScopeMetadata: tt.promoteScope,
 				},
 				prompb.MetricMetadata{MetricFamilyName: metric.Name()},
 				tt.scope,
-				promslog.NewNopLogger(),
 			)
 
 			require.Equal(t, tt.want(), converter.unique)

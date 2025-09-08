@@ -18,19 +18,15 @@ package prometheusremotewrite
 
 import (
 	"context"
-	"math"
 	"testing"
 	"time"
 
-	"github.com/google/go-cmp/cmp"
 	"github.com/prometheus/common/model"
-	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 
 	"github.com/prometheus/prometheus/config"
-	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/prompb"
 	"github.com/prometheus/prometheus/util/testutil"
 )
@@ -573,19 +569,13 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 		schemaURL:  "https://schema.com",
 		attributes: scopeAttrs,
 	}
-
-	now := time.Now()
-	nowUnixNano := pcommon.Timestamp(now.UnixNano())
-	nowMinus2m30s := pcommon.Timestamp(now.Add(-2 * time.Minute).Add(-30 * time.Second).UnixNano())
-	nowMinus6m := pcommon.Timestamp(now.Add(-20 * time.Second).UnixNano())
-	nowMinus1h := pcommon.Timestamp(now.Add(-1 * time.Hour).UnixNano())
+	ts := pcommon.Timestamp(time.Now().UnixNano())
 	tests := []struct {
-		name                  string
-		metric                func() pmetric.Metric
-		scope                 scope
-		promoteScope          bool
-		overrideValidInterval time.Duration
-		want                  func() map[uint64]*prompb.TimeSeries
+		name         string
+		metric       func() pmetric.Metric
+		scope        scope
+		promoteScope bool
+		want         func() map[uint64]*prompb.TimeSeries
 	}{
 		{
 			name: "summary with start time and without scope promotion",
@@ -595,8 +585,8 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				metric.SetEmptySummary()
 
 				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(nowUnixNano)
-				dp.SetStartTimestamp(nowUnixNano)
+				dp.SetTimestamp(ts)
+				dp.SetStartTimestamp(ts)
 
 				return metric
 			},
@@ -613,164 +603,13 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(countLabels): {
 						Labels: countLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-				}
-			},
-		},
-		{
-			name: "summary with start time equal to sample timestamp",
-			metric: func() pmetric.Metric {
-				metric := pmetric.NewMetric()
-				metric.SetName("test_summary")
-				metric.SetEmptySummary()
-
-				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(nowUnixNano)
-				dp.SetStartTimestamp(nowUnixNano)
-
-				return metric
-			},
-			scope:        defaultScope,
-			promoteScope: false,
-			want: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
-				}
-				sumLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
-				}
-				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
-						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(sumLabels): {
-						Labels: sumLabels,
-						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-				}
-			},
-		},
-		{
-			name: "summary with start time within default valid interval to sample timestamp",
-			metric: func() pmetric.Metric {
-				metric := pmetric.NewMetric()
-				metric.SetName("test_summary")
-				metric.SetEmptySummary()
-
-				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(nowUnixNano)
-				dp.SetStartTimestamp(nowMinus2m30s)
-
-				return metric
-			},
-			want: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
-				}
-				sumLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
-				}
-				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
-						Samples: []prompb.Sample{
-							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus2m30s)},
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(sumLabels): {
-						Labels: sumLabels,
-						Samples: []prompb.Sample{
-							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus2m30s)},
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-				}
-			},
-			overrideValidInterval: 10 * time.Minute,
-		},
-		{
-			name: "summary with start time within overiden valid interval to sample timestamp",
-			metric: func() pmetric.Metric {
-				metric := pmetric.NewMetric()
-				metric.SetName("test_summary")
-				metric.SetEmptySummary()
-
-				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(nowUnixNano)
-				dp.SetStartTimestamp(nowMinus6m)
-
-				return metric
-			},
-			want: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
-				}
-				sumLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
-				}
-				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
-						Samples: []prompb.Sample{
-							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus6m)},
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(sumLabels): {
-						Labels: sumLabels,
-						Samples: []prompb.Sample{
-							{Value: math.Float64frombits(value.QuietZeroNaN), Timestamp: convertTimeStamp(nowMinus6m)},
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-				}
-			},
-		},
-		{
-			name: "summary with start time and with scope conversion",
-			metric: func() pmetric.Metric {
-				metric := pmetric.NewMetric()
-				metric.SetName("test_summary")
-				metric.SetEmptySummary()
-
-				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(nowUnixNano)
-				dp.SetStartTimestamp(nowMinus1h)
-
-				return metric
-			},
-			want: func() map[uint64]*prompb.TimeSeries {
-				labels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + countStr},
-				}
-				sumLabels := []prompb.Label{
-					{Name: model.MetricNameLabel, Value: "test_summary" + sumStr},
-				}
-				return map[uint64]*prompb.TimeSeries{
-					timeSeriesSignature(labels): {
-						Labels: labels,
-						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
-						},
-					},
-					timeSeriesSignature(sumLabels): {
-						Labels: sumLabels,
-						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 				}
@@ -784,8 +623,8 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				metric.SetEmptySummary()
 
 				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(nowUnixNano)
-				dp.SetStartTimestamp(nowUnixNano)
+				dp.SetTimestamp(ts)
+				dp.SetStartTimestamp(ts)
 
 				return metric
 			},
@@ -824,13 +663,13 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(countLabels): {
 						Labels: countLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 				}
@@ -844,7 +683,7 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 				metric.SetEmptySummary()
 
 				dp := metric.Summary().DataPoints().AppendEmpty()
-				dp.SetTimestamp(nowUnixNano)
+				dp.SetTimestamp(ts)
 
 				return metric
 			},
@@ -861,13 +700,13 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 					timeSeriesSignature(countLabels): {
 						Labels: countLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 					timeSeriesSignature(sumLabels): {
 						Labels: sumLabels,
 						Samples: []prompb.Sample{
-							{Value: 0, Timestamp: convertTimeStamp(nowUnixNano)},
+							{Value: 0, Timestamp: convertTimeStamp(ts)},
 						},
 					},
 				}
@@ -879,31 +718,21 @@ func TestPrometheusConverter_AddSummaryDataPoints(t *testing.T) {
 			metric := tt.metric()
 			converter := NewPrometheusConverter()
 
-			err := converter.addSummaryDataPoints(
+			converter.addSummaryDataPoints(
 				context.Background(),
 				metric.Summary().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					PromoteScopeMetadata:                       tt.promoteScope,
-					EnableCreatedTimestampZeroIngestion:        true,
-					EnableStartTimeQuietZero:                   true,
-					ValidIntervalCreatedTimestampZeroIngestion: tt.overrideValidInterval,
+					PromoteScopeMetadata: tt.promoteScope,
 				},
 				prompb.MetricMetadata{MetricFamilyName: metric.Name()},
 				tt.scope,
-				promslog.NewNopLogger(),
 			)
-			require.NoError(t, err)
 
-			testutil.RequireEqualWithOptions(t, tt.want(), converter.unique, []cmp.Option{cmp.Comparer(equalSamples)})
+			testutil.RequireEqual(t, tt.want(), converter.unique)
 			require.Empty(t, converter.conflicts)
 		})
 	}
-}
-
-func equalSamples(a, b prompb.Sample) bool {
-	// Compare Float64bits so NaN values which are exactly the same will compare equal.
-	return a.Timestamp == b.Timestamp && math.Float64bits(a.Value) == math.Float64bits(b.Value)
 }
 
 func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
@@ -1068,19 +897,16 @@ func TestPrometheusConverter_AddHistogramDataPoints(t *testing.T) {
 			metric := tt.metric()
 			converter := NewPrometheusConverter()
 
-			err := converter.addHistogramDataPoints(
+			converter.addHistogramDataPoints(
 				context.Background(),
 				metric.Histogram().DataPoints(),
 				pcommon.NewResource(),
 				Settings{
-					PromoteScopeMetadata:                tt.promoteScope,
-					EnableCreatedTimestampZeroIngestion: true,
+					PromoteScopeMetadata: tt.promoteScope,
 				},
 				prompb.MetricMetadata{MetricFamilyName: metric.Name()},
 				tt.scope,
-				promslog.NewNopLogger(),
 			)
-			require.NoError(t, err)
 
 			require.Equal(t, tt.want(), converter.unique)
 			require.Empty(t, converter.conflicts)
