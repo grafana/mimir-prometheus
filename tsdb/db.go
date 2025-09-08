@@ -919,7 +919,7 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 		opts.OutOfOrderTimeWindow = 0
 	}
 	if opts.IndexLookupPlannerFunc == nil {
-		opts.IndexLookupPlannerFunc = func(b BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
+		opts.IndexLookupPlannerFunc = func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
 	}
 	if opts.PostingsForMatchersCacheKeyFunc == nil {
 		opts.PostingsForMatchersCacheKeyFunc = DefaultPostingsForMatchersCacheKeyFunc
