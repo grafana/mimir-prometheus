@@ -62,7 +62,7 @@ func (m *mockIndexWithPlanner) IndexLookupPlanner() index.LookupPlanner {
 	return m.planner
 }
 
-// concreteLookupPlan is a simple implementation of LookupPlan for testing.
+// ConcreteLookupPlan is a simple implementation of LookupPlan for testing.
 // Note: We can't use the unexported concreteLookupPlan from index package,
 // so we need our own implementation.
 type ConcreteLookupPlan struct {
