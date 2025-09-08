@@ -196,8 +196,8 @@ func (oh *HeadAndOOOIndexReader) LabelValues(ctx context.Context, name string, h
 
 // IndexLookupPlanner returns the index lookup planner for this reader.
 func (oh *HeadAndOOOIndexReader) IndexLookupPlanner() index.LookupPlanner {
-	if oh.head.opts.IndexLookupPlannerFunc != nil {
-		return oh.head.opts.IndexLookupPlannerFunc(oh.head)
+	if p := oh.head.planner.Load(); p != nil {
+		return *p
 	}
 	return &index.ScanEmptyMatchersLookupPlanner{}
 }
@@ -538,8 +538,8 @@ func (*OOOCompactionHeadIndexReader) Close() error {
 
 // IndexLookupPlanner returns the index lookup planner for this reader.
 func (ir *OOOCompactionHeadIndexReader) IndexLookupPlanner() index.LookupPlanner {
-	if ir.ch.head.opts.IndexLookupPlannerFunc != nil {
-		return ir.ch.head.opts.IndexLookupPlannerFunc(ir.ch.head)
+	if p := ir.ch.head.planner.Load(); p != nil {
+		return *p
 	}
 	return &index.ScanEmptyMatchersLookupPlanner{}
 }

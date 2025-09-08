@@ -117,6 +117,7 @@ type Head struct {
 	postings      *index.MemPostings // Postings lists for terms.
 	postingsStats atomic.Pointer[index.Statistics]
 	pfmc          *PostingsForMatchersCache
+	planner       atomic.Pointer[index.LookupPlanner]
 
 	tombstones *tombstones.MemTombstones
 
@@ -400,7 +401,9 @@ func (h *Head) resetWLReplayResources() {
 func (h *Head) updateHeadStatistics() {
 	start := time.Now()
 	stats := index.Statistics(newFullHeadStatistics(h))
+	planner := h.opts.IndexLookupPlannerFunc(h)
 	h.postingsStats.Store(&stats)
+	h.planner.Store(&planner)
 	h.metrics.headStatisticsTimeToUpdate.Set(time.Since(start).Seconds())
 	h.metrics.headStatisticsLastUpdate.Set(float64(time.Now().Unix()))
 	h.logger.Info("successfully updated head statistics",
