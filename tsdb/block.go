@@ -404,10 +404,8 @@ func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, p
 		numBytesMeta:      sizeMeta,
 	}
 
-	// Set the lookup planner on the index reader using the block
 	if plannerFunc != nil {
-		planner := plannerFunc(pb)
-		indexReader.SetLookupPlanner(planner)
+		indexReader.SetLookupPlanner(plannerFunc(pb))
 	}
 
 	return pb, nil
