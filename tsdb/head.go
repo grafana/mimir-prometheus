@@ -232,7 +232,7 @@ func DefaultHeadOptions() *HeadOptions {
 		IsolationDisabled:               defaultIsolationDisabled,
 		PostingsForMatchersCacheFactory: DefaultPostingsForMatchersCacheFactory,
 		WALReplayConcurrency:            defaultWALReplayConcurrency,
-		IndexLookupPlannerFunc:          func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} },
+		IndexLookupPlannerFunc:          DefaultIndexLookupPlannerFunc,
 	}
 	ho.OutOfOrderCapMax.Store(DefaultOutOfOrderCapMax)
 	return ho
@@ -398,11 +398,16 @@ func (h *Head) resetWLReplayResources() {
 
 // updateHeadStatistics generates a new set of Statistics for the head, which consists of label cardinality,
 // and the total number of series in the head. It then updates postingsStats to point to the new statistics.
-func (h *Head) updateHeadStatistics() {
+func (h *Head) updateHeadStatistics() error {
 	start := time.Now()
 	stats := index.Statistics(newFullHeadStatistics(h))
 	h.postingsStats.Store(&stats)
-	planner := h.opts.IndexLookupPlannerFunc(h)
+
+	iReader, err := h.Index()
+	if err != nil {
+		return fmt.Errorf("failed to get head index reader: %w", err)
+	}
+	planner := h.opts.IndexLookupPlannerFunc(h.Meta(), iReader)
 	h.planner.Store(&planner)
 	h.metrics.headStatisticsTimeToUpdate.Set(time.Since(start).Seconds())
 	h.metrics.headStatisticsLastUpdate.Set(float64(time.Now().Unix()))
@@ -411,6 +416,7 @@ func (h *Head) updateHeadStatistics() {
 		"num_series", stats.TotalSeries(),
 		"num_label_names", len(h.postings.LabelNames()),
 	)
+	return nil
 }
 
 type headMetrics struct {
@@ -742,7 +748,11 @@ const cardinalityCacheExpirationTime = time.Duration(30) * time.Second
 func (h *Head) Init(minValidTime int64) error {
 	h.minValidTime.Store(minValidTime)
 	// We wait to calculate head statistics until after the WAL is replayed.
-	defer h.updateHeadStatistics()
+	defer func() {
+		if err := h.updateHeadStatistics(); err != nil {
+			h.logger.Error("Failed to update head statistics", "err", err)
+		}
+	}()
 	defer h.resetWLReplayResources()
 	defer func() {
 		h.postings.EnsureOrder(h.opts.WALReplayConcurrency)

@@ -347,7 +347,7 @@ type Block struct {
 // OpenBlock opens the block in the directory. It can be passed a chunk pool, which is used
 // to instantiate chunk structs.
 func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory) (pb *Block, err error) {
-	return OpenBlockWithOptions(logger, dir, pool, postingsDecoderFactory, func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }, nil, DefaultPostingsForMatchersCacheFactory)
+	return OpenBlockWithOptions(logger, dir, pool, postingsDecoderFactory, DefaultIndexLookupPlannerFunc, nil, DefaultPostingsForMatchersCacheFactory)
 }
 
 // OpenBlockWithOptions is like OpenBlock but allows to pass a cache provider and sharding function.
@@ -376,11 +376,14 @@ func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, p
 	if postingsDecoderFactory != nil {
 		decoder = postingsDecoderFactory(meta)
 	}
-	indexReader, err := index.NewFileReaderWithOptions(filepath.Join(dir, indexFilename), decoder, cache)
+	pfmc := postingsCacheFactory.NewPostingsForMatchersCache([]attribute.KeyValue{attribute.String("block", meta.ULID.String())})
+	readerPlannerFunc := func(b *index.Reader) index.LookupPlanner {
+		return plannerFunc(*meta, indexReaderWithPostingsForMatchers{meta.ULID, b, pfmc})
+	}
+	indexReader, err := index.NewFileReaderWithOptions(filepath.Join(dir, indexFilename), decoder, readerPlannerFunc, cache)
 	if err != nil {
 		return nil, err
 	}
-	pfmc := postingsCacheFactory.NewPostingsForMatchersCache([]attribute.KeyValue{attribute.String("block", meta.ULID.String())})
 	ir := indexReaderWithPostingsForMatchers{meta.ULID, indexReader, pfmc}
 	closers = append(closers, ir)
 
@@ -402,10 +405,6 @@ func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, p
 		numBytesIndex:     ir.Size(),
 		numBytesTombstone: sizeTomb,
 		numBytesMeta:      sizeMeta,
-	}
-
-	if plannerFunc != nil {
-		indexReader.SetLookupPlanner(plannerFunc(pb))
 	}
 
 	return pb, nil

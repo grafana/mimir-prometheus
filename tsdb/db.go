@@ -329,7 +329,9 @@ type BlockQuerierFunc func(b BlockReader, mint, maxt int64) (storage.Querier, er
 
 type BlockChunkQuerierFunc func(b BlockReader, mint, maxt int64) (storage.ChunkQuerier, error)
 
-type IndexLookupPlannerFunc func(b BlockReader) index.LookupPlanner
+type IndexLookupPlannerFunc func(meta BlockMeta, reader IndexReader) index.LookupPlanner
+
+var DefaultIndexLookupPlannerFunc IndexLookupPlannerFunc = func(BlockMeta, IndexReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
 
 // DB handles reads and writes of time series falling into
 // a hashed partition of a seriedb.
@@ -738,8 +740,7 @@ func (db *DBReadOnly) Blocks() ([]BlockReader, error) {
 		return nil, ErrClosed
 	default:
 	}
-	plannerFunc := func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
-	loadable, corrupted, err := openBlocks(db.logger, db.dir, nil, nil, DefaultPostingsDecoderFactory, plannerFunc, nil, DefaultPostingsForMatchersCacheFactory)
+	loadable, corrupted, err := openBlocks(db.logger, db.dir, nil, nil, DefaultPostingsDecoderFactory, DefaultIndexLookupPlannerFunc, nil, DefaultPostingsForMatchersCacheFactory)
 	if err != nil {
 		return nil, err
 	}
@@ -919,7 +920,7 @@ func validateOpts(opts *Options, rngs []int64) (*Options, []int64) {
 		opts.OutOfOrderTimeWindow = 0
 	}
 	if opts.IndexLookupPlannerFunc == nil {
-		opts.IndexLookupPlannerFunc = func(BlockReader) index.LookupPlanner { return &index.ScanEmptyMatchersLookupPlanner{} }
+		opts.IndexLookupPlannerFunc = DefaultIndexLookupPlannerFunc
 	}
 	if opts.PostingsForMatchersCacheKeyFunc == nil {
 		opts.PostingsForMatchersCacheKeyFunc = DefaultPostingsForMatchersCacheKeyFunc
@@ -1282,7 +1283,9 @@ func (db *DB) run(ctx context.Context) {
 		case <-headStatsUpdateTicker:
 			// If needed, this could instead be spun off concurrently as an optimization to allow
 			// head compaction to interrupt statistics collection (by taking the postings mutex).
-			db.head.updateHeadStatistics()
+			if err := db.head.updateHeadStatistics(); err != nil {
+				db.logger.Error("update head statistics", "err", err)
+			}
 		case <-db.stopc:
 			return
 		}
