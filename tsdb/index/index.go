@@ -120,6 +120,8 @@ type PostingsEncoder func(*encoding.Encbuf, []uint32) error
 
 type PostingsDecoder func(encoding.Decbuf) (int, Postings, error)
 
+type LookupPlannerFunc func(*Reader) LookupPlanner
+
 // Writer implements the IndexWriter interface for the standard
 // serialization format.
 type Writer struct {
