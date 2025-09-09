@@ -317,7 +317,7 @@ type Options struct {
 	// IndexLookupPlannerFunc is a function to return index.LookupPlanner from a BlockReader.
 	// Similar to BlockChunkQuerierFunc, this allows per-block planner creation.
 	// For on-disk blocks, IndexLookupPlannerFunc is invoked once when they are opened.
-	// For in-memory blocks IndexLookupPlannerFunc is invoked every time statistics are genearted, which happens according to HeadStatisticsCollectionFrequency.
+	// For in-memory blocks IndexLookupPlannerFunc is invoked every time statistics are generated, which happens according to HeadStatisticsCollectionFrequency.
 	IndexLookupPlannerFunc IndexLookupPlannerFunc
 }
 
