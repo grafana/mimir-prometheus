@@ -24,7 +24,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v5.4.0
         with:
-          go-version: '~1.23.0'
+          go-version: '~1.24.0'
           cache: false # We do this ourselves below to avoid conflicts between the different jobs.
 
       - name: Get Go paths
@@ -67,7 +67,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v5.4.0
         with:
-          go-version: '~1.23.0'
+          go-version: '~1.24.0'
           cache: false # We do this ourselves below to avoid conflicts between the different jobs.
 
       - name: Get Go paths
