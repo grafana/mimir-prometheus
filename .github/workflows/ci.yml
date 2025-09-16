@@ -3,6 +3,7 @@ name: CI
 on:
   pull_request:
   push:
+    branches: [main, 'weekly-r**'] # We don't care about other branches in mimir-prometheus.
 
 permissions:
   contents: read
