@@ -44,6 +44,7 @@ jobs:
       - run: go test --tags=slicelabels -race ./cmd/prometheus ./prompb/io/prometheus/client
       - run: go test --tags=forcedirectio -race ./tsdb/
       - run: GOARCH=386 go test ./...
+        if: false # We don't care about this in mimir-prometheus.
       - uses: ./.github/promci/actions/check_proto
         with:
           version: "3.15.8"
