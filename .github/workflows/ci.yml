@@ -403,6 +403,7 @@ jobs:
 
 
   notify-failure:
+    name: Notify on failure
     runs-on: ubuntu-latest
     needs:
       - test_go
@@ -474,3 +475,17 @@ jobs:
             {
               "text": ":warning: *CI failed for upstream merge PR*\n\n<${{ env.PR_URL || format('{0}/{1}/tree/{2}', env.SERVER_URL, env.REPOSITORY, env.BRANCH_NAME) }}|${{ env.PR_NUMBER && format('PR #{0}', env.PR_NUMBER) || format('Branch {0}', env.BRANCH_NAME) }}>\n\nWorkflow run: <${{ env.SERVER_URL }}/${{ env.REPOSITORY }}/actions/runs/${{ env.RUN_ID }}|View failure details>"
             }
+
+  # This job exists to make it easier to define branch protection rules that require CI has passed.
+  ci-success:
+    name: CI succeeded
+    runs-on: ubuntu-latest
+    needs:
+      - test_go
+      - test_go_more
+      - golangci
+      - fuzzing_mimir
+      - codeql
+    steps:
+      - name: Success
+        run: exit 0
