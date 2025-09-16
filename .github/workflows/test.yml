@@ -11,11 +11,15 @@ jobs:
   test:
     strategy:
       matrix:
-        buildtags:
-          - slicelabels # there's no such tag when this is being written, but it makes the CI job name more obvious.
-          - stringlabels
-          - dedupelabels
+        include:
+          - buildtags: slicelabels # there's no such tag when this is being written, but it makes the CI job name more obvious.
+            testargs: -race
+          - buildtags: stringlabels
+            testargs: -race
+          - buildtags: dedupelabels
+            # Run dedupelabels without race detection, as it causes CI runners to OOM.
       fail-fast: false
+    name: test (${{ matrix.buildtags }})
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repo
@@ -24,7 +28,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v5.4.0
         with:
-          go-version: '~1.23.0'
+          go-version: '~1.24.0'
           cache: false # We do this ourselves below to avoid conflicts between the different jobs.
 
       - name: Get Go paths
@@ -49,7 +53,7 @@ jobs:
           key: ci-test-build-cache-${{ runner.os }}-${{ matrix.buildtags }}-${{ hashFiles('**/go.sum') }}
 
       - name: Run Tests
-        run: GOOPTS=-tags=${{ matrix.buildtags }} make common-test
+        run: go test -tags=${{ matrix.buildtags }} ${{ matrix.testargs }} -timeout=20m ./...
 
   fuzz:
     strategy:
@@ -67,7 +71,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-go@v5.4.0
         with:
-          go-version: '~1.23.0'
+          go-version: '~1.24.0'
           cache: false # We do this ourselves below to avoid conflicts between the different jobs.
 
       - name: Get Go paths
