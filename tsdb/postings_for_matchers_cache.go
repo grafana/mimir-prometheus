@@ -451,7 +451,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 	promise.callersCtxTracker.Close()
 
 	sizeBytes := int64(len(key) + size.Of(promise))
-	numPostings := int64(0)
+	numPostings := 0
 	if promise.cloner != nil {
 		numPostings = promise.cloner.NumPostings()
 	}
@@ -564,7 +564,7 @@ func (c *PostingsForMatchersCache) evictHead(now time.Time) (reason int) {
 // onPromiseExecutionDone must be called once the execution of PostingsForMatchers promise has done.
 // The input err contains details about any error that could have occurred when executing it.
 // The input ts is the function call time.
-func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, key string, completedAt time.Time, sizeBytes int64, numPostings int64, err error) {
+func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, key string, completedAt time.Time, sizeBytes int64, numPostings int, err error) {
 	span := trace.SpanFromContext(ctx)
 
 	// Call the registered hook, if any. It's used only for testing purposes.
@@ -609,7 +609,7 @@ func (c *PostingsForMatchersCache) onPromiseExecutionDone(ctx context.Context, k
 		trace.WithAttributes(
 			attribute.Stringer("evaluation completed at", completedAt),
 			attribute.Int64("size in bytes", sizeBytes),
-			attribute.Int64("num postings", numPostings),
+			attribute.Int("num postings", numPostings),
 			attribute.Int64("cached bytes", lastCachedBytes),
 		),
 		trace.WithAttributes(c.additionalAttributes...),

@@ -941,8 +941,8 @@ func (c *PostingsCloner) Clone() Postings {
 	return newListPostings(c.ids...)
 }
 
-func (c *PostingsCloner) NumPostings() int64 {
-	return int64(len(c.ids))
+func (c *PostingsCloner) NumPostings() int {
+	return len(c.ids)
 }
 
 // FindIntersectingPostings checks the intersection of p and candidates[i] for each i in candidates,
