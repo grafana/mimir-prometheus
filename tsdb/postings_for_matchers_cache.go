@@ -453,7 +453,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 	sizeBytes := int64(len(key) + size.Of(promise))
 	numPostings := int64(0)
 	if promise.cloner != nil {
-		numPostings = int64(promise.cloner.NumPostings())
+		numPostings = promise.cloner.NumPostings()
 	}
 
 	c.onPromiseExecutionDone(ctx, key, promise.evaluationCompletedAt, sizeBytes, numPostings, promise.err)
