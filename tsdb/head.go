@@ -657,29 +657,6 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 
 func mmappedChunksDir(dir string) string { return filepath.Join(dir, "chunks_head") }
 
-// fullHeadStatistics embeds count-min sketches for the values of all labels in the head,
-// as well as a count of the number of series in the head. Together, they implement index.Statistics.
-// fullHeadStatistics represents the state of the head at a point in time and should be treated as immutable.
-// If/when updated statistics are required, a new fullHeadStatistics should be created.
-type fullHeadStatistics struct {
-	numSeries uint64
-	index.LabelsValuesSketches
-	lastUpdated time.Time
-}
-
-func newFullHeadStatistics(h *Head) *fullHeadStatistics {
-	return &fullHeadStatistics{
-		numSeries:            h.NumSeries(),
-		LabelsValuesSketches: h.postings.LabelsValuesSketches(),
-		lastUpdated:          time.Now(),
-	}
-}
-
-// TotalSeries returns the number of series in the head.
-func (fhs *fullHeadStatistics) TotalSeries() uint64 {
-	return fhs.numSeries
-}
-
 // HeadStats are the statistics for the head component of the DB.
 type HeadStats struct {
 	WALReplayStatus *WALReplayStatus
