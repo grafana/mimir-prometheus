@@ -275,10 +275,6 @@ type Options struct {
 	// HeadPostingsForMatchersCacheMetrics holds the metrics tracked by PostingsForMatchers cache when querying the Head.
 	HeadPostingsForMatchersCacheMetrics *PostingsForMatchersCacheMetrics
 
-	// HeadStatisticsCollectionFrequency determines how often label name cardinality statistics should be calculated
-	// from postings in the Head. These statistics are used for optimization of query execution. 0 to disable.
-	HeadStatisticsCollectionFrequency time.Duration
-
 	// BlockPostingsForMatchersCacheTTL is the TTL of the postings for matchers cache of each compacted block.
 	// If it's 0, the cache will only deduplicate in-flight requests, deleting the results once the first request has finished.
 	BlockPostingsForMatchersCacheTTL time.Duration
@@ -318,7 +314,7 @@ type Options struct {
 	// IndexLookupPlannerFunc is a function to return index.LookupPlanner from a BlockReader.
 	// Similar to BlockChunkQuerierFunc, this allows per-block planner creation.
 	// For on-disk blocks, IndexLookupPlannerFunc is invoked once when they are opened.
-	// For in-memory blocks IndexLookupPlannerFunc is invoked every time statistics are generated, which happens according to HeadStatisticsCollectionFrequency.
+	// For in-memory blocks IndexLookupPlannerFunc is invoked on every query.
 	IndexLookupPlannerFunc IndexLookupPlannerFunc
 }
 
