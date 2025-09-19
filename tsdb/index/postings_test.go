@@ -1109,20 +1109,20 @@ func TestPostingsCloner(t *testing.T) {
 		{
 			name: "seek beyond highest value of postings, then other clone seeks higher",
 			check: func(t testing.TB, pc *PostingsCloner) {
-				p1 := pc.Clone()
+				p1 := pc.Clone(context.TODO())
 				require.False(t, p1.Seek(9))
 
-				p2 := pc.Clone()
+				p2 := pc.Clone(context.TODO())
 				require.False(t, p2.Seek(10))
 			},
 		},
 		{
 			name: "seek beyond highest value of postings, then other clone seeks lower",
 			check: func(t testing.TB, pc *PostingsCloner) {
-				p1 := pc.Clone()
+				p1 := pc.Clone(context.TODO())
 				require.False(t, p1.Seek(9))
 
-				p2 := pc.Clone()
+				p2 := pc.Clone(context.TODO())
 				require.True(t, p2.Seek(2))
 				require.Equal(t, storage.SeriesRef(2), p2.At())
 			},
@@ -1130,7 +1130,7 @@ func TestPostingsCloner(t *testing.T) {
 		{
 			name: "seek to posting with value 3 or higher",
 			check: func(t testing.TB, pc *PostingsCloner) {
-				p := pc.Clone()
+				p := pc.Clone(context.TODO())
 				require.True(t, p.Seek(3))
 				require.Equal(t, storage.SeriesRef(4), p.At())
 				require.True(t, p.Seek(4))
@@ -1140,19 +1140,19 @@ func TestPostingsCloner(t *testing.T) {
 		{
 			name: "seek alternatively on different postings",
 			check: func(t testing.TB, pc *PostingsCloner) {
-				p1 := pc.Clone()
+				p1 := pc.Clone(context.TODO())
 				require.True(t, p1.Seek(1))
 				require.Equal(t, storage.SeriesRef(1), p1.At())
 
-				p2 := pc.Clone()
+				p2 := pc.Clone(context.TODO())
 				require.True(t, p2.Seek(2))
 				require.Equal(t, storage.SeriesRef(2), p2.At())
 
-				p3 := pc.Clone()
+				p3 := pc.Clone(context.TODO())
 				require.True(t, p3.Seek(4))
 				require.Equal(t, storage.SeriesRef(4), p3.At())
 
-				p4 := pc.Clone()
+				p4 := pc.Clone(context.TODO())
 				require.True(t, p4.Seek(5))
 				require.Equal(t, storage.SeriesRef(8), p4.At())
 
@@ -1165,8 +1165,8 @@ func TestPostingsCloner(t *testing.T) {
 		{
 			name: "iterate through the postings",
 			check: func(t testing.TB, pc *PostingsCloner) {
-				p1 := pc.Clone()
-				p2 := pc.Clone()
+				p1 := pc.Clone(context.TODO())
+				p2 := pc.Clone(context.TODO())
 
 				// both one step
 				require.True(t, p1.Next())
@@ -1191,7 +1191,7 @@ func TestPostingsCloner(t *testing.T) {
 		{
 			name: "ensure a failed seek doesn't allow more next calls",
 			check: func(t testing.TB, pc *PostingsCloner) {
-				p := pc.Clone()
+				p := pc.Clone(context.TODO())
 				require.False(t, p.Seek(9))
 				require.False(t, p.Next())
 			},
@@ -1206,7 +1206,7 @@ func TestPostingsCloner(t *testing.T) {
 	t.Run("cloning an err postings", func(t *testing.T) {
 		expectedErr := errors.New("foobar")
 		pc := NewPostingsCloner(ErrPostings(expectedErr))
-		p := pc.Clone()
+		p := pc.Clone(context.TODO())
 		require.False(t, p.Next())
 		require.Equal(t, expectedErr, p.Err())
 	})

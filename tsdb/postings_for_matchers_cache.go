@@ -104,20 +104,7 @@ type PostingsCloner interface {
 type DefaultPostingsClonerFactory struct{}
 
 func (f DefaultPostingsClonerFactory) PostingsCloner(postings index.Postings) PostingsCloner {
-	return &postingsClonerAdapter{cloner: index.NewPostingsCloner(postings)}
-}
-
-// postingsClonerAdapter adapts index.PostingsCloner to the PostingsCloner interface.
-type postingsClonerAdapter struct {
-	cloner *index.PostingsCloner
-}
-
-func (a *postingsClonerAdapter) Clone(ctx context.Context) index.Postings {
-	return a.cloner.Clone()
-}
-
-func (a *postingsClonerAdapter) NumPostings() int {
-	return a.cloner.NumPostings()
+	return index.NewPostingsCloner(postings)
 }
 
 type PostingsForMatchersCacheConfig struct {
