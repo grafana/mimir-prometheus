@@ -137,7 +137,7 @@ type PostingsForMatchersCacheConfig struct {
 	Force bool
 	// Metrics the metrics that should be used by the produced caches.
 	Metrics *PostingsForMatchersCacheMetrics
-
+	// PostingsClonerFactory is used to create PostingsCloner instances for cloning postings when returning cached results.
 	PostingsClonerFactory PostingsClonerFactory
 }
 
