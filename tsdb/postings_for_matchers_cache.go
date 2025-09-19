@@ -103,7 +103,7 @@ type PostingsCloner interface {
 // DefaultPostingsClonerFactory is the default implementation of PostingsClonerFactory.
 type DefaultPostingsClonerFactory struct{}
 
-func (f DefaultPostingsClonerFactory) PostingsCloner(postings index.Postings) PostingsCloner {
+func (DefaultPostingsClonerFactory) PostingsCloner(postings index.Postings) PostingsCloner {
 	return index.NewPostingsCloner(postings)
 }
 
