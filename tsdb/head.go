@@ -392,38 +392,36 @@ func (h *Head) resetWLReplayResources() {
 }
 
 type headMetrics struct {
-	activeAppenders            prometheus.Gauge
-	series                     prometheus.GaugeFunc
-	staleSeries                prometheus.GaugeFunc
-	seriesCreated              prometheus.Counter
-	seriesRemoved              prometheus.Counter
-	seriesNotFound             prometheus.Counter
-	chunks                     prometheus.Gauge
-	chunksCreated              prometheus.Counter
-	chunksRemoved              prometheus.Counter
-	gcDuration                 prometheus.Summary
-	samplesAppended            *prometheus.CounterVec
-	outOfOrderSamplesAppended  *prometheus.CounterVec
-	outOfBoundSamples          *prometheus.CounterVec
-	outOfOrderSamples          *prometheus.CounterVec
-	tooOldSamples              *prometheus.CounterVec
-	walTruncateDuration        prometheus.Summary
-	walCorruptionsTotal        prometheus.Counter
-	dataTotalReplayDuration    prometheus.Gauge
-	headTruncateFail           prometheus.Counter
-	headTruncateTotal          prometheus.Counter
-	checkpointDeleteFail       prometheus.Counter
-	checkpointDeleteTotal      prometheus.Counter
-	checkpointCreationFail     prometheus.Counter
-	checkpointCreationTotal    prometheus.Counter
-	mmapChunkCorruptionTotal   prometheus.Counter
-	snapshotReplayErrorTotal   prometheus.Counter // Will be either 0 or 1.
-	oooHistogram               prometheus.Histogram
-	mmapChunksTotal            prometheus.Counter
-	walReplayUnknownRefsTotal  *prometheus.CounterVec
-	wblReplayUnknownRefsTotal  *prometheus.CounterVec
-	headStatisticsLastUpdate   prometheus.Gauge
-	headStatisticsTimeToUpdate prometheus.Gauge
+	activeAppenders           prometheus.Gauge
+	series                    prometheus.GaugeFunc
+	staleSeries               prometheus.GaugeFunc
+	seriesCreated             prometheus.Counter
+	seriesRemoved             prometheus.Counter
+	seriesNotFound            prometheus.Counter
+	chunks                    prometheus.Gauge
+	chunksCreated             prometheus.Counter
+	chunksRemoved             prometheus.Counter
+	gcDuration                prometheus.Summary
+	samplesAppended           *prometheus.CounterVec
+	outOfOrderSamplesAppended *prometheus.CounterVec
+	outOfBoundSamples         *prometheus.CounterVec
+	outOfOrderSamples         *prometheus.CounterVec
+	tooOldSamples             *prometheus.CounterVec
+	walTruncateDuration       prometheus.Summary
+	walCorruptionsTotal       prometheus.Counter
+	dataTotalReplayDuration   prometheus.Gauge
+	headTruncateFail          prometheus.Counter
+	headTruncateTotal         prometheus.Counter
+	checkpointDeleteFail      prometheus.Counter
+	checkpointDeleteTotal     prometheus.Counter
+	checkpointCreationFail    prometheus.Counter
+	checkpointCreationTotal   prometheus.Counter
+	mmapChunkCorruptionTotal  prometheus.Counter
+	snapshotReplayErrorTotal  prometheus.Counter // Will be either 0 or 1.
+	oooHistogram              prometheus.Histogram
+	mmapChunksTotal           prometheus.Counter
+	walReplayUnknownRefsTotal *prometheus.CounterVec
+	wblReplayUnknownRefsTotal *prometheus.CounterVec
 }
 
 const (
@@ -569,14 +567,6 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_wbl_replay_unknown_refs_total",
 			Help: "Total number of unknown series references encountered during WBL replay.",
 		}, []string{"type"}),
-		headStatisticsLastUpdate: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "prometheus_tsdb_head_statistics_last_update_timestamp_seconds",
-			Help: "Timestamp of the last update of head statistics",
-		}),
-		headStatisticsTimeToUpdate: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "prometheus_tsdb_head_statistics_time_to_update_seconds",
-			Help: "Time spent updating head statistics",
-		}),
 	}
 
 	if r != nil {
@@ -648,8 +638,6 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			}),
 			m.walReplayUnknownRefsTotal,
 			m.wblReplayUnknownRefsTotal,
-			m.headStatisticsLastUpdate,
-			m.headStatisticsTimeToUpdate,
 		)
 	}
 	return m
