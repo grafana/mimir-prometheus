@@ -1057,16 +1057,17 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 	if opts.BlockPostingsForMatchersCacheFactory != nil {
 		db.blockPostingsForMatchersCacheFactory = opts.BlockPostingsForMatchersCacheFactory
 	} else {
-		config := DefaultPostingsForMatchersCacheConfig
-		config.Shared = opts.SharedPostingsForMatchersCache
-		config.KeyFunc = opts.PostingsForMatchersCacheKeyFunc
-		config.Invalidation = false
-		config.CacheVersions = 0
-		config.TTL = opts.BlockPostingsForMatchersCacheTTL
-		config.MaxItems = opts.BlockPostingsForMatchersCacheMaxItems
-		config.MaxBytes = opts.BlockPostingsForMatchersCacheMaxBytes
-		config.Force = opts.BlockPostingsForMatchersCacheForce
-		config.Metrics = opts.BlockPostingsForMatchersCacheMetrics
+		config := PostingsForMatchersCacheConfig{
+			Shared:        opts.SharedPostingsForMatchersCache,
+			KeyFunc:       opts.PostingsForMatchersCacheKeyFunc,
+			Invalidation:  false,
+			CacheVersions: 0,
+			TTL:           opts.BlockPostingsForMatchersCacheTTL,
+			MaxItems:      opts.BlockPostingsForMatchersCacheMaxItems,
+			MaxBytes:      opts.BlockPostingsForMatchersCacheMaxBytes,
+			Force:         opts.BlockPostingsForMatchersCacheForce,
+			Metrics:       opts.BlockPostingsForMatchersCacheMetrics,
+		}
 		db.blockPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(config)
 	}
 
@@ -1116,16 +1117,17 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 	if opts.HeadPostingsForMatchersCacheFactory != nil {
 		headOpts.PostingsForMatchersCacheFactory = opts.HeadPostingsForMatchersCacheFactory
 	} else {
-		config := DefaultPostingsForMatchersCacheConfig
-		config.Shared = opts.SharedPostingsForMatchersCache
-		config.KeyFunc = opts.PostingsForMatchersCacheKeyFunc
-		config.Invalidation = opts.HeadPostingsForMatchersCacheInvalidation
-		config.CacheVersions = opts.HeadPostingsForMatchersCacheVersions
-		config.TTL = opts.HeadPostingsForMatchersCacheTTL
-		config.MaxItems = opts.HeadPostingsForMatchersCacheMaxItems
-		config.MaxBytes = opts.HeadPostingsForMatchersCacheMaxBytes
-		config.Force = opts.HeadPostingsForMatchersCacheForce
-		config.Metrics = opts.HeadPostingsForMatchersCacheMetrics
+		config := PostingsForMatchersCacheConfig{
+			Shared:        opts.SharedPostingsForMatchersCache,
+			KeyFunc:       opts.PostingsForMatchersCacheKeyFunc,
+			Invalidation:  opts.HeadPostingsForMatchersCacheInvalidation,
+			CacheVersions: opts.HeadPostingsForMatchersCacheVersions,
+			TTL:           opts.HeadPostingsForMatchersCacheTTL,
+			MaxItems:      opts.HeadPostingsForMatchersCacheMaxItems,
+			MaxBytes:      opts.HeadPostingsForMatchersCacheMaxBytes,
+			Force:         opts.HeadPostingsForMatchersCacheForce,
+			Metrics:       opts.HeadPostingsForMatchersCacheMetrics,
+		}
 		headOpts.PostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(config)
 	}
 	headOpts.SecondaryHashFunction = opts.SecondaryHashFunction
