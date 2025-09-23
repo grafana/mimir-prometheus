@@ -92,7 +92,7 @@ var DefaultPostingsForMatchersCacheConfig = PostingsForMatchersCacheConfig{
 var DefaultPostingsForMatchersCacheFactory = NewPostingsForMatchersCacheFactory(DefaultPostingsForMatchersCacheConfig)
 
 type PostingsClonerFactory interface {
-	PostingsCloner(postings index.Postings) PostingsCloner
+	PostingsCloner(id ulid.ULID, postings index.Postings) PostingsCloner
 }
 
 type PostingsCloner interface {
@@ -103,7 +103,7 @@ type PostingsCloner interface {
 // DefaultPostingsClonerFactory is the default implementation of PostingsClonerFactory.
 type DefaultPostingsClonerFactory struct{}
 
-func (DefaultPostingsClonerFactory) PostingsCloner(postings index.Postings) PostingsCloner {
+func (DefaultPostingsClonerFactory) PostingsCloner(_ ulid.ULID, postings index.Postings) PostingsCloner {
 	return index.NewPostingsCloner(postings)
 }
 
@@ -483,7 +483,7 @@ func (c *PostingsForMatchersCache) postingsForMatchersPromise(ctx context.Contex
 	if postings, err := c.postingsForMatchers(promiseExecCtx, ix, ms...); err != nil {
 		promise.err = err
 	} else {
-		promise.cloner = c.postingsClonerFactory.PostingsCloner(postings)
+		promise.cloner = c.postingsClonerFactory.PostingsCloner(blockID, postings)
 	}
 
 	// Keep track of when the evaluation completed.
