@@ -111,7 +111,7 @@ jobs:
           else
             echo "merge_needed=true" >> $GITHUB_OUTPUT
             echo "New commits found in upstream $UPSTREAM_BRANCH"
-            
+
             # Show what would be merged
             echo "Commits to be merged:"
             git log --oneline HEAD..prometheus/$UPSTREAM_BRANCH | head -10
@@ -156,10 +156,10 @@ jobs:
           else
             # Reset to clean state
             git merge --abort
-            
+
             # Check if conflicts exist
             git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-commit --no-ff || true
-            
+
             if git diff --name-only --diff-filter=U | grep -q .; then
               echo "merge_result=conflicts" >> $GITHUB_OUTPUT
               echo "Merge conflicts detected in:"
@@ -168,7 +168,7 @@ jobs:
               echo "merge_result=error" >> $GITHUB_OUTPUT
               echo "Merge failed for unknown reasons"
             fi
-            
+
             git reset --hard HEAD
           fi
 
@@ -261,7 +261,7 @@ jobs:
             git push
 
             # 5. Re-open the closed PR
-            
+
             # 6. Post the remerge diff as a comment for reviewers:
             gh pr comment --body "## Merge Conflict Resolution
 
