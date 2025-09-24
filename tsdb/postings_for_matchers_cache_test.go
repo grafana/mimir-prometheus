@@ -113,9 +113,9 @@ func TestPostingsForMatchersCache(t *testing.T) {
 						expectedSkips := 0
 						if concurrent {
 							if shared {
-								expectedBytes = 228
+								expectedBytes = 244
 							} else {
-								expectedBytes = 199
+								expectedBytes = 215
 							}
 							expectedEntries = 1
 							expectedMisses = 1
@@ -186,7 +186,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 179
+			postings_for_matchers_cache_bytes_total 186
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
@@ -496,9 +496,9 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					expectedBytes := 0
 					expectedEntries := 1
 					if shared {
-						expectedBytes = 227
+						expectedBytes = 243
 					} else {
-						expectedBytes = 198
+						expectedBytes = 214
 					}
 
 					require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
@@ -607,9 +607,9 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					expectedBytes := 0
 					expectedEntries := 6
 					if shared {
-						expectedBytes = 1352
+						expectedBytes = 1448
 					} else {
-						expectedBytes = 1178
+						expectedBytes = 1274
 					}
 
 					require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
@@ -664,7 +664,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 				t.Run(fmt.Sprintf("shared=%t, invalidation=%t", shared, invalidation), func(t *testing.T) {
 					const (
 						maxItems         = 100 // Never hit it.
-						maxBytes         = 1400
+						maxBytes         = 1500
 						numMatchers      = 5
 						postingsListSize = 30 // 8 bytes per posting ref, so 30 x 8 = 240 bytes.
 					)
@@ -745,9 +745,9 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					expectedBytes := 0
 					expectedEntries := 4
 					if shared {
-						expectedBytes = 1848
+						expectedBytes = 1912
 					} else {
-						expectedBytes = 1732
+						expectedBytes = 1796
 					}
 
 					require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
@@ -843,7 +843,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 681
+			postings_for_matchers_cache_bytes_total 729
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
@@ -911,7 +911,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 				return nil, ctx.Err()
 
 			case <-time.After(time.Second):
-				return expectedPostings.Clone(), nil
+				return expectedPostings.Clone(context.TODO()), nil
 			}
 		}, &timeNowMock{})
 
@@ -929,13 +929,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		reqCtx, cancelReqCtx = context.Background(), nil
 		actualPostings, err := c.PostingsForMatchers(reqCtx, indexForPostingsMock{}, true, headULID, matchers...)
 		require.NoError(t, err)
-		require.Equal(t, expectedPostings.Clone(), actualPostings)
+		require.Equal(t, expectedPostings.Clone(context.TODO()), actualPostings)
 		require.Equal(t, int32(2), callsCount.Load())
 
 		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 206
+			postings_for_matchers_cache_bytes_total 222
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
@@ -1006,7 +1006,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 				return nil, ctx.Err()
 
 			case <-time.After(time.Second):
-				return expectedPostings.Clone(), nil
+				return expectedPostings.Clone(context.TODO()), nil
 			}
 		}, &timeNowMock{})
 
@@ -1025,7 +1025,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 			actualPostings, err := c.PostingsForMatchers(context.Background(), indexForPostingsMock{}, true, headULID, matchers...)
 			require.NoError(t, err)
-			require.Equal(t, expectedPostings.Clone(), actualPostings)
+			require.Equal(t, expectedPostings.Clone(context.TODO()), actualPostings)
 		}()
 
 		// Wait until the 2nd request attaches to the 1st one.
@@ -1044,13 +1044,13 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		// from the cache.
 		actualPostings, err := c.PostingsForMatchers(context.Background(), indexForPostingsMock{}, true, headULID, matchers...)
 		require.NoError(t, err)
-		require.Equal(t, expectedPostings.Clone(), actualPostings)
+		require.Equal(t, expectedPostings.Clone(context.TODO()), actualPostings)
 		require.Equal(t, int32(1), callsCount.Load())
 
 		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 206
+			postings_for_matchers_cache_bytes_total 222
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
@@ -1123,7 +1123,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 				return nil, ctx.Err()
 
 			case <-time.After(time.Second):
-				return postings.Clone(), nil
+				return postings.Clone(context.TODO()), nil
 			}
 		}, &timeNowMock{})
 
@@ -1278,7 +1278,7 @@ func TestPostingsForMatchersCache_ShouldNotReturnStaleEntriesWhileAnotherGorouti
 	require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
 		# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 		# TYPE postings_for_matchers_cache_bytes_total gauge
-		postings_for_matchers_cache_bytes_total 193
+		postings_for_matchers_cache_bytes_total 209
 
 		# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 		# TYPE postings_for_matchers_cache_entries_total gauge
@@ -1350,7 +1350,7 @@ func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellati
 			return nil, ctx.Err()
 
 		case <-time.After(time.Second):
-			return expectedPostings.Clone(), nil
+			return expectedPostings.Clone(context.TODO()), nil
 		}
 	}
 
@@ -1363,7 +1363,7 @@ func TestPostingsForMatchersCache_RaceConditionBetweenExecutionContextCancellati
 
 			actualPostings, err := c.PostingsForMatchers(context.Background(), indexForPostingsMock{}, true, headULID, matchers...)
 			require.NoError(t, err)
-			require.Equal(t, expectedPostings.Clone(), actualPostings)
+			require.Equal(t, expectedPostings.Clone(context.TODO()), actualPostings)
 		}()
 
 		// Wait a (more than) reasonable amount of time to let the 2nd request to kick off.
