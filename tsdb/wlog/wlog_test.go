@@ -574,3 +574,52 @@ func TestUnregisterMetrics(t *testing.T) {
 		require.NoError(t, wl.Close())
 	}
 }
+
+func TestSyncSegmentsUntilCurrent(t *testing.T) {
+	t.Run("sync succeeds with active segments", func(t *testing.T) {
+		dir := t.TempDir()
+		w, err := NewSize(nil, nil, dir, pageSize, compression.None)
+		require.NoError(t, err)
+		defer w.Close()
+
+		// Write large records to create multiple segments
+		record := make([]byte, pageSize/2)
+		for i := 0; i < 10; i++ {
+			require.NoError(t, w.Log(record))
+		}
+
+		require.NoError(t, w.FsyncSegmentsUntilCurrent())
+	})
+
+	t.Run("sync fails when channel is full", func(t *testing.T) {
+		dir := t.TempDir()
+		w, err := NewSize(nil, nil, dir, pageSize, compression.None)
+		require.NoError(t, err)
+		defer w.Close()
+
+		// Fill actor channel with blocked functions so we can ensure it's full when calling FsyncSegmentsUntilCurrent()
+		block := make(chan struct{})
+		defer close(block)
+		for i := 0; i <= cap(w.actorc); i++ {
+			w.actorc <- func() { <-block }
+		}
+
+		err = w.FsyncSegmentsUntilCurrent()
+		require.EqualError(t, err, "skipping fsync previous segments confirmation: actor channel full")
+	})
+
+	t.Run("sync fails when WAL is closed", func(t *testing.T) {
+		dir := t.TempDir()
+		w, err := NewSize(nil, nil, dir, pageSize, compression.None)
+		require.NoError(t, err)
+
+		record := make([]byte, pageSize/2)
+		for i := 0; i < 10; i++ {
+			require.NoError(t, w.Log(record))
+		}
+
+		require.NoError(t, w.Close())
+		err = w.FsyncSegmentsUntilCurrent()
+		require.EqualError(t, err, "unable to fsync segments: write log is closed")
+	})
+}
