@@ -14,13 +14,20 @@
 package rules
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
+	"github.com/prometheus/prometheus/util/teststorage"
 )
 
 func TestGroup_Equals(t *testing.T) {
@@ -244,6 +251,75 @@ func TestGroup_Equals(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			require.Equal(t, testData.expected, testData.first.Equals(testData.second))
 			require.Equal(t, testData.expected, testData.second.Equals(testData.first))
+		})
+	}
+}
+
+func TestEvalFilteredFailures(t *testing.T) {
+	storage := teststorage.New(t)
+	t.Cleanup(func() { storage.Close() })
+
+	expr, err := parser.ParseExpr("up")
+	require.NoError(t, err)
+	rule := NewRecordingRule("test_rule", expr, labels.EmptyLabels())
+
+	// Custom classifier filters 429 and 5xx status codes
+	customClassifier := func(err error) bool {
+		if err == nil {
+			return false
+		}
+		errMsg := err.Error()
+		return strings.Contains(errMsg, "429") || strings.Contains(errMsg, "50")
+	}
+
+	testCases := []struct {
+		name           string
+		errorMessage   string
+		classifier     func(error) bool
+		expectFiltered bool
+	}{
+		{"default classifier", "any error", nil, false},
+		{"custom 429 filtered", "HTTP 429 Too Many Requests", customClassifier, true},
+		{"custom 500 filtered", "HTTP 500 Internal Server Error", customClassifier, true},
+		{"custom 502 filtered", "HTTP 502 Bad Gateway", customClassifier, true},
+		{"custom 400 not filtered", "HTTP 400 Bad Request", customClassifier, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			errorQueryFunc := func(_ context.Context, _ string, _ time.Time) (promql.Vector, error) {
+				return nil, fmt.Errorf("%s", tc.errorMessage)
+			}
+
+			opts := &ManagerOptions{
+				Context:    context.Background(),
+				QueryFunc:  errorQueryFunc,
+				Appendable: storage,
+				Queryable:  storage,
+				Logger:     promslog.NewNopLogger(),
+			}
+
+			group := NewGroup(GroupOptions{
+				Name:                  "test_group",
+				File:                  "test.yml",
+				Interval:              time.Second,
+				Rules:                 []Rule{rule},
+				Opts:                  opts,
+				FailureClassifierFunc: tc.classifier,
+			})
+
+			group.Eval(context.Background(), time.Now())
+
+			groupKey := GroupKey("test.yml", "test_group")
+			evalFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey))
+			evalFilteredFailures := testutil.ToFloat64(group.metrics.EvalFilteredFailures.WithLabelValues(groupKey))
+
+			require.Equal(t, float64(1), evalFailures)
+			if tc.expectFiltered {
+				require.Equal(t, float64(1), evalFilteredFailures)
+			} else {
+				require.Equal(t, float64(0), evalFilteredFailures)
+			}
 		})
 	}
 }
