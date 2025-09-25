@@ -19,6 +19,7 @@ type alertMetrics struct {
 	latency                 *prometheus.SummaryVec
 	errors                  *prometheus.CounterVec
 	sent                    *prometheus.CounterVec
+	attempts                *prometheus.CounterVec
 	dropped                 prometheus.Counter
 	queueLength             prometheus.GaugeFunc
 	queueCapacity           prometheus.Gauge
@@ -49,6 +50,14 @@ func newAlertMetrics(r prometheus.Registerer, queueCap int, queueLen, alertmanag
 			Subsystem: subsystem,
 			Name:      "sent_total",
 			Help:      "Total number of alerts sent.",
+		},
+			[]string{alertmanagerLabel},
+		),
+		attempts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "attempts_total",
+			Help:      "Total number of attempts to send alerts to Alertmanager.",
 		},
 			[]string{alertmanagerLabel},
 		),
@@ -83,6 +92,7 @@ func newAlertMetrics(r prometheus.Registerer, queueCap int, queueLen, alertmanag
 			m.latency,
 			m.errors,
 			m.sent,
+			m.attempts,
 			m.dropped,
 			m.queueLength,
 			m.queueCapacity,
