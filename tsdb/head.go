@@ -1866,9 +1866,17 @@ func (h *Head) mmapHeadChunks() {
 }
 
 func (h *Head) SyncWLSegments() error {
+	if h.wal == nil {
+		return errors.New("wal not initialized")
+	}
 	err := h.wal.SyncSegmentsUntilCurrent()
 	if err != nil {
 		return fmt.Errorf("unable to sync wal segments until current: %w", err)
+	}
+	if h.wbl == nil {
+		// This is actually okay in the case that ooo is disabled
+		// Maybe should be silent error instead
+		return errors.New("wbl not initialized")
 	}
 	err = h.wbl.SyncSegmentsUntilCurrent()
 	if err != nil {
