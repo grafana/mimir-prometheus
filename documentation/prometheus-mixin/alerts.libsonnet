@@ -89,6 +89,78 @@
             },
           },
           {
+            alert: 'PrometheusNotificationDropRate',
+            expr: |||
+              (
+                rate(prometheus_notifications_dropped_total{%(prometheusSelector)s}[10m])
+              /
+                (
+                  rate(prometheus_notifications_attempts_total{%(prometheusSelector)s}[10m])
+                +
+                  rate(prometheus_notifications_dropped_total{%(prometheusSelector)s}[10m])
+                )
+              )
+              * 100
+              > 1
+            ||| % $._config,
+            'for': '10m',
+            labels: {
+              severity: 'warning',
+            },
+            annotations: {
+              summary: 'Prometheus is dropping more than 1% of alert notifications before attempting to send.',
+              description: 'Prometheus %(prometheusName)s is dropping {{ printf "%%.1f" $value }}%% of alert notifications due to queue capacity or batch size limits.' % $._config,
+            },
+          },
+          {
+            alert: 'PrometheusNotificationFailureRate',
+            expr: |||
+              (
+                rate(prometheus_notifications_errors_total{%(prometheusSelector)s}[10m])
+              /
+                rate(prometheus_notifications_attempts_total{%(prometheusSelector)s}[10m])
+              )
+              * 100
+              > 5
+            ||| % $._config,
+            'for': '10m',
+            labels: {
+              severity: 'warning',
+            },
+            annotations: {
+              summary: 'Prometheus notification failure rate is high for specific alertmanager.',
+              description: 'Prometheus %(prometheusName)s has {{ printf "%%.1f" $value }}%% failure rate sending to alertmanager {{$labels.alertmanager}}.' % $._config,
+            },
+          },
+          {
+            alert: 'PrometheusNotificationOverallAvailability',
+            expr: |||
+              (
+                (
+                  sum(rate(prometheus_notifications_attempts_total{%(prometheusSelector)s}[15m]))
+                -
+                  sum(rate(prometheus_notifications_errors_total{%(prometheusSelector)s}[15m]))
+                )
+              /
+                (
+                  sum(rate(prometheus_notifications_attempts_total{%(prometheusSelector)s}[15m]))
+                +
+                  rate(prometheus_notifications_dropped_total{%(prometheusSelector)s}[15m])
+                )
+              )
+              * 100
+              < 95
+            ||| % $._config,
+            'for': '15m',
+            labels: {
+              severity: 'critical',
+            },
+            annotations: {
+              summary: 'Prometheus notification system availability below 95%.',
+              description: 'Prometheus %(prometheusName)s notification system has {{ printf "%%.1f" $value }}%% availability (successful deliveries / total intended notifications).' % $._config,
+            },
+          },
+          {
             alert: 'PrometheusNotConnectedToAlertmanagers',
             expr: |||
               # Without max_over_time, failed scrapes could create false negatives, see

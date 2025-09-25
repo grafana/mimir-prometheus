@@ -504,6 +504,7 @@ func (n *Manager) sendAll(alerts ...*Alert) bool {
 			defer cancel()
 
 			go func(ctx context.Context, k string, client *http.Client, url string, payload []byte, count int) {
+				n.metrics.attempts.WithLabelValues(url).Add(float64(count))
 				err := n.sendOne(ctx, client, url, payload)
 				if err != nil {
 					n.logger.Error("Error sending alerts", "alertmanager", url, "count", count, "err", err)
