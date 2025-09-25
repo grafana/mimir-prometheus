@@ -1865,9 +1865,16 @@ func (h *Head) mmapHeadChunks() {
 	h.metrics.mmapChunksTotal.Add(float64(count))
 }
 
-func (h *Head) SyncWLSegments() {
-	h.wal.SyncSegmentsUntilCurrent()
-	h.wbl.SyncSegmentsUntilCurrent()
+func (h *Head) SyncWLSegments() error {
+	err := h.wal.SyncSegmentsUntilCurrent()
+	if err != nil {
+		return fmt.Errorf("unable to sync wal segments until current: %w", err)
+	}
+	err = h.wbl.SyncSegmentsUntilCurrent()
+	if err != nil {
+		return fmt.Errorf("unable to sync wbl segments until current: %w", err)
+	}
+	return nil
 }
 
 // seriesHashmap lets TSDB find a memSeries by its label set, via a 64-bit hash.
