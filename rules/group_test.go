@@ -324,6 +324,80 @@ func TestEvalFilteredFailures(t *testing.T) {
 	}
 }
 
+func TestEvalDiscardedSamplesDoNotIncrementFailureMetrics(t *testing.T) {
+	testCases := []struct {
+		name         string
+		setupStorage func(storage *teststorage.TestStorage)
+		offsetMs     int64 // milliseconds offset from evaluation time
+	}{
+		{
+			name: "out of order samples",
+			setupStorage: func(s *teststorage.TestStorage) {
+				app := s.Appender(context.Background())
+				app.Append(0, labels.FromStrings("__name__", "test_metric", "job", "test"), time.Now().UnixMilli(), 1.0)
+				app.Commit()
+			},
+			offsetMs: -10000, // 10 seconds in past
+		},
+		{
+			name:         "too old samples",
+			setupStorage: func(_ *teststorage.TestStorage) {},
+			offsetMs:     -86400000, // 24 hours in past
+		},
+		{
+			name: "duplicate samples",
+			setupStorage: func(s *teststorage.TestStorage) {
+				app := s.Appender(context.Background())
+				app.Append(0, labels.FromStrings("__name__", "test_metric", "job", "test"), time.Now().UnixMilli(), 1.0)
+				app.Commit()
+			},
+			offsetMs: 0, // Same timestamp, different value
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := teststorage.New(t)
+			t.Cleanup(func() { storage.Close() })
+
+			tc.setupStorage(storage)
+
+			expr, err := parser.ParseExpr("up")
+			require.NoError(t, err)
+			rule := NewRecordingRule("test_rule", expr, labels.EmptyLabels())
+
+			queryFunc := func(_ context.Context, _ string, ts time.Time) (promql.Vector, error) {
+				return promql.Vector{
+					promql.Sample{
+						Metric: labels.FromStrings("__name__", "test_metric", "job", "test"),
+						T:      ts.UnixMilli() + tc.offsetMs,
+						F:      2.0, // Different value for duplicate case
+					},
+				}, nil
+			}
+
+			group := NewGroup(GroupOptions{
+				Name:     "test_group",
+				File:     "test.yml",
+				Interval: time.Second,
+				Rules:    []Rule{rule},
+				Opts: &ManagerOptions{
+					Context:    context.Background(),
+					QueryFunc:  queryFunc,
+					Appendable: storage,
+					Queryable:  storage,
+					Logger:     promslog.NewNopLogger(),
+				},
+			})
+
+			group.Eval(context.Background(), time.Now())
+
+			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(GroupKey("test.yml", "test_group"))))
+			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFilteredFailures.WithLabelValues(GroupKey("test.yml", "test_group"))))
+		})
+	}
+}
+
 func pointerOf[T any](value T) *T {
 	return &value
 }
