@@ -48,15 +48,16 @@ func kendallsTau(matchers []rankedMatcher) float64 {
 			xDiff := xi - xj
 			yDiff := yi - yj
 
-			if xDiff == 0 && yDiff == 0 {
+			switch {
+			case xDiff == 0 && yDiff == 0:
 				continue
-			} else if xDiff == 0 {
+			case xDiff == 0:
 				tiesX++
-			} else if yDiff == 0 {
+			case yDiff == 0:
 				tiesY++
-			} else if (xDiff > 0 && yDiff > 0) || (xDiff < 0 && yDiff < 0) {
+			case (xDiff > 0 && yDiff > 0) || (xDiff < 0 && yDiff < 0):
 				concordant++
-			} else {
+			default:
 				discordant++
 			}
 		}
