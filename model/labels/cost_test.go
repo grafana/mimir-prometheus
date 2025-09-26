@@ -24,56 +24,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// kendallsTau calculates Kendall's Tau correlation coefficient between two rankings.
-// It measures the ordinal association between the two rankings.
-// Returns a value between -1 and 1, where 1 indicates perfect positive correlation,
-// -1 indicates perfect negative correlation, and 0 indicates no correlation.
-// https://en.wikipedia.org/wiki/Kendall_rank_correlation_coefficient
-func kendallsTau(matchers []rankedMatcher) float64 {
-	n := len(matchers)
-	if n < 2 {
-		return 0.0
-	}
-
-	concordant := 0
-	discordant := 0
-	tiesX := 0
-	tiesY := 0
-
-	for i := 0; i < n; i++ {
-		for j := i + 1; j < n; j++ {
-			xi, xj := matchers[i].costRank, matchers[j].costRank
-			yi, yj := matchers[i].runtimeRank, matchers[j].runtimeRank
-
-			xDiff := xi - xj
-			yDiff := yi - yj
-
-			switch {
-			case xDiff == 0 && yDiff == 0:
-				continue
-			case xDiff == 0:
-				tiesX++
-			case yDiff == 0:
-				tiesY++
-			case (xDiff > 0 && yDiff > 0) || (xDiff < 0 && yDiff < 0):
-				concordant++
-			default:
-				discordant++
-			}
-		}
-	}
-
-	// Calculate Kendall's Tau using the general formula that handles ties
-	numerator := float64(concordant - discordant)
-	denominator := math.Sqrt(float64(concordant+discordant+tiesX) * float64(concordant+discordant+tiesY))
-
-	if denominator == 0 {
-		return 0.0
-	}
-
-	return numerator / denominator
-}
-
 var matcherTestCases = []struct {
 	cost float64
 	l    string
@@ -485,4 +435,54 @@ func rankByCost(matchers []rankedMatcher) {
 		}
 		matchers[i].costRank = currentRank
 	}
+}
+
+// kendallsTau calculates Kendall's Tau correlation coefficient between two rankings.
+// It measures the ordinal association between the two rankings.
+// Returns a value between -1 and 1, where 1 indicates perfect positive correlation,
+// -1 indicates perfect negative correlation, and 0 indicates no correlation.
+// https://en.wikipedia.org/wiki/Kendall_rank_correlation_coefficient
+func kendallsTau(matchers []rankedMatcher) float64 {
+	n := len(matchers)
+	if n < 2 {
+		return 0.0
+	}
+
+	concordant := 0
+	discordant := 0
+	tiesX := 0
+	tiesY := 0
+
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			xi, xj := matchers[i].costRank, matchers[j].costRank
+			yi, yj := matchers[i].runtimeRank, matchers[j].runtimeRank
+
+			xDiff := xi - xj
+			yDiff := yi - yj
+
+			switch {
+			case xDiff == 0 && yDiff == 0:
+				continue
+			case xDiff == 0:
+				tiesX++
+			case yDiff == 0:
+				tiesY++
+			case (xDiff > 0 && yDiff > 0) || (xDiff < 0 && yDiff < 0):
+				concordant++
+			default:
+				discordant++
+			}
+		}
+	}
+
+	// Calculate Kendall's Tau using the general formula that handles ties
+	numerator := float64(concordant - discordant)
+	denominator := math.Sqrt(float64(concordant+discordant+tiesX) * float64(concordant+discordant+tiesY))
+
+	if denominator == 0 {
+		return 0.0
+	}
+
+	return numerator / denominator
 }
