@@ -23,7 +23,6 @@ const (
 )
 
 // SingleMatchCost returns the fixed cost of running this matcher against an arbitrary label value..
-// TODO benchmark relative cost of different matchers.
 func (m *Matcher) SingleMatchCost() float64 {
 	switch m.Type {
 	case MatchEqual, MatchNotEqual:

@@ -24,6 +24,55 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// kendallsTau calculates Kendall's Tau correlation coefficient between two rankings.
+// It measures the ordinal association between the two rankings.
+// Returns a value between -1 and 1, where 1 indicates perfect positive correlation,
+// -1 indicates perfect negative correlation, and 0 indicates no correlation.
+// https://en.wikipedia.org/wiki/Kendall_rank_correlation_coefficient
+func kendallsTau(matchers []rankedMatcher) float64 {
+	n := len(matchers)
+	if n < 2 {
+		return 0.0
+	}
+
+	concordant := 0
+	discordant := 0
+	tiesX := 0
+	tiesY := 0
+
+	for i := 0; i < n; i++ {
+		for j := i + 1; j < n; j++ {
+			xi, xj := matchers[i].costRank, matchers[j].costRank
+			yi, yj := matchers[i].runtimeRank, matchers[j].runtimeRank
+
+			xDiff := xi - xj
+			yDiff := yi - yj
+
+			if xDiff == 0 && yDiff == 0 {
+				continue
+			} else if xDiff == 0 {
+				tiesX++
+			} else if yDiff == 0 {
+				tiesY++
+			} else if (xDiff > 0 && yDiff > 0) || (xDiff < 0 && yDiff < 0) {
+				concordant++
+			} else {
+				discordant++
+			}
+		}
+	}
+
+	// Calculate Kendall's Tau using the general formula that handles ties
+	numerator := float64(concordant - discordant)
+	denominator := math.Sqrt(float64(concordant+discordant+tiesX) * float64(concordant+discordant+tiesY))
+
+	if denominator == 0 {
+		return 0.0
+	}
+
+	return numerator / denominator
+}
+
 var matcherTestCases = []struct {
 	cost float64
 	l    string
@@ -341,21 +390,16 @@ func BenchmarkCostEstimation(b *testing.B) {
 	})
 }
 
+type rankedMatcher struct {
+	cost        float64
+	timePerOp   time.Duration
+	matcher     *Matcher
+	costRank    int
+	runtimeRank int
+}
+
 func BenchmarkMatcherCostVsRuntime(b *testing.B) {
-	type costMatcher struct {
-		cost    float64
-		matcher *Matcher
-		rank    int
-	}
-
-	type runtimeMatcher struct {
-		matcher   *Matcher
-		timePerOp time.Duration
-		rank      int
-	}
-
-	var costMatchers []costMatcher
-	var runtimeMatchers []runtimeMatcher
+	var matchers []rankedMatcher
 
 	for _, tc := range matcherTestCases {
 		matcher, err := NewMatcher(tc.t, tc.l, tc.v)
@@ -363,7 +407,7 @@ func BenchmarkMatcherCostVsRuntime(b *testing.B) {
 			b.Fatalf("Failed to create matcher: %v", err)
 		}
 
-		costMatchers = append(costMatchers, costMatcher{
+		matchers = append(matchers, rankedMatcher{
 			cost:    tc.cost,
 			matcher: matcher,
 		})
@@ -373,65 +417,71 @@ func BenchmarkMatcherCostVsRuntime(b *testing.B) {
 			matcherStr = matcherStr[:50]
 		}
 
+		matcherWithRuntime := &(matchers[len(matchers)-1])
 		b.Run(matcherStr, func(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
 			for i := 0; i < b.N; i++ {
-				_ = matcher.SingleMatchCost()
+				for _, value := range values {
+					_ = matcher.Matches(value)
+				}
 			}
 			elapsed := time.Since(start)
 			timePerOp := elapsed / time.Duration(b.N)
 
-			roundedTime := time.Duration((timePerOp.Nanoseconds()+2)/3) * 3 * time.Nanosecond
-
-			runtimeMatchers = append(runtimeMatchers, runtimeMatcher{
-				matcher:   matcher,
-				timePerOp: roundedTime,
-			})
+			// Round to nearest 10ns for more fair ranking.
+			const roundToXNanosec = 10
+			roundedTime := ((timePerOp + roundToXNanosec - 1) / roundToXNanosec) * roundToXNanosec
+			matcherWithRuntime.timePerOp = roundedTime
 		})
 	}
 
-	sort.Slice(costMatchers, func(i, j int) bool {
-		return costMatchers[i].cost < costMatchers[j].cost
+	rankByRuntime(matchers)
+	rankByCost(matchers)
+
+	// Sort by how closely cost ranking matches runtime ranking.
+	sort.Slice(matchers, func(i, j int) bool {
+		return math.Abs(float64(matchers[i].costRank-matchers[i].runtimeRank)) <
+			math.Abs(float64(matchers[j].costRank-matchers[j].runtimeRank))
 	})
 
-	currentRank := 1
-	for i := range costMatchers {
-		if i > 0 && costMatchers[i].cost != costMatchers[i-1].cost {
-			currentRank = i + 1
-		}
-		costMatchers[i].rank = currentRank
-	}
-
-	sort.Slice(runtimeMatchers, func(i, j int) bool {
-		return runtimeMatchers[i].timePerOp < runtimeMatchers[j].timePerOp
-	})
-
-	currentRank = 1
-	for i := range runtimeMatchers {
-		if i > 0 && runtimeMatchers[i].timePerOp != runtimeMatchers[i-1].timePerOp {
-			currentRank = i + 1
-		}
-		runtimeMatchers[i].rank = currentRank
-	}
-
-	b.Logf("\n=== MATCHER COST VS RUNTIME RANKING COMPARISON ===\n")
-
-	b.Logf("\n--- COST RANKING ---")
-	for _, cm := range costMatchers {
+	avgRankDiff := 0
+	for _, cm := range matchers {
 		matcherStr := cm.matcher.String()
 		if len(matcherStr) > 80 {
 			matcherStr = matcherStr[:80] + "..."
 		}
-		b.Logf("Rank %d: Cost %.1f - %s", cm.rank, cm.cost, matcherStr)
+		avgRankDiff += int(math.Abs(float64(cm.costRank - cm.runtimeRank)))
+		b.Logf("rankDiff=%2d\tcostRank=%2d\truntimeRank=%2d\tcost=%6.1f\ttimePerOp=%10s\t: %s", cm.costRank-cm.runtimeRank, cm.costRank, cm.runtimeRank, cm.cost, cm.timePerOp, matcherStr)
 	}
+	b.Logf("Average rank difference: %.2f", float64(avgRankDiff)/float64(len(matchers)))
+	b.Logf("Kendall's Tau: %.4f (1.0 = perfect positive correlation, -1.0 = perfect negative correlation)", kendallsTau(matchers))
+}
 
-	b.Logf("\n--- RUNTIME RANKING ---")
-	for _, rm := range runtimeMatchers {
-		matcherStr := rm.matcher.String()
-		if len(matcherStr) > 80 {
-			matcherStr = matcherStr[:80] + "..."
+func rankByRuntime(matchers []rankedMatcher) {
+	sort.Slice(matchers, func(i, j int) bool {
+		return matchers[i].timePerOp < matchers[j].timePerOp
+	})
+
+	currentRank := 1
+	for i := range matchers {
+		if i > 0 && matchers[i].timePerOp != matchers[i-1].timePerOp {
+			currentRank++
 		}
-		b.Logf("Rank %d: Time %v - %s", rm.rank, rm.timePerOp, matcherStr)
+		matchers[i].runtimeRank = currentRank
+	}
+}
+
+func rankByCost(matchers []rankedMatcher) {
+	sort.Slice(matchers, func(i, j int) bool {
+		return matchers[i].cost < matchers[j].cost
+	})
+
+	currentRank := 1
+	for i := range matchers {
+		if i > 0 && matchers[i].cost != matchers[i-1].cost {
+			currentRank++
+		}
+		matchers[i].costRank = currentRank
 	}
 }
