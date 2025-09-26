@@ -16,6 +16,7 @@ package labels
 import (
 	"fmt"
 	"math"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -174,4 +175,180 @@ func TestSelectivity(t *testing.T) {
 			require.InDelta(t, tt.selectivity, actualSelectivity, tolerance)
 		})
 	}
+}
+
+// Benchmark string equality operations with different string lengths
+func BenchmarkStringEquality(b *testing.B) {
+	benchmarks := []struct {
+		name     string
+		str1     string
+		str2     string
+		expected bool
+	}{
+		{"Equal_8chars", "abc12345", "abc12345", true},
+		{"Equal_32chars", strings.Repeat("abcd", 8), strings.Repeat("abcd", 8), true},
+		{"Equal_64chars", strings.Repeat("abcd", 16), strings.Repeat("abcd", 16), true},
+		{"NotEqual_8chars", "abc12345", "abc12346", false},
+		{"NotEqual_32chars", strings.Repeat("abcd", 8), strings.Repeat("abce", 8), false},
+		{"NotEqual_64chars", strings.Repeat("abcd", 16), strings.Repeat("abce", 16), false},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			b.ResetTimer()
+			var result bool
+			for i := 0; i < b.N; i++ {
+				result = bm.str1 == bm.str2
+			}
+			if result != bm.expected {
+				b.Fatalf("unexpected result: got %v, want %v", result, bm.expected)
+			}
+		})
+	}
+}
+
+// Benchmark string hasPrefix operations with different scenarios
+func BenchmarkStringHasPrefix(b *testing.B) {
+	// Short prefix (8 chars) that matches
+	shortPrefix := "abcd1234"
+	shortTarget := shortPrefix + strings.Repeat("xyz", 10)
+
+	// Long prefix (32 chars) that matches
+	longPrefix := strings.Repeat("abcd", 8)
+	longTarget := longPrefix + strings.Repeat("xyz", 10)
+
+	// Prefix that misses by 1 char at end, repeated 32 times
+	nearMissPrefix := strings.Repeat("a", 31) + "b"
+	nearMissTarget := strings.Repeat("a", 32)
+
+	benchmarks := []struct {
+		name     string
+		target   string
+		prefix   string
+		expected bool
+	}{
+		{"ShortPrefix_8chars_Match", shortTarget, shortPrefix, true},
+		{"LongPrefix_32chars_Match", longTarget, longPrefix, true},
+		{"NearMiss_LastChar_32times", nearMissTarget, nearMissPrefix, false},
+	}
+
+	for _, bm := range benchmarks {
+		b.Run(bm.name, func(b *testing.B) {
+			b.ResetTimer()
+			var result bool
+			for i := 0; i < b.N; i++ {
+				result = strings.HasPrefix(bm.target, bm.prefix)
+			}
+			if result != bm.expected {
+				b.Fatalf("unexpected result: got %v, want %v", result, bm.expected)
+			}
+		})
+	}
+}
+
+// Benchmark slice contains operations with different slice sizes
+func BenchmarkSliceContains(b *testing.B) {
+	// Helper function to create slices of different sizes
+	createSlice := func(size int) []string {
+		slice := make([]string, size)
+		for i := 0; i < size; i++ {
+			slice[i] = fmt.Sprintf("item_%d", i)
+		}
+		return slice
+	}
+
+	// Target to search for (will be at the end for worst case)
+	searchTarget := "target_item"
+
+	benchmarks := []struct {
+		name string
+		size int
+	}{
+		{"Size_1", 1},
+		{"Size_2", 2},
+		{"Size_8", 8},
+		{"Size_16", 16},
+	}
+
+	for _, bm := range benchmarks {
+		slice := createSlice(bm.size)
+		slice = append(slice, searchTarget) // Add target at end
+
+		b.Run(bm.name, func(b *testing.B) {
+			b.ResetTimer()
+			var found bool
+			for i := 0; i < b.N; i++ {
+				found = false
+				for _, item := range slice {
+					if item == searchTarget {
+						found = true
+						break
+					}
+				}
+			}
+			if !found {
+				b.Fatal("target not found in slice")
+			}
+		})
+	}
+}
+
+// Benchmark map contains operations with different map sizes
+func BenchmarkMapContains(b *testing.B) {
+	// Helper function to create maps of different sizes
+	createMap := func(size int) map[string]bool {
+		m := make(map[string]bool, size)
+		for i := 0; i < size; i++ {
+			m[fmt.Sprintf("key_%d", i)] = true
+		}
+		return m
+	}
+
+	// Target to search for
+	searchTarget := "target_key"
+
+	benchmarks := []struct {
+		name string
+		size int
+	}{
+		{"Size_2", 2},
+		{"Size_16", 16},
+		{"Size_32", 32},
+		{"Size_128", 128},
+		{"Size_256", 256},
+	}
+
+	for _, bm := range benchmarks {
+		m := createMap(bm.size)
+		m[searchTarget] = true // Add target
+
+		b.Run(bm.name, func(b *testing.B) {
+			b.ResetTimer()
+			var found bool
+			for i := 0; i < b.N; i++ {
+				_, found = m[searchTarget]
+			}
+			if !found {
+				b.Fatal("target not found in map")
+			}
+		})
+	}
+}
+
+// BenchmarkCostEstimation runs all cost estimation benchmarks
+// Run with: go test -bench=BenchmarkCostEstimation -benchmem -run=^$
+// For more detailed analysis: go test -bench=Benchmark -benchmem -run=^$ | tee benchmark_results.txt
+func BenchmarkCostEstimation(b *testing.B) {
+	b.Run("op=StringEquality", func(b *testing.B) {
+		BenchmarkStringEquality(b)
+	})
+	b.Run("op=StringHasPrefix", func(b *testing.B) {
+		BenchmarkStringHasPrefix(b)
+	})
+	b.Run("op=SliceContains", func(b *testing.B) {
+		BenchmarkSliceContains(b)
+	})
+	b.Run("op=MapContains", func(b *testing.B) {
+		BenchmarkMapContains(b)
+	})
 }
