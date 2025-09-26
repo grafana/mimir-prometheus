@@ -185,12 +185,12 @@ func BenchmarkStringEquality(b *testing.B) {
 		str2     string
 		expected bool
 	}{
-		{"Equal_8chars", "abc12345", "abc12345", true},
-		{"Equal_32chars", strings.Repeat("abcd", 8), strings.Repeat("abcd", 8), true},
-		{"Equal_64chars", strings.Repeat("abcd", 16), strings.Repeat("abcd", 16), true},
-		{"NotEqual_8chars", "abc12345", "abc12346", false},
-		{"NotEqual_32chars", strings.Repeat("abcd", 8), strings.Repeat("abce", 8), false},
-		{"NotEqual_64chars", strings.Repeat("abcd", 16), strings.Repeat("abce", 16), false},
+		{"flavour=Equal_8chars", "abc12345", "abc12345", true},
+		{"flavour=Equal_32chars", strings.Repeat("abcd", 8), strings.Repeat("abcd", 8), true},
+		{"flavour=Equal_64chars", strings.Repeat("abcd", 16), strings.Repeat("abcd", 16), true},
+		{"flavour=NotEqual_8chars", "abc12345", "abc12346", false},
+		{"flavour=NotEqual_32chars", strings.Repeat("abcd", 8), strings.Repeat("abce", 8), false},
+		{"flavour=NotEqual_64chars", strings.Repeat("abcd", 16), strings.Repeat("abce", 16), false},
 	}
 
 	for _, bm := range benchmarks {
@@ -227,9 +227,9 @@ func BenchmarkStringHasPrefix(b *testing.B) {
 		prefix   string
 		expected bool
 	}{
-		{"ShortPrefix_8chars_Match", shortTarget, shortPrefix, true},
-		{"LongPrefix_32chars_Match", longTarget, longPrefix, true},
-		{"NearMiss_LastChar_32times", nearMissTarget, nearMissPrefix, false},
+		{"flavour=ShortPrefix_8chars_Match", shortTarget, shortPrefix, true},
+		{"flavour=LongPrefix_32chars_Match", longTarget, longPrefix, true},
+		{"flavour=NearMiss_LastChar_32times", nearMissTarget, nearMissPrefix, false},
 	}
 
 	for _, bm := range benchmarks {
@@ -264,10 +264,10 @@ func BenchmarkSliceContains(b *testing.B) {
 		name string
 		size int
 	}{
-		{"Size_1", 1},
-		{"Size_2", 2},
-		{"Size_8", 8},
-		{"Size_16", 16},
+		{"size=1", 1},
+		{"size=2", 2},
+		{"size=8", 8},
+		{"size=16", 16},
 	}
 
 	for _, bm := range benchmarks {
@@ -311,11 +311,11 @@ func BenchmarkMapContains(b *testing.B) {
 		name string
 		size int
 	}{
-		{"Size_2", 2},
-		{"Size_16", 16},
-		{"Size_32", 32},
-		{"Size_128", 128},
-		{"Size_256", 256},
+		{"size=2", 2},
+		{"size=16", 16},
+		{"size=32", 32},
+		{"size=128", 128},
+		{"size=256", 256},
 	}
 
 	for _, bm := range benchmarks {
