@@ -16,8 +16,10 @@ package labels
 import (
 	"fmt"
 	"math"
+	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -337,4 +339,99 @@ func BenchmarkCostEstimation(b *testing.B) {
 	b.Run("op=MapContains", func(b *testing.B) {
 		BenchmarkMapContains(b)
 	})
+}
+
+func BenchmarkMatcherCostVsRuntime(b *testing.B) {
+	type costMatcher struct {
+		cost    float64
+		matcher *Matcher
+		rank    int
+	}
+
+	type runtimeMatcher struct {
+		matcher   *Matcher
+		timePerOp time.Duration
+		rank      int
+	}
+
+	var costMatchers []costMatcher
+	var runtimeMatchers []runtimeMatcher
+
+	for _, tc := range matcherTestCases {
+		matcher, err := NewMatcher(tc.t, tc.l, tc.v)
+		if err != nil {
+			b.Fatalf("Failed to create matcher: %v", err)
+		}
+
+		costMatchers = append(costMatchers, costMatcher{
+			cost:    tc.cost,
+			matcher: matcher,
+		})
+
+		matcherStr := matcher.String()
+		if len(matcherStr) > 50 {
+			matcherStr = matcherStr[:50]
+		}
+
+		b.Run(matcherStr, func(b *testing.B) {
+			b.ResetTimer()
+			start := time.Now()
+			for i := 0; i < b.N; i++ {
+				_ = matcher.SingleMatchCost()
+			}
+			elapsed := time.Since(start)
+			timePerOp := elapsed / time.Duration(b.N)
+
+			roundedTime := time.Duration((timePerOp.Nanoseconds()+2)/3) * 3 * time.Nanosecond
+
+			runtimeMatchers = append(runtimeMatchers, runtimeMatcher{
+				matcher:   matcher,
+				timePerOp: roundedTime,
+			})
+		})
+	}
+
+	sort.Slice(costMatchers, func(i, j int) bool {
+		return costMatchers[i].cost < costMatchers[j].cost
+	})
+
+	currentRank := 1
+	for i := range costMatchers {
+		if i > 0 && costMatchers[i].cost != costMatchers[i-1].cost {
+			currentRank = i + 1
+		}
+		costMatchers[i].rank = currentRank
+	}
+
+	sort.Slice(runtimeMatchers, func(i, j int) bool {
+		return runtimeMatchers[i].timePerOp < runtimeMatchers[j].timePerOp
+	})
+
+	currentRank = 1
+	for i := range runtimeMatchers {
+		if i > 0 && runtimeMatchers[i].timePerOp != runtimeMatchers[i-1].timePerOp {
+			currentRank = i + 1
+		}
+		runtimeMatchers[i].rank = currentRank
+	}
+
+	b.Logf("\n=== MATCHER COST VS RUNTIME RANKING COMPARISON ===\n")
+
+	b.Logf("\n--- COST RANKING ---")
+	for _, cm := range costMatchers {
+		matcherStr := cm.matcher.String()
+		if len(matcherStr) > 80 {
+			matcherStr = matcherStr[:80] + "..."
+		}
+		b.Logf("Rank %d: Cost %.1f - %s", cm.rank, cm.cost, matcherStr)
+	}
+
+	b.Logf("\n--- RUNTIME RANKING ---")
+	for _, rm := range runtimeMatchers {
+		matcherStr := rm.matcher.String()
+		if len(matcherStr) > 80 {
+			matcherStr = matcherStr[:80] + "..."
+		}
+		b.Logf("Rank %d: Time %v - %s", rm.rank, rm.timePerOp, matcherStr)
+	}
 }
