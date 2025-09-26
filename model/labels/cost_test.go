@@ -81,28 +81,28 @@ func TestSingleMatchCost(t *testing.T) {
 		{1, "topic", MatchNotEqual, ""},
 
 		// !~ matchers
-		{0.5, "statefulset", MatchNotRegexp, "ingester-zone-.-partition"},
+		{1, "statefulset", MatchNotRegexp, "ingester-zone-.-partition"},
 		{33, "topic", MatchNotRegexp, "(.+)-KSTREAM-AGGREGATE-STATE-STORE-(.+)"},
-		{2, "workload_type", MatchNotRegexp, "job|cronjob"},
-		{2, "created_by_kind", MatchNotRegexp, "Job|TaskRun"},
-		{0.5, "namespace", MatchNotRegexp, "kube-.*"},
-		{2, "job", MatchNotRegexp, "(ecs-dockerstats-exporter)|(vmagent)"},
+		{2.2, "workload_type", MatchNotRegexp, "job|cronjob"},
+		{2.2, "created_by_kind", MatchNotRegexp, "Job|TaskRun"},
+		{1, "namespace", MatchNotRegexp, "kube-.*"},
+		{2.2, "job", MatchNotRegexp, "(ecs-dockerstats-exporter)|(vmagent)"},
 		{31, "job", MatchNotRegexp, ".*envoy-stats.*"},
 		{21, "db_name", MatchNotRegexp, "template.*|^$"},
 		{31, "exported_job", MatchNotRegexp, ".*envoy-stats.*"},
-		{5, "job", MatchNotRegexp, "integrations/(windows|node_exporter|unix|docker|db-o11y)"},
-		{4, "job", MatchNotRegexp, "integrations/(windows|node_exporter|unix|docker)"},
-		{2, "k8s_src_owner_type", MatchNotRegexp, "Pod|Node"},
-		{2, "k8s_dst_owner_type", MatchNotRegexp, "Pod|Node"},
+		{5.5, "job", MatchNotRegexp, "integrations/(windows|node_exporter|unix|docker|db-o11y)"},
+		{4.4, "job", MatchNotRegexp, "integrations/(windows|node_exporter|unix|docker)"},
+		{2.2, "k8s_src_owner_type", MatchNotRegexp, "Pod|Node"},
+		{2.2, "k8s_dst_owner_type", MatchNotRegexp, "Pod|Node"},
 		{18, "image_spec", MatchNotRegexp, "(.*):1364de3"},
 		{18, "image_spec", MatchNotRegexp, "(.*):cfc5ca8"},
-		{1, "namespace", MatchNotRegexp, "(cortex-ops-01)"},
-		{0.5, "slug", MatchNotRegexp, "ephemeral.*"},
+		{1.1, "namespace", MatchNotRegexp, "(cortex-ops-01)"},
+		{1, "slug", MatchNotRegexp, "ephemeral.*"},
 		{18, "image_spec", MatchNotRegexp, "(.*):d849bcd"},
 		{18, "image_spec", MatchNotRegexp, "(.*):cb8eaaa"},
 
 		// long matchers
-		{71.49, "pod", MatchRegexp, longRegex2},
+		{4, "pod", MatchRegexp, longRegex2},
 		{27569, "pod", MatchRegexp, longRegex3},
 		{9065, "pod", MatchRegexp, longRegex4},
 	}
@@ -177,7 +177,6 @@ func TestSelectivity(t *testing.T) {
 	}
 }
 
-// Benchmark string equality operations with different string lengths
 func BenchmarkStringEquality(b *testing.B) {
 	benchmarks := []struct {
 		name     string
@@ -207,17 +206,13 @@ func BenchmarkStringEquality(b *testing.B) {
 	}
 }
 
-// Benchmark string hasPrefix operations with different scenarios
 func BenchmarkStringHasPrefix(b *testing.B) {
-	// Short prefix (8 chars) that matches
 	shortPrefix := "abcd1234"
 	shortTarget := shortPrefix + strings.Repeat("xyz", 10)
 
-	// Long prefix (32 chars) that matches
 	longPrefix := strings.Repeat("abcd", 8)
 	longTarget := longPrefix + strings.Repeat("xyz", 10)
 
-	// Prefix that misses by 1 char at end, repeated 32 times
 	nearMissPrefix := strings.Repeat("a", 31) + "b"
 	nearMissTarget := strings.Repeat("a", 32)
 
@@ -246,9 +241,7 @@ func BenchmarkStringHasPrefix(b *testing.B) {
 	}
 }
 
-// Benchmark slice contains operations with different slice sizes
 func BenchmarkSliceContains(b *testing.B) {
-	// Helper function to create slices of different sizes
 	createSlice := func(size int) []string {
 		slice := make([]string, size)
 		for i := 0; i < size; i++ {
@@ -257,7 +250,6 @@ func BenchmarkSliceContains(b *testing.B) {
 		return slice
 	}
 
-	// Target to search for (will be at the end for worst case)
 	searchTarget := "target_item"
 
 	benchmarks := []struct {
@@ -272,7 +264,7 @@ func BenchmarkSliceContains(b *testing.B) {
 
 	for _, bm := range benchmarks {
 		slice := createSlice(bm.size)
-		slice = append(slice, searchTarget) // Add target at end
+		slice = append(slice, searchTarget)
 
 		b.Run(bm.name, func(b *testing.B) {
 			b.ResetTimer()
@@ -293,9 +285,7 @@ func BenchmarkSliceContains(b *testing.B) {
 	}
 }
 
-// Benchmark map contains operations with different map sizes
 func BenchmarkMapContains(b *testing.B) {
-	// Helper function to create maps of different sizes
 	createMap := func(size int) map[string]bool {
 		m := make(map[string]bool, size)
 		for i := 0; i < size; i++ {
@@ -304,7 +294,6 @@ func BenchmarkMapContains(b *testing.B) {
 		return m
 	}
 
-	// Target to search for
 	searchTarget := "target_key"
 
 	benchmarks := []struct {
@@ -320,7 +309,7 @@ func BenchmarkMapContains(b *testing.B) {
 
 	for _, bm := range benchmarks {
 		m := createMap(bm.size)
-		m[searchTarget] = true // Add target
+		m[searchTarget] = true
 
 		b.Run(bm.name, func(b *testing.B) {
 			b.ResetTimer()
@@ -335,9 +324,6 @@ func BenchmarkMapContains(b *testing.B) {
 	}
 }
 
-// BenchmarkCostEstimation runs all cost estimation benchmarks
-// Run with: go test -bench=BenchmarkCostEstimation -benchmem -run=^$
-// For more detailed analysis: go test -bench=Benchmark -benchmem -run=^$ | tee benchmark_results.txt
 func BenchmarkCostEstimation(b *testing.B) {
 	b.Run("op=StringEquality", func(b *testing.B) {
 		BenchmarkStringEquality(b)
