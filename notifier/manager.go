@@ -511,10 +511,10 @@ func (n *Manager) sendAll(alerts ...*Alert) bool {
 					n.metrics.errors.WithLabelValues(url).Add(float64(count))
 				} else {
 					amSetCovered.CompareAndSwap(k, false, true)
+					n.metrics.sent.WithLabelValues(url).Add(float64(count))
 				}
 
 				n.metrics.latency.WithLabelValues(url).Observe(time.Since(begin).Seconds())
-				n.metrics.sent.WithLabelValues(url).Add(float64(count))
 
 				wg.Done()
 			}(ctx, k, ams.client, am.url().String(), payload, len(amAlerts))
