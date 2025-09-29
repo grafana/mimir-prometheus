@@ -347,7 +347,7 @@ func TestDataNotAvailableAfterRollback(t *testing.T) {
 	// Read records from WAL and check for expected count of series and samples.
 	var (
 		r   = wlog.NewReader(sr)
-		dec = record.NewDecoder(labels.NewSymbolTable())
+		dec = record.NewDecoder(labels.NewSymbolTable(), promslog.NewNopLogger())
 
 		walSeriesCount, walSamplesCount, walHistogramCount, walFloatHistogramCount, walExemplarsCount int
 	)
@@ -4586,7 +4586,7 @@ func testOOOWALWrite(t *testing.T,
 		}()
 
 		var records []any
-		dec := record.NewDecoder(nil)
+		dec := record.NewDecoder(nil, promslog.NewNopLogger())
 		for r.Next() {
 			rec := r.Record()
 			switch typ := dec.Type(rec); typ {
@@ -7102,7 +7102,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		require.NoError(t, err)
 		sr, err := wlog.NewSegmentsReader(originalWblDir)
 		require.NoError(t, err)
-		dec := record.NewDecoder(labels.NewSymbolTable())
+		dec := record.NewDecoder(labels.NewSymbolTable(), promslog.NewNopLogger())
 		r, markers, addedRecs := wlog.NewReader(sr), 0, 0
 		for r.Next() {
 			rec := r.Record()
