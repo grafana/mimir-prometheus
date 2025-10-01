@@ -74,6 +74,8 @@ type Group struct {
 	// defaults to DefaultEvalIterationFunc.
 	evalIterationFunc GroupEvalIterationFunc
 
+	failureClassifierFunc EvaluationFailureClassifierFunc
+
 	appOpts                       *storage.AppendOptions
 	alignEvaluationTimeOnInterval bool
 }
@@ -84,6 +86,8 @@ type Group struct {
 // evaluate the rules in the group at that point in time.
 // DefaultEvalIterationFunc is the default implementation.
 type GroupEvalIterationFunc func(ctx context.Context, g *Group, evalTimestamp time.Time)
+
+type EvaluationFailureClassifierFunc func(error) bool
 
 type GroupOptions struct {
 	Name, File                    string
@@ -97,6 +101,14 @@ type GroupOptions struct {
 	done                          chan struct{}
 	EvalIterationFunc             GroupEvalIterationFunc
 	AlignEvaluationTimeOnInterval bool
+	FailureClassifierFunc         EvaluationFailureClassifierFunc
+}
+
+// DefaultEvaluationFailureClassifierFunc is the default implementation of
+// EvaluationFailureClassifierFunc that classifies no errors as operator-controllable.
+// Custom implementations can be provided to classify specific error types.
+func DefaultEvaluationFailureClassifierFunc(_ error) bool {
+	return false
 }
 
 // NewGroup makes a new Group with the given name, options, and rules.
@@ -115,6 +127,7 @@ func NewGroup(o GroupOptions) *Group {
 	metrics.IterationsScheduled.WithLabelValues(key)
 	metrics.EvalTotal.WithLabelValues(key)
 	metrics.EvalFailures.WithLabelValues(key)
+	metrics.EvalFilteredFailures.WithLabelValues(key)
 	metrics.GroupLastEvalTime.WithLabelValues(key)
 	metrics.GroupLastDuration.WithLabelValues(key)
 	metrics.GroupLastRuleDurationSum.WithLabelValues(key)
@@ -125,6 +138,11 @@ func NewGroup(o GroupOptions) *Group {
 	evalIterationFunc := o.EvalIterationFunc
 	if evalIterationFunc == nil {
 		evalIterationFunc = DefaultEvalIterationFunc
+	}
+
+	failureClassifierFunc := o.FailureClassifierFunc
+	if failureClassifierFunc == nil {
+		failureClassifierFunc = DefaultEvaluationFailureClassifierFunc
 	}
 
 	if opts.Logger == nil {
@@ -150,6 +168,7 @@ func NewGroup(o GroupOptions) *Group {
 		evalIterationFunc:             evalIterationFunc,
 		appOpts:                       &storage.AppendOptions{DiscardOutOfOrder: true},
 		alignEvaluationTimeOnInterval: o.AlignEvaluationTimeOnInterval,
+		failureClassifierFunc:         failureClassifierFunc,
 	}
 }
 
@@ -548,6 +567,9 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 			sp.SetStatus(codes.Error, err.Error())
 			g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 
+			if g.failureClassifierFunc != nil && g.failureClassifierFunc(err) {
+				g.metrics.EvalFilteredFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
+			}
 			// Canceled queries are intentional termination of queries. This normally
 			// happens on shutdown and thus we skip logging of any errors here.
 			var eqc promql.ErrQueryCanceled
@@ -577,6 +599,10 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 				rule.SetLastError(err)
 				sp.SetStatus(codes.Error, err.Error())
 				g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
+
+				if g.failureClassifierFunc != nil && g.failureClassifierFunc(err) {
+					g.metrics.EvalFilteredFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
+				}
 
 				logger.Warn("Rule sample appending failed", "err", err)
 				return
@@ -954,6 +980,7 @@ type Metrics struct {
 	IterationsScheduled      *prometheus.CounterVec
 	EvalTotal                *prometheus.CounterVec
 	EvalFailures             *prometheus.CounterVec
+	EvalFilteredFailures     *prometheus.CounterVec
 	GroupInterval            *prometheus.GaugeVec
 	GroupLastEvalTime        *prometheus.GaugeVec
 	GroupLastDuration        *prometheus.GaugeVec
@@ -1009,6 +1036,14 @@ func NewGroupMetrics(reg prometheus.Registerer) *Metrics {
 				Namespace: namespace,
 				Name:      "rule_evaluation_failures_total",
 				Help:      "The total number of rule evaluation failures.",
+			},
+			[]string{"rule_group"},
+		),
+		EvalFilteredFailures: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "rule_evaluation_filtered_failures_total",
+				Help:      "The total number of rule evaluation failures classified by the failure classifier function.",
 			},
 			[]string{"rule_group"},
 		),
@@ -1078,6 +1113,7 @@ func NewGroupMetrics(reg prometheus.Registerer) *Metrics {
 			m.IterationsScheduled,
 			m.EvalTotal,
 			m.EvalFailures,
+			m.EvalFilteredFailures,
 			m.GroupInterval,
 			m.GroupLastEvalTime,
 			m.GroupLastDuration,
