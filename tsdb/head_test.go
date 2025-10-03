@@ -7414,6 +7414,96 @@ func testHeadAppendHistogramAndCommitConcurrency(t *testing.T, appendFn func(sto
 	wg.Wait()
 }
 
+func TestFsyncWLSegments(t *testing.T) {
+	t.Run("sync fails when WAL is not initialized", func(t *testing.T) {
+		h, err := NewHead(nil, nil, nil, nil, DefaultHeadOptions(), NewHeadStats())
+		require.NoError(t, err)
+		defer h.Close()
+
+		err = h.FsyncWLSegments()
+		require.EqualError(t, err, "wal not initialized")
+	})
+
+	t.Run("sync succeeds with WAL only", func(t *testing.T) {
+		dir := t.TempDir()
+		wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32*1024, compression.None)
+		require.NoError(t, err)
+
+		h, err := NewHead(nil, nil, wal, nil, DefaultHeadOptions(), NewHeadStats())
+		require.NoError(t, err)
+		defer h.Close()
+
+		app := h.Appender(context.Background())
+		_, err = app.Append(0, labels.FromStrings("foo", "bar"), 1, 1)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		err = h.FsyncWLSegments()
+		require.NoError(t, err)
+	})
+
+	t.Run("sync succeeds with both WAL and WBL", func(t *testing.T) {
+		dir := t.TempDir()
+		wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32*1024, compression.None)
+		require.NoError(t, err)
+		wbl, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wbl"), 32*1024, compression.None)
+		require.NoError(t, err)
+
+		opts := DefaultHeadOptions()
+		opts.OutOfOrderTimeWindow.Store(1 * time.Hour.Milliseconds())
+		h, err := NewHead(nil, nil, wal, wbl, opts, NewHeadStats())
+		require.NoError(t, err)
+		defer h.Close()
+
+		app := h.Appender(context.Background())
+		_, err = app.Append(0, labels.FromStrings("foo", "bar"), 1, 1)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		app = h.Appender(context.Background())
+		_, err = app.Append(0, labels.FromStrings("foo", "bar"), 0, 0)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		err = h.FsyncWLSegments()
+		require.NoError(t, err)
+	})
+
+	t.Run("sync fails when WAL sync fails", func(t *testing.T) {
+		dir := t.TempDir()
+		wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32*1024, compression.None)
+		require.NoError(t, err)
+		// Close the WAL to make sync fail
+		require.NoError(t, wal.Close())
+
+		h, err := NewHead(nil, nil, wal, nil, DefaultHeadOptions(), NewHeadStats())
+		require.NoError(t, err)
+		defer h.Close()
+
+		err = h.FsyncWLSegments()
+		require.EqualError(t, err, "could not fsync wal segments: unable to fsync segments: write log is closed")
+	})
+
+	t.Run("sync fails when WBL sync fails", func(t *testing.T) {
+		dir := t.TempDir()
+		wal, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wal"), 32*1024, compression.None)
+		require.NoError(t, err)
+		wbl, err := wlog.NewSize(nil, nil, filepath.Join(dir, "wbl"), 32*1024, compression.None)
+		require.NoError(t, err)
+		// Close the WBL to make sync fail
+		require.NoError(t, wbl.Close())
+
+		opts := DefaultHeadOptions()
+		opts.OutOfOrderTimeWindow.Store(1 * time.Hour.Milliseconds())
+		h, err := NewHead(nil, nil, wal, wbl, opts, NewHeadStats())
+		require.NoError(t, err)
+		defer h.Close()
+
+		err = h.FsyncWLSegments()
+		require.EqualError(t, err, "could not fsync wbl segments: unable to fsync segments: write log is closed")
+	})
+}
+
 func TestHead_NumStaleSeries(t *testing.T) {
 	head, _ := newTestHead(t, 1000, compression.None, false)
 	t.Cleanup(func() {
