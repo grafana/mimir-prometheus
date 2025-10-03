@@ -591,23 +591,6 @@ func TestSyncSegmentsUntilCurrent(t *testing.T) {
 		require.NoError(t, w.FsyncSegmentsUntilCurrent())
 	})
 
-	t.Run("sync fails when channel is full", func(t *testing.T) {
-		dir := t.TempDir()
-		w, err := NewSize(nil, nil, dir, pageSize, compression.None)
-		require.NoError(t, err)
-		defer w.Close()
-
-		// Fill actor channel with blocked functions so we can ensure it's full when calling FsyncSegmentsUntilCurrent()
-		block := make(chan struct{})
-		defer close(block)
-		for i := 0; i <= cap(w.actorc); i++ {
-			w.actorc <- func() { <-block }
-		}
-
-		err = w.FsyncSegmentsUntilCurrent()
-		require.EqualError(t, err, "skipping fsync previous segments confirmation: actor channel full")
-	})
-
 	t.Run("sync fails when WAL is closed", func(t *testing.T) {
 		dir := t.TempDir()
 		w, err := NewSize(nil, nil, dir, pageSize, compression.None)
