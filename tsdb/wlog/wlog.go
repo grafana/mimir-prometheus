@@ -1047,31 +1047,26 @@ func (w *WL) Size() (int64, error) {
 	return fileutil.DirSize(w.Dir())
 }
 
+// FsyncSegmentsUntilCurrent ensures all segments until the current segment are fsynced.
+// Writes to the write log are blocked until this function completes.
 func (w *WL) FsyncSegmentsUntilCurrent() error {
-	var err error
 	w.mtx.Lock()
-	// fsync current segment within mutex to avoid race conditions where the segment could be updated or closed
+	defer w.mtx.Unlock()
+
 	if w.closed {
-		w.mtx.Unlock()
 		return errors.New("unable to fsync segments: write log is closed")
 	}
 	if w.segment != nil {
-		err = w.fsync(w.segment)
-	}
-	w.mtx.Unlock()
-
-	if err != nil {
-		return err
+		err := w.fsync(w.segment)
+		if err != nil {
+			return err
+		}
 	}
 
+	// All previous segments before w.segment should either have been fsynced and closed or still in the actorc queue.
+	// Waiting for all previous segments to complete fsync before marking as done.
 	done := make(chan struct{})
-	// all previous segments before w.segment should either have been fsynced and closed or still in the actorc queue
-	// waiting for all previous segments to complete fsync before marking as done
-	select {
-	case w.actorc <- func() { close(done) }:
-		<-done
-		return nil
-	default:
-		return errors.New("skipping fsync previous segments confirmation: actor channel full")
-	}
+	w.actorc <- func() { close(done) }
+	<-done
+	return nil
 }
