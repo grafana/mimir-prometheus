@@ -255,7 +255,19 @@ func TestGroup_Equals(t *testing.T) {
 	}
 }
 
-func TestEvalFilteredFailures(t *testing.T) {
+// HTTPStatusOperatorControllableErrorClassifier is a test classifier that identifies
+// 429 and 5xx status codes as operator-controllable errors.
+type HTTPStatusOperatorControllableErrorClassifier struct{}
+
+func (*HTTPStatusOperatorControllableErrorClassifier) IsOperatorControllable(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "429") || strings.Contains(errMsg, "50")
+}
+
+func TestEvalOperatorControllableFailures(t *testing.T) {
 	storage := teststorage.New(t)
 	t.Cleanup(func() { storage.Close() })
 
@@ -263,26 +275,19 @@ func TestEvalFilteredFailures(t *testing.T) {
 	require.NoError(t, err)
 	rule := NewRecordingRule("test_rule", expr, labels.EmptyLabels())
 
-	// Custom classifier filters 429 and 5xx status codes
-	customClassifier := func(err error) bool {
-		if err == nil {
-			return false
-		}
-		errMsg := err.Error()
-		return strings.Contains(errMsg, "429") || strings.Contains(errMsg, "50")
-	}
+	customClassifier := &HTTPStatusOperatorControllableErrorClassifier{}
 
 	testCases := []struct {
-		name           string
-		errorMessage   string
-		classifier     func(error) bool
-		expectFiltered bool
+		name                       string
+		errorMessage               string
+		classifier                 OperatorControllableErrorClassifier
+		expectOperatorControllable bool
 	}{
 		{"default classifier", "any error", nil, false},
-		{"custom 429 filtered", "HTTP 429 Too Many Requests", customClassifier, true},
-		{"custom 500 filtered", "HTTP 500 Internal Server Error", customClassifier, true},
-		{"custom 502 filtered", "HTTP 502 Bad Gateway", customClassifier, true},
-		{"custom 400 not filtered", "HTTP 400 Bad Request", customClassifier, false},
+		{"custom 429 classified as operator controllable", "HTTP 429 Too Many Requests", customClassifier, true},
+		{"custom 500 classified as operator controllable", "HTTP 500 Internal Server Error", customClassifier, true},
+		{"custom 502 classified as operator controllable", "HTTP 502 Bad Gateway", customClassifier, true},
+		{"custom 400 not operator controllable", "HTTP 400 Bad Request", customClassifier, false},
 	}
 
 	for _, tc := range testCases {
@@ -300,25 +305,25 @@ func TestEvalFilteredFailures(t *testing.T) {
 			}
 
 			group := NewGroup(GroupOptions{
-				Name:                  "test_group",
-				File:                  "test.yml",
-				Interval:              time.Second,
-				Rules:                 []Rule{rule},
-				Opts:                  opts,
-				FailureClassifierFunc: tc.classifier,
+				Name:                                "test_group",
+				File:                                "test.yml",
+				Interval:                            time.Second,
+				Rules:                               []Rule{rule},
+				Opts:                                opts,
+				OperatorControllableErrorClassifier: tc.classifier,
 			})
 
 			group.Eval(context.Background(), time.Now())
 
 			groupKey := GroupKey("test.yml", "test_group")
 			evalFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey))
-			evalFilteredFailures := testutil.ToFloat64(group.metrics.EvalFilteredFailures.WithLabelValues(groupKey))
+			evalOperatorControllableFailures := testutil.ToFloat64(group.metrics.EvalOperatorControllableFailures.WithLabelValues(groupKey))
 
 			require.Equal(t, float64(1), evalFailures)
-			if tc.expectFiltered {
-				require.Equal(t, float64(1), evalFilteredFailures)
+			if tc.expectOperatorControllable {
+				require.Equal(t, float64(1), evalOperatorControllableFailures)
 			} else {
-				require.Equal(t, float64(0), evalFilteredFailures)
+				require.Equal(t, float64(0), evalOperatorControllableFailures)
 			}
 		})
 	}
@@ -393,7 +398,7 @@ func TestEvalDiscardedSamplesDoNotIncrementFailureMetrics(t *testing.T) {
 			group.Eval(context.Background(), time.Now())
 
 			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(GroupKey("test.yml", "test_group"))))
-			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFilteredFailures.WithLabelValues(GroupKey("test.yml", "test_group"))))
+			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalOperatorControllableFailures.WithLabelValues(GroupKey("test.yml", "test_group"))))
 		})
 	}
 }

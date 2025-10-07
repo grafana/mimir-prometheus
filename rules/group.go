@@ -74,7 +74,7 @@ type Group struct {
 	// defaults to DefaultEvalIterationFunc.
 	evalIterationFunc GroupEvalIterationFunc
 
-	failureClassifierFunc EvaluationFailureClassifierFunc
+	operatorControllableErrorClassifier OperatorControllableErrorClassifier
 
 	appOpts                       *storage.AppendOptions
 	alignEvaluationTimeOnInterval bool
@@ -87,27 +87,31 @@ type Group struct {
 // DefaultEvalIterationFunc is the default implementation.
 type GroupEvalIterationFunc func(ctx context.Context, g *Group, evalTimestamp time.Time)
 
-type EvaluationFailureClassifierFunc func(error) bool
-
-type GroupOptions struct {
-	Name, File                    string
-	Interval                      time.Duration
-	Limit                         int
-	Rules                         []Rule
-	SourceTenants                 []string
-	ShouldRestore                 bool
-	Opts                          *ManagerOptions
-	QueryOffset                   *time.Duration
-	done                          chan struct{}
-	EvalIterationFunc             GroupEvalIterationFunc
-	AlignEvaluationTimeOnInterval bool
-	FailureClassifierFunc         EvaluationFailureClassifierFunc
+// OperatorControllableErrorClassifier classifies whether rule evaluation errors are operator-controllable.
+type OperatorControllableErrorClassifier interface {
+	IsOperatorControllable(error) bool
 }
 
-// DefaultEvaluationFailureClassifierFunc is the default implementation of
-// EvaluationFailureClassifierFunc that classifies no errors as operator-controllable.
-// Custom implementations can be provided to classify specific error types.
-func DefaultEvaluationFailureClassifierFunc(_ error) bool {
+type GroupOptions struct {
+	Name, File                          string
+	Interval                            time.Duration
+	Limit                               int
+	Rules                               []Rule
+	SourceTenants                       []string
+	ShouldRestore                       bool
+	Opts                                *ManagerOptions
+	QueryOffset                         *time.Duration
+	done                                chan struct{}
+	EvalIterationFunc                   GroupEvalIterationFunc
+	AlignEvaluationTimeOnInterval       bool
+	OperatorControllableErrorClassifier OperatorControllableErrorClassifier
+}
+
+// DefaultOperatorControllableErrorClassifier is the default implementation of
+// OperatorControllableErrorClassifier that classifies no errors as operator-controllable.
+type DefaultOperatorControllableErrorClassifier struct{}
+
+func (*DefaultOperatorControllableErrorClassifier) IsOperatorControllable(_ error) bool {
 	return false
 }
 
@@ -127,7 +131,7 @@ func NewGroup(o GroupOptions) *Group {
 	metrics.IterationsScheduled.WithLabelValues(key)
 	metrics.EvalTotal.WithLabelValues(key)
 	metrics.EvalFailures.WithLabelValues(key)
-	metrics.EvalFilteredFailures.WithLabelValues(key)
+	metrics.EvalOperatorControllableFailures.WithLabelValues(key)
 	metrics.GroupLastEvalTime.WithLabelValues(key)
 	metrics.GroupLastDuration.WithLabelValues(key)
 	metrics.GroupLastRuleDurationSum.WithLabelValues(key)
@@ -140,9 +144,9 @@ func NewGroup(o GroupOptions) *Group {
 		evalIterationFunc = DefaultEvalIterationFunc
 	}
 
-	failureClassifierFunc := o.FailureClassifierFunc
-	if failureClassifierFunc == nil {
-		failureClassifierFunc = DefaultEvaluationFailureClassifierFunc
+	operatorControllableErrorClassifier := o.OperatorControllableErrorClassifier
+	if operatorControllableErrorClassifier == nil {
+		operatorControllableErrorClassifier = &DefaultOperatorControllableErrorClassifier{}
 	}
 
 	if opts.Logger == nil {
@@ -150,25 +154,25 @@ func NewGroup(o GroupOptions) *Group {
 	}
 
 	return &Group{
-		name:                          o.Name,
-		file:                          o.File,
-		interval:                      o.Interval,
-		queryOffset:                   o.QueryOffset,
-		limit:                         o.Limit,
-		rules:                         o.Rules,
-		shouldRestore:                 o.ShouldRestore,
-		opts:                          opts,
-		sourceTenants:                 o.SourceTenants,
-		seriesInPreviousEval:          make([]map[string]labels.Labels, len(o.Rules)),
-		done:                          make(chan struct{}),
-		managerDone:                   o.done,
-		terminated:                    make(chan struct{}),
-		logger:                        opts.Logger.With("file", o.File, "group", o.Name),
-		metrics:                       metrics,
-		evalIterationFunc:             evalIterationFunc,
-		appOpts:                       &storage.AppendOptions{DiscardOutOfOrder: true},
-		alignEvaluationTimeOnInterval: o.AlignEvaluationTimeOnInterval,
-		failureClassifierFunc:         failureClassifierFunc,
+		name:                                o.Name,
+		file:                                o.File,
+		interval:                            o.Interval,
+		queryOffset:                         o.QueryOffset,
+		limit:                               o.Limit,
+		rules:                               o.Rules,
+		shouldRestore:                       o.ShouldRestore,
+		opts:                                opts,
+		sourceTenants:                       o.SourceTenants,
+		seriesInPreviousEval:                make([]map[string]labels.Labels, len(o.Rules)),
+		done:                                make(chan struct{}),
+		managerDone:                         o.done,
+		terminated:                          make(chan struct{}),
+		logger:                              opts.Logger.With("file", o.File, "group", o.Name),
+		metrics:                             metrics,
+		evalIterationFunc:                   evalIterationFunc,
+		appOpts:                             &storage.AppendOptions{DiscardOutOfOrder: true},
+		alignEvaluationTimeOnInterval:       o.AlignEvaluationTimeOnInterval,
+		operatorControllableErrorClassifier: operatorControllableErrorClassifier,
 	}
 }
 
@@ -567,8 +571,8 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 			sp.SetStatus(codes.Error, err.Error())
 			g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 
-			if g.failureClassifierFunc != nil && g.failureClassifierFunc(err) {
-				g.metrics.EvalFilteredFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
+			if g.operatorControllableErrorClassifier != nil && g.operatorControllableErrorClassifier.IsOperatorControllable(err) {
+				g.metrics.EvalOperatorControllableFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 			}
 			// Canceled queries are intentional termination of queries. This normally
 			// happens on shutdown and thus we skip logging of any errors here.
@@ -600,8 +604,8 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 				sp.SetStatus(codes.Error, err.Error())
 				g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 
-				if g.failureClassifierFunc != nil && g.failureClassifierFunc(err) {
-					g.metrics.EvalFilteredFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
+				if g.operatorControllableErrorClassifier != nil && g.operatorControllableErrorClassifier.IsOperatorControllable(err) {
+					g.metrics.EvalOperatorControllableFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
 				}
 
 				logger.Warn("Rule sample appending failed", "err", err)
@@ -974,20 +978,20 @@ const namespace = "prometheus"
 
 // Metrics for rule evaluation.
 type Metrics struct {
-	EvalDuration             prometheus.Summary
-	IterationDuration        prometheus.Summary
-	IterationsMissed         *prometheus.CounterVec
-	IterationsScheduled      *prometheus.CounterVec
-	EvalTotal                *prometheus.CounterVec
-	EvalFailures             *prometheus.CounterVec
-	EvalFilteredFailures     *prometheus.CounterVec
-	GroupInterval            *prometheus.GaugeVec
-	GroupLastEvalTime        *prometheus.GaugeVec
-	GroupLastDuration        *prometheus.GaugeVec
-	GroupLastRuleDurationSum *prometheus.GaugeVec
-	GroupLastRestoreDuration *prometheus.GaugeVec
-	GroupRules               *prometheus.GaugeVec
-	GroupSamples             *prometheus.GaugeVec
+	EvalDuration                     prometheus.Summary
+	IterationDuration                prometheus.Summary
+	IterationsMissed                 *prometheus.CounterVec
+	IterationsScheduled              *prometheus.CounterVec
+	EvalTotal                        *prometheus.CounterVec
+	EvalFailures                     *prometheus.CounterVec
+	EvalOperatorControllableFailures *prometheus.CounterVec
+	GroupInterval                    *prometheus.GaugeVec
+	GroupLastEvalTime                *prometheus.GaugeVec
+	GroupLastDuration                *prometheus.GaugeVec
+	GroupLastRuleDurationSum         *prometheus.GaugeVec
+	GroupLastRestoreDuration         *prometheus.GaugeVec
+	GroupRules                       *prometheus.GaugeVec
+	GroupSamples                     *prometheus.GaugeVec
 }
 
 // NewGroupMetrics creates a new instance of Metrics and registers it with the provided registerer,
@@ -1039,11 +1043,11 @@ func NewGroupMetrics(reg prometheus.Registerer) *Metrics {
 			},
 			[]string{"rule_group"},
 		),
-		EvalFilteredFailures: prometheus.NewCounterVec(
+		EvalOperatorControllableFailures: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
-				Name:      "rule_evaluation_filtered_failures_total",
-				Help:      "The total number of rule evaluation failures classified by the failure classifier function.",
+				Name:      "rule_evaluation_operator_controllable_failures_total",
+				Help:      "The total number of rule evaluation failures that are operator-controllable.",
 			},
 			[]string{"rule_group"},
 		),
@@ -1113,7 +1117,7 @@ func NewGroupMetrics(reg prometheus.Registerer) *Metrics {
 			m.IterationsScheduled,
 			m.EvalTotal,
 			m.EvalFailures,
-			m.EvalFilteredFailures,
+			m.EvalOperatorControllableFailures,
 			m.GroupInterval,
 			m.GroupLastEvalTime,
 			m.GroupLastDuration,
