@@ -316,14 +316,15 @@ func TestEvalOperatorControllableFailures(t *testing.T) {
 			group.Eval(context.Background(), time.Now())
 
 			groupKey := GroupKey("test.yml", "test_group")
-			evalFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey))
-			evalOperatorControllableFailures := testutil.ToFloat64(group.metrics.EvalOperatorControllableFailures.WithLabelValues(groupKey))
+			evalUserFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "user"))
+			evalOperatorFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "operator"))
 
-			require.Equal(t, float64(1), evalFailures)
 			if tc.expectOperatorControllable {
-				require.Equal(t, float64(1), evalOperatorControllableFailures)
+				require.Equal(t, float64(0), evalUserFailures)
+				require.Equal(t, float64(1), evalOperatorFailures)
 			} else {
-				require.Equal(t, float64(0), evalOperatorControllableFailures)
+				require.Equal(t, float64(1), evalUserFailures)
+				require.Equal(t, float64(0), evalOperatorFailures)
 			}
 		})
 	}
@@ -397,8 +398,9 @@ func TestEvalDiscardedSamplesDoNotIncrementFailureMetrics(t *testing.T) {
 
 			group.Eval(context.Background(), time.Now())
 
-			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(GroupKey("test.yml", "test_group"))))
-			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalOperatorControllableFailures.WithLabelValues(GroupKey("test.yml", "test_group"))))
+			groupKey := GroupKey("test.yml", "test_group")
+			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "user")))
+			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "operator")))
 		})
 	}
 }

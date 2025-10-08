@@ -130,8 +130,8 @@ func NewGroup(o GroupOptions) *Group {
 	metrics.IterationsMissed.WithLabelValues(key)
 	metrics.IterationsScheduled.WithLabelValues(key)
 	metrics.EvalTotal.WithLabelValues(key)
-	metrics.EvalFailures.WithLabelValues(key)
-	metrics.EvalOperatorControllableFailures.WithLabelValues(key)
+	metrics.EvalFailures.WithLabelValues(key, "user")
+	metrics.EvalFailures.WithLabelValues(key, "operator")
 	metrics.GroupLastEvalTime.WithLabelValues(key)
 	metrics.GroupLastDuration.WithLabelValues(key)
 	metrics.GroupLastRuleDurationSum.WithLabelValues(key)
@@ -569,11 +569,8 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 			rule.SetHealth(HealthBad)
 			rule.SetLastError(err)
 			sp.SetStatus(codes.Error, err.Error())
-			g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
+			g.incrementEvalFailures(err)
 
-			if g.operatorControllableErrorClassifier != nil && g.operatorControllableErrorClassifier.IsOperatorControllable(err) {
-				g.metrics.EvalOperatorControllableFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
-			}
 			// Canceled queries are intentional termination of queries. This normally
 			// happens on shutdown and thus we skip logging of any errors here.
 			var eqc promql.ErrQueryCanceled
@@ -602,11 +599,7 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 				rule.SetHealth(HealthBad)
 				rule.SetLastError(err)
 				sp.SetStatus(codes.Error, err.Error())
-				g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
-
-				if g.operatorControllableErrorClassifier != nil && g.operatorControllableErrorClassifier.IsOperatorControllable(err) {
-					g.metrics.EvalOperatorControllableFailures.WithLabelValues(GroupKey(g.File(), g.Name())).Inc()
-				}
+				g.incrementEvalFailures(err)
 
 				logger.Warn("Rule sample appending failed", "err", err)
 				return
@@ -729,6 +722,14 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 
 	g.metrics.GroupSamples.WithLabelValues(GroupKey(g.File(), g.Name())).Set(samplesTotal.Load())
 	g.cleanupStaleSeries(ctx, ts)
+}
+
+func (g *Group) incrementEvalFailures(err error) {
+	cause := "user"
+	if g.operatorControllableErrorClassifier != nil && g.operatorControllableErrorClassifier.IsOperatorControllable(err) {
+		cause = "operator"
+	}
+	g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name()), cause).Inc()
 }
 
 func (g *Group) QueryOffset() time.Duration {
@@ -978,20 +979,19 @@ const namespace = "prometheus"
 
 // Metrics for rule evaluation.
 type Metrics struct {
-	EvalDuration                     prometheus.Summary
-	IterationDuration                prometheus.Summary
-	IterationsMissed                 *prometheus.CounterVec
-	IterationsScheduled              *prometheus.CounterVec
-	EvalTotal                        *prometheus.CounterVec
-	EvalFailures                     *prometheus.CounterVec
-	EvalOperatorControllableFailures *prometheus.CounterVec
-	GroupInterval                    *prometheus.GaugeVec
-	GroupLastEvalTime                *prometheus.GaugeVec
-	GroupLastDuration                *prometheus.GaugeVec
-	GroupLastRuleDurationSum         *prometheus.GaugeVec
-	GroupLastRestoreDuration         *prometheus.GaugeVec
-	GroupRules                       *prometheus.GaugeVec
-	GroupSamples                     *prometheus.GaugeVec
+	EvalDuration             prometheus.Summary
+	IterationDuration        prometheus.Summary
+	IterationsMissed         *prometheus.CounterVec
+	IterationsScheduled      *prometheus.CounterVec
+	EvalTotal                *prometheus.CounterVec
+	EvalFailures             *prometheus.CounterVec
+	GroupInterval            *prometheus.GaugeVec
+	GroupLastEvalTime        *prometheus.GaugeVec
+	GroupLastDuration        *prometheus.GaugeVec
+	GroupLastRuleDurationSum *prometheus.GaugeVec
+	GroupLastRestoreDuration *prometheus.GaugeVec
+	GroupRules               *prometheus.GaugeVec
+	GroupSamples             *prometheus.GaugeVec
 }
 
 // NewGroupMetrics creates a new instance of Metrics and registers it with the provided registerer,
@@ -1041,15 +1041,7 @@ func NewGroupMetrics(reg prometheus.Registerer) *Metrics {
 				Name:      "rule_evaluation_failures_total",
 				Help:      "The total number of rule evaluation failures.",
 			},
-			[]string{"rule_group"},
-		),
-		EvalOperatorControllableFailures: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Name:      "rule_evaluation_operator_controllable_failures_total",
-				Help:      "The total number of rule evaluation failures that are operator-controllable.",
-			},
-			[]string{"rule_group"},
+			[]string{"rule_group", "cause"},
 		),
 		GroupInterval: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
@@ -1117,7 +1109,6 @@ func NewGroupMetrics(reg prometheus.Registerer) *Metrics {
 			m.IterationsScheduled,
 			m.EvalTotal,
 			m.EvalFailures,
-			m.EvalOperatorControllableFailures,
 			m.GroupInterval,
 			m.GroupLastEvalTime,
 			m.GroupLastDuration,
