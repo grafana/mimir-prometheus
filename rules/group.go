@@ -725,11 +725,11 @@ func (g *Group) Eval(ctx context.Context, ts time.Time) {
 }
 
 func (g *Group) incrementEvalFailures(err error) {
-	cause := "user"
+	reason := "user"
 	if g.operatorControllableErrorClassifier != nil && g.operatorControllableErrorClassifier.IsOperatorControllable(err) {
-		cause = "operator"
+		reason = "operator"
 	}
-	g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name()), cause).Inc()
+	g.metrics.EvalFailures.WithLabelValues(GroupKey(g.File(), g.Name()), reason).Inc()
 }
 
 func (g *Group) QueryOffset() time.Duration {
@@ -1041,7 +1041,7 @@ func NewGroupMetrics(reg prometheus.Registerer) *Metrics {
 				Name:      "rule_evaluation_failures_total",
 				Help:      "The total number of rule evaluation failures.",
 			},
-			[]string{"rule_group", "cause"},
+			[]string{"rule_group", "reason"},
 		),
 		GroupInterval: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
