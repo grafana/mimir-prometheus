@@ -1048,6 +1048,7 @@ func (w *WL) Size() (int64, error) {
 }
 
 // FsyncSegmentsUntilCurrent ensures all segments up to and including the current segment are fsynced.
+// There may be more entries appended to the log after fsyncing completes and before FsyncSegmentsUntilCurrent returns. Those entries may not be fsynced.
 func (w *WL) FsyncSegmentsUntilCurrent() error {
 	w.mtx.Lock()
 
