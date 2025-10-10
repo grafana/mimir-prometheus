@@ -14,13 +14,20 @@
 package rules
 
 import (
+	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/promql"
 	"github.com/prometheus/prometheus/promql/parser"
+	"github.com/prometheus/prometheus/util/teststorage"
 )
 
 func TestGroup_Equals(t *testing.T) {
@@ -244,6 +251,156 @@ func TestGroup_Equals(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			require.Equal(t, testData.expected, testData.first.Equals(testData.second))
 			require.Equal(t, testData.expected, testData.second.Equals(testData.first))
+		})
+	}
+}
+
+// HTTPStatusOperatorControllableErrorClassifier is a test classifier that identifies
+// 429 and 5xx status codes as operator-controllable errors.
+type HTTPStatusOperatorControllableErrorClassifier struct{}
+
+func (*HTTPStatusOperatorControllableErrorClassifier) IsOperatorControllable(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := err.Error()
+	return strings.Contains(errMsg, "429") || strings.Contains(errMsg, "50")
+}
+
+func TestEvalOperatorControllableFailures(t *testing.T) {
+	storage := teststorage.New(t)
+	t.Cleanup(func() { storage.Close() })
+
+	expr, err := parser.ParseExpr("up")
+	require.NoError(t, err)
+	rule := NewRecordingRule("test_rule", expr, labels.EmptyLabels())
+
+	customClassifier := &HTTPStatusOperatorControllableErrorClassifier{}
+
+	testCases := []struct {
+		name                       string
+		errorMessage               string
+		classifier                 OperatorControllableErrorClassifier
+		expectOperatorControllable bool
+	}{
+		{"default classifier", "any error", nil, false},
+		{"custom 429 classified as operator controllable", "HTTP 429 Too Many Requests", customClassifier, true},
+		{"custom 500 classified as operator controllable", "HTTP 500 Internal Server Error", customClassifier, true},
+		{"custom 502 classified as operator controllable", "HTTP 502 Bad Gateway", customClassifier, true},
+		{"custom 400 not operator controllable", "HTTP 400 Bad Request", customClassifier, false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			errorQueryFunc := func(_ context.Context, _ string, _ time.Time) (promql.Vector, error) {
+				return nil, fmt.Errorf("%s", tc.errorMessage)
+			}
+
+			opts := &ManagerOptions{
+				Context:    context.Background(),
+				QueryFunc:  errorQueryFunc,
+				Appendable: storage,
+				Queryable:  storage,
+				Logger:     promslog.NewNopLogger(),
+			}
+
+			group := NewGroup(GroupOptions{
+				Name:                                "test_group",
+				File:                                "test.yml",
+				Interval:                            time.Second,
+				Rules:                               []Rule{rule},
+				Opts:                                opts,
+				OperatorControllableErrorClassifier: tc.classifier,
+			})
+
+			group.Eval(context.Background(), time.Now())
+
+			groupKey := GroupKey("test.yml", "test_group")
+			evalUserFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "user"))
+			evalOperatorFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "operator"))
+
+			if tc.expectOperatorControllable {
+				require.Equal(t, float64(0), evalUserFailures)
+				require.Equal(t, float64(1), evalOperatorFailures)
+			} else {
+				require.Equal(t, float64(1), evalUserFailures)
+				require.Equal(t, float64(0), evalOperatorFailures)
+			}
+		})
+	}
+}
+
+func TestEvalDiscardedSamplesDoNotIncrementFailureMetrics(t *testing.T) {
+	testCases := []struct {
+		name         string
+		setupStorage func(storage *teststorage.TestStorage)
+		offsetMs     int64 // milliseconds offset from evaluation time
+	}{
+		{
+			name: "out of order samples",
+			setupStorage: func(s *teststorage.TestStorage) {
+				app := s.Appender(context.Background())
+				app.Append(0, labels.FromStrings("__name__", "test_metric", "job", "test"), time.Now().UnixMilli(), 1.0)
+				app.Commit()
+			},
+			offsetMs: -10000, // 10 seconds in past
+		},
+		{
+			name:         "too old samples",
+			setupStorage: func(_ *teststorage.TestStorage) {},
+			offsetMs:     -86400000, // 24 hours in past
+		},
+		{
+			name: "duplicate samples",
+			setupStorage: func(s *teststorage.TestStorage) {
+				app := s.Appender(context.Background())
+				app.Append(0, labels.FromStrings("__name__", "test_metric", "job", "test"), time.Now().UnixMilli(), 1.0)
+				app.Commit()
+			},
+			offsetMs: 0, // Same timestamp, different value
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := teststorage.New(t)
+			t.Cleanup(func() { storage.Close() })
+
+			tc.setupStorage(storage)
+
+			expr, err := parser.ParseExpr("up")
+			require.NoError(t, err)
+			rule := NewRecordingRule("test_rule", expr, labels.EmptyLabels())
+
+			queryFunc := func(_ context.Context, _ string, ts time.Time) (promql.Vector, error) {
+				return promql.Vector{
+					promql.Sample{
+						Metric: labels.FromStrings("__name__", "test_metric", "job", "test"),
+						T:      ts.UnixMilli() + tc.offsetMs,
+						F:      2.0, // Different value for duplicate case
+					},
+				}, nil
+			}
+
+			group := NewGroup(GroupOptions{
+				Name:     "test_group",
+				File:     "test.yml",
+				Interval: time.Second,
+				Rules:    []Rule{rule},
+				Opts: &ManagerOptions{
+					Context:    context.Background(),
+					QueryFunc:  queryFunc,
+					Appendable: storage,
+					Queryable:  storage,
+					Logger:     promslog.NewNopLogger(),
+				},
+			})
+
+			group.Eval(context.Background(), time.Now())
+
+			groupKey := GroupKey("test.yml", "test_group")
+			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "user")))
+			require.Equal(t, float64(0), testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "operator")))
 		})
 	}
 }

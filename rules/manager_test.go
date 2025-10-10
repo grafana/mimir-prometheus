@@ -1196,11 +1196,11 @@ func TestMetricsUpdate(t *testing.T) {
 	}{
 		{
 			files:   files,
-			metrics: 12,
+			metrics: 14,
 		},
 		{
 			files:   files[:1],
-			metrics: 6,
+			metrics: 7,
 		},
 		{
 			files:   files[:0],
@@ -1208,7 +1208,7 @@ func TestMetricsUpdate(t *testing.T) {
 		},
 		{
 			files:   files[1:],
-			metrics: 6,
+			metrics: 7,
 		},
 	}
 
