@@ -258,7 +258,9 @@ var (
 
 	// DefaultOTLPConfig is the default OTLP configuration.
 	DefaultOTLPConfig = OTLPConfig{
-		TranslationStrategy: otlptranslator.UnderscoreEscapingWithSuffixes,
+		TranslationStrategy:                  otlptranslator.UnderscoreEscapingWithSuffixes,
+		LabelNameUnderscoreLabelSanitization: true,
+		LabelNamePreserveMultipleUnderscores: true,
 	}
 )
 
@@ -1609,6 +1611,12 @@ type OTLPConfig struct {
 	// PromoteScopeMetadata controls whether to promote OTel scope metadata (i.e. name, version, schema URL, and attributes) to metric labels.
 	// As per OTel spec, the aforementioned scope metadata should be identifying, i.e. made into metric labels.
 	PromoteScopeMetadata bool `yaml:"promote_scope_metadata,omitempty"`
+	// LabelNameUnderscoreLabelSanitization controls whether to enable prepending of 'key' to labels
+	// starting with '_'. Reserved labels starting with `__` are not modified.
+	LabelNameUnderscoreLabelSanitization bool `yaml:"label_name_underscore_label_sanitization,omitempty"`
+	// LabelNamePreserveMultipleUnderscores enables preserving of multiple
+	// consecutive underscores in label names when AllowUTF8 is false.
+	LabelNamePreserveMultipleUnderscores bool `yaml:"label_name_preserve_multiple_underscores,omitempty"`
 }
 
 // UnmarshalYAML implements the yaml.Unmarshaler interface.

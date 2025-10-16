@@ -2,6 +2,7 @@
 
 ## main / unreleased
 
+* [ENHANCEMENT] OTLP: Add config options that control underscores during label translation. #1003
 * [BUGFIX] Config: Infer valid escaping scheme when scrape config validation scheme is set. #16923
 * [BUGFIX] PromQL: Fix info function on churning series. #17135
 
