@@ -263,7 +263,7 @@ jobs:
             # 5. Re-open the closed PR
 
             # 6. Post the remerge diff as a comment for reviewers:
-            gh pr comment --body "## Merge Conflict Resolution
+            gh pr comment -R grafana/mimir-prometheus --body "## Merge Conflict Resolution
 
             You can review how conflicts were resolved using:
 
