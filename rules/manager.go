@@ -229,7 +229,7 @@ func (m *Manager) Stop() {
 // Update the rule manager's state as the config requires. If
 // loading the new rules failed the old rule set is restored.
 // This method will no-op in case the manager is already stopped.
-func (m *Manager) Update(interval time.Duration, files []string, externalLabels labels.Labels, externalURL string, groupEvalIterationFunc GroupEvalIterationFunc) error {
+func (m *Manager) Update(interval time.Duration, files []string, externalLabels labels.Labels, externalURL string, groupEvalIterationFunc GroupEvalIterationFunc, classifier OperatorControllableErrorClassifier) error {
 	m.mtx.Lock()
 	defer m.mtx.Unlock()
 
@@ -240,7 +240,7 @@ func (m *Manager) Update(interval time.Duration, files []string, externalLabels 
 	default:
 	}
 
-	groups, errs := m.LoadGroups(interval, externalLabels, externalURL, groupEvalIterationFunc, false, files...)
+	groups, errs := m.LoadGroups(interval, externalLabels, externalURL, groupEvalIterationFunc, classifier, false, files...)
 
 	if errs != nil {
 		for _, e := range errs {
@@ -331,7 +331,7 @@ func (FileLoader) Parse(query string) (parser.Expr, error) { return parser.Parse
 
 // LoadGroups reads groups from a list of files.
 func (m *Manager) LoadGroups(
-	interval time.Duration, externalLabels labels.Labels, externalURL string, groupEvalIterationFunc GroupEvalIterationFunc, ignoreUnknownFields bool, filenames ...string,
+	interval time.Duration, externalLabels labels.Labels, externalURL string, groupEvalIterationFunc GroupEvalIterationFunc, classifier OperatorControllableErrorClassifier, ignoreUnknownFields bool, filenames ...string,
 ) (map[string]*Group, []error) {
 	groups := make(map[string]*Group)
 
@@ -405,9 +405,10 @@ func (m *Manager) LoadGroups(
 
 					return nil
 				}(),
-				done:                          m.done,
-				EvalIterationFunc:             groupEvalIterationFunc,
-				AlignEvaluationTimeOnInterval: rg.AlignEvaluationTimeOnInterval,
+				done:                                m.done,
+				EvalIterationFunc:                   groupEvalIterationFunc,
+				AlignEvaluationTimeOnInterval:       rg.AlignEvaluationTimeOnInterval,
+				OperatorControllableErrorClassifier: classifier,
 			})
 		}
 	}
