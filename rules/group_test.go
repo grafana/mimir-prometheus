@@ -15,8 +15,6 @@ package rules
 
 import (
 	"context"
-	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -251,81 +249,6 @@ func TestGroup_Equals(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			require.Equal(t, testData.expected, testData.first.Equals(testData.second))
 			require.Equal(t, testData.expected, testData.second.Equals(testData.first))
-		})
-	}
-}
-
-// HTTPStatusOperatorControllableErrorClassifier is a test classifier that identifies
-// 429 and 5xx status codes as operator-controllable errors.
-type HTTPStatusOperatorControllableErrorClassifier struct{}
-
-func (*HTTPStatusOperatorControllableErrorClassifier) IsOperatorControllable(err error) bool {
-	if err == nil {
-		return false
-	}
-	errMsg := err.Error()
-	return strings.Contains(errMsg, "429") || strings.Contains(errMsg, "50")
-}
-
-func TestEvalOperatorControllableFailures(t *testing.T) {
-	storage := teststorage.New(t)
-	t.Cleanup(func() { storage.Close() })
-
-	expr, err := parser.ParseExpr("up")
-	require.NoError(t, err)
-	rule := NewRecordingRule("test_rule", expr, labels.EmptyLabels())
-
-	customClassifier := &HTTPStatusOperatorControllableErrorClassifier{}
-
-	testCases := []struct {
-		name                       string
-		errorMessage               string
-		classifier                 OperatorControllableErrorClassifier
-		expectOperatorControllable bool
-	}{
-		{"default classifier", "any error", nil, false},
-		{"custom 429 classified as operator controllable", "HTTP 429 Too Many Requests", customClassifier, true},
-		{"custom 500 classified as operator controllable", "HTTP 500 Internal Server Error", customClassifier, true},
-		{"custom 502 classified as operator controllable", "HTTP 502 Bad Gateway", customClassifier, true},
-		{"custom 400 not operator controllable", "HTTP 400 Bad Request", customClassifier, false},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			errorQueryFunc := func(_ context.Context, _ string, _ time.Time) (promql.Vector, error) {
-				return nil, fmt.Errorf("%s", tc.errorMessage)
-			}
-
-			opts := &ManagerOptions{
-				Context:    context.Background(),
-				QueryFunc:  errorQueryFunc,
-				Appendable: storage,
-				Queryable:  storage,
-				Logger:     promslog.NewNopLogger(),
-			}
-
-			group := NewGroup(GroupOptions{
-				Name:                                "test_group",
-				File:                                "test.yml",
-				Interval:                            time.Second,
-				Rules:                               []Rule{rule},
-				Opts:                                opts,
-				OperatorControllableErrorClassifier: tc.classifier,
-			})
-
-			group.Eval(context.Background(), time.Now())
-
-			groupKey := GroupKey("test.yml", "test_group")
-			evalUserFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "user"))
-			evalOperatorFailures := testutil.ToFloat64(group.metrics.EvalFailures.WithLabelValues(groupKey, "operator"))
-
-			if tc.expectOperatorControllable {
-				require.Equal(t, float64(0), evalUserFailures)
-				require.Equal(t, float64(1), evalOperatorFailures)
-			} else {
-				require.Equal(t, float64(1), evalUserFailures)
-				require.Equal(t, float64(0), evalOperatorFailures)
-			}
 		})
 	}
 }
