@@ -93,7 +93,7 @@ func TestCreateAttributes(t *testing.T) {
 		promoteScope                         bool
 		ignoreResourceAttributes             []string
 		ignoreAttrs                          []string
-		labelNameUnderscoreSanitization      bool
+		labelNameUnderscoreLabelSanitization bool
 		labelNamePreserveMultipleUnderscores bool
 		expectedLabels                       labels.Labels
 	}{
@@ -277,7 +277,7 @@ func TestCreateAttributes(t *testing.T) {
 			resource:                             resourceWithUnderscores,
 			attrs:                                attrsWithUnderscores,
 			promoteResourceAttributes:            []string{"_private"},
-			labelNameUnderscoreSanitization:      true,
+			labelNameUnderscoreLabelSanitization: true,
 			labelNamePreserveMultipleUnderscores: true,
 			expectedLabels: labels.FromStrings(
 				"__name__", "test_metric",
@@ -293,7 +293,7 @@ func TestCreateAttributes(t *testing.T) {
 			resource:                             resourceWithUnderscores,
 			attrs:                                attrsWithUnderscores,
 			promoteResourceAttributes:            []string{"_private"},
-			labelNameUnderscoreSanitization:      false,
+			labelNameUnderscoreLabelSanitization: false,
 			labelNamePreserveMultipleUnderscores: true,
 			expectedLabels: labels.FromStrings(
 				"__name__", "test_metric",
@@ -309,7 +309,7 @@ func TestCreateAttributes(t *testing.T) {
 			resource:                             resourceWithUnderscores,
 			attrs:                                attrsWithUnderscores,
 			promoteResourceAttributes:            []string{"label___multi"},
-			labelNameUnderscoreSanitization:      false,
+			labelNameUnderscoreLabelSanitization: false,
 			labelNamePreserveMultipleUnderscores: true,
 			expectedLabels: labels.FromStrings(
 				"__name__", "test_metric",
@@ -325,7 +325,7 @@ func TestCreateAttributes(t *testing.T) {
 			resource:                             resourceWithUnderscores,
 			attrs:                                attrsWithUnderscores,
 			promoteResourceAttributes:            []string{"label___multi"},
-			labelNameUnderscoreSanitization:      false,
+			labelNameUnderscoreLabelSanitization: false,
 			labelNamePreserveMultipleUnderscores: false,
 			expectedLabels: labels.FromStrings(
 				"__name__", "test_metric",
@@ -341,7 +341,7 @@ func TestCreateAttributes(t *testing.T) {
 			resource:                             resourceWithUnderscores,
 			attrs:                                attrsWithUnderscores,
 			promoteResourceAttributes:            []string{"_private", "label___multi"},
-			labelNameUnderscoreSanitization:      true,
+			labelNameUnderscoreLabelSanitization: true,
 			labelNamePreserveMultipleUnderscores: true,
 			expectedLabels: labels.FromStrings(
 				"__name__", "test_metric",
@@ -358,7 +358,7 @@ func TestCreateAttributes(t *testing.T) {
 			resource:                             resourceWithUnderscores,
 			attrs:                                attrsWithUnderscores,
 			promoteResourceAttributes:            []string{"_private", "label___multi"},
-			labelNameUnderscoreSanitization:      false,
+			labelNameUnderscoreLabelSanitization: false,
 			labelNamePreserveMultipleUnderscores: false,
 			expectedLabels: labels.FromStrings(
 				"__name__", "test_metric",
@@ -375,7 +375,7 @@ func TestCreateAttributes(t *testing.T) {
 			resource:                             resourceWithUnderscores,
 			attrs:                                attrsWithUnderscores,
 			promoteResourceAttributes:            []string{"__reserved__"},
-			labelNameUnderscoreSanitization:      true,
+			labelNameUnderscoreLabelSanitization: true,
 			labelNamePreserveMultipleUnderscores: false,
 			expectedLabels: labels.FromStrings(
 				"__name__", "test_metric",
@@ -397,7 +397,7 @@ func TestCreateAttributes(t *testing.T) {
 					IgnoreResourceAttributes:     tc.ignoreResourceAttributes,
 				}),
 				PromoteScopeMetadata:                 tc.promoteScope,
-				LabelNameUnderscoreSanitization:      tc.labelNameUnderscoreSanitization,
+				LabelNameUnderscoreSanitization:      tc.labelNameUnderscoreLabelSanitization,
 				LabelNamePreserveMultipleUnderscores: tc.labelNamePreserveMultipleUnderscores,
 			}
 			// Use test case specific resource/attrs if provided, otherwise use defaults
@@ -416,7 +416,7 @@ func TestCreateAttributes(t *testing.T) {
 			lbls, err := c.createAttributes(testResource, testAttrs, tc.scope, settings, tc.ignoreAttrs, false, Metadata{}, model.MetricNameLabel, "test_metric")
 			require.NoError(t, err)
 
-			testutil.RequireEqual(t, tc.expectedLabels, lbls)
+			testutil.RequireEqual(t, lbls, tc.expectedLabels)
 		})
 	}
 }

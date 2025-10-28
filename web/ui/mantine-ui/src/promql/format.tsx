@@ -131,18 +131,6 @@ const formatSelector = (
           ]
         </>
       )}
-      {node.anchored && (
-        <>
-          {" "}
-          <span className="promql-keyword">anchored</span>
-        </>
-      )}
-      {node.smoothed && (
-        <>
-          {" "}
-          <span className="promql-keyword">smoothed</span>
-        </>
-      )}
       {formatAtAndOffset(node.timestamp, node.startOrEnd, node.offset)}
     </>
   );

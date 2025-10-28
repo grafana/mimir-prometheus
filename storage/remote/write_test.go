@@ -32,7 +32,6 @@ import (
 	"time"
 
 	"github.com/google/go-cmp/cmp"
-	remoteapi "github.com/prometheus/client_golang/exp/api/remote"
 	"github.com/prometheus/client_golang/prometheus"
 	common_config "github.com/prometheus/common/config"
 	"github.com/prometheus/common/model"
@@ -60,7 +59,7 @@ func testRemoteWriteConfig() *config.RemoteWriteConfig {
 			},
 		},
 		QueueConfig:     config.DefaultQueueConfig,
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 }
 
@@ -76,7 +75,7 @@ func TestWriteStorageApplyConfig_NoDuplicateWriteConfigs(t *testing.T) {
 			},
 		},
 		QueueConfig:     config.DefaultQueueConfig,
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 	cfg2 := config.RemoteWriteConfig{
 		Name: "write-2",
@@ -87,7 +86,7 @@ func TestWriteStorageApplyConfig_NoDuplicateWriteConfigs(t *testing.T) {
 			},
 		},
 		QueueConfig:     config.DefaultQueueConfig,
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 	cfg3 := config.RemoteWriteConfig{
 		URL: &common_config.URL{
@@ -97,7 +96,7 @@ func TestWriteStorageApplyConfig_NoDuplicateWriteConfigs(t *testing.T) {
 			},
 		},
 		QueueConfig:     config.DefaultQueueConfig,
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 
 	for _, tc := range []struct {
@@ -178,7 +177,7 @@ func TestWriteStorageApplyConfig_UpdateWithRegisterer(t *testing.T) {
 			},
 		},
 		QueueConfig:     config.DefaultQueueConfig,
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 	c2 := &config.RemoteWriteConfig{
 		URL: &common_config.URL{
@@ -188,7 +187,7 @@ func TestWriteStorageApplyConfig_UpdateWithRegisterer(t *testing.T) {
 			},
 		},
 		QueueConfig:     config.DefaultQueueConfig,
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 	conf := &config.Config{
 		GlobalConfig:       config.DefaultGlobalConfig,
@@ -288,7 +287,7 @@ func TestWriteStorageApplyConfig_PartialUpdate(t *testing.T) {
 				NameValidationScheme: model.UTF8Validation,
 			},
 		},
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 	c1 := &config.RemoteWriteConfig{
 		RemoteTimeout: model.Duration(20 * time.Second),
@@ -296,12 +295,12 @@ func TestWriteStorageApplyConfig_PartialUpdate(t *testing.T) {
 		HTTPClientConfig: common_config.HTTPClientConfig{
 			BearerToken: "foo",
 		},
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 	c2 := &config.RemoteWriteConfig{
 		RemoteTimeout:   model.Duration(30 * time.Second),
 		QueueConfig:     config.DefaultQueueConfig,
-		ProtobufMessage: remoteapi.WriteV1MessageType,
+		ProtobufMessage: config.RemoteWriteProtoMsgV1,
 	}
 
 	conf := &config.Config{
@@ -311,7 +310,9 @@ func TestWriteStorageApplyConfig_PartialUpdate(t *testing.T) {
 	// We need to set URL's so that metric creation doesn't panic.
 	for i := range conf.RemoteWriteConfigs {
 		conf.RemoteWriteConfigs[i].URL = &common_config.URL{
-			URL: mustURLParse("http://test-storage.com"),
+			URL: &url.URL{
+				Host: "http://test-storage.com",
+			},
 		}
 	}
 	require.NoError(t, s.ApplyConfig(conf))

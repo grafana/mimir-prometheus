@@ -199,7 +199,6 @@ var ItemTypeStr = map[ItemType]string{
 	EQL_REGEX: "=~",
 	NEQ_REGEX: "!~",
 	POW:       "^",
-	AT:        "@",
 }
 
 func init() {

@@ -147,8 +147,6 @@ export interface MatrixSelector {
   offset: number;
   timestamp: number | null;
   startOrEnd: StartOrEnd;
-  anchored: boolean;
-  smoothed: boolean;
 }
 
 export interface Subquery {
@@ -189,8 +187,6 @@ export interface VectorSelector {
   offset: number;
   timestamp: number | null;
   startOrEnd: StartOrEnd;
-  anchored: boolean;
-  smoothed: boolean;
 }
 
 export interface Placeholder {

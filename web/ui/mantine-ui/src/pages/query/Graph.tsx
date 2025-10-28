@@ -56,8 +56,6 @@ const Graph: FC<GraphProps> = ({
                 offset: node.offset,
                 timestamp: node.timestamp,
                 startOrEnd: node.startOrEnd,
-                anchored: node.anchored,
-                smoothed: node.smoothed,
               }
             : node
         );

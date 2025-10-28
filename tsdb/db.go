@@ -374,10 +374,6 @@ type DB struct {
 	autoCompactMtx sync.Mutex
 	autoCompact    bool
 
-	// retentionMtx protects access to retention configuration values that can
-	// be updated at runtime through config file changes.
-	retentionMtx sync.RWMutex
-
 	// Cancel a running compaction when a shutdown is initiated.
 	compactCancel context.CancelFunc
 
@@ -1324,20 +1320,6 @@ func (db *DB) ApplyConfig(conf *config.Config) error {
 	oooTimeWindow := int64(0)
 	if conf.StorageConfig.TSDBConfig != nil {
 		oooTimeWindow = conf.StorageConfig.TSDBConfig.OutOfOrderTimeWindow
-
-		// Update retention configuration if provided.
-		if conf.StorageConfig.TSDBConfig.Retention != nil {
-			db.retentionMtx.Lock()
-			if conf.StorageConfig.TSDBConfig.Retention.Time > 0 {
-				db.opts.RetentionDuration = int64(conf.StorageConfig.TSDBConfig.Retention.Time)
-				db.metrics.retentionDuration.Set((time.Duration(db.opts.RetentionDuration) * time.Millisecond).Seconds())
-			}
-			if conf.StorageConfig.TSDBConfig.Retention.Size > 0 {
-				db.opts.MaxBytes = int64(conf.StorageConfig.TSDBConfig.Retention.Size)
-				db.metrics.maxBytes.Set(float64(db.opts.MaxBytes))
-			}
-			db.retentionMtx.Unlock()
-		}
 	}
 	if oooTimeWindow < 0 {
 		oooTimeWindow = 0
@@ -1370,20 +1352,6 @@ func (db *DB) ApplyConfig(conf *config.Config) error {
 		db.oooWasEnabled.Store(oooTimeWindow > 0)
 	}
 	return nil
-}
-
-// getRetentionDuration returns the current retention duration in a thread-safe manner.
-func (db *DB) getRetentionDuration() int64 {
-	db.retentionMtx.RLock()
-	defer db.retentionMtx.RUnlock()
-	return db.opts.RetentionDuration
-}
-
-// getMaxBytes returns the current max bytes setting in a thread-safe manner.
-func (db *DB) getMaxBytes() int64 {
-	db.retentionMtx.RLock()
-	defer db.retentionMtx.RUnlock()
-	return db.opts.MaxBytes
 }
 
 // dbAppender wraps the DB's head appender and triggers compactions on commit
@@ -1975,8 +1943,7 @@ func deletableBlocks(db *DB, blocks []*Block) map[ulid.ULID]struct{} {
 // set in the db options.
 func BeyondTimeRetention(db *DB, blocks []*Block) (deletable map[ulid.ULID]struct{}) {
 	// Time retention is disabled or no blocks to work with.
-	retentionDuration := db.getRetentionDuration()
-	if len(blocks) == 0 || retentionDuration == 0 {
+	if len(blocks) == 0 || db.opts.RetentionDuration == 0 {
 		return
 	}
 
@@ -1984,7 +1951,7 @@ func BeyondTimeRetention(db *DB, blocks []*Block) (deletable map[ulid.ULID]struc
 	for i, block := range blocks {
 		// The difference between the first block and this block is greater than or equal to
 		// the retention period so any blocks after that are added as deletable.
-		if i > 0 && blocks[0].Meta().MaxTime-block.Meta().MaxTime >= retentionDuration {
+		if i > 0 && blocks[0].Meta().MaxTime-block.Meta().MaxTime >= db.opts.RetentionDuration {
 			for _, b := range blocks[i:] {
 				deletable[b.meta.ULID] = struct{}{}
 			}
@@ -1999,8 +1966,7 @@ func BeyondTimeRetention(db *DB, blocks []*Block) (deletable map[ulid.ULID]struc
 // set in the db options.
 func BeyondSizeRetention(db *DB, blocks []*Block) (deletable map[ulid.ULID]struct{}) {
 	// Size retention is disabled or no blocks to work with.
-	maxBytes := db.getMaxBytes()
-	if len(blocks) == 0 || maxBytes <= 0 {
+	if len(blocks) == 0 || db.opts.MaxBytes <= 0 {
 		return
 	}
 
@@ -2011,7 +1977,7 @@ func BeyondSizeRetention(db *DB, blocks []*Block) (deletable map[ulid.ULID]struc
 	blocksSize := db.Head().Size()
 	for i, block := range blocks {
 		blocksSize += block.Size()
-		if blocksSize > maxBytes {
+		if blocksSize > db.opts.MaxBytes {
 			// Add this and all following blocks for deletion.
 			for _, b := range blocks[i:] {
 				deletable[b.meta.ULID] = struct{}{}

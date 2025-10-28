@@ -2195,6 +2195,7 @@ func TestScrapeLoop_HistogramBucketLimit(t *testing.T) {
 		}
 		return l
 	}
+	sl.sampleLimit = app.limit
 
 	metric := dto.Metric{}
 	err := sl.metrics.targetScrapeNativeHistogramBucketLimit.Write(&metric)

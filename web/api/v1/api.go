@@ -37,7 +37,6 @@ import (
 	"github.com/grafana/regexp"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/munnerz/goautoneg"
-	remoteapi "github.com/prometheus/client_golang/exp/api/remote"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/common/route"
@@ -286,7 +285,7 @@ func NewAPI(
 	registerer prometheus.Registerer,
 	statsRenderer StatsRenderer,
 	rwEnabled bool,
-	acceptRemoteWriteProtoMsgs remoteapi.MessageTypes,
+	acceptRemoteWriteProtoMsgs []config.RemoteWriteProtoMsg,
 	otlpEnabled, otlpDeltaToCumulative, otlpNativeDeltaIngestion bool,
 	ctZeroIngestionEnabled bool,
 	lookbackDelta time.Duration,
