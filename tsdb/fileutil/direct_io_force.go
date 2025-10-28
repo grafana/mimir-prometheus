@@ -26,3 +26,7 @@ func NewDirectIOWriter(f *os.File, size int) (BufWriter, error) {
 func NewBufioWriterWithSize(f *os.File, size int) (BufWriter, error) {
 	return NewDirectIOWriter(f, size)
 }
+
+// ForceDirectIOEnabled indicates whether the forcedirectio build tag is enabled.
+// When true, all buffered writes use Direct I/O instead of standard buffered I/O.
+const ForceDirectIOEnabled = true

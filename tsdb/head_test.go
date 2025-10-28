@@ -2931,6 +2931,11 @@ func TestMemSeriesIsolation(t *testing.T) {
 		t.Skip("skipping test since tsdb isolation is disabled")
 	}
 
+	if fileutil.ForceDirectIOEnabled {
+		// This test is very slow when direct I/O is enabled, and causes CI timeouts.
+		t.Skip("skipping test since tsdb direct I/O is enabled")
+	}
+
 	// Put a series, select it. GC it and then access it.
 	lastValue := func(h *Head, maxAppendID uint64) int {
 		idx, err := h.Index()
