@@ -3,7 +3,7 @@ module github.com/prometheus/prometheus/web/ui/mantine-ui/src/promql/tools
 go 1.24.0
 
 require (
-	github.com/grafana/regexp v0.0.0-20240518133315-a468a5bfb3bc
+	github.com/grafana/regexp v0.0.0-20250905093917-f7b3be9d1853
 	github.com/prometheus/prometheus v0.54.1
 	github.com/russross/blackfriday/v2 v2.1.0
 )
