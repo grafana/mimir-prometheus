@@ -38,7 +38,7 @@ type mockLookupPlanner struct {
 	errorToReturn error
 }
 
-func (m *mockLookupPlanner) PlanIndexLookup(_ context.Context, _ index.LookupPlan, _, _ int64) (index.LookupPlan, error) {
+func (m *mockLookupPlanner) PlanIndexLookup(_ context.Context, _ index.LookupPlan, _ *storage.SelectHints) (index.LookupPlan, error) {
 	if m.returnError {
 		if m.errorToReturn != nil {
 			return nil, m.errorToReturn
