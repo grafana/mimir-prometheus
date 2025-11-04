@@ -337,7 +337,7 @@ func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 	emptyFile := func() {
 		t.Helper()
 
-		_, _, err := hrw.cut()
+		_, _, err := hrw.cut(0)
 		require.NoError(t, err)
 		hrw.evtlPosMtx.Lock()
 		hrw.evtlPos.toNewFile()

@@ -585,12 +585,13 @@ func (cdm *ChunkDiskMapper) IsQueueEmpty() bool {
 // The write lock should be held before calling this.
 // It ensures that the position in the new file matches the given chunk reference, if not then it errors.
 func (cdm *ChunkDiskMapper) cutAndExpectRef(chkRef ChunkDiskMapperRef) (err error) {
-	seq, offset, err := cdm.cut()
+	expSeq, expOffset := chkRef.Unpack()
+	seq, offset, err := cdm.cut(expSeq)
 	if err != nil {
 		return err
 	}
 
-	if expSeq, expOffset := chkRef.Unpack(); seq != expSeq || offset != expOffset {
+	if seq != expSeq || offset != expOffset {
 		return fmt.Errorf("expected newly cut file to have sequence:offset %d:%d, got %d:%d", expSeq, expOffset, seq, offset)
 	}
 
@@ -599,13 +600,14 @@ func (cdm *ChunkDiskMapper) cutAndExpectRef(chkRef ChunkDiskMapperRef) (err erro
 
 // cut creates a new m-mapped file. The write lock should be held before calling this.
 // It returns the file sequence and the offset in that file to start writing chunks.
-func (cdm *ChunkDiskMapper) cut() (seq, offset int, returnErr error) {
+// If expectedSeq > 0, it uses that sequence number instead of scanning the directory.
+func (cdm *ChunkDiskMapper) cut(expectedSeq int) (seq, offset int, returnErr error) {
 	// Sync current tail to disk and close.
 	if err := cdm.finalizeCurFile(); err != nil {
 		return 0, 0, err
 	}
 
-	offset, newFile, seq, err := cutSegmentFile(cdm.dir, MagicHeadChunks, headChunksFormatV1, HeadChunkFilePreallocationSize)
+	offset, newFile, seq, err := cutSegmentFile(cdm.dir, MagicHeadChunks, headChunksFormatV1, HeadChunkFilePreallocationSize, expectedSeq)
 	if err != nil {
 		return 0, 0, err
 	}
