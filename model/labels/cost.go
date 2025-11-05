@@ -24,9 +24,13 @@ const (
 	estimatedRegexMatchCost              = 10.0
 )
 
+<<<<<<< Updated upstream
 // SingleMatchCost returns the fixed cost of running this matcher against an arbitrary label value..
 // TODO benchmark relative cost of different matchers.
 // TODO use the complexity of the regex string as a cost.
+=======
+// SingleMatchCost returns the fixed cost of running this matcher against an arbitrary label value.
+>>>>>>> Stashed changes
 func (m *Matcher) SingleMatchCost() float64 {
 	switch m.Type {
 	case MatchEqual, MatchNotEqual:
@@ -123,6 +127,14 @@ func costEstimate(re *syntax.Regexp) float64 {
 		for _, sub := range re.Sub {
 			total += costEstimate(sub)
 		}
+		if len(re.Sub) >= 2 {
+			for i := 1; i < len(re.Sub); i++ {
+				if isSurroundedByWildcard(re.Sub[i]) && isSurroundedByWildcard(re.Sub[i-1]) {
+					total *= 1.5
+				}
+			}
+		}
+
 		return total
 	case syntax.OpCapture:
 		return costEstimate(re.Sub[0])
@@ -137,4 +149,36 @@ func costEstimate(re *syntax.Regexp) float64 {
 	default:
 		return 1
 	}
+}
+
+func isSurroundedByWildcard(re *syntax.Regexp) bool {
+	if re.Op != syntax.OpConcat || len(re.Sub) < 3 {
+		return false
+	}
+	if re.Sub[0].Op != syntax.OpStar || re.Sub[len(re.Sub)-1].Op != syntax.OpStar {
+		return false
+	}
+	// If we find any literals between the two wildcards, we should return true
+	for _, sub := range re.Sub {
+		if anySubexpressionIsLiteral(sub) {
+			return true
+		}
+	}
+	return false
+
+}
+
+func anySubexpressionIsLiteral(re *syntax.Regexp) bool {
+	if len(re.Sub) > 0 {
+		for _, sub := range re.Sub {
+			if anySubexpressionIsLiteral(sub) {
+				return true
+			}
+		}
+		return false
+	}
+	if len(re.Rune) > 0 {
+		return true
+	}
+	return false
 }
