@@ -182,7 +182,7 @@ func benchmarkPostingsForMatchers(b *testing.B, ir IndexReader) {
 		b.Run(c.name, func(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				p, err := PostingsForMatchers(ctx, ir, c.matchers...)
 				require.NoError(b, err)
 				// Iterate over the postings
@@ -244,7 +244,7 @@ func benchmarkLabelValuesWithMatchers(b *testing.B, ir IndexReader) {
 
 	for _, c := range cases {
 		b.Run(c.name, func(b *testing.B) {
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				_, err := labelValuesWithMatchers(ctx, ir, c.labelName, nil, c.matchers...)
 				require.NoError(b, err)
 			}
@@ -259,7 +259,7 @@ func BenchmarkMergedStringIter(b *testing.B) {
 		s[i] = fmt.Sprintf("symbol%v", i)
 	}
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		it := NewMergedStringIter(index.NewStringListIter(s), index.NewStringListIter(s))
 		for range 100 {
 			it = NewMergedStringIter(it, index.NewStringListIter(s))

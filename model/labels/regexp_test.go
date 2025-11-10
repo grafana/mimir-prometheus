@@ -406,7 +406,7 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 
 			b.ReportMetric(m.SingleMatchCost(), "cost")
 			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
+			for b.Loop() {
 				for _, text := range texts {
 					_ = m.MatchString(text)
 				}
@@ -450,7 +450,7 @@ func BenchmarkToNormalizedLower(b *testing.B) {
 								inputs[i] = benchCase(l, uppercase, asciiOnly, i)
 							}
 							b.ResetTimer()
-							for n := 0; n < b.N; n++ {
+							for n := 0; b.Loop(); n++ {
 								var a [256]byte
 								toNormalisedLower(inputs[n%len(inputs)], a[:])
 							}
@@ -1358,7 +1358,7 @@ func TestFindEqualOrPrefixStringMatchers(t *testing.T) {
 			return true
 		})
 
-		return
+		return matches, ok
 	}
 
 	t.Run("empty matcher", func(t *testing.T) {
@@ -1493,7 +1493,7 @@ func BenchmarkOptimizeEqualOrPrefixStringMatchers(b *testing.B) {
 					}
 
 					b.Run("without optimizeEqualOrPrefixStringMatchers()", func(b *testing.B) {
-						for n := 0; n < b.N; n++ {
+						for b.Loop() {
 							for _, t := range texts {
 								unoptimized.Matches(t)
 							}
@@ -1501,7 +1501,7 @@ func BenchmarkOptimizeEqualOrPrefixStringMatchers(b *testing.B) {
 					})
 
 					b.Run("with optimizeEqualOrPrefixStringMatchers()", func(b *testing.B) {
-						for n := 0; n < b.N; n++ {
+						for b.Loop() {
 							for _, t := range texts {
 								optimized.Matches(t)
 							}
@@ -1590,9 +1590,8 @@ func BenchmarkZeroOrOneCharacterStringMatcher(b *testing.B) {
 	}
 
 	matcher := &zeroOrOneCharacterStringMatcher{matchNL: true}
-	b.ResetTimer()
 
-	for n := 0; n < b.N; n++ {
+	for n := 0; b.Loop(); n++ {
 		c := cases[n%len(cases)]
 		got := matcher.Matches(c.str)
 		if got != c.matches {
