@@ -462,7 +462,7 @@ func (p *parser) newAggregateExpr(op Item, modifier, args Node, overread bool) (
 			// In mimir we return a custom message which doesn't mention the CLI flag that should be used to enable
 			// experimental functions, given it's different (and in SaaS customers don't even have access to it).
 			p.addParseErrf(ret.PositionRange(), "limitk() and limit_ratio() functions are not enabled")
-			return
+			return ret
 		}
 		desiredArgs = 2
 

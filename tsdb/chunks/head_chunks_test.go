@@ -643,7 +643,7 @@ func writeUnsupportedChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesR
 		close(awaitCb)
 	})
 	<-awaitCb
-	return
+	return seriesRef, chunkRef, mint, maxt, chunk
 }
 
 const (
