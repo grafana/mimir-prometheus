@@ -340,8 +340,7 @@ func main() {
 	}
 
 	for _, f := range *featureList {
-		opts := strings.Split(f, ",")
-		for _, o := range opts {
+		for o := range strings.SplitSeq(f, ",") {
 			switch o {
 			case "promql-experimental-functions":
 				parser.EnableExperimentalFunctions = true
@@ -485,7 +484,7 @@ func newRulesLintConfig(stringVal string, fatal, ignoreUnknownFields bool, nameV
 	if stringVal == "" {
 		return ls
 	}
-	for _, setting := range strings.Split(stringVal, ",") {
+	for setting := range strings.SplitSeq(stringVal, ",") {
 		switch setting {
 		case lintOptionAll:
 			ls.all = true
@@ -518,7 +517,7 @@ func newConfigLintConfig(optionsStr string, fatal, ignoreUnknownFields bool, nam
 
 	lintNone := false
 	var rulesOptions []string
-	for _, option := range strings.Split(optionsStr, ",") {
+	for option := range strings.SplitSeq(optionsStr, ",") {
 		switch option {
 		case lintOptionAll, lintOptionTooLongScrapeInterval:
 			c.lookbackDelta = lookbackDelta
@@ -929,15 +928,16 @@ func checkRuleGroups(rgs *rulefmt.RuleGroups, lintSettings rulesLintConfig) (int
 	if lintSettings.lintDuplicateRules() {
 		dRules := checkDuplicates(rgs.Groups)
 		if len(dRules) != 0 {
-			errMessage := fmt.Sprintf("%d duplicate rule(s) found.\n", len(dRules))
+			var errMessage strings.Builder
+			errMessage.WriteString(fmt.Sprintf("%d duplicate rule(s) found.\n", len(dRules)))
 			for _, n := range dRules {
-				errMessage += fmt.Sprintf("Metric: %s\nLabel(s):\n", n.metric)
+				errMessage.WriteString(fmt.Sprintf("Metric: %s\nLabel(s):\n", n.metric))
 				n.label.Range(func(l labels.Label) {
-					errMessage += fmt.Sprintf("\t%s: %s\n", l.Name, l.Value)
+					errMessage.WriteString(fmt.Sprintf("\t%s: %s\n", l.Name, l.Value))
 				})
 			}
-			errMessage += "Might cause inconsistency while recording expressions"
-			return 0, []error{fmt.Errorf("%w %s", errLint, errMessage)}
+			errMessage.WriteString("Might cause inconsistency while recording expressions")
+			return 0, []error{fmt.Errorf("%w %s", errLint, errMessage.String())}
 		}
 	}
 

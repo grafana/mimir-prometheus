@@ -522,7 +522,7 @@ func BenchmarkReader_ShardedPostings(b *testing.B) {
 			ir, _, _ := createFileReaderWithOptions(ctx, b, input, cacheEnabled)
 			b.ResetTimer()
 
-			for n := 0; n < b.N; n++ {
+			for n := 0; b.Loop(); n++ {
 				allPostings, err := ir.Postings(ctx, "const", fmt.Sprintf("%10d", 1))
 				require.NoError(b, err)
 
