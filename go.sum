@@ -518,8 +518,8 @@ github.com/stretchr/testify v1.9.0/go.mod h1:r2ic/lqez/lEtzL7wO/rwa5dbSLXVDPFyf8
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/tv42/httpunix v0.0.0-20150427012821-b75d8614f926/go.mod h1:9ESjWnEqriFuLhtthL60Sar/7RFoluCcXsuvEwTV5KM=
-github.com/tylertreat/BoomFilters v0.0.0-20250630160909-db6545748bc4 h1:NY8dlg1XXMOf6B7rTYTESijQt5eZQTSRnSiM+eydx/o=
-github.com/tylertreat/BoomFilters v0.0.0-20250630160909-db6545748bc4/go.mod h1:OYRfF6eb5wY9VRFkXJH8FFBi3plw2v+giaIu7P054pM=
+github.com/tylertreat/BoomFilters v0.0.0-20251117164519-53813c36cc1b h1:p+bJ3v5uUdEVMCoeFUs+BNJPsqt+Y6BLbDaPfTcbcH8=
+github.com/tylertreat/BoomFilters v0.0.0-20251117164519-53813c36cc1b/go.mod h1:OYRfF6eb5wY9VRFkXJH8FFBi3plw2v+giaIu7P054pM=
 github.com/vultr/govultr/v2 v2.17.2 h1:gej/rwr91Puc/tgh+j33p/BLR16UrIPnSr+AIwYWZQs=
 github.com/vultr/govultr/v2 v2.17.2/go.mod h1:ZFOKGWmgjytfyjeyAdhQlSWwTjh2ig+X49cAp50dzXI=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=

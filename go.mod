@@ -66,7 +66,7 @@ require (
 	github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c
 	github.com/stackitcloud/stackit-sdk-go/core v0.17.3
 	github.com/stretchr/testify v1.11.1
-	github.com/tylertreat/BoomFilters v0.0.0-20250630160909-db6545748bc4
+	github.com/tylertreat/BoomFilters v0.0.0-20251117164519-53813c36cc1b
 	github.com/vultr/govultr/v2 v2.17.2
 	go.opentelemetry.io/collector/component v1.45.0
 	go.opentelemetry.io/collector/consumer v1.45.0
