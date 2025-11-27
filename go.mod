@@ -268,3 +268,8 @@ replace gopkg.in/yaml.v3 => github.com/colega/go-yaml-yaml v0.0.0-20220720105220
 // We are using our modified version of the upstream GO regexp (branch remotes/origin/speedup)
 // This matches what is currently used in Mimir.
 replace github.com/grafana/regexp => github.com/grafana/regexp v0.0.0-20250905101755-5eb4f3acbf71
+
+// We are using a fork of `collector/pdata`, because of the lazy deserializing support
+// that isn't upstreamed. It's in the process and ideally we will revert to upstream.
+// The upstream PR is: https://github.com/open-telemetry/opentelemetry-collector/pull/14371
+replace go.opentelemetry.io/collector/pdata => github.com/grafana/opentelemetry-collector/pdata v0.0.0-20260114131118-80f3ab9991ef

@@ -265,6 +265,8 @@ github.com/gophercloud/gophercloud/v2 v2.9.0 h1:Y9OMrwKF9EDERcHFSOTpf/6XGoAI0yOx
 github.com/gophercloud/gophercloud/v2 v2.9.0/go.mod h1:Ki/ILhYZr/5EPebrPL9Ej+tUg4lqx71/YH2JWVeU+Qk=
 github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 h1:JeSE6pjso5THxAzdVpqr6/geYxZytqFMBCOtn/ujyeo=
 github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674/go.mod h1:r4w70xmWCQKmi1ONH4KIaBptdivuRPyosB9RmPlGEwA=
+github.com/grafana/opentelemetry-collector/pdata v0.0.0-20260114131118-80f3ab9991ef h1:WSE6Wn0nNQmhe00LLKzDshut78jtxPzbyorInEnwUoE=
+github.com/grafana/opentelemetry-collector/pdata v0.0.0-20260114131118-80f3ab9991ef/go.mod h1:jaf2JQGpfUreD1TOtGBPsq00ecOqM66NG15wALmdxKA=
 github.com/grafana/regexp v0.0.0-20250905101755-5eb4f3acbf71 h1:A4D22zZV7+EeQk9TeATDDY/PG2wnzdqKcj4IZq+PcwA=
 github.com/grafana/regexp v0.0.0-20250905101755-5eb4f3acbf71/go.mod h1:+JKpmjMGhpgPL+rXZ5nsZieVzvarn86asRlBg4uNGnk=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 h1:NmZ1PKzSTQbuGHw9DGPFomqkkLWMC+vZCkfs+FHv1Vg=
@@ -572,8 +574,6 @@ go.opentelemetry.io/collector/featuregate v1.48.0 h1:jiGRcl93yzUFgZVDuskMAftFraE
 go.opentelemetry.io/collector/featuregate v1.48.0/go.mod h1:/1bclXgP91pISaEeNulRxzzmzMTm4I5Xih2SnI4HRSo=
 go.opentelemetry.io/collector/internal/testutil v0.142.0 h1:MHnAVRimQdsfYqYHC3YuJRkIUap4VmSpJkkIT2N7jJA=
 go.opentelemetry.io/collector/internal/testutil v0.142.0/go.mod h1:YAD9EAkwh/l5asZNbEBEUCqEjoL1OKMjAMoPjPqH76c=
-go.opentelemetry.io/collector/pdata v1.48.0 h1:CKZ+9v/lGTX/cTGx2XVp8kp0E8R//60kHFCBdZudrTg=
-go.opentelemetry.io/collector/pdata v1.48.0/go.mod h1:jaf2JQGpfUreD1TOtGBPsq00ecOqM66NG15wALmdxKA=
 go.opentelemetry.io/collector/pdata/pprofile v0.142.0 h1:Ivyw7WY8SIIWqzXsnNmjEgz3ysVs/OkIf0KIpJUnuuo=
 go.opentelemetry.io/collector/pdata/pprofile v0.142.0/go.mod h1:94GAph54K4WDpYz9xirhroHB3ptNLuPiY02k8fyoNUI=
 go.opentelemetry.io/collector/pdata/testdata v0.142.0 h1:+jf9RyLWl8WyhIVjpg7yuH+bRdQH4mW20cPtCMlY1cI=
