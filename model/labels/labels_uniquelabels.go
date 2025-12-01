@@ -483,15 +483,16 @@ func (b *Builder) Set(n, v string) *Builder {
 		return b.Del(n)
 	}
 
-	nSymbol := NewSymbol(n)
 	vSymbol := NewSymbol(v)
 
 	for i, a := range b.add {
-		if a.name == nSymbol {
+		if a.name.String() == n {
 			b.add[i].value = vSymbol
 			return b
 		}
 	}
+
+	nSymbol := NewSymbol(n)
 	b.add = append(b.add, symbolisedLabel{name: nSymbol, value: vSymbol})
 
 	return b
