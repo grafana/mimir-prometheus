@@ -222,7 +222,6 @@ func (ls Labels) Copy() Labels {
 // Get returns the value for the label with the given name.
 // Returns an empty string if the label doesn't exist.
 func (ls Labels) Get(name string) string {
-	// TODO: symbolise name?
 	for _, l := range ls {
 		if l.name.String() == name {
 			return l.value.String()
@@ -233,7 +232,6 @@ func (ls Labels) Get(name string) string {
 
 // Has returns true if the label with the given name is present.
 func (ls Labels) Has(name string) bool {
-	// TODO: symbolise name?
 	for _, l := range ls {
 		if l.name.String() == name {
 			return true
