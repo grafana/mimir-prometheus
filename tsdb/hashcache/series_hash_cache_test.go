@@ -143,6 +143,58 @@ func BenchmarkSeriesHashCache_StoreAndFetch(b *testing.B) {
 	}
 }
 
+func BenchmarkSeriesHashCache_Fetch(b *testing.B) {
+	for _, numBlocks := range []int{1, 10, 100, 1000, 10000} {
+		b.Run(fmt.Sprintf("blocks=%d", numBlocks), func(b *testing.B) {
+			c := NewSeriesHashCache(1024 * 1024)
+
+			// Pre-populate the cache with series hashes.
+			blockCaches := make([]*BlockSeriesHashCache, numBlocks)
+			for idx := 0; idx < numBlocks; idx++ {
+				blockCaches[idx] = c.GetBlockCache(strconv.Itoa(idx))
+			}
+
+			const numSeries = 1_000_000
+			for idx := 0; idx < numBlocks; idx++ {
+				for seriesID := 0; seriesID < numSeries; seriesID++ {
+					blockCaches[idx].Store(storage.SeriesRef(seriesID), uint64(seriesID))
+				}
+			}
+
+			for _, concurrency := range []int{1, 4} {
+				b.Run(fmt.Sprintf("concurrency=%d", concurrency), func(b *testing.B) {
+					b.ReportAllocs()
+
+					if concurrency == 1 {
+						// Benchmark only fetch operations.
+						for n := 0; n < b.N; n++ {
+							blockCaches[n%numBlocks].Fetch(storage.SeriesRef(n % numSeries))
+						}
+					} else {
+						// Benchmark with concurrent goroutines accessing overlapping series.
+						wg := sync.WaitGroup{}
+						wg.Add(concurrency)
+
+						for goroutineID := 0; goroutineID < concurrency; goroutineID++ {
+							go func(id int) {
+								defer wg.Done()
+
+								// Each goroutine accesses every Nth series (where N=concurrency),
+								// starting at offset=id. This creates overlapping access patterns.
+								for n := id; n < b.N; n += concurrency {
+									blockCaches[n%numBlocks].Fetch(storage.SeriesRef(n % numSeries))
+								}
+							}(goroutineID)
+						}
+
+						wg.Wait()
+					}
+				})
+			}
+		})
+	}
+}
+
 func assertFetch(t *testing.T, c *BlockSeriesHashCache, seriesID storage.SeriesRef, expectedValue uint64, expectedOk bool) {
 	actualValue, actualOk := c.Fetch(seriesID)
 	require.Equal(t, expectedValue, actualValue)
