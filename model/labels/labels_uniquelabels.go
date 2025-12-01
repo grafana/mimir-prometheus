@@ -230,6 +230,17 @@ func (ls Labels) Get(name string) string {
 	return ""
 }
 
+// getSymbol returns the value for the label with the given name.
+// Returns an empty symbol if the label doesn't exist.
+func (ls Labels) getSymbol(name Symbol) Symbol {
+	for _, l := range ls {
+		if l.name == name {
+			return l.value
+		}
+	}
+	return EmptySymbol
+}
+
 // Has returns true if the label with the given name is present.
 func (ls Labels) Has(name string) bool {
 	for _, l := range ls {
@@ -376,6 +387,13 @@ func (ls Labels) Range(f func(l Label)) {
 	}
 }
 
+// rangeSymbols calls f on each label.
+func (ls Labels) rangeSymbols(f func(name, value Symbol)) {
+	for _, l := range ls {
+		f(l.name, l.value)
+	}
+}
+
 // Validate calls f on each label. If f returns a non-nil error, then it returns that error cancelling the iteration.
 func (ls Labels) Validate(f func(l Label) error) error {
 	for _, l := range ls {
@@ -465,14 +483,14 @@ func (b *Builder) Del(ns ...string) *Builder {
 
 // Keep removes all labels from the base except those with the given names.
 func (b *Builder) Keep(ns ...string) *Builder {
-	b.base.Range(func(l Label) {
-		if slices.Contains(ns, l.Name) {
+	b.base.rangeSymbols(func(n, v Symbol) {
+		if slices.Contains(ns, n.String()) {
 			return
 		}
 
-		// TODO: use a symbolised version of Range so we don't need the NewSymbol call below
-		b.del = append(b.del, NewSymbol(l.Name))
+		b.del = append(b.del, n)
 	})
+
 	return b
 }
 
@@ -511,8 +529,7 @@ func (b *Builder) Get(n string) string {
 		return ""
 	}
 
-	// TODO: use a symbolised version of Get below
-	return b.base.Get(n)
+	return b.base.getSymbol(nSymbol).String()
 }
 
 // Range calls f on each label in the Builder.
@@ -522,10 +539,9 @@ func (b *Builder) Range(f func(l Label)) {
 	var delStack [128]Symbol
 	// Take a copy of add and del, so they are unaffected by calls to Set() or Del().
 	origAdd, origDel := append(addStack[:0], b.add...), append(delStack[:0], b.del...)
-	b.base.Range(func(l Label) {
-		// TODO: use a symbolised version of Range so we don't need the NewSymbol calls below
-		if !slices.Contains(origDel, NewSymbol(l.Name)) && !contains(origAdd, NewSymbol(l.Name)) {
-			f(l)
+	b.base.rangeSymbols(func(n, v Symbol) {
+		if !slices.Contains(origDel, n) && !contains(origAdd, n) {
+			f(Label{Name: n.String(), Value: v.String()})
 		}
 	})
 	for _, a := range origAdd {
@@ -548,10 +564,9 @@ func (b *Builder) Reset(base Labels) {
 	b.del = b.del[:0]
 	b.add = b.add[:0]
 
-	// TODO: use a symbolised version of Range so we don't need the NewSymbol call below
-	b.base.Range(func(l Label) {
-		if l.Value == "" {
-			b.del = append(b.del, NewSymbol(l.Name))
+	b.base.rangeSymbols(func(n, v Symbol) {
+		if v == EmptySymbol {
+			b.del = append(b.del, n)
 		}
 	})
 }
