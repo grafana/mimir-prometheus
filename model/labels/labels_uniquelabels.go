@@ -327,6 +327,7 @@ func FromStrings(ss ...string) Labels {
 	return res
 }
 
+// sort sorts the labels in this label set by name.
 func (ls Labels) sort() {
 	slices.SortFunc(ls, func(a, b symbolisedLabel) int { return strings.Compare(a.name.String(), b.name.String()) })
 }
