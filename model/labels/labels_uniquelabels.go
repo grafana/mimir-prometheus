@@ -617,7 +617,7 @@ func (*ScratchBuilder) SetSymbolTable(*SymbolTable) {
 //
 // SliceLabels will clone all added strings when this option is true.
 func (b *ScratchBuilder) SetUnsafeAdd(unsafeAdd bool) {
-	// Not required for uniquelabels.
+	// Not required for uniquelabels: unique.Make will clone the provided value if the value has not already been interned.
 }
 
 func (b *ScratchBuilder) Reset() {
