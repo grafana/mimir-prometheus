@@ -15,6 +15,12 @@
 
 package labels
 
+import (
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
 var expectedSizeOfLabels = []uint64{ // Values must line up with testCaseLabels.
 	72,
 	0,
@@ -25,3 +31,21 @@ var expectedSizeOfLabels = []uint64{ // Values must line up with testCaseLabels.
 }
 
 var expectedByteSize = expectedSizeOfLabels // They are identical
+
+func TestLabels_FromSymbols(t *testing.T) {
+	labels := FromSymbols(NewSymbol("aaa"), NewSymbol("111"), NewSymbol("bbb"), NewSymbol("222"))
+	x := 0
+	labels.Range(func(l Label) {
+		switch x {
+		case 0:
+			require.Equal(t, Label{Name: "aaa", Value: "111"}, l, "unexpected value")
+		case 1:
+			require.Equal(t, Label{Name: "bbb", Value: "222"}, l, "unexpected value")
+		default:
+			t.Fatalf("unexpected labelset value %d: %v", x, l)
+		}
+		x++
+	})
+
+	require.Panics(t, func() { FromStrings("aaa", "111", "bbb") }) //nolint:staticcheck // Ignore SA5012, error is intentional test.
+}

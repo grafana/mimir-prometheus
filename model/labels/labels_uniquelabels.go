@@ -338,6 +338,23 @@ func FromStrings(ss ...string) Labels {
 	return res
 }
 
+// FromSymbols creates new labels from pairs of symbols.
+func FromSymbols(ss ...Symbol) Labels {
+	if len(ss)%2 != 0 {
+		panic("invalid number of symbols")
+	}
+	res := make(Labels, 0, len(ss)/2)
+	for i := 0; i < len(ss); i += 2 {
+		res = append(res, symbolisedLabel{
+			name:  ss[i],
+			value: ss[i+1],
+		})
+	}
+
+	res.sort()
+	return res
+}
+
 // sort sorts the labels in this label set by name.
 func (ls Labels) sort() {
 	slices.SortFunc(ls, func(a, b symbolisedLabel) int { return strings.Compare(a.name.String(), b.name.String()) })
