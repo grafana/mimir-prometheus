@@ -408,17 +408,23 @@ func (ls Labels) Validate(f func(l Label) error) error {
 //
 // Deprecated: Use DropReserved instead.
 func (ls Labels) DropMetricName() Labels {
-	return ls.DropReserved(func(n string) bool { return n == MetricName })
+	return ls.dropReservedSymbols(func(n Symbol) bool { return n == MetricNameSymbol })
 }
 
 // DropReserved returns Labels without the chosen (via shouldDropFn) reserved (starting with underscore) labels.
 func (ls Labels) DropReserved(shouldDropFn func(name string) bool) Labels {
+	return ls.dropReservedSymbols(func(name Symbol) bool {
+		return shouldDropFn(name.String())
+	})
+}
+
+func (ls Labels) dropReservedSymbols(shouldDropFn func(name Symbol) bool) Labels {
 	rm := 0
 	for i, l := range ls {
 		if l.name.String()[0] > '_' { // Stop looking if we've gone past special labels.
 			break
 		}
-		if shouldDropFn(l.name.String()) {
+		if shouldDropFn(l.name) {
 			i := i - rm // Offsetting after removals.
 			if i == 0 { // Make common case fast with no allocations.
 				ls = ls[1:]
