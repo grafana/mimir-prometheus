@@ -16,6 +16,8 @@
 package labels
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -48,4 +50,65 @@ func TestLabels_FromSymbols(t *testing.T) {
 	})
 
 	require.Panics(t, func() { FromStrings("aaa", "111", "bbb") }) //nolint:staticcheck // Ignore SA5012, error is intentional test.
+}
+
+func BenchmarkLabels_UnstableHash(b *testing.B) {
+	for _, tcase := range []struct {
+		name string
+		lbls Labels
+	}{
+		{
+			name: "typical labels under 1KB",
+			lbls: func() Labels {
+				b := NewBuilder(EmptyLabels())
+				for i := range 10 {
+					// Label ~20B name, 50B value.
+					b.Set(fmt.Sprintf("abcdefghijabcdefghijabcdefghij%d", i), fmt.Sprintf("abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij%d", i))
+				}
+				return b.Labels()
+			}(),
+		},
+		{
+			name: "bigger labels over 1KB",
+			lbls: func() Labels {
+				b := NewBuilder(EmptyLabels())
+				for i := range 10 {
+					// Label ~50B name, 50B value.
+					b.Set(fmt.Sprintf("abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij%d", i), fmt.Sprintf("abcdefghijabcdefghijabcdefghijabcdefghijabcdefghij%d", i))
+				}
+				return b.Labels()
+			}(),
+		},
+		{
+			name: "extremely large label value 10MB",
+			lbls: func() Labels {
+				lbl := &strings.Builder{}
+				lbl.Grow(1024 * 1024 * 10) // 10MB.
+				word := "abcdefghij"
+				for i := 0; i < lbl.Cap()/len(word); i++ {
+					_, _ = lbl.WriteString(word)
+				}
+				return FromStrings("__name__", lbl.String())
+			}(),
+		},
+	} {
+		b.Run(tcase.name, func(b *testing.B) {
+			var h uint64
+
+			b.ReportAllocs()
+			b.ResetTimer()
+			for b.Loop() {
+				h = tcase.lbls.UnstableHash()
+			}
+			benchmarkLabelsResult = h
+		})
+	}
+}
+
+func TestLabels_UnstableHash(t *testing.T) {
+	lbls1 := FromStrings("foo", "bar", "baz", "qux")
+	lbls2 := FromStrings("foo", "bar", "baz", "qux")
+	hash1, hash2 := lbls1.UnstableHash(), lbls2.UnstableHash()
+	require.Equal(t, hash1, hash2)
+	require.NotEqual(t, lbls1.UnstableHash(), FromStrings("foo", "bar", "baz", "quX").UnstableHash(), "different labels match.")
 }
