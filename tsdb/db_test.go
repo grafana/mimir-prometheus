@@ -4956,10 +4956,10 @@ func TestMetadataAssertInMemoryData(t *testing.T) {
 	updateMetadata(t, app, s3, m3)
 	require.NoError(t, app.Commit())
 
-	series1 := db.head.series.getByHash(s1.Hash(), s1)
-	series2 := db.head.series.getByHash(s2.Hash(), s2)
-	series3 := db.head.series.getByHash(s3.Hash(), s3)
-	series4 := db.head.series.getByHash(s4.Hash(), s4)
+	series1 := db.head.series.getByHash(s1.UnstableHash(), s1)
+	series2 := db.head.series.getByHash(s2.UnstableHash(), s2)
+	series3 := db.head.series.getByHash(s3.UnstableHash(), s3)
+	series4 := db.head.series.getByHash(s4.UnstableHash(), s4)
 	require.Equal(t, *series1.meta, m1)
 	require.Equal(t, *series2.meta, m2)
 	require.Equal(t, *series3.meta, m3)
@@ -4977,10 +4977,10 @@ func TestMetadataAssertInMemoryData(t *testing.T) {
 	updateMetadata(t, app, s2, m5)
 	require.NoError(t, app.Commit())
 
-	series1 = db.head.series.getByHash(s1.Hash(), s1)
-	series2 = db.head.series.getByHash(s2.Hash(), s2)
-	series3 = db.head.series.getByHash(s3.Hash(), s3)
-	series4 = db.head.series.getByHash(s4.Hash(), s4)
+	series1 = db.head.series.getByHash(s1.UnstableHash(), s1)
+	series2 = db.head.series.getByHash(s2.UnstableHash(), s2)
+	series3 = db.head.series.getByHash(s3.UnstableHash(), s3)
+	series4 = db.head.series.getByHash(s4.UnstableHash(), s4)
 	require.Equal(t, *series1.meta, m1)
 	require.Equal(t, *series2.meta, m5)
 	require.Equal(t, *series3.meta, m3)
@@ -4999,10 +4999,10 @@ func TestMetadataAssertInMemoryData(t *testing.T) {
 	_, err = reopenDB.head.wal.Size()
 	require.NoError(t, err)
 
-	require.Equal(t, *reopenDB.head.series.getByHash(s1.Hash(), s1).meta, m1)
-	require.Equal(t, *reopenDB.head.series.getByHash(s2.Hash(), s2).meta, m5)
-	require.Equal(t, *reopenDB.head.series.getByHash(s3.Hash(), s3).meta, m3)
-	require.Equal(t, *reopenDB.head.series.getByHash(s4.Hash(), s4).meta, m4)
+	require.Equal(t, *reopenDB.head.series.getByHash(s1.UnstableHash(), s1).meta, m1)
+	require.Equal(t, *reopenDB.head.series.getByHash(s2.UnstableHash(), s2).meta, m5)
+	require.Equal(t, *reopenDB.head.series.getByHash(s3.UnstableHash(), s3).meta, m3)
+	require.Equal(t, *reopenDB.head.series.getByHash(s4.UnstableHash(), s4).meta, m4)
 }
 
 // TestMultipleEncodingsCommitOrder mainly serves to demonstrate when happens when committing a batch of samples for the
@@ -5196,7 +5196,7 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario, addExtraSample
 
 	// Verify that the in-memory ooo chunk is empty.
 	checkEmptyOOOChunk := func(lbls labels.Labels) {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Nil(t, ms.ooo)
@@ -5240,7 +5240,7 @@ func testOOOCompaction(t *testing.T, scenario sampleTypeScenario, addExtraSample
 
 	// Verify that the in-memory ooo chunk is not empty.
 	checkNonEmptyOOOChunk := func(lbls labels.Labels) {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Positive(t, ms.ooo.oooHeadChunk.chunk.NumSamples())
@@ -5402,7 +5402,7 @@ func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScen
 
 	// Checking that ooo chunk is not empty.
 	for _, lbls := range []labels.Labels{series1, series2} {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Positive(t, ms.ooo.oooHeadChunk.chunk.NumSamples())
@@ -5430,7 +5430,7 @@ func testOOOCompactionWithNormalCompaction(t *testing.T, scenario sampleTypeScen
 
 	// Checking that ooo chunk is empty.
 	for _, lbls := range []labels.Labels{series1, series2} {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Nil(t, ms.ooo)
@@ -5513,7 +5513,7 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScen
 
 	// Checking that ooo chunk is not empty.
 	for _, lbls := range []labels.Labels{series1, series2} {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Positive(t, ms.ooo.oooHeadChunk.chunk.NumSamples())
@@ -5541,7 +5541,7 @@ func testOOOCompactionWithDisabledWriteLog(t *testing.T, scenario sampleTypeScen
 
 	// Checking that ooo chunk is empty.
 	for _, lbls := range []labels.Labels{series1, series2} {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Nil(t, ms.ooo)
@@ -5623,7 +5623,7 @@ func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sa
 
 	// Checking that there are some ooo m-map chunks.
 	for _, lbls := range []labels.Labels{series1, series2} {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Len(t, ms.ooo.oooMmappedChunks, 2)
@@ -5642,7 +5642,7 @@ func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sa
 
 	// Check ooo m-map chunks again.
 	for _, lbls := range []labels.Labels{series1, series2} {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Len(t, ms.ooo.oooMmappedChunks, 2)
@@ -5682,7 +5682,7 @@ func testOOOQueryAfterRestartWithSnapshotAndRemovedWBL(t *testing.T, scenario sa
 
 	// Checking that ooo chunk is empty in Head.
 	for _, lbls := range []labels.Labels{series1, series2} {
-		ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.Nil(t, ms.ooo)
@@ -6987,7 +6987,7 @@ func testOOODisabled(t *testing.T, scenario sampleTypeScenario) {
 	_, err = os.ReadDir(path.Join(db.Dir(), wlog.WblDirName))
 	require.True(t, os.IsNotExist(err))
 
-	ms, created, err := db.head.getOrCreate(s1.Hash(), s1, false)
+	ms, created, err := db.head.getOrCreate(s1.UnstableHash(), s1, false)
 	require.NoError(t, err)
 	require.False(t, created)
 	require.NotNil(t, ms)
@@ -7059,7 +7059,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	oooMint, oooMaxt := minutes(195), minutes(260)
 
 	// Collect the samples only present in the ooo m-map chunks.
-	ms, created, err := db.head.getOrCreate(s1.Hash(), s1, false)
+	ms, created, err := db.head.getOrCreate(s1.UnstableHash(), s1, false)
 	require.False(t, created)
 	require.NoError(t, err)
 	var s1MmapSamples []chunks.Sample
@@ -7238,7 +7238,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 
 		// Verify that the in-memory ooo chunk is empty.
 		checkEmptyOOOChunk := func(lbls labels.Labels) {
-			ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+			ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 			require.NoError(t, err)
 			require.False(t, created)
 			require.Nil(t, ms.ooo)
@@ -7420,7 +7420,7 @@ func TestOOOHistogramCompactionWithCounterResets(t *testing.T) {
 
 		// Verify that the in-memory ooo chunk is not empty.
 		checkNonEmptyOOOChunk := func(lbls labels.Labels) {
-			ms, created, err := db.head.getOrCreate(lbls.Hash(), lbls, false)
+			ms, created, err := db.head.getOrCreate(lbls.UnstableHash(), lbls, false)
 			require.NoError(t, err)
 			require.False(t, created)
 			require.Positive(t, ms.ooo.oooHeadChunk.chunk.NumSamples())
@@ -7743,7 +7743,7 @@ func testOOOCompactionFailure(t *testing.T, scenario sampleTypeScenario) {
 	require.Len(t, db.Blocks(), 3)
 
 	// Check that the ooo chunks were removed.
-	ms, created, err := db.head.getOrCreate(series1.Hash(), series1, false)
+	ms, created, err := db.head.getOrCreate(series1.UnstableHash(), series1, false)
 	require.NoError(t, err)
 	require.False(t, created)
 	require.Nil(t, ms.ooo)
@@ -8605,7 +8605,7 @@ func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenari
 	require.NoError(t, err)
 	db.DisableCompactions()
 
-	ms := db.head.series.getByHash(series1.Hash(), series1)
+	ms := db.head.series.getByHash(series1.UnstableHash(), series1)
 	require.NotEmpty(t, ms.ooo.oooMmappedChunks, "OOO mmap chunk was not replayed")
 
 	checkMmapFileContents := func(contains, notContains []string) {

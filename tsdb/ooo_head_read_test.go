@@ -285,7 +285,7 @@ func TestOOOHeadIndexReader_Series(t *testing.T) {
 	}
 
 	s1Lset := labels.FromStrings("foo", "bar")
-	s1ID := uint64(1)
+	s1ID := labels.UnstableHash(1)
 
 	for _, tc := range tests {
 		var permutations [][]chunkInterval

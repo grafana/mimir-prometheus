@@ -103,7 +103,7 @@ func BenchmarkCreateSeries(b *testing.B) {
 	b.ResetTimer()
 
 	for _, s := range series {
-		h.getOrCreate(s.Labels().Hash(), s.Labels(), false)
+		h.getOrCreate(s.Labels().UnstableHash(), s.Labels(), false)
 	}
 }
 
@@ -1183,7 +1183,7 @@ func TestHead_KeepSeriesInWALCheckpoint(t *testing.T) {
 		{
 			name: "keep series still in the head",
 			prepare: func(t *testing.T, h *Head) {
-				_, _, err := h.getOrCreateWithOptionalID(chunks.HeadSeriesRef(existingRef), existingLbls.Hash(), existingLbls, false)
+				_, _, err := h.getOrCreateWithOptionalID(chunks.HeadSeriesRef(existingRef), existingLbls.UnstableHash(), existingLbls, false)
 				require.NoError(t, err)
 			},
 			expected: true,
@@ -1391,7 +1391,7 @@ func BenchmarkHead_Truncate(b *testing.B) {
 			}
 
 			allSeries[i] = labels.FromStrings(append(nameValues, "first", "a", "second", "a", "third", "a")...)
-			s, _, _ := h.getOrCreate(allSeries[i].Hash(), allSeries[i], false)
+			s, _, _ := h.getOrCreate(allSeries[i].UnstableHash(), allSeries[i], false)
 			s.mmappedChunks = []*mmappedChunk{
 				{minTime: 1000 * int64(i/churn), maxTime: 999 + 1000*int64(i/churn)},
 			}
@@ -2535,7 +2535,7 @@ func TestUncommittedSamplesNotLostOnTruncate(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, h.Truncate(2000))
-	require.NotNil(t, h.series.getByHash(lset.Hash(), lset), "series should not have been garbage collected")
+	require.NotNil(t, h.series.getByHash(lset.UnstableHash(), lset), "series should not have been garbage collected")
 
 	require.NoError(t, app.Commit())
 
@@ -2565,7 +2565,7 @@ func TestRemoveSeriesAfterRollbackAndTruncate(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, h.Truncate(2000))
-	require.NotNil(t, h.series.getByHash(lset.Hash(), lset), "series should not have been garbage collected")
+	require.NotNil(t, h.series.getByHash(lset.UnstableHash(), lset), "series should not have been garbage collected")
 
 	require.NoError(t, app.Rollback())
 
@@ -2579,7 +2579,7 @@ func TestRemoveSeriesAfterRollbackAndTruncate(t *testing.T) {
 
 	// Truncate again, this time the series should be deleted
 	require.NoError(t, h.Truncate(2050))
-	require.Equal(t, (*memSeries)(nil), h.series.getByHash(lset.Hash(), lset))
+	require.Equal(t, (*memSeries)(nil), h.series.getByHash(lset.UnstableHash(), lset))
 }
 
 func TestHead_LogRollback(t *testing.T) {
@@ -4408,7 +4408,7 @@ func TestHistogramInWALAndMmapChunk(t *testing.T) {
 	}
 
 	// There should be 20 mmap chunks in s1.
-	ms := head.series.getByHash(s1.Hash(), s1)
+	ms := head.series.getByHash(s1.UnstableHash(), s1)
 	require.Len(t, ms.mmappedChunks, 25)
 	expMmapChunks := make([]*mmappedChunk, 0, 20)
 	for _, mmap := range ms.mmappedChunks {
@@ -4508,7 +4508,7 @@ func TestHistogramInWALAndMmapChunk(t *testing.T) {
 	startHead()
 
 	// Checking contents of s1.
-	ms = head.series.getByHash(s1.Hash(), s1)
+	ms = head.series.getByHash(s1.UnstableHash(), s1)
 	require.Equal(t, expMmapChunks, ms.mmappedChunks)
 	require.Equal(t, expHeadChunkSamples, ms.headChunks.chunk.NumSamples())
 
@@ -4849,7 +4849,7 @@ func TestSnapshotError(t *testing.T) {
 	head.tombstones.AddInterval(1, itvs...)
 
 	// Check existence of data.
-	require.NotNil(t, head.series.getByHash(lbls.Hash(), lbls))
+	require.NotNil(t, head.series.getByHash(lbls.UnstableHash(), lbls))
 	tm, err := head.tombstones.Get(1)
 	require.NoError(t, err)
 	require.NotEmpty(t, tm)
@@ -4885,7 +4885,7 @@ func TestSnapshotError(t *testing.T) {
 	// There should be no series in the memory after snapshot error since WAL was removed.
 	require.Equal(t, 1.0, prom_testutil.ToFloat64(head.metrics.snapshotReplayErrorTotal))
 	require.Equal(t, uint64(0), head.NumSeries())
-	require.Nil(t, head.series.getByHash(lbls.Hash(), lbls))
+	require.Nil(t, head.series.getByHash(lbls.UnstableHash(), lbls))
 	tm, err = head.tombstones.Get(1)
 	require.NoError(t, err)
 	require.Empty(t, tm)
@@ -4912,7 +4912,7 @@ func TestSnapshotError(t *testing.T) {
 
 	// There should be no series in the memory after snapshot error since WAL was removed.
 	require.Equal(t, 1.0, prom_testutil.ToFloat64(head.metrics.snapshotReplayErrorTotal))
-	require.Nil(t, head.series.getByHash(lbls.Hash(), lbls))
+	require.Nil(t, head.series.getByHash(lbls.UnstableHash(), lbls))
 	require.Equal(t, uint64(0), head.NumSeries())
 
 	// Since the snapshot could replay certain series, we continue invoking the create hooks.
@@ -5083,7 +5083,7 @@ func testHistogramStaleSampleHelper(t *testing.T, floatHistogram bool) {
 	require.NoError(t, app.Commit())
 
 	// Only 1 chunk in the memory, no m-mapped chunk.
-	s := head.series.getByHash(l.Hash(), l)
+	s := head.series.getByHash(l.UnstableHash(), l)
 	require.NotNil(t, s)
 	require.NotNil(t, s.headChunks)
 	require.Equal(t, 1, s.headChunks.len())
@@ -5118,7 +5118,7 @@ func testHistogramStaleSampleHelper(t *testing.T, floatHistogram bool) {
 	head.mmapHeadChunks()
 
 	// Total 2 chunks, 1 m-mapped.
-	s = head.series.getByHash(l.Hash(), l)
+	s = head.series.getByHash(l.UnstableHash(), l)
 	require.NotNil(t, s)
 	require.NotNil(t, s.headChunks)
 	require.Equal(t, 1, s.headChunks.len())
@@ -5154,7 +5154,7 @@ func TestHistogramCounterResetHeader(t *testing.T) {
 			checkExpCounterResetHeader := func(newHeaders ...chunkenc.CounterResetHeader) {
 				expHeaders = append(expHeaders, newHeaders...)
 
-				ms, _, err := head.getOrCreate(l.Hash(), l, false)
+				ms, _, err := head.getOrCreate(l.UnstableHash(), l, false)
 				require.NoError(t, err)
 				ms.mmapChunks(head.chunkDiskMapper)
 				require.Len(t, ms.mmappedChunks, len(expHeaders)-1) // One is the head chunk.
@@ -5281,7 +5281,7 @@ func TestOOOHistogramCounterResetHeaders(t *testing.T) {
 			checkOOOExpCounterResetHeader := func(newChunks ...expOOOMmappedChunks) {
 				expChunks = append(expChunks, newChunks...)
 
-				ms, _, err := head.getOrCreate(l.Hash(), l, false)
+				ms, _, err := head.getOrCreate(l.UnstableHash(), l, false)
 				require.NoError(t, err)
 
 				require.Len(t, ms.ooo.oooMmappedChunks, len(expChunks))
@@ -5423,7 +5423,7 @@ func TestAppendingDifferentEncodingToSameSeries(t *testing.T) {
 
 	var expResult []chunks.Sample
 	checkExpChunks := func(count int) {
-		ms, created, err := db.Head().getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := db.Head().getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.NotNil(t, ms)
@@ -5706,7 +5706,7 @@ func testWBLReplay(t *testing.T, scenario sampleTypeScenario) {
 	require.NoError(t, h.Init(0)) // Replay happens here.
 
 	// Get the ooo samples from the Head.
-	ms, ok, err := h.getOrCreate(l.Hash(), l, false)
+	ms, ok, err := h.getOrCreate(l.UnstableHash(), l, false)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.NotNil(t, ms)
@@ -5774,7 +5774,7 @@ func testOOOMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 		appendSample(mins)
 	}
 
-	ms, ok, err := h.getOrCreate(l.Hash(), l, false)
+	ms, ok, err := h.getOrCreate(l.UnstableHash(), l, false)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.NotNil(t, ms)
@@ -5802,7 +5802,7 @@ func testOOOMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	require.NoError(t, h.Init(0)) // Replay happens here.
 
 	// Get the mmap chunks from the Head.
-	ms, ok, err = h.getOrCreate(l.Hash(), l, false)
+	ms, ok, err = h.getOrCreate(l.UnstableHash(), l, false)
 	require.NoError(t, err)
 	require.False(t, ok)
 	require.NotNil(t, ms)
@@ -5857,7 +5857,7 @@ func TestHeadInit_DiscardChunksWithUnsupportedEncoding(t *testing.T) {
 	require.NoError(t, app.Commit())
 	require.Greater(t, prom_testutil.ToFloat64(h.metrics.chunksCreated), 4.0)
 
-	series, created, err := h.getOrCreate(seriesLabels.Hash(), seriesLabels, false)
+	series, created, err := h.getOrCreate(seriesLabels.UnstableHash(), seriesLabels, false)
 	require.NoError(t, err)
 	require.False(t, created, "should already exist")
 	require.NotNil(t, series, "should return the series we created above")
@@ -5874,7 +5874,7 @@ func TestHeadInit_DiscardChunksWithUnsupportedEncoding(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, h.Init(0))
 
-	series, created, err = h.getOrCreate(seriesLabels.Hash(), seriesLabels, false)
+	series, created, err = h.getOrCreate(seriesLabels.UnstableHash(), seriesLabels, false)
 	require.NoError(t, err)
 	require.False(t, created, "should already exist")
 	require.NotNil(t, series, "should return the series we created above")
@@ -6070,7 +6070,7 @@ func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Ap
 	}
 
 	verifyOOOSamples := func(lbls labels.Labels, expSamples int) {
-		ms, created, err := h.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := h.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.NotNil(t, ms)
@@ -6081,7 +6081,7 @@ func testOOOAppendWithNoSeries(t *testing.T, appendFunc func(appender storage.Ap
 	}
 
 	verifyInOrderSamples := func(lbls labels.Labels, expSamples int) {
-		ms, created, err := h.getOrCreate(lbls.Hash(), lbls, false)
+		ms, created, err := h.getOrCreate(lbls.UnstableHash(), lbls, false)
 		require.NoError(t, err)
 		require.False(t, created)
 		require.NotNil(t, ms)
@@ -6208,7 +6208,7 @@ func TestGaugeHistogramWALAndChunkHeader(t *testing.T) {
 
 	checkHeaders := func() {
 		head.mmapHeadChunks()
-		ms, _, err := head.getOrCreate(l.Hash(), l, false)
+		ms, _, err := head.getOrCreate(l.UnstableHash(), l, false)
 		require.NoError(t, err)
 		require.Len(t, ms.mmappedChunks, 3)
 		expHeaders := []chunkenc.CounterResetHeader{
@@ -6283,7 +6283,7 @@ func TestGaugeFloatHistogramWALAndChunkHeader(t *testing.T) {
 	appendHistogram(hists[4])
 
 	checkHeaders := func() {
-		ms, _, err := head.getOrCreate(l.Hash(), l, false)
+		ms, _, err := head.getOrCreate(l.UnstableHash(), l, false)
 		require.NoError(t, err)
 		head.mmapHeadChunks()
 		require.Len(t, ms.mmappedChunks, 3)
@@ -6828,7 +6828,7 @@ func labelsWithHashCollision() (labels.Labels, labels.Labels) {
 }
 
 // stripeSeriesWithCollidingSeries returns a stripeSeries with two memSeries having the same, colliding, hash.
-func stripeSeriesWithCollidingSeries(t *testing.T) (*stripeSeries, *memSeries, *memSeries) {
+func stripeSeriesWithCollidingSeries(t *testing.T) (*stripeSeries, *memSeries, *memSeries, labels.UnstableHash) {
 	t.Helper()
 
 	lbls1, lbls2 := labelsWithHashCollision()
@@ -6838,7 +6838,7 @@ func stripeSeriesWithCollidingSeries(t *testing.T) (*stripeSeries, *memSeries, *
 	ms2 := memSeries{
 		lset: lbls2,
 	}
-	hash := lbls1.Hash()
+	hash := labels.UnstableHash(0x12345678) // Simulate a hash collision.
 	s := newStripeSeries(1, noopSeriesLifecycleCallback{})
 
 	got, created := s.setUnlessAlreadySet(hash, lbls1, &ms1)
@@ -6850,12 +6850,11 @@ func stripeSeriesWithCollidingSeries(t *testing.T) (*stripeSeries, *memSeries, *
 	require.True(t, created)
 	require.Same(t, &ms2, got)
 
-	return s, &ms1, &ms2
+	return s, &ms1, &ms2, hash
 }
 
 func TestStripeSeries_getOrSet(t *testing.T) {
-	s, ms1, ms2 := stripeSeriesWithCollidingSeries(t)
-	hash := ms1.lset.Hash()
+	s, ms1, ms2, hash := stripeSeriesWithCollidingSeries(t)
 
 	// Verify that we can get both of the series despite the hash collision
 	got := s.getByHash(hash, ms1.lset)
@@ -6865,8 +6864,7 @@ func TestStripeSeries_getOrSet(t *testing.T) {
 }
 
 func TestStripeSeries_gc(t *testing.T) {
-	s, ms1, ms2 := stripeSeriesWithCollidingSeries(t)
-	hash := ms1.lset.Hash()
+	s, ms1, ms2, hash := stripeSeriesWithCollidingSeries(t)
 
 	s.gc(0, 0, nil)
 
