@@ -43,7 +43,7 @@ func BenchmarkHeadStripeSeriesCreate(b *testing.B) {
 	defer h.Close()
 
 	for i := 0; b.Loop(); i++ {
-		h.getOrCreate(labels.UnstableHash(i), labels.FromStrings("a", strconv.Itoa(i)), false)
+		h.getOrCreate(uint64(i), labels.FromStrings("a", strconv.Itoa(i)), false)
 	}
 }
 
@@ -62,7 +62,7 @@ func BenchmarkHeadStripeSeriesCreateParallel(b *testing.B) {
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			i := count.Inc()
-			h.getOrCreate(labels.UnstableHash(i), labels.FromStrings("a", strconv.Itoa(int(i))), false)
+			h.getOrCreate(uint64(i), labels.FromStrings("a", strconv.Itoa(int(i))), false)
 		}
 	})
 }
@@ -82,7 +82,7 @@ func BenchmarkHeadStripeSeriesCreate_PreCreationFailure(b *testing.B) {
 	defer h.Close()
 
 	for i := 0; b.Loop(); i++ {
-		h.getOrCreate(labels.UnstableHash(i), labels.FromStrings("a", strconv.Itoa(i)), false)
+		h.getOrCreate(uint64(i), labels.FromStrings("a", strconv.Itoa(i)), false)
 	}
 }
 

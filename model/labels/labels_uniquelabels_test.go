@@ -52,8 +52,6 @@ func TestLabels_FromSymbols(t *testing.T) {
 	require.Panics(t, func() { FromStrings("aaa", "111", "bbb") }) //nolint:staticcheck // Ignore SA5012, error is intentional test.
 }
 
-var benchmarkLabelsUnstableHashResult UnstableHash
-
 func BenchmarkLabels_UnstableHash(b *testing.B) {
 	for _, tcase := range []struct {
 		name string
@@ -95,14 +93,14 @@ func BenchmarkLabels_UnstableHash(b *testing.B) {
 		},
 	} {
 		b.Run(tcase.name, func(b *testing.B) {
-			var h UnstableHash
+			var h uint64
 
 			b.ReportAllocs()
 			b.ResetTimer()
 			for b.Loop() {
 				h = tcase.lbls.UnstableHash()
 			}
-			benchmarkLabelsUnstableHashResult = h
+			benchmarkLabelsResult = h
 		})
 	}
 }

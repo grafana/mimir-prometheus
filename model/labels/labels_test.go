@@ -897,7 +897,7 @@ func TestLabels_Hash(t *testing.T) {
 	require.NotEqual(t, lbls.Hash(), FromStrings("foo", "bar").Hash(), "different labels match.")
 }
 
-var benchmarkLabelsHashResult uint64
+var benchmarkLabelsResult uint64
 
 func BenchmarkLabels_Hash(b *testing.B) {
 	for _, tcase := range []struct {
@@ -947,7 +947,7 @@ func BenchmarkLabels_Hash(b *testing.B) {
 			for b.Loop() {
 				h = tcase.lbls.Hash()
 			}
-			benchmarkLabelsHashResult = h
+			benchmarkLabelsResult = h
 		})
 	}
 }
