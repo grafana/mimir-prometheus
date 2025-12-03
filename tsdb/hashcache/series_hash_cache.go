@@ -34,7 +34,8 @@ const (
 type SeriesHashCache struct {
 	maxEntriesPerGeneration uint64
 
-	generations cacheGeneration
+	generationsMx sync.RWMutex
+	generations   [numGenerations]cacheGeneration
 }
 
 func NewSeriesHashCache(maxBytes uint64) *SeriesHashCache {
@@ -47,8 +48,8 @@ func NewSeriesHashCache(maxBytes uint64) *SeriesHashCache {
 
 	// Init generations.
 	for idx := 0; idx < numGenerations; idx++ {
-		c.generations.blocks = &sync.Map{}
-		c.generations.length = atomic.NewUint64(0)
+		c.generations[idx].blocks = &sync.Map{}
+		c.generations[idx].length = atomic.NewUint64(0)
 	}
 
 	return c
@@ -60,16 +61,31 @@ func NewSeriesHashCache(maxBytes uint64) *SeriesHashCache {
 func (c *SeriesHashCache) GetBlockCache(blockID string) *BlockSeriesHashCache {
 	blockCache := &BlockSeriesHashCache{}
 
-	gen := c.generations
+	c.generationsMx.RLock()
+	defer c.generationsMx.RUnlock()
 
-	if value, ok := gen.blocks.Load(blockID); ok {
-		blockCache.generations = value.(*blockCacheGeneration)
-	} else {
+	// Trigger a garbage collection if the current generation reached the max size.
+	if c.generations[0].length.Load() >= c.maxEntriesPerGeneration {
+		c.generationsMx.RUnlock()
+		c.gc()
+		c.generationsMx.RLock()
+	}
+
+	for idx := 0; idx < numGenerations; idx++ {
+		gen := c.generations[idx]
+
+		if value, ok := gen.blocks.Load(blockID); ok {
+			blockCache.generations[idx] = value.(*blockCacheGeneration)
+			continue
+		}
+
 		// Create a new per-block cache only for the current generation.
 		// If the cache for the older generation doesn't exist, then its
 		// value will be null and skipped when reading.
-		value, _ := gen.blocks.LoadOrStore(blockID, newBlockCacheGeneration(gen.length))
-		blockCache.generations = value.(*blockCacheGeneration)
+		if idx == 0 {
+			value, _ := gen.blocks.LoadOrStore(blockID, newBlockCacheGeneration(gen.length))
+			blockCache.generations[idx] = value.(*blockCacheGeneration)
+		}
 	}
 
 	return blockCache
@@ -78,6 +94,27 @@ func (c *SeriesHashCache) GetBlockCache(blockID string) *BlockSeriesHashCache {
 // GetBlockCacheProvider returns a cache provider bounded to the provided blockID.
 func (c *SeriesHashCache) GetBlockCacheProvider(blockID string) *BlockSeriesHashCacheProvider {
 	return NewBlockSeriesHashCacheProvider(c, blockID)
+}
+
+func (c *SeriesHashCache) gc() {
+	c.generationsMx.Lock()
+	defer c.generationsMx.Unlock()
+
+	// Make sure no other goroutines already GCed the current generation.
+	if c.generations[0].length.Load() < c.maxEntriesPerGeneration {
+		return
+	}
+
+	// Shift the current generation to old.
+	for idx := numGenerations - 2; idx >= 0; idx-- {
+		c.generations[idx+1] = c.generations[idx]
+	}
+
+	// Initialise a new empty current generation.
+	c.generations[0] = cacheGeneration{
+		blocks: &sync.Map{},
+		length: atomic.NewUint64(0),
+	}
 }
 
 // cacheGeneration holds a multi-blocks cache generation.
@@ -93,7 +130,8 @@ type cacheGeneration struct {
 // blockCacheGeneration holds a per-block cache generation.
 type blockCacheGeneration struct {
 	// hashes maps per-block series ID with its hash.
-	hashes map[storage.SeriesRef]uint64
+	hashesMx sync.RWMutex
+	hashes   map[storage.SeriesRef]uint64
 
 	// Keeps track of the number of items added to the cache. This counter is
 	// shared with all blockCacheGeneration in the "parent" cacheGeneration.
@@ -108,23 +146,28 @@ func newBlockCacheGeneration(length *atomic.Uint64) *blockCacheGeneration {
 }
 
 type BlockSeriesHashCache struct {
-	generations *blockCacheGeneration
+	generations [numGenerations]*blockCacheGeneration
 }
 
 // Fetch the hash of the given seriesID from the cache and returns a boolean
 // whether the series was found in the cache or not.
 func (c *BlockSeriesHashCache) Fetch(seriesID storage.SeriesRef) (uint64, bool) {
-	gen := c.generations
+	// Look for it in all generations, starting from the most recent one (index 0).
+	for idx := 0; idx < numGenerations; idx++ {
+		gen := c.generations[idx]
 
-	// Skip if the cache doesn't exist for this generation.
-	if gen == nil {
-		return 0, false
-	}
+		// Skip if the cache doesn't exist for this generation.
+		if gen == nil {
+			continue
+		}
 
-	value, ok := gen.hashes[seriesID]
+		gen.hashesMx.RLock()
+		value, ok := gen.hashes[seriesID]
+		gen.hashesMx.RUnlock()
 
-	if ok {
-		return value, true
+		if ok {
+			return value, true
+		}
 	}
 
 	return 0, false
@@ -133,9 +176,11 @@ func (c *BlockSeriesHashCache) Fetch(seriesID storage.SeriesRef) (uint64, bool) 
 // Store the hash of the given seriesID in the cache.
 func (c *BlockSeriesHashCache) Store(seriesID storage.SeriesRef, hash uint64) {
 	// Store it in the most recent generation (index 0).
-	gen := c.generations
+	gen := c.generations[0]
 
+	gen.hashesMx.Lock()
 	gen.hashes[seriesID] = hash
+	gen.hashesMx.Unlock()
 
 	gen.length.Add(1)
 }
