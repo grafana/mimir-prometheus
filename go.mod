@@ -106,6 +106,7 @@ require (
 require (
 	github.com/d4l3k/messagediff v1.2.1 // indirect
 	github.com/golang/glog v1.2.5 // indirect
+	github.com/plar/go-adaptive-radix-tree v1.0.7 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/tools/godoc v0.1.0-deprecated // indirect
 	sigs.k8s.io/structured-merge-diff/v6 v6.3.0 // indirect

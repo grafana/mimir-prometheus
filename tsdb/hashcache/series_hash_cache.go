@@ -15,7 +15,9 @@ package hashcache
 
 import (
 	"sync"
+	"unsafe"
 
+	art "github.com/plar/go-adaptive-radix-tree"
 	"go.uber.org/atomic"
 
 	"github.com/prometheus/prometheus/storage"
@@ -131,7 +133,7 @@ type cacheGeneration struct {
 type blockCacheGeneration struct {
 	// hashes maps per-block series ID with its hash.
 	hashesMx sync.RWMutex
-	hashes   map[storage.SeriesRef]uint64
+	hashes   art.Tree
 
 	// Keeps track of the number of items added to the cache. This counter is
 	// shared with all blockCacheGeneration in the "parent" cacheGeneration.
@@ -140,9 +142,15 @@ type blockCacheGeneration struct {
 
 func newBlockCacheGeneration(length *atomic.Uint64) *blockCacheGeneration {
 	return &blockCacheGeneration{
-		hashes: make(map[storage.SeriesRef]uint64),
+		hashes: art.New(),
 		length: length,
 	}
+}
+
+// seriesRefToKey converts a storage.SeriesRef to a byte slice key for the ART.
+// This uses unsafe to avoid allocations by directly referencing the memory of the SeriesRef.
+func seriesRefToKey(ref storage.SeriesRef) art.Key {
+	return unsafe.Slice((*byte)(unsafe.Pointer(&ref)), 8)
 }
 
 type BlockSeriesHashCache struct {
@@ -152,6 +160,8 @@ type BlockSeriesHashCache struct {
 // Fetch the hash of the given seriesID from the cache and returns a boolean
 // whether the series was found in the cache or not.
 func (c *BlockSeriesHashCache) Fetch(seriesID storage.SeriesRef) (uint64, bool) {
+	key := seriesRefToKey(seriesID)
+
 	// Look for it in all generations, starting from the most recent one (index 0).
 	for idx := 0; idx < numGenerations; idx++ {
 		gen := c.generations[idx]
@@ -162,11 +172,11 @@ func (c *BlockSeriesHashCache) Fetch(seriesID storage.SeriesRef) (uint64, bool) 
 		}
 
 		gen.hashesMx.RLock()
-		value, ok := gen.hashes[seriesID]
+		value, found := gen.hashes.Search(key)
 		gen.hashesMx.RUnlock()
 
-		if ok {
-			return value, true
+		if found {
+			return value.(uint64), true
 		}
 	}
 
@@ -179,7 +189,7 @@ func (c *BlockSeriesHashCache) Store(seriesID storage.SeriesRef, hash uint64) {
 	gen := c.generations[0]
 
 	gen.hashesMx.Lock()
-	gen.hashes[seriesID] = hash
+	gen.hashes.Insert(seriesRefToKey(seriesID), hash)
 	gen.hashesMx.Unlock()
 
 	gen.length.Add(1)
