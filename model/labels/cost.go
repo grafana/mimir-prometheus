@@ -29,21 +29,6 @@ func (m *Matcher) SingleMatchCost() float64 {
 		// String equality/inequality comparison is simple
 		return estimatedStringEqualityCost
 	case MatchRegexp, MatchNotRegexp:
-		// If we have optimized set matches, use those
-		if len(m.re.setMatches) > 0 {
-			return estimatedSliceContainsCostPerElement * float64(len(m.re.setMatches))
-		}
-
-		// If we have a string matcher with a map, use that
-		if _, ok := m.re.stringMatcher.(*equalMultiStringMapMatcher); ok {
-			return estimatedMapContainsCost
-		}
-
-		// If we have a prefix optimization, use that
-		if m.re.prefix != "" {
-			return estimatedStringHasPrefixCost
-		}
-
 		return m.re.SingleMatchCost()
 	}
 
@@ -100,14 +85,40 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
 }
 
 func (m *FastRegexMatcher) SingleMatchCost() float64 {
-	parsed, err := syntax.Parse(m.reString, syntax.Perl|syntax.DotNL)
-	if err != nil {
-		return 0
+	// Check for optimizations first - these override the parsed tree cost
+	// because the actual matching will use the optimized path.
+
+	// If we have optimized set matches, use those
+	if len(m.setMatches) > 0 {
+		return estimatedSliceContainsCostPerElement * float64(len(m.setMatches))
 	}
-	return costEstimate(parsed)
+
+	// If we have a string matcher with a map, use that
+	if _, ok := m.stringMatcher.(*equalMultiStringMapMatcher); ok {
+		return estimatedMapContainsCost
+	}
+
+	// If we have a prefix optimization, use that
+	if m.prefix != "" {
+		return estimatedStringHasPrefixCost
+	}
+
+	// If we have a cached cost from parsing, use that.
+	if m.singleMatchCost > 0 {
+		return m.singleMatchCost
+	}
+
+	// If we have a simple string matcher (e.g., empty string, single literal),
+	// the cost is roughly equivalent to a string equality check.
+	if m.stringMatcher != nil {
+		return estimatedStringEqualityCost
+	}
+
+	return 0
 }
 
-// TODO this doesn't account for backtracking, which can come with a large cost.
+// costEstimate estimates the cost of matching a string against the given regex.
+// TODO: this doesn't account for backtracking, which can come with a large cost.
 func costEstimate(re *syntax.Regexp) float64 {
 	switch re.Op {
 	case syntax.OpLiteral:

@@ -59,6 +59,10 @@ type FastRegexMatcher struct {
 	reString string
 	re       *regexp.Regexp
 
+	// singleMatchCost is the estimated cost of matching a single string against this regex.
+	// It is computed during initialization from the parsed syntax tree.
+	singleMatchCost float64
+
 	setMatches    []string
 	stringMatcher StringMatcher
 	prefix        string
@@ -115,6 +119,8 @@ func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 			m.setMatches = matches
 		}
 		m.stringMatcher = stringMatcherFromRegexp(parsed)
+		// Calculate cost after optimization functions have simplified the parsed tree.
+		m.singleMatchCost = costEstimate(parsed)
 		m.matchString = m.compileMatchStringFunction()
 	}
 
