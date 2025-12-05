@@ -33,7 +33,7 @@ var expectedSizeOfLabels = []uint64{ // Values must line up with testCaseLabels.
 var expectedByteSize = expectedSizeOfLabels // They are identical
 
 func TestLabels_FromSymbols(t *testing.T) {
-	labels := FromSymbols(NewSymbol("aaa"), NewSymbol("111"), NewSymbol("bbb"), NewSymbol("222"))
+	labels := FromSymbols([]Symbol{NewSymbol("aaa"), NewSymbol("bbb")}, []string{"111", "222"})
 	x := 0
 	labels.Range(func(l Label) {
 		switch x {
