@@ -38,10 +38,6 @@ jobs:
           persist-credentials: false
       - uses: prometheus/promci@c0916f0a41f13444612a8f0f5e700ea34edd7c19 # v0.5.3
       - uses: ./.github/promci/actions/setup_environment
-        with:
-          # For some reason a compactor test fails by running out of disk.
-          # This isn't present upstream, but it's helping here.
-          clean-runner-disk: true
       - run: go test --tags=dedupelabels ./...
       - run: go test --tags=slicelabels -race ./cmd/prometheus ./model/textparse ./prompb/...
       - run: go test --tags=forcedirectio -race ./tsdb/
