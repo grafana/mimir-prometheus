@@ -168,15 +168,3 @@ func (m *Matcher) IsRegexOptimized() bool {
 	}
 	return m.re.IsOptimized()
 }
-
-// matchesN counts how many values in the slice this matcher matches.
-// Returns at least 1 to avoid division by zero in selectivity calculations.
-func (m *Matcher) matchesN(values []string) int {
-	count := 0
-	for _, v := range values {
-		if m.Matches(v) {
-			count++
-		}
-	}
-	return max(1, count)
-}
