@@ -607,7 +607,7 @@ func randomUnsupportedChunk(t *testing.T) chunkenc.Chunk {
 	length := rand.Int() % 120
 	app, err := chunk.Appender()
 	require.NoError(t, err)
-	for i := 0; i < length; i++ {
+	for range length {
 		app.Append(rand.Int63(), rand.Float64())
 	}
 	return chunk

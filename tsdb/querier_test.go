@@ -23,6 +23,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -2402,7 +2403,7 @@ func (m mockIndex) PostingsForMatchers(_ context.Context, _ bool, ms ...*labels.
 			ps = append(ps, p)
 		}
 	}
-	sort.Slice(ps, func(i, j int) bool { return ps[i] < ps[j] })
+	slices.Sort(ps)
 	return index.NewListPostings(ps), nil
 }
 
@@ -3110,14 +3111,14 @@ func TestPostingsForMatchers(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, c := range cases {
-		name := ""
+		var name strings.Builder
 		for i, matcher := range c.matchers {
 			if i > 0 {
-				name += ","
+				name.WriteString(",")
 			}
-			name += matcher.String()
+			name.WriteString(matcher.String())
 		}
-		t.Run(name, func(t *testing.T) {
+		t.Run(name.String(), func(t *testing.T) {
 			exp := map[string]struct{}{}
 			for _, l := range c.exp {
 				exp[l.String()] = struct{}{}
@@ -3167,11 +3168,8 @@ func TestQuerierIndexQueriesRace(t *testing.T) {
 	for _, c := range testCases {
 		t.Run(fmt.Sprintf("%v", c.matchers), func(t *testing.T) {
 			t.Parallel()
-			db := openTestDB(t, DefaultOptions(), nil)
+			db := newTestDB(t)
 			h := db.Head()
-			t.Cleanup(func() {
-				require.NoError(t, db.Close())
-			})
 			ctx, cancel := context.WithCancel(context.Background())
 			wg := &sync.WaitGroup{}
 			wg.Add(1)
@@ -3573,10 +3571,7 @@ func TestBlockBaseSeriesSet(t *testing.T) {
 }
 
 func BenchmarkHeadChunkQuerier(b *testing.B) {
-	db := openTestDB(b, nil, nil)
-	defer func() {
-		require.NoError(b, db.Close())
-	}()
+	db := newTestDB(b)
 
 	// 3h of data.
 	numTimeseries := 100
@@ -3618,10 +3613,7 @@ func BenchmarkHeadChunkQuerier(b *testing.B) {
 }
 
 func BenchmarkHeadQuerier(b *testing.B) {
-	db := openTestDB(b, nil, nil)
-	defer func() {
-		require.NoError(b, db.Close())
-	}()
+	db := newTestDB(b)
 
 	// 3h of data.
 	numTimeseries := 100
@@ -3683,12 +3675,8 @@ func TestQueryWithDeletedHistograms(t *testing.T) {
 
 	for name, tc := range testcases {
 		t.Run(name, func(t *testing.T) {
-			db := openTestDB(t, nil, nil)
-			defer func() {
-				require.NoError(t, db.Close())
-			}()
-
-			appender := db.Appender(context.Background())
+			db := newTestDB(t)
+			app := db.Appender(context.Background())
 
 			var (
 				err       error
@@ -3698,12 +3686,11 @@ func TestQueryWithDeletedHistograms(t *testing.T) {
 
 			for i := range 100 {
 				h, fh := tc(i)
-				seriesRef, err = appender.AppendHistogram(seriesRef, lbs, int64(i), h, fh)
+				seriesRef, err = app.AppendHistogram(seriesRef, lbs, int64(i), h, fh)
 				require.NoError(t, err)
 			}
 
-			err = appender.Commit()
-			require.NoError(t, err)
+			require.NoError(t, app.Commit())
 
 			matcher, err := labels.NewMatcher(labels.MatchEqual, "__name__", "test")
 			require.NoError(t, err)
@@ -3815,12 +3802,12 @@ func TestLabelsValuesWithMatchersOptimization(t *testing.T) {
 	const maxI = 10 * maxExpandedPostingsFactor
 
 	allValuesOfI := make([]string, 0, maxI)
-	for i := 0; i < maxI; i++ {
+	for i := range maxI {
 		allValuesOfI = append(allValuesOfI, strconv.Itoa(i))
 	}
 
-	for n := 0; n < 10; n++ {
-		for i := 0; i < maxI; i++ {
+	for n := range 10 {
+		for i := range maxI {
 			addSeries(labels.FromStrings("i", allValuesOfI[i], "n", strconv.Itoa(n), "j", "foo", "i_times_n", strconv.Itoa(i*n)))
 		}
 	}
@@ -3871,12 +3858,8 @@ func (f *indexReaderCountingPostingsForMatchersCalls) PostingsForMatchers(ctx co
 
 func TestQueryWithOneChunkCompletelyDeleted(t *testing.T) {
 	ctx := context.Background()
-	db := openTestDB(t, nil, nil)
-	defer func() {
-		require.NoError(t, db.Close())
-	}()
-
-	appender := db.Appender(context.Background())
+	db := newTestDB(t)
+	app := db.Appender(context.Background())
 
 	var (
 		err       error
@@ -3887,12 +3870,12 @@ func TestQueryWithOneChunkCompletelyDeleted(t *testing.T) {
 	// Create an int histogram chunk with samples between 0 - 20 and 30 - 40.
 	for i := range 20 {
 		h := tsdbutil.GenerateTestHistogram(1)
-		seriesRef, err = appender.AppendHistogram(seriesRef, lbs, int64(i), h, nil)
+		seriesRef, err = app.AppendHistogram(seriesRef, lbs, int64(i), h, nil)
 		require.NoError(t, err)
 	}
 	for i := 30; i < 40; i++ {
 		h := tsdbutil.GenerateTestHistogram(1)
-		seriesRef, err = appender.AppendHistogram(seriesRef, lbs, int64(i), h, nil)
+		seriesRef, err = app.AppendHistogram(seriesRef, lbs, int64(i), h, nil)
 		require.NoError(t, err)
 	}
 
@@ -3900,12 +3883,11 @@ func TestQueryWithOneChunkCompletelyDeleted(t *testing.T) {
 	// type from int histograms so a new chunk is created.
 	for i := 60; i < 100; i++ {
 		fh := tsdbutil.GenerateTestFloatHistogram(1)
-		seriesRef, err = appender.AppendHistogram(seriesRef, lbs, int64(i), nil, fh)
+		seriesRef, err = app.AppendHistogram(seriesRef, lbs, int64(i), nil, fh)
 		require.NoError(t, err)
 	}
 
-	err = appender.Commit()
-	require.NoError(t, err)
+	require.NoError(t, app.Commit())
 
 	matcher, err := labels.NewMatcher(labels.MatchEqual, "__name__", "test")
 	require.NoError(t, err)

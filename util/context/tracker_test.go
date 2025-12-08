@@ -170,7 +170,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 		addWg := sync.WaitGroup{}
 		addWg.Add(numContexts)
 
-		for i := 0; i < numContexts; i++ {
+		for range numContexts {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancels = append(cancels, cancel)
 
@@ -187,7 +187,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 		cancelWg := sync.WaitGroup{}
 		cancelWg.Add(numContexts - 1)
 
-		for i := 0; i < numContexts-1; i++ {
+		for i := range numContexts - 1 {
 			go func(i int) {
 				defer cancelWg.Done()
 				cancels[i]()
@@ -215,7 +215,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 		addWg := sync.WaitGroup{}
 		addWg.Add(numContexts)
 
-		for i := 0; i < numContexts; i++ {
+		for range numContexts {
 			ctx, cancel := context.WithCancel(context.Background())
 			cancels = append(cancels, cancel)
 
@@ -235,7 +235,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 		cancelWg := sync.WaitGroup{}
 		cancelWg.Add(numContexts)
 
-		for i := 0; i < numContexts; i++ {
+		for i := range numContexts {
 			go func(i int) {
 				defer cancelWg.Done()
 				cancels[i]()
@@ -252,7 +252,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 	t.Run("concurrently close tracker", func(t *testing.T) {
 		tracker, execCtx := NewContextsTracker()
 
-		for i := 0; i < numContexts; i++ {
+		for range numContexts {
 			tracker.Add(context.Background())
 		}
 
@@ -260,7 +260,7 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 		fire := make(chan struct{})
 
 		closeWg := sync.WaitGroup{}
-		for i := 0; i < 100; i++ {
+		for range 100 {
 			closeWg.Add(1)
 
 			go func() {

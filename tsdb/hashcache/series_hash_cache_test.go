@@ -71,7 +71,7 @@ func TestSeriesHashCache_MeasureApproximateSizePerEntry(t *testing.T) {
 	// since we want to measure the heap utilization and not allocations.
 	b.generations[0].hashes = make(map[storage.SeriesRef]uint64, numEntries)
 
-	for i := uint64(0); i < numEntries; i++ {
+	for i := range uint64(numEntries) {
 		b.Store(storage.SeriesRef(i), i)
 	}
 
@@ -96,11 +96,11 @@ func TestSeriesHashCache_Concurrency(t *testing.T) {
 	wg := sync.WaitGroup{}
 	wg.Add(concurrency)
 
-	for i := 0; i < concurrency; i++ {
+	for range concurrency {
 		go func() {
 			defer wg.Done()
 
-			for n := 0; n < numIterations; n++ {
+			for n := range numIterations {
 				blockID := strconv.Itoa(n % numBlocks)
 
 				blockCache := c.GetBlockCache(blockID)
@@ -125,7 +125,7 @@ func BenchmarkSeriesHashCache_StoreAndFetch(b *testing.B) {
 			// orders of magnitude more frequent than GetBlockCache(), so we call GetBlockCache() just
 			// once per block.
 			blockCaches := make([]*BlockSeriesHashCache, numBlocks)
-			for idx := 0; idx < numBlocks; idx++ {
+			for idx := range numBlocks {
 				blockCaches[idx] = c.GetBlockCache(strconv.Itoa(idx))
 			}
 

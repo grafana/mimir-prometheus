@@ -289,7 +289,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 								resultsWg.Add(len(calls))
 
 								// perform all calls
-								for i := 0; i < len(calls); i++ {
+								for i := range calls {
 									go func(i int) {
 										_, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, concurrent, headULID, calls[i]...)
 										results[i] = err
@@ -298,7 +298,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 								}
 
 								// wait until all calls arrive to the mocked function
-								for i := 0; i < expectedPostingsForMatchersCalls; i++ {
+								for range expectedPostingsForMatchersCalls {
 									<-called
 								}
 
@@ -679,7 +679,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 					// Generate some postings lists.
 					refsLists := make(map[string][]storage.SeriesRef, numMatchers)
-					for i := 0; i < numMatchers; i++ {
+					for i := range numMatchers {
 						refs := make([]storage.SeriesRef, postingsListSize)
 						for r := range refs {
 							refs[r] = storage.SeriesRef(i * r)
@@ -703,8 +703,8 @@ func TestPostingsForMatchersCache(t *testing.T) {
 
 					// We expect to cache 3 items. So we're going to call PostingsForMatchers for 3 matchers
 					// and then double check they're all cached. To do it, we iterate twice.
-					for run := 0; run < 2; run++ {
-						for i := 0; i < 3; i++ {
+					for range 2 {
+						for i := range 3 {
 							matchers := matchersLists[i]
 
 							p, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, headULID, matchers...)
@@ -717,12 +717,12 @@ func TestPostingsForMatchersCache(t *testing.T) {
 					}
 
 					// At this point we expect that the postings have been computed only once for the 3 matchers.
-					for i := 0; i < 3; i++ {
+					for i := range 3 {
 						require.Equalf(t, 1, callsPerMatchers[cacheKeyForMatchers(matchersLists[i])], "matcher %d", i)
 					}
 
 					// Call PostingsForMatchers() for a 4th matcher. We expect this will evict the oldest cached entry.
-					for run := 0; run < 2; run++ {
+					for range 2 {
 						matchers := matchersLists[3]
 
 						p, err := c.PostingsForMatchers(ctx, indexForPostingsMock{}, true, headULID, matchers...)
@@ -1599,7 +1599,7 @@ func BenchmarkPostingsForMatchersCache_ConcurrencyOnHighEvictionRate(b *testing.
 	wg := sync.WaitGroup{}
 	wg.Add(numWorkers)
 
-	for r := 0; r < numWorkers; r++ {
+	for range numWorkers {
 		go func() {
 			defer wg.Done()
 
@@ -1650,8 +1650,8 @@ func BenchmarkMatchersKey(b *testing.B) {
 	const totalMatchers = 10
 	const matcherSets = 100
 	sets := make([][]*labels.Matcher, matcherSets)
-	for i := 0; i < matcherSets; i++ {
-		for j := 0; j < totalMatchers; j++ {
+	for i := range matcherSets {
+		for j := range totalMatchers {
 			sets[i] = append(sets[i], labels.MustNewMatcher(labels.MatchType(j%4), fmt.Sprintf("%d_%d", i*13, j*65537), fmt.Sprintf("%x_%x", i*127, j*2_147_483_647)))
 		}
 	}

@@ -584,7 +584,7 @@ func TestSyncSegmentsUntilCurrent(t *testing.T) {
 
 		// Write large records to create multiple segments
 		record := make([]byte, pageSize/2)
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			require.NoError(t, w.Log(record))
 		}
 
@@ -597,7 +597,7 @@ func TestSyncSegmentsUntilCurrent(t *testing.T) {
 		require.NoError(t, err)
 
 		record := make([]byte, pageSize/2)
-		for i := 0; i < 10; i++ {
+		for range 10 {
 			require.NoError(t, w.Log(record))
 		}
 

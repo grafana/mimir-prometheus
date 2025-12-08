@@ -16,6 +16,7 @@ package labels
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -246,7 +247,7 @@ func BenchmarkStringHasPrefix(b *testing.B) {
 func BenchmarkSliceContains(b *testing.B) {
 	createSlice := func(size int) []string {
 		slice := make([]string, size)
-		for i := 0; i < size; i++ {
+		for i := range size {
 			slice[i] = fmt.Sprintf("item_%d", i)
 		}
 		return slice
@@ -272,13 +273,7 @@ func BenchmarkSliceContains(b *testing.B) {
 			b.ResetTimer()
 			var found bool
 			for i := 0; i < b.N; i++ {
-				found = false
-				for _, item := range slice {
-					if item == searchTarget {
-						found = true
-						break
-					}
-				}
+				found = slices.Contains(slice, searchTarget)
 			}
 			if !found {
 				b.Fatal("target not found in slice")
@@ -290,7 +285,7 @@ func BenchmarkSliceContains(b *testing.B) {
 func BenchmarkMapContains(b *testing.B) {
 	createMap := func(size int) map[string]bool {
 		m := make(map[string]bool, size)
-		for i := 0; i < size; i++ {
+		for i := range size {
 			m[fmt.Sprintf("key_%d", i)] = true
 		}
 		return m
@@ -453,7 +448,7 @@ func kendallsTau(matchers []rankedMatcher) float64 {
 	tiesX := 0
 	tiesY := 0
 
-	for i := 0; i < n; i++ {
+	for i := range n {
 		for j := i + 1; j < n; j++ {
 			xi, xj := matchers[i].costRank, matchers[j].costRank
 			yi, yj := matchers[i].runtimeRank, matchers[j].runtimeRank

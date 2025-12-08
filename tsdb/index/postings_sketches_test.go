@@ -218,7 +218,7 @@ func TestLabelName_ManySeries(t *testing.T) {
 	p := NewMemPostings()
 	numSeries := int(6e6)
 	numLabelValues := int(1e3)
-	for i := 0; i < numSeries; i++ {
+	for i := range numSeries {
 		p.addFor(storage.SeriesRef(i), labels.Label{
 			Name: labelName,
 			// Set the label value to something [0-numLabelValues]
@@ -232,7 +232,7 @@ func TestLabelName_ManySeries(t *testing.T) {
 	require.Equal(t, uint64(numLabelValues), s.LabelValuesCount(ctx, labelName))
 	require.Equal(t, uint64(numSeries), s.LabelValuesCardinality(ctx, labelName))
 
-	for i := 0; i < numLabelValues; i++ {
+	for i := range numLabelValues {
 		// The cardinality for every label should be within epsilon of the total number of series to the expected cardinality.
 		// Technically, it should be within epsilon of the total increments seen by the count-min sketch,
 		// but that's more opaque to understand. The total increments seen will always be equal or greater than the number of series.
@@ -280,7 +280,7 @@ func TestLabelName_NonUniformValueDistribution(t *testing.T) {
 	// The cardinality of every other value should be ≥6000. We care about these values being correct in magnitude,
 	// i.e., floor(log(highOccurrenceCardinality) / log(lowOccurrenceCardinality)) should be consistent every time.
 	// We add a little margin since the margin of error (30k) is enough to push us one power up, but not two.
-	for i := 0; i < numHighOccurrenceValues; i++ {
+	for i := range numHighOccurrenceValues {
 		card := s.LabelValuesCardinality(ctx, labelName, strconv.Itoa(i))
 		mag := math.Log(float64(card)) / math.Log(float64(lowValCard))
 		require.GreaterOrEqual(t, int(math.Floor(mag)), 3)

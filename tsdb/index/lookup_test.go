@@ -15,6 +15,7 @@ package index
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -165,12 +166,12 @@ func matchersToString(matchers []*labels.Matcher) string {
 	if len(matchers) == 0 {
 		return ""
 	}
-	var result string
+	var result strings.Builder
 	for i, m := range matchers {
 		if i > 0 {
-			result += ","
+			result.WriteString(",")
 		}
-		result += m.String()
+		result.WriteString(m.String())
 	}
-	return result
+	return result.String()
 }

@@ -146,7 +146,7 @@ func TestNewFastRegexMatcher_CacheSizeLimit(t *testing.T) {
 
 	// Generate a very expensive regex.
 	alternates := make([]string, 1000)
-	for i := 0; i < len(alternates); i++ {
+	for i := range alternates {
 		alternates[i] = randString(randGenerator, 100) + fmt.Sprintf(".%d", i)
 	}
 	expensiveRegexp := strings.Join(alternates, "|")
@@ -166,7 +166,7 @@ func TestNewFastRegexMatcher_CacheSizeLimit(t *testing.T) {
 	estimatedMaxItemsInCache := fastRegexMatcherCacheMaxSizeBytes / expensiveRegexpSizeBytes
 
 	// Fill the cache.
-	for i := 0; i < estimatedMaxItemsInCache; i++ {
+	for i := range estimatedMaxItemsInCache {
 		_, err := NewFastRegexMatcher(getExpensiveRegexp(i))
 		require.NoError(t, err)
 	}
@@ -174,7 +174,7 @@ func TestNewFastRegexMatcher_CacheSizeLimit(t *testing.T) {
 	// Ensure all regexp matchers are still in the cache.
 	fastRegexMatcherCache.Wait()
 
-	for i := 0; i < estimatedMaxItemsInCache; i++ {
+	for i := range estimatedMaxItemsInCache {
 		_, ok := fastRegexMatcherCache.Get(getExpensiveRegexp(i))
 		require.True(t, ok, "checking if regexp matcher #%d is still in the cache", i)
 	}
@@ -187,7 +187,7 @@ func TestNewFastRegexMatcher_CacheSizeLimit(t *testing.T) {
 	fastRegexMatcherCache.Wait()
 
 	numEvicted := 0
-	for i := 0; i < estimatedMaxItemsInCache; i++ {
+	for i := range estimatedMaxItemsInCache {
 		if _, ok := fastRegexMatcherCache.Get(getExpensiveRegexp(i)); !ok {
 			t.Logf("the regexp matcher #%d has been evicted from the cache", i)
 			numEvicted++
@@ -987,7 +987,7 @@ func TestAnalyzeRealQueries(t *testing.T) {
 		startTime := time.Now()
 		const numParsingRuns = 1000
 
-		for i := 0; i < numParsingRuns; i++ {
+		for range numParsingRuns {
 			NewFastRegexMatcher(re)
 		}
 

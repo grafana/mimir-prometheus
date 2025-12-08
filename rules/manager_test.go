@@ -968,7 +968,7 @@ func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
 	var testContextKey testContextKeyType = "TestGroupEvaluationContextFuncIsCalledWhenSupplied"
 	oldContextTestValue := context.Background().Value(testContextKey)
 
-	contextTestValueChannel := make(chan interface{})
+	contextTestValueChannel := make(chan any)
 	mockQueryFunc := func(ctx context.Context, _ string, _ time.Time) (promql.Vector, error) {
 		contextTestValueChannel <- ctx.Value(testContextKey)
 		return promql.Vector{}, nil
