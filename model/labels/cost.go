@@ -57,6 +57,10 @@ func (m *Matcher) SingleMatchCost() float64 {
 // * namespace!="" will match all values, so its selectivity is 1;
 // * namespace=~"foo" will match only a single value, so its selectivity across 100 values is 0.01;
 // * namespace=~"foo|bar" will match two values, so its selectivity across 100 values is 0.02.
+//
+// For complex regexes where we can't determine the number of matching values statically,
+// selectivity is computed by testing against sampleValues and cached in the matcher,
+// so subsequent calls reuse the cached value.
 func (m *Matcher) EstimateSelectivity(totalLabelValues uint64, sampleValues []string) float64 {
 	if totalLabelValues == 0 {
 		return 1.0
