@@ -50,18 +50,6 @@ func (m *Matcher) SingleMatchCost() float64 {
 	panic("labels.Matcher.SingleMatchCost: invalid match type " + m.Type.String() + m.String())
 }
 
-// matchesN counts how many values in the slice this matcher matches.
-// Returns at least 1 to avoid division by zero in selectivity calculations.
-func (m *Matcher) matchesN(values []string) int {
-	count := 0
-	for _, v := range values {
-		if m.Matches(v) {
-			count++
-		}
-	}
-	return max(1, count)
-}
-
 // EstimateSelectivity returns the estimated fraction of label values this matcher would match.
 // sampleValues is a representative sample of actual label values for this label name.
 // If totalLabelValues is 0, then the selectivity is assumed to be 1.0.
@@ -123,13 +111,25 @@ func (m *Matcher) estimateComplexRegexSelectivity(sampleValues []string) float64
 		// Use sample values to estimate selectivity
 		selectivity = float64(m.matchesN(sampleValues)) / float64(len(sampleValues))
 	} else {
-		// No sample values available, use heuristic
+		// No sample values available, use an arbitrary value
 		selectivity = 0.1
 	}
 
 	// Cache the computed selectivity
 	m.re.estimatedSelectivity.Store(selectivity)
 	return selectivity
+}
+
+// matchesN counts how many values in the slice this matcher matches.
+// Returns at least 1 to avoid division by zero in selectivity calculations.
+func (m *Matcher) matchesN(values []string) int {
+	count := 0
+	for _, v := range values {
+		if m.Matches(v) {
+			count++
+		}
+	}
+	return max(1, count)
 }
 
 func (m *FastRegexMatcher) SingleMatchCost() float64 {
