@@ -96,24 +96,7 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64, sampleValues []st
 		case m.Value == ".+" || m.Value == ".*":
 			selectivity = 1.0
 		default:
-			// Check cache for sample-based selectivity
-			if cached := m.re.estimatedSelectivity.Load(); cached >= 0 {
-				selectivity = cached
-			} else if len(sampleValues) > 0 {
-				// Use sample values to estimate selectivity
-				selectivity = float64(m.matchesN(sampleValues)) / float64(len(sampleValues))
-				// Cache the computed selectivity
-				m.re.estimatedSelectivity.Store(selectivity)
-			} else {
-				// No sample values available, use heuristic
-				if m.re.prefix != "" {
-					// For prefix matches, estimate we'll match ~10% of values.
-					selectivity = 0.1
-				} else {
-					// For unoptimized regex, assume we'll match ~10% of values
-					selectivity = 0.1
-				}
-			}
+			selectivity = m.estimateComplexRegexSelectivity(sampleValues)
 		}
 	}
 	selectivity = max(0.0, min(selectivity, 1.0))
@@ -123,6 +106,29 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64, sampleValues []st
 	case MatchNotEqual, MatchNotRegexp:
 		selectivity = 1.0 - selectivity
 	}
+	return selectivity
+}
+
+// estimateComplexRegexSelectivity estimates selectivity for regex matchers that don't have
+// simple optimizations (set matches, empty, or .+/.* patterns).
+// Uses sample values when available, otherwise falls back to a 10% heuristic.
+func (m *Matcher) estimateComplexRegexSelectivity(sampleValues []string) float64 {
+	// Check cache first
+	if cached := m.re.estimatedSelectivity.Load(); cached >= 0 {
+		return cached
+	}
+
+	var selectivity float64
+	if len(sampleValues) > 0 {
+		// Use sample values to estimate selectivity
+		selectivity = float64(m.matchesN(sampleValues)) / float64(len(sampleValues))
+	} else {
+		// No sample values available, use heuristic
+		selectivity = 0.1
+	}
+
+	// Cache the computed selectivity
+	m.re.estimatedSelectivity.Store(selectivity)
 	return selectivity
 }
 
