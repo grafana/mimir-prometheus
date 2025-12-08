@@ -404,13 +404,13 @@ func BenchmarkFastRegexMatcher(b *testing.B) {
 			m, err := NewFastRegexMatcher(r)
 			require.NoError(b, err)
 
-			b.ReportMetric(m.SingleMatchCost(), "cost")
 			b.ResetTimer()
 			for b.Loop() {
 				for _, text := range texts {
 					_ = m.MatchString(text)
 				}
 			}
+			b.ReportMetric(m.SingleMatchCost(), "cost")
 		})
 	}
 }
