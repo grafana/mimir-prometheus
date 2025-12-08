@@ -97,13 +97,13 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64, sampleValues []st
 			selectivity = 1.0
 		default:
 			// Check cache for sample-based selectivity
-			if m.re.estimatedSelectivity >= 0 {
-				selectivity = m.re.estimatedSelectivity
+			if cached := m.re.estimatedSelectivity.Load(); cached >= 0 {
+				selectivity = cached
 			} else if len(sampleValues) > 0 {
 				// Use sample values to estimate selectivity
 				selectivity = float64(m.matchesN(sampleValues)) / float64(len(sampleValues))
 				// Cache the computed selectivity
-				m.re.estimatedSelectivity = selectivity
+				m.re.estimatedSelectivity.Store(selectivity)
 			} else {
 				// No sample values available, use heuristic
 				if m.re.prefix != "" {

@@ -24,6 +24,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
+	"go.uber.org/atomic"
 	"golang.org/x/text/unicode/norm"
 )
 
@@ -71,7 +72,7 @@ type FastRegexMatcher struct {
 
 	// estimatedSelectivity is a cached selectivity value for this regex.
 	// A value < 0 means not yet computed.
-	estimatedSelectivity float64
+	estimatedSelectivity *atomic.Float64
 }
 
 func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
@@ -95,7 +96,7 @@ func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 	m := &FastRegexMatcher{
 		reString:             v,
-		estimatedSelectivity: -1.0, // Not yet computed
+		estimatedSelectivity: atomic.NewFloat64(-1.0), // Not yet computed
 	}
 
 	m.stringMatcher, m.setMatches = optimizeAlternatingLiterals(v)
