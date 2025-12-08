@@ -174,10 +174,69 @@ func TestSelectivity(t *testing.T) {
 		t.Run(fmt.Sprintf("%d series {%s}", tt.numSeries, matcher), func(t *testing.T) {
 			// Tolerate a single value error in 10M values
 			const tolerance = 1e-7
-			actualSelectivity := matcher.EstimateSelectivity(tt.numSeries)
+			actualSelectivity := matcher.EstimateSelectivity(tt.numSeries, nil)
 			require.InDelta(t, tt.selectivity, actualSelectivity, tolerance)
 		})
 	}
+}
+
+func TestSelectivityWithSampleValues(t *testing.T) {
+	sampleValues := []string{
+		"foo_value",
+		"bar_value",
+		"baz_value",
+		"qux_value",
+		"prefix_one",
+		"prefix_two",
+		"prefix_three",
+		"something_else",
+		"another_thing",
+		"final_item",
+	}
+
+	tests := []struct {
+		name        string
+		numSeries   uint64
+		selectivity float64
+		l           string
+		t           MatchType
+		v           string
+	}{
+		// Regex that matches 3 out of 10 sample values (30%)
+		{"prefix match", 100, 0.3, "name", MatchRegexp, "prefix_.*"},
+		// Regex that matches 1 out of 10 sample values (10%)
+		{"single match", 100, 0.1, "name", MatchRegexp, "foo_.*"},
+		// Regex that matches nothing (but matchesN returns at least 1)
+		{"no match", 100, 0.1, "name", MatchRegexp, "nomatch_.*"},
+		// Not-regex inverts selectivity
+		{"not prefix match", 100, 0.7, "name", MatchNotRegexp, "prefix_.*"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			matcher, err := NewMatcher(tt.t, tt.l, tt.v)
+			require.NoError(t, err)
+			const tolerance = 1e-7
+			actualSelectivity := matcher.EstimateSelectivity(tt.numSeries, sampleValues)
+			require.InDelta(t, tt.selectivity, actualSelectivity, tolerance)
+		})
+	}
+}
+
+func TestSelectivityCaching(t *testing.T) {
+	matcher, err := NewMatcher(MatchRegexp, "name", "test_.*")
+	require.NoError(t, err)
+
+	sampleValues1 := []string{"test_one", "test_two", "other"}        // 2/3 match
+	sampleValues2 := []string{"test_one", "other", "another", "more"} // 1/4 match
+
+	// First call computes and caches selectivity based on sampleValues1
+	selectivity1 := matcher.EstimateSelectivity(100, sampleValues1)
+	require.InDelta(t, 2.0/3.0, selectivity1, 1e-7)
+
+	// Second call should return cached value, ignoring sampleValues2
+	selectivity2 := matcher.EstimateSelectivity(100, sampleValues2)
+	require.InDelta(t, 2.0/3.0, selectivity2, 1e-7) // Still 2/3, not 1/4
 }
 
 func BenchmarkStringEquality(b *testing.B) {

@@ -50,13 +50,14 @@ func (m *Matcher) SingleMatchCost() float64 {
 	panic("labels.Matcher.SingleMatchCost: invalid match type " + m.Type.String() + m.String())
 }
 
-// EstimateSelectivity is the estimated fraction of all strings that it would match.
+// EstimateSelectivity returns the estimated fraction of label values this matcher would match.
+// sampleValues is a representative sample of actual label values for this label name.
 // If totalLabelValues is 0, then the selectivity is assumed to be 1.0.
 // For example:
 // * namespace!="" will match all values, so its selectivity is 1;
 // * namespace=~"foo" will match only a single value, so its selectivity across 100 values is 0.01;
 // * namespace=~"foo|bar" will match two values, so its selectivity across 100 values is 0.02.
-func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
+func (m *Matcher) EstimateSelectivity(totalLabelValues uint64, sampleValues []string) float64 {
 	if totalLabelValues == 0 {
 		return 1.0
 	}
@@ -74,19 +75,33 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
 	case MatchRegexp, MatchNotRegexp:
 		// If we have optimized set matches, we know exactly how many values we'll match.
 		// We assume that all of them will be present in the corpus we're testing against.
+		// Note: setMatches selectivity depends on totalLabelValues, so we compute it fresh each time.
 		switch setMatchesSize := len(m.re.setMatches); {
 		case setMatchesSize > 0:
 			selectivity = float64(setMatchesSize) / float64(totalLabelValues)
 		case m.Value == "":
 			selectivity = 0
-		case m.re.prefix != "":
-			// For prefix matches, estimate we'll match ~10% of values.
-			selectivity = 0.1
 		case m.Value == ".+" || m.Value == ".*":
 			selectivity = 1.0
 		default:
-			// For unoptimized regex, assume we'll match ~10% of values
-			selectivity = 0.1
+			// Check cache for sample-based selectivity
+			if m.re.estimatedSelectivity >= 0 {
+				selectivity = m.re.estimatedSelectivity
+			} else if len(sampleValues) > 0 {
+				// Use sample values to estimate selectivity
+				selectivity = float64(m.matchesN(sampleValues)) / float64(len(sampleValues))
+				// Cache the computed selectivity
+				m.re.estimatedSelectivity = selectivity
+			} else {
+				// No sample values available, use heuristic
+				if m.re.prefix != "" {
+					// For prefix matches, estimate we'll match ~10% of values.
+					selectivity = 0.1
+				} else {
+					// For unoptimized regex, assume we'll match ~10% of values
+					selectivity = 0.1
+				}
+			}
 		}
 	}
 	selectivity = max(0.0, min(selectivity, 1.0))
