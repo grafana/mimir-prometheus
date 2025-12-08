@@ -66,7 +66,6 @@ require (
 	github.com/shurcooL/httpfs v0.0.0-20230704072500-f1e31cf0ba5c
 	github.com/stackitcloud/stackit-sdk-go/core v0.17.3
 	github.com/stretchr/testify v1.11.1
-	github.com/tylertreat/BoomFilters v0.0.0-20250630160909-db6545748bc4
 	github.com/vultr/govultr/v2 v2.17.2
 	go.opentelemetry.io/collector/component v1.45.0
 	go.opentelemetry.io/collector/consumer v1.45.0
@@ -104,7 +103,6 @@ require (
 )
 
 require (
-	github.com/d4l3k/messagediff v1.2.1 // indirect
 	github.com/golang/glog v1.2.5 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/tools/godoc v0.1.0-deprecated // indirect
