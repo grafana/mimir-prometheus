@@ -43,7 +43,7 @@ func testSymbolsBatchAndIterationWithFlushersConcurrency(t *testing.T, flushersC
 		require.NoError(t, b.addSymbol(""))
 		allWords[""] = struct{}{}
 
-		for j := 0; j < 123; j++ {
+		for j := range 123 {
 			w := fmt.Sprintf("word_%d_%d", i%3, j)
 
 			require.NoError(t, b.addSymbol(w))

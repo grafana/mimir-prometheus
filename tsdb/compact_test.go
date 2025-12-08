@@ -1656,7 +1656,7 @@ func TestOpenBlocksForCompaction(t *testing.T) {
 	const blocks = 5
 
 	var blockDirs []string
-	for ix := 0; ix < blocks; ix++ {
+	for range blocks {
 		d := createBlock(t, dir, genSeries(100, 10, 0, 5000))
 		blockDirs = append(blockDirs, d)
 	}
@@ -1690,7 +1690,7 @@ func TestOpenBlocksForCompactionErrorsNoMeta(t *testing.T) {
 	const blocks = 5
 
 	var blockDirs []string
-	for ix := 0; ix < blocks; ix++ {
+	for ix := range blocks {
 		d := createBlock(t, dir, genSeries(100, 10, 0, 5000))
 		blockDirs = append(blockDirs, d)
 
@@ -1718,7 +1718,7 @@ func TestOpenBlocksForCompactionErrorsMissingIndex(t *testing.T) {
 	const blocks = 5
 
 	var blockDirs []string
-	for ix := 0; ix < blocks; ix++ {
+	for ix := range blocks {
 		d := createBlock(t, dir, genSeries(100, 10, 0, 5000))
 		blockDirs = append(blockDirs, d)
 
@@ -2452,7 +2452,7 @@ func TestAsyncBlockWriterSuccess(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, iw.AddSymbol("__name__"))
-	for ix := 0; ix < series; ix++ {
+	for ix := range series {
 		s := fmt.Sprintf("s_%3d", ix)
 		require.NoError(t, iw.AddSymbol(s))
 	}
@@ -2460,7 +2460,7 @@ func TestAsyncBlockWriterSuccess(t *testing.T) {
 	// async block writer expects index writer ready to receive series.
 	abw := newAsyncBlockWriter(chunkenc.NewPool(), cw, iw, semaphore.NewWeighted(int64(1)))
 
-	for ix := 0; ix < series; ix++ {
+	for ix := range series {
 		s := fmt.Sprintf("s_%3d", ix)
 		require.NoError(t, abw.addSeries(labels.FromStrings("__name__", s), []chunks.Meta{{Chunk: randomChunk(t), MinTime: 0, MaxTime: math.MaxInt64}}))
 	}
@@ -2479,7 +2479,7 @@ func TestAsyncBlockWriterSuccess(t *testing.T) {
 	require.Equal(t, uint64(series), stats.NumChunks)
 
 	// We get the same result on subsequent calls to waitFinished.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		newstats, err := abw.waitFinished()
 		require.NoError(t, err)
 		require.Equal(t, stats, newstats)
@@ -2516,7 +2516,7 @@ func TestAsyncBlockWriterFailure(t *testing.T) {
 	require.ErrorContains(t, err, "symbol entry for \"__name__\" does not exist")
 
 	// We get the same error on each repeated call to waitFinished.
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		_, nerr := abw.waitFinished()
 		require.Equal(t, err, nerr)
 
@@ -2530,7 +2530,7 @@ func randomChunk(t *testing.T) chunkenc.Chunk {
 	l := rand.Int() % 120
 	app, err := chunk.Appender()
 	require.NoError(t, err)
-	for i := 0; i < l; i++ {
+	for range l {
 		app.Append(rand.Int63(), rand.Float64())
 	}
 	return chunk

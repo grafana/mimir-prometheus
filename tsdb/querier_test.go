@@ -2403,7 +2403,7 @@ func (m mockIndex) PostingsForMatchers(_ context.Context, _ bool, ms ...*labels.
 			ps = append(ps, p)
 		}
 	}
-	sort.Slice(ps, func(i, j int) bool { return ps[i] < ps[j] })
+	slices.Sort(ps)
 	return index.NewListPostings(ps), nil
 }
 
@@ -3802,12 +3802,12 @@ func TestLabelsValuesWithMatchersOptimization(t *testing.T) {
 	const maxI = 10 * maxExpandedPostingsFactor
 
 	allValuesOfI := make([]string, 0, maxI)
-	for i := 0; i < maxI; i++ {
+	for i := range maxI {
 		allValuesOfI = append(allValuesOfI, strconv.Itoa(i))
 	}
 
-	for n := 0; n < 10; n++ {
-		for i := 0; i < maxI; i++ {
+	for n := range 10 {
+		for i := range maxI {
 			addSeries(labels.FromStrings("i", allValuesOfI[i], "n", strconv.Itoa(n), "j", "foo", "i_times_n", strconv.Itoa(i*n)))
 		}
 	}

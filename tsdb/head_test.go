@@ -826,7 +826,7 @@ func TestHead_LoadWALSeriesMissingAcrossSegments(t *testing.T) {
 		require.NoError(t, head.Close())
 	}()
 
-	entries := []interface{}{
+	entries := []any{
 		[]record.RefSeries{
 			{Ref: 100, Labels: labels.FromStrings("a", "1")},
 		},
