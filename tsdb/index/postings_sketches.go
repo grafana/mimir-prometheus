@@ -35,6 +35,10 @@ type Statistics interface {
 	// otherwise, it returns the total cardinality across all values for the label name. If the label name does not exist,
 	// it is valid to return 0.
 	LabelValuesCardinality(ctx context.Context, name string, values ...string) uint64
+
+	// SampleValues returns a representative sample of label values for the given label name.
+	// If no samples are available, returns nil.
+	SampleValues(ctx context.Context, name string) []string
 }
 
 // LabelsValuesSketches contains count-min sketches of the values for each label name.
