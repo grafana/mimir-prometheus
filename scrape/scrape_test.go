@@ -1261,7 +1261,7 @@ func TestScrapeLoopForcedErr(t *testing.T) {
 
 func TestScrapeLoopRun_ContextCancelTerminatesBlockedSend(t *testing.T) {
 	// Regression test for issue #17553
-	defer goleak.VerifyNone(t)
+	defer goleak.VerifyNone(t, testutil.GoLeakOptions()...)
 
 	var (
 		signal  = make(chan struct{})
