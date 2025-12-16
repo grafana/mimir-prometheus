@@ -1,6 +1,8 @@
 module github.com/prometheus/prometheus
 
-go 1.24.0
+go 1.24.9
+
+toolchain go1.24.11
 
 require (
 	github.com/Azure/azure-sdk-for-go/sdk/azcore v1.19.1
@@ -34,7 +36,7 @@ require (
 	github.com/gogo/protobuf v1.3.2
 	github.com/golang/snappy v1.0.0
 	github.com/google/go-cmp v0.7.0
-	github.com/google/pprof v0.0.0-20250923004556-9e5a51aed1e8
+	github.com/google/pprof v0.0.0-20251213031049-b05bdaca462f
 	github.com/google/uuid v1.6.0
 	github.com/gophercloud/gophercloud/v2 v2.8.0
 	github.com/grafana/regexp v0.0.0-20250905093917-f7b3be9d1853
