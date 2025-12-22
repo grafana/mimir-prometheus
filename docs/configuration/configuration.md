@@ -761,15 +761,55 @@ A `tls_config` allows configuring TLS connections.
 
 OAuth 2.0 authentication using the client credentials or password grant type.
 Prometheus fetches an access token from the specified endpoint with
-the given client access and secret keys.
+the given client access and credentials.
 
 ```yaml
 client_id: <string>
+
+# OAuth2 grant type to use. It can be one of
+# "client_credentials" or "urn:ietf:params:oauth:grant-type:jwt-bearer" (RFC 7523).
+# Default value is "client_credentials"
+[ grant_type: <string> ]
+
+# Client secret to provide to authorization server. Only used if
+# GrantType is set empty or set to "client_credentials".
 [ client_secret: <secret> ]
 
 # Read the client secret from a file.
 # It is mutually exclusive with `client_secret`.
 [ client_secret_file: <filename> ]
+
+# Secret key to sign JWT with. Only used if
+# GrantType is set to "urn:ietf:params:oauth:grant-type:jwt-bearer".
+[ client_certificate_key: <secret> ]
+
+# Read the secret key from a file.
+# It is mutually exclusive with `client_certificate_key`.
+[ client_certificate_key_file: <filename> ]
+
+# JWT kid value to include in the JWT header. Only used if
+# GrantType is set to "urn:ietf:params:oauth:grant-type:jwt-bearer".
+[ client_certificate_key_id: <string> ]
+
+# Signature algorithm used to sign JWT token. Only used if
+# GrantType is set to "urn:ietf:params:oauth:grant-type:jwt-bearer".
+# Default value is RS256 and valid values RS256, RS384, RS512
+[ signature_algorithm: <string> ]
+
+# OAuth client identifier used when communicating with
+# the configured OAuth provider. Default value is client_id. Only used if
+# GrantType is set to "urn:ietf:params:oauth:grant-type:jwt-bearer".
+[ iss: <string> ]
+
+# Intended audience of the request. If empty, the value 
+# of TokenURL is used as the intended audience. Only used if
+# GrantType is set to "urn:ietf:params:oauth:grant-type:jwt-bearer".
+[ audience: <string> ]
+
+# Map of claims to be added to the JWT token. Only used if
+# GrantType is set to "urn:ietf:params:oauth:grant-type:jwt-bearer".
+claims:
+  [ <string>: <string> ... ]
 
 # Scopes for the token request.
 scopes:
@@ -2554,12 +2594,35 @@ project: <string>
 [ <http_config> ]
 ```
 
-A Service Account Token can be set through `http_config`.
+A [Service Account Key](https://docs.stackit.cloud/platform/access-and-identity/service-accounts/how-tos/manage-service-account-keys/) can be set through `http_config`. This can be done mapping values from STACKIT Service Account json into oauth2 configuration.
+
+From a given Service Account json
+```json
+{
+  //....
+  "credentials": {
+    "kid": "6a7c3b36-xxxxxxxx",
+    "iss": "xxxx@sa.stackit.cloud",
+    "sub": "af2c2336-xxxxxxxx",
+    "aud": "https://stackit-service-account-prod.apps.01.cf.eu01.stackit.cloud",
+    "privateKey": "-----BEGIN PRIVATE KEY-----xxxx"
+  }
+}
+```
+
+properties can be mapped as:
 
 ```yaml
 stackit_sd_config:
-- authorization:
-    credentials: <token>
+- oauth2:
+    client_id: <credentials.sub>
+    client_certificate_key: <credentials.privateKey>
+    client_certificate_key_id: <credentials.kid>
+    iss: <credentials.iss>
+    audience: <credentials.aud>
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer"
+    token_url: "https://service-account.api.stackit.cloud/token"
+    signature_algorithm: RS512
 ```
 
 ### `<triton_sd_config>`
