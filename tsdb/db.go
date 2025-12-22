@@ -96,7 +96,7 @@ func DefaultOptions() *Options {
 		CompactionDelayMaxPercent:                DefaultCompactionDelayMaxPercent,
 		CompactionDelay:                          time.Duration(0),
 		PostingsDecoderFactory:                   DefaultPostingsDecoderFactory,
-		BlockReloadInterval:    1 * time.Minute,
+		BlockReloadInterval:                      1 * time.Minute,
 		IndexLookupPlannerFunc:                   DefaultIndexLookupPlannerFunc,
 		HeadChunksEndTimeVariance:                0,
 		HeadPostingsForMatchersCacheInvalidation: DefaultPostingsForMatchersCacheInvalidation,
