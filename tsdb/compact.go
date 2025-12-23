@@ -33,11 +33,13 @@ import (
 	"golang.org/x/sync/semaphore"
 
 	"github.com/prometheus/prometheus/model/labels"
+	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
+	"github.com/prometheus/prometheus/tsdb/seriesmetadata"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
 )
 
@@ -936,6 +938,25 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blockPop
 		return err
 	}
 
+	// Merge and write series metadata from source blocks.
+	// Metadata is deduplicated by metric name - later blocks overwrite earlier ones.
+	mergedMeta := seriesmetadata.NewMemSeriesMetadata()
+	for _, b := range blocks {
+		mr, err := b.SeriesMetadata()
+		if err != nil {
+			return fmt.Errorf("get series metadata from block: %w", err)
+		}
+		err = mr.IterByMetricName(func(name string, meta metadata.Metadata) error {
+			// Use 0 for hash since we're deduplicating by name only
+			mergedMeta.Set(name, 0, meta)
+			return nil
+		})
+		mr.Close() // Must close to release pending readers
+		if err != nil {
+			return fmt.Errorf("iterate series metadata: %w", err)
+		}
+	}
+
 	for _, ob := range outBlocks {
 		// Populated block is empty, don't write meta file for it.
 		if ob.meta.Stats.NumSamples == 0 {
@@ -949,6 +970,11 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blockPop
 		// Create an empty tombstones file.
 		if _, err := tombstones.WriteFile(c.logger, ob.tmpDir, tombstones.NewMemTombstones()); err != nil {
 			return fmt.Errorf("write new tombstones file: %w", err)
+		}
+
+		// Write merged series metadata.
+		if _, err := seriesmetadata.WriteFile(c.logger, ob.tmpDir, mergedMeta); err != nil {
+			return fmt.Errorf("write series metadata file: %w", err)
 		}
 
 		df, err := fileutil.OpenDir(ob.tmpDir)
