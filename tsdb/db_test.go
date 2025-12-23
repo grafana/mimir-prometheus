@@ -9669,19 +9669,19 @@ func TestStaleSeriesCompaction(t *testing.T) {
 			}
 		}
 
-		querier, err := NewBlockQuerier(db.Blocks()[0], 0, 1000)
+		querier1, err := NewBlockQuerier(db.Blocks()[0], 0, 1000)
 		require.NoError(t, err)
 		t.Cleanup(func() {
-			querier.Close()
+			querier1.Close()
 		})
-		seriesSet := queryWithoutReplacingNaNs(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "name", "series.*"))
+		seriesSet := queryWithoutReplacingNaNs(t, querier1, labels.MustNewMatcher(labels.MatchRegexp, "name", "series.*"))
 
-		querier, err = NewBlockQuerier(db.Blocks()[1], 1000, 2000)
+		querier2, err := NewBlockQuerier(db.Blocks()[1], 1000, 2000)
 		require.NoError(t, err)
 		t.Cleanup(func() {
-			querier.Close()
+			querier2.Close()
 		})
-		seriesSet2 := queryWithoutReplacingNaNs(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "name", "series.*"))
+		seriesSet2 := queryWithoutReplacingNaNs(t, querier2, labels.MustNewMatcher(labels.MatchRegexp, "name", "series.*"))
 		for k, v := range seriesSet2 {
 			seriesSet[k] = append(seriesSet[k], v...)
 		}
@@ -9865,28 +9865,30 @@ func TestDBSeriesMetadataDisabled(t *testing.T) {
 func TestBlockSizeIncludesSeriesMetadata(t *testing.T) {
 	dir := t.TempDir()
 
-	// Create a block and record its size without metadata.
+	// Create a block with some series data and a metadata sidecar file.
 	blockDir := createBlock(t, dir, genSeries(1, 1, 0, 100))
-	b, err := OpenBlock(promslog.NewNopLogger(), blockDir, nil, nil)
-	require.NoError(t, err)
-	sizeWithoutMeta := b.Size()
-	require.NoError(t, b.Close())
-
-	// Write a metadata sidecar file into the same block directory.
 	mem := seriesmetadata.NewMemSeriesMetadata()
 	mem.Set("http_requests_total", 0, metadata.Metadata{Type: model.MetricTypeCounter, Help: "Total requests"})
 	metaSize, err := seriesmetadata.WriteFile(promslog.NewNopLogger(), blockDir, mem)
 	require.NoError(t, err)
 	require.Positive(t, metaSize)
 
-	// Reopen the block — Size() should now include the metadata file.
-	b, err = OpenBlock(promslog.NewNopLogger(), blockDir, nil, nil)
+	b, err := OpenBlock(promslog.NewNopLogger(), blockDir, nil, nil)
 	require.NoError(t, err)
 	defer b.Close()
 
-	sizeWithMeta := b.Size()
-	require.Greater(t, sizeWithMeta, sizeWithoutMeta)
-	require.Equal(t, metaSize, sizeWithMeta-sizeWithoutMeta)
+	// Metadata is eagerly loaded in OpenBlock, so Size() should include it immediately.
+	blockSize := b.Size()
+
+	// Open the same block dir without a metadata file to get the base size.
+	require.NoError(t, os.Remove(filepath.Join(blockDir, "series_metadata.parquet")))
+	bNoMeta, err := OpenBlock(promslog.NewNopLogger(), blockDir, nil, nil)
+	require.NoError(t, err)
+	defer bNoMeta.Close()
+
+	baseSizeNoMeta := bNoMeta.Size()
+	require.Greater(t, blockSize, baseSizeNoMeta)
+	require.Equal(t, metaSize, blockSize-baseSizeNoMeta)
 }
 
 func TestWALReplayPreservesMetadata(t *testing.T) {

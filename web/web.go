@@ -299,6 +299,7 @@ type Options struct {
 	IsAgent                    bool
 	STZeroIngestionEnabled     bool
 	EnableTypeAndUnitLabels    bool
+	EnableNativeMetadata       bool
 	AppendMetadata             bool
 	AppName                    string
 
@@ -412,6 +413,7 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.EnableTypeAndUnitLabels,
 		o.AppendMetadata,
 		nil,
+		o.EnableNativeMetadata,
 		o.FeatureRegistry,
 		api_v1.OpenAPIOptions{
 			ExternalURL: o.ExternalURL.String(),

@@ -402,7 +402,7 @@ func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, p
 	}
 	closers = append(closers, tr)
 
-	smr, sizeSeriesMeta, err := seriesmetadata.ReadSeriesMetadata(dir)
+	smr, sizeSeriesMeta, err := seriesmetadata.ReadSeriesMetadata(logger, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -507,7 +507,7 @@ func (pb *Block) SeriesMetadata() (seriesmetadata.Reader, error) {
 	if err := pb.startRead(); err != nil {
 		return nil, err
 	}
-	return blockSeriesMetadataReader{Reader: pb.seriesMetadata, b: pb}, nil
+	return &blockSeriesMetadataReader{Reader: pb.seriesMetadata, b: pb}, nil
 }
 
 // GetSymbolTableSize returns the Symbol Table Size in the index of this block.
@@ -645,12 +645,17 @@ func (r blockChunkReader) Close() error {
 
 type blockSeriesMetadataReader struct {
 	seriesmetadata.Reader
-	b *Block
+	b         *Block
+	closeOnce sync.Once
+	closeErr  error
 }
 
-func (r blockSeriesMetadataReader) Close() error {
-	r.b.pendingReaders.Done()
-	return r.Reader.Close()
+func (r *blockSeriesMetadataReader) Close() error {
+	r.closeOnce.Do(func() {
+		r.b.pendingReaders.Done()
+		r.closeErr = r.Reader.Close()
+	})
+	return r.closeErr
 }
 
 // Delete matching series between mint and maxt in the block.

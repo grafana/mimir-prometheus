@@ -93,6 +93,8 @@ type Head struct {
 	histogramsPool      zeropool.Pool[[]record.RefHistogramSample]
 	floatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]
 	metadataPool        zeropool.Pool[[]record.RefMetadata]
+	resourcesPool       zeropool.Pool[[]record.RefResource]
+	scopesPool          zeropool.Pool[[]record.RefScope]
 	seriesPool          zeropool.Pool[[]*memSeries]
 	typeMapPool         zeropool.Pool[map[chunks.HeadSeriesRef]sampleType]
 	bytesPool           zeropool.Pool[[]byte]
@@ -108,6 +110,8 @@ type Head struct {
 	wlReplayFloatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]
 	wlReplayMetadataPool        zeropool.Pool[[]record.RefMetadata]
 	wlReplayMmapMarkersPool     zeropool.Pool[[]record.RefMmapMarker]
+	wlReplayResourcesPool       zeropool.Pool[[]record.RefResource]
+	wlReplayScopesPool          zeropool.Pool[[]record.RefScope]
 
 	// All series addressable by their ID or hash.
 	series *stripeSeries
@@ -220,6 +224,10 @@ type HeadOptions struct {
 	// NOTE(bwplotka): This feature might be deprecated and removed once PROM-60
 	// is implemented.
 	EnableMetadataWALRecords bool
+
+	// EnableNativeMetadata represents 'native-metadata' feature flag.
+	// When enabled, OTel resource/scope attributes are persisted per time series.
+	EnableNativeMetadata bool
 }
 
 const (
@@ -401,6 +409,8 @@ func (h *Head) resetWLReplayResources() {
 	h.wlReplayFloatHistogramsPool = zeropool.Pool[[]record.RefFloatHistogramSample]{}
 	h.wlReplayMetadataPool = zeropool.Pool[[]record.RefMetadata]{}
 	h.wlReplayMmapMarkersPool = zeropool.Pool[[]record.RefMmapMarker]{}
+	h.wlReplayResourcesPool = zeropool.Pool[[]record.RefResource]{}
+	h.wlReplayScopesPool = zeropool.Pool[[]record.RefScope]{}
 }
 
 type headMetrics struct {
@@ -432,6 +442,8 @@ type headMetrics struct {
 	snapshotReplayErrorTotal  prometheus.Counter // Will be either 0 or 1.
 	oooHistogram              prometheus.Histogram
 	mmapChunksTotal           prometheus.Counter
+	resourceUpdatesCommitted  prometheus.Counter
+	scopeUpdatesCommitted     prometheus.Counter
 	walReplayUnknownRefsTotal *prometheus.CounterVec
 	wblReplayUnknownRefsTotal *prometheus.CounterVec
 }
@@ -571,6 +583,14 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_mmap_chunks_total",
 			Help: "Total number of chunks that were memory-mapped.",
 		}),
+		resourceUpdatesCommitted: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_resource_updates_committed_total",
+			Help: "Total number of resource attribute updates committed to the head block.",
+		}),
+		scopeUpdatesCommitted: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_scope_updates_committed_total",
+			Help: "Total number of scope updates committed to the head block.",
+		}),
 		walReplayUnknownRefsTotal: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_wal_replay_unknown_refs_total",
 			Help: "Total number of unknown series references encountered during WAL replay.",
@@ -609,6 +629,8 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.checkpointCreationTotal,
 			m.oooHistogram,
 			m.mmapChunksTotal,
+			m.resourceUpdatesCommitted,
+			m.scopeUpdatesCommitted,
 			m.mmapChunkCorruptionTotal,
 			m.snapshotReplayErrorTotal,
 			// Metrics bound to functions and not needed in tests
@@ -1782,27 +1804,55 @@ func (h *Head) Tombstones() (tombstones.Reader, error) {
 }
 
 // SeriesMetadata returns series metadata for the head.
-// It extracts metadata from all memSeries that have metadata set.
+// It extracts metadata and resource attributes from all memSeries.
 func (h *Head) SeriesMetadata() (seriesmetadata.Reader, error) {
 	mem := seriesmetadata.NewMemSeriesMetadata()
 
-	// Iterate over all series shards and collect metadata
+	// Iterate over all series shards and collect metadata and resource attributes
 	for i := 0; i < h.series.size; i++ {
 		h.series.locks[i].RLock()
 		for _, s := range h.series.series[i] {
-			if s.meta == nil {
-				continue
+			// Lock the series to safely read and deep-copy mutable fields
+			// which can be written concurrently by the scrape loop.
+			s.Lock()
+			meta := s.meta
+			// Deep-copy resource and scope to avoid data races: the scrape loop
+			// can call AddOrExtend() on these objects concurrently.
+			var resource *seriesmetadata.VersionedResource
+			if s.resource != nil {
+				resource = s.resource.Copy()
 			}
+			var scope *seriesmetadata.VersionedScope
+			if s.scope != nil {
+				scope = s.scope.Copy()
+			}
+			s.Unlock()
 
-			// Extract metric name from __name__ label
-			metricName := s.lset.Get(labels.MetricName)
-			if metricName == "" {
-				continue // Skip series without metric name
+			// Skip series with nothing to collect.
+			if meta == nil && resource == nil && scope == nil {
+				continue
 			}
 
 			// Use StableHash of labels as the key for consistent identification.
 			hash := labels.StableHash(s.lset)
-			mem.Set(metricName, hash, *s.meta)
+
+			// Collect metric metadata if present
+			if meta != nil {
+				metricName := s.lset.Get(labels.MetricName)
+				if metricName != "" {
+					mem.Set(metricName, hash, *meta)
+				}
+			}
+
+			// Collect resource if present
+			if resource != nil {
+				mem.SetVersionedResource(hash, resource)
+			}
+
+			// Collect scope if present
+			if scope != nil {
+				mem.SetVersionedScope(hash, scope)
+			}
 		}
 		h.series.locks[i].RUnlock()
 	}
@@ -2488,8 +2538,7 @@ func (s sample) Copy() chunks.Sample {
 // are goroutine safe and it is the caller's responsibility to lock it.
 type memSeries struct {
 	// Members up to the Mutex are not changed after construction, so can be accessed without a lock.
-	ref  chunks.HeadSeriesRef
-	meta *metadata.Metadata
+	ref chunks.HeadSeriesRef
 
 	// Series labels hash to use for sharding purposes. The value is always 0 when sharding has not
 	// been explicitly enabled in TSDB.
@@ -2500,6 +2549,17 @@ type memSeries struct {
 
 	// Everything after here should only be accessed with the lock held.
 	sync.Mutex
+
+	meta *metadata.Metadata
+
+	// resource stores unified OTel resource data (attributes + entities) for this series.
+	// nil if no resource has been set. Supports multiple versions
+	// to track resource changes over time.
+	resource *seriesmetadata.VersionedResource
+
+	// scope stores OTel InstrumentationScope data for this series.
+	// nil if no scope has been set. Supports multiple versions.
+	scope *seriesmetadata.VersionedScope
 
 	lset labels.Labels // Locking required with -tags dedupelabels, not otherwise.
 
