@@ -38,6 +38,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
+	"github.com/prometheus/prometheus/tsdb/seriesmetadata"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
 )
 
@@ -99,6 +100,7 @@ type LeveledCompactor struct {
 	postingsDecoderFactory      PostingsDecoderFactory
 	enableOverlappingCompaction bool
 	concurrencyOpts             LeveledCompactorConcurrencyOptions
+	enableNativeMetadata        bool
 }
 
 type CompactorMetrics struct {
@@ -191,6 +193,8 @@ type LeveledCompactorOptions struct {
 	Metrics *CompactorMetrics
 	// UseUncachedIO allows bypassing the page cache when appropriate.
 	UseUncachedIO bool
+	// EnableNativeMetadata enables persistence of OTel resource/scope attributes during compaction.
+	EnableNativeMetadata bool
 }
 
 type PostingsDecoderFactory func(meta *BlockMeta) index.PostingsDecoder
@@ -247,6 +251,7 @@ func NewLeveledCompactorWithOptions(ctx context.Context, r prometheus.Registerer
 		enableOverlappingCompaction: opts.EnableOverlappingCompaction,
 		concurrencyOpts:             DefaultLeveledCompactorConcurrencyOptions(),
 		blockExcludeFunc:            opts.BlockExcludeFilter,
+		enableNativeMetadata:        opts.EnableNativeMetadata,
 	}, nil
 }
 
@@ -951,6 +956,16 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blockPop
 			return fmt.Errorf("write new tombstones file: %w", err)
 		}
 
+		// Merge and write series metadata from source blocks.
+		// Each source block has different BlockSeriesRef values for the same series,
+		// so we resolve refs → labels via each block's index, merge by labels hash
+		// (transient in-memory key), then re-key with the new block's refs.
+		if c.enableNativeMetadata {
+			if err := c.mergeAndWriteSeriesMetadata(ob.tmpDir, blocks); err != nil {
+				return fmt.Errorf("merge and write series metadata: %w", err)
+			}
+		}
+
 		df, err := fileutil.OpenDir(ob.tmpDir)
 		if err != nil {
 			return fmt.Errorf("open temporary block dir: %w", err)
@@ -1029,6 +1044,135 @@ func debugOutOfOrderChunks(lbls labels.Labels, chks []chunks.Meta, logger *slog.
 
 func timeFromMillis(ms int64) time.Time {
 	return time.Unix(0, ms*int64(time.Millisecond))
+}
+
+// mergeAndWriteSeriesMetadata merges versioned metadata, resources, and scopes from
+// source blocks and writes them to the new compacted block. Each source block has
+// different BlockSeriesRef values for the same series, so we resolve refs → labels
+// via each block's index, merge by labels hash as a transient in-memory key, then
+// re-key with the new block's refs.
+func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []BlockReader) error {
+	// Phase 1: Collect metadata from source blocks, resolving refs to labels and
+	// merging by labels hash.
+	type mergedEntry struct {
+		metricName string
+		vm         *seriesmetadata.VersionedMetadata
+	}
+	mergedByLabelsHash := make(map[uint64]*mergedEntry)
+
+	// Resource and scope data is already keyed by labelsHash, so collect directly.
+	output := seriesmetadata.NewMemSeriesMetadata()
+
+	var builder labels.ScratchBuilder
+	for _, b := range blocks {
+		mr, err := b.SeriesMetadata()
+		if err != nil {
+			return fmt.Errorf("get series metadata from block: %w", err)
+		}
+		ir, err := b.Index()
+		if err != nil {
+			mr.Close()
+			return fmt.Errorf("get index from block: %w", err)
+		}
+
+		err = mr.IterVersionedMetadata(func(ref uint64, metricName string, _ labels.Labels, vm *seriesmetadata.VersionedMetadata) error {
+			// Resolve the source block's ref → labels via its index.
+			if err := ir.Series(storage.SeriesRef(ref), &builder, nil); err != nil {
+				return fmt.Errorf("resolve series ref %d: %w", ref, err)
+			}
+			lset := builder.Labels()
+			lHash := labels.StableHash(lset)
+
+			if existing, ok := mergedByLabelsHash[lHash]; ok {
+				existing.vm = seriesmetadata.MergeVersionedMetadata(existing.vm, vm)
+			} else {
+				mergedByLabelsHash[lHash] = &mergedEntry{
+					metricName: metricName,
+					vm:         vm.Copy(),
+				}
+			}
+			return nil
+		})
+		if err != nil {
+			mr.Close()
+			ir.Close()
+			return fmt.Errorf("iterate versioned series metadata: %w", err)
+		}
+
+		// Merge versioned resources (unified attributes + entities).
+		err = mr.IterVersionedResources(func(labelsHash uint64, resources *seriesmetadata.VersionedResource) error {
+			output.SetVersionedResource(labelsHash, resources)
+			return nil
+		})
+		if err != nil {
+			mr.Close()
+			ir.Close()
+			return fmt.Errorf("iterate resource attributes: %w", err)
+		}
+
+		// Merge versioned scopes.
+		err = mr.IterVersionedScopes(func(labelsHash uint64, scopes *seriesmetadata.VersionedScope) error {
+			output.SetVersionedScope(labelsHash, scopes)
+			return nil
+		})
+		if err != nil {
+			mr.Close()
+			ir.Close()
+			return fmt.Errorf("iterate scope attributes: %w", err)
+		}
+
+		mr.Close()
+		ir.Close()
+	}
+
+	if len(mergedByLabelsHash) == 0 && output.ResourceCount() == 0 && output.ScopeCount() == 0 {
+		return nil
+	}
+
+	// Phase 2: Open the new block's index and build labelsHash → newBlockSeriesRef mapping.
+	newIR, err := index.NewFileReader(filepath.Join(tmp, indexFilename), index.DecodePostingsRaw)
+	if err != nil {
+		return fmt.Errorf("open new block index: %w", err)
+	}
+	defer newIR.Close()
+
+	k, v := index.AllPostingsKey()
+	allPostings, err := newIR.Postings(c.ctx, k, v)
+	if err != nil {
+		return fmt.Errorf("get all postings from new block: %w", err)
+	}
+
+	labelsHashToNewRef := make(map[uint64]storage.SeriesRef)
+	for allPostings.Next() {
+		ref := allPostings.At()
+		if err := newIR.Series(ref, &builder, nil); err != nil {
+			return fmt.Errorf("resolve new block series ref %d: %w", ref, err)
+		}
+		lset := builder.Labels()
+		lHash := labels.StableHash(lset)
+		// Only store refs for series that have metadata.
+		if _, ok := mergedByLabelsHash[lHash]; ok {
+			labelsHashToNewRef[lHash] = ref
+		}
+	}
+	if allPostings.Err() != nil {
+		return fmt.Errorf("iterate new block postings: %w", allPostings.Err())
+	}
+
+	// Phase 3: Build the output MemSeriesMetadata with new block refs.
+	for lHash, entry := range mergedByLabelsHash {
+		newRef, ok := labelsHashToNewRef[lHash]
+		if !ok {
+			// Series not in new block (e.g., deleted by tombstones during compaction).
+			continue
+		}
+		output.SetVersionedMetadata(uint64(newRef), entry.metricName, entry.vm)
+	}
+
+	if _, err := seriesmetadata.WriteFile(c.logger, tmp, output); err != nil {
+		return fmt.Errorf("write series metadata file: %w", err)
+	}
+	return nil
 }
 
 type BlockPopulator interface {
