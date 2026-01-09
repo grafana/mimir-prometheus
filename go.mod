@@ -39,8 +39,8 @@ require (
 	github.com/gophercloud/gophercloud/v2 v2.9.0
 	github.com/grafana/regexp v0.0.0-20250905093917-f7b3be9d1853
 	github.com/hashicorp/consul/api v1.32.1
-	github.com/hashicorp/nomad/api v0.0.0-20251222083347-1355d4cb1671
-	github.com/hetznercloud/hcloud-go/v2 v2.32.0
+	github.com/hashicorp/nomad/api v0.0.0-20260106084653-e8f2200c7039
+	github.com/hetznercloud/hcloud-go/v2 v2.33.0
 	github.com/ionos-cloud/sdk-go/v6 v6.3.6
 	github.com/json-iterator/go v1.1.12
 	github.com/klauspost/compress v1.18.2
@@ -56,7 +56,7 @@ require (
 	github.com/ovh/go-ovh v1.9.0
 	github.com/prometheus/alertmanager v0.30.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/client_golang/exp v0.0.0-20251212205219-7ba246a648ca
+	github.com/prometheus/client_golang/exp v0.0.0-20260101091701-2cd067eb23c9
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.4
 	github.com/prometheus/common/assets v0.2.0
