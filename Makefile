@@ -1,4 +1,4 @@
-# Copyright 2018 The Prometheus Authors
+# Copyright The Prometheus Authors
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
@@ -166,15 +166,8 @@ tarball: npm_licenses common-tarball
 .PHONY: docker
 docker: npm_licenses common-docker
 
-plugins/plugins.go: plugins.yml plugins/generate.go
-	@echo ">> creating plugins list"
-	$(GO) generate -tags plugins ./plugins
-
-.PHONY: plugins
-plugins: plugins/plugins.go
-
 .PHONY: build
-build: assets npm_licenses assets-compress plugins common-build
+build: assets npm_licenses assets-compress common-build
 
 .PHONY: bench_tsdb
 bench_tsdb: $(PROMU)
