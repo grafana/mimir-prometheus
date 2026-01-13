@@ -1,4 +1,4 @@
-// Copyright 2021 The Prometheus Authors
+// Copyright The Prometheus Authors
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -259,6 +259,9 @@ func TestCommit(t *testing.T) {
 	require.Equal(t, numSeries*numDatapoints, walExemplarsCount, "unexpected number of exemplars")
 	require.Equal(t, numSeries*numHistograms*2, walHistogramCount, "unexpected number of histograms")
 	require.Equal(t, numSeries*numHistograms*2, walFloatHistogramCount, "unexpected number of float histograms")
+
+	// Check that we can get another appender after this - see https://github.com/prometheus/prometheus/issues/17800.
+	_ = s.Appender(context.TODO())
 }
 
 func TestRollback(t *testing.T) {
