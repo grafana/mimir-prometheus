@@ -125,8 +125,8 @@ func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 			m.stringMatcher = trueMatcher{}
 		} else {
 			m.stringMatcher = stringMatcherFromRegexp(parsed)
-			m.parsedRe = parsed
 		}
+		m.parsedRe = parsed
 
 		m.matchString = m.compileMatchStringFunction()
 	}
