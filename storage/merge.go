@@ -17,7 +17,6 @@ import (
 	"bytes"
 	"container/heap"
 	"context"
-	"errors"
 	"fmt"
 	"math"
 	"sync"
@@ -26,6 +25,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/util/annotations"
 )
 
@@ -269,13 +269,13 @@ func (q *mergeGenericQuerier) LabelNames(ctx context.Context, hints *LabelHints,
 
 // Close releases the resources of the generic querier.
 func (q *mergeGenericQuerier) Close() error {
-	var errs []error
+	errs := tsdb_errors.NewMulti()
 	for _, querier := range q.queriers {
 		if err := querier.Close(); err != nil {
-			errs = append(errs, err)
+			errs.Add(err)
 		}
 	}
-	return errors.Join(errs...)
+	return errs.Err()
 }
 
 func truncateToLimit(s []string, hints *LabelHints) []string {
@@ -679,11 +679,11 @@ func (c *chainSampleIterator) Next() chunkenc.ValueType {
 }
 
 func (c *chainSampleIterator) Err() error {
-	var errs []error
+	errs := tsdb_errors.NewMulti()
 	for _, iter := range c.iterators {
-		errs = append(errs, iter.Err())
+		errs.Add(iter.Err())
 	}
-	return errors.Join(errs...)
+	return errs.Err()
 }
 
 type samplesIteratorHeap []chunkenc.Iterator
@@ -841,12 +841,12 @@ func (c *compactChunkIterator) Next() bool {
 }
 
 func (c *compactChunkIterator) Err() error {
-	var errs []error
+	errs := tsdb_errors.NewMulti()
 	for _, iter := range c.iterators {
-		errs = append(errs, iter.Err())
+		errs.Add(iter.Err())
 	}
-	errs = append(errs, c.err)
-	return errors.Join(errs...)
+	errs.Add(c.err)
+	return errs.Err()
 }
 
 type chunkIteratorHeap []chunks.Iterator
@@ -939,9 +939,9 @@ func (c *concatenatingChunkIterator) Next() bool {
 }
 
 func (c *concatenatingChunkIterator) Err() error {
-	var errs []error
+	errs := tsdb_errors.NewMulti()
 	for _, iter := range c.iterators {
-		errs = append(errs, iter.Err())
+		errs.Add(iter.Err())
 	}
-	return errors.Join(errs...)
+	return errs.Err()
 }

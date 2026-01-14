@@ -33,6 +33,7 @@ import (
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/encoding"
+	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/hashcache"
 )
@@ -1052,10 +1053,10 @@ func NewFileReaderWithOptions(path string, decoder PostingsDecoder, plannerFunc 
 	}
 	r, err := newReader(realByteSlice(f.Bytes()), f, decoder, plannerFunc, cacheProvider)
 	if err != nil {
-		return nil, errors.Join(
+		return nil, tsdb_errors.NewMulti(
 			err,
 			f.Close(),
-		)
+		).Err()
 	}
 
 	return r, nil

@@ -65,17 +65,13 @@ func (s Sample) String() string {
 	// Print all value types on purpose, to catch bugs for appending multiple sample types at once.
 	h := ""
 	if s.H != nil {
-		h = " " + s.H.String()
+		h = s.H.String()
 	}
 	fh := ""
 	if s.FH != nil {
-		fh = " " + s.FH.String()
+		fh = s.FH.String()
 	}
-	b.WriteString(fmt.Sprintf("%s %v%v%v st@%v t@%v", s.L.String(), s.V, h, fh, s.ST, s.T))
-	if len(s.ES) > 0 {
-		b.WriteString(fmt.Sprintf(" %v", s.ES))
-	}
-	b.WriteString("\n")
+	b.WriteString(fmt.Sprintf("%s %v%v%v st@%v t@%v\n", s.L.String(), s.V, h, fh, s.ST, s.T))
 	return b.String()
 }
 
@@ -108,8 +104,7 @@ type Appendable struct {
 	rolledbackSamples []Sample
 
 	// Optional chain (Appender will collect samples, then run next).
-	next   storage.Appendable
-	nextV2 storage.AppendableV2
+	next storage.Appendable
 }
 
 // NewAppendable returns mock Appendable.
@@ -117,15 +112,9 @@ func NewAppendable() *Appendable {
 	return &Appendable{}
 }
 
-// Then chains another appender from the provided Appendable for the Appender calls.
+// Then chains another appender from the provided appendable for the Appender calls.
 func (a *Appendable) Then(appendable storage.Appendable) *Appendable {
 	a.next = appendable
-	return a
-}
-
-// ThenV2 chains another appenderV2 from the provided AppendableV2 for the AppenderV2 calls.
-func (a *Appendable) ThenV2(appendable storage.AppendableV2) *Appendable {
-	a.nextV2 = appendable
 	return a
 }
 
@@ -141,9 +130,6 @@ func (a *Appendable) WithErrs(appendErrFn func(ls labels.Labels) error, appendEx
 func (a *Appendable) PendingSamples() []Sample {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
-	if len(a.pendingSamples) == 0 {
-		return nil
-	}
 
 	ret := make([]Sample, len(a.pendingSamples))
 	copy(ret, a.pendingSamples)
@@ -154,9 +140,6 @@ func (a *Appendable) PendingSamples() []Sample {
 func (a *Appendable) ResultSamples() []Sample {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
-	if len(a.resultSamples) == 0 {
-		return nil
-	}
 
 	ret := make([]Sample, len(a.resultSamples))
 	copy(ret, a.resultSamples)
@@ -167,9 +150,6 @@ func (a *Appendable) ResultSamples() []Sample {
 func (a *Appendable) RolledbackSamples() []Sample {
 	a.mtx.Lock()
 	defer a.mtx.Unlock()
-	if len(a.rolledbackSamples) == 0 {
-		return nil
-	}
 
 	ret := make([]Sample, len(a.rolledbackSamples))
 	copy(ret, a.rolledbackSamples)
@@ -225,77 +205,28 @@ func (a *Appendable) String() string {
 
 var errClosedAppender = errors.New("appender was already committed/rolledback")
 
-type baseAppender struct {
-	err error
+type appender struct {
+	err  error
+	next storage.Appender
 
-	nextTr storage.AppenderTransaction
-	a      *Appendable
+	a *Appendable
 }
 
-func (a *baseAppender) checkErr() error {
+func (a *appender) checkErr() error {
 	a.a.mtx.Lock()
 	defer a.a.mtx.Unlock()
 
 	return a.err
 }
 
-func (a *baseAppender) Commit() error {
-	if err := a.checkErr(); err != nil {
-		return err
-	}
-	defer a.a.openAppenders.Dec()
-
-	if a.a.commitErr != nil {
-		return a.a.commitErr
-	}
-
-	a.a.mtx.Lock()
-	a.a.resultSamples = append(a.a.resultSamples, a.a.pendingSamples...)
-	a.a.pendingSamples = a.a.pendingSamples[:0]
-	a.err = errClosedAppender
-	a.a.mtx.Unlock()
-
-	if a.nextTr != nil {
-		return a.nextTr.Commit()
-	}
-	return nil
-}
-
-func (a *baseAppender) Rollback() error {
-	if err := a.checkErr(); err != nil {
-		return err
-	}
-	defer a.a.openAppenders.Dec()
-
-	a.a.mtx.Lock()
-	a.a.rolledbackSamples = append(a.a.rolledbackSamples, a.a.pendingSamples...)
-	a.a.pendingSamples = a.a.pendingSamples[:0]
-	a.err = errClosedAppender
-	a.a.mtx.Unlock()
-
-	if a.nextTr != nil {
-		return a.nextTr.Rollback()
-	}
-	return nil
-}
-
-type appender struct {
-	baseAppender
-
-	next storage.Appender
-}
-
 func (a *Appendable) Appender(ctx context.Context) storage.Appender {
-	ret := &appender{baseAppender: baseAppender{a: a}}
+	ret := &appender{a: a}
 	if a.openAppenders.Inc() > 1 {
 		ret.err = errors.New("teststorage.Appendable.Appender() concurrent use is not supported; attempted opening new Appender() without Commit/Rollback of the previous one. Extend the implementation if concurrent mock is needed")
 	}
 
 	if a.next != nil {
-		app := a.next.Appender(ctx)
-		ret.next, ret.nextTr = app, app
-	} else if a.nextV2 != nil {
-		ret.err = errors.Join(ret.err, errors.New("teststorage.Appendable.Appender() invoked with .ThenV2 but no .Then was supplied; likely bug"))
+		ret.next = a.next.Appender(ctx)
 	}
 	return ret
 }
@@ -333,7 +264,7 @@ func computeOrCheckRef(ref storage.SeriesRef, ls labels.Labels) (storage.SeriesR
 
 	if storage.SeriesRef(h) != ref {
 		// Check for buggy ref while we at it.
-		return 0, errors.New("teststorage.appender: found input ref not matching labels; potential bug in Appendable usage")
+		return 0, errors.New("teststorage.appender: found input ref not matching labels; potential bug in Appendable user")
 	}
 	return ref, nil
 }
@@ -366,7 +297,6 @@ func (a *appender) AppendExemplar(ref storage.SeriesRef, l labels.Labels, e exem
 	if a.a.appendExemplarsError != nil {
 		return 0, a.a.appendExemplarsError
 	}
-	var appended bool
 
 	a.a.mtx.Lock()
 	// NOTE(bwplotka): Eventually exemplar has to be attached to a series and soon
@@ -376,12 +306,11 @@ func (a *appender) AppendExemplar(ref storage.SeriesRef, l labels.Labels, e exem
 	for ; i >= 0; i-- { // Attach exemplars to the last matching sample.
 		if ref == storage.SeriesRef(a.a.pendingSamples[i].L.Hash()) {
 			a.a.pendingSamples[i].ES = append(a.a.pendingSamples[i].ES, e)
-			appended = true
 			break
 		}
 	}
 	a.a.mtx.Unlock()
-	if !appended {
+	if i < 0 {
 		return 0, fmt.Errorf("teststorage.appender: exemplar appender without series; ref %v; l %v; exemplar: %v", ref, l, e)
 	}
 
@@ -407,8 +336,6 @@ func (a *appender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m meta
 		return 0, err
 	}
 
-	var updated bool
-
 	a.a.mtx.Lock()
 	// NOTE(bwplotka): Eventually metadata has to be attached to a series and soon
 	// the AppenderV2 will guarantee that for TSDB. Assume this from the mock perspective
@@ -417,12 +344,11 @@ func (a *appender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m meta
 	for ; i >= 0; i-- { // Attach metadata to the last matching sample.
 		if ref == storage.SeriesRef(a.a.pendingSamples[i].L.Hash()) {
 			a.a.pendingSamples[i].M = m
-			updated = true
 			break
 		}
 	}
 	a.a.mtx.Unlock()
-	if !updated {
+	if i < 0 {
 		return 0, fmt.Errorf("teststorage.appender: metadata update without series; ref %v; l %v; m: %v", ref, l, m)
 	}
 
@@ -432,75 +358,42 @@ func (a *appender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m meta
 	return computeOrCheckRef(ref, l)
 }
 
-type appenderV2 struct {
-	baseAppender
-
-	next storage.AppenderV2
-}
-
-func (a *Appendable) AppenderV2(ctx context.Context) storage.AppenderV2 {
-	ret := &appenderV2{baseAppender: baseAppender{a: a}}
-	if a.openAppenders.Inc() > 1 {
-		ret.err = errors.New("teststorage.Appendable.AppenderV2() concurrent use is not supported; attempted opening new AppenderV2() without Commit/Rollback of the previous one. Extend the implementation if concurrent mock is needed")
-	}
-
-	if a.nextV2 != nil {
-		app := a.nextV2.AppenderV2(ctx)
-		ret.next, ret.nextTr = app, app
-	} else if a.next != nil {
-		ret.err = errors.Join(ret.err, errors.New("teststorage.Appendable.AppenderV2() invoked with .Then but no .ThenV2 was supplied; likely bug"))
-	}
-	return ret
-}
-
-func (a *appenderV2) Append(ref storage.SeriesRef, ls labels.Labels, st, t int64, v float64, h *histogram.Histogram, fh *histogram.FloatHistogram, opts storage.AOptions) (_ storage.SeriesRef, err error) {
+func (a *appender) Commit() error {
 	if err := a.checkErr(); err != nil {
-		return 0, err
+		return err
 	}
+	defer a.a.openAppenders.Dec()
 
-	if a.a.appendErrFn != nil {
-		if err := a.a.appendErrFn(ls); err != nil {
-			return 0, err
-		}
+	if a.a.commitErr != nil {
+		return a.a.commitErr
 	}
 
 	a.a.mtx.Lock()
-	var es []exemplar.Exemplar
-	if len(opts.Exemplars) > 0 {
-		// As per AppenderV2 interface, opts.Exemplar slice is unsafe for reuse.
-		es = make([]exemplar.Exemplar, len(opts.Exemplars))
-		copy(es, opts.Exemplars)
-	}
-	a.a.pendingSamples = append(a.a.pendingSamples, Sample{
-		MF: opts.MetricFamilyName,
-		M:  opts.Metadata,
-		L:  ls,
-		ST: st, T: t,
-		V: v, H: h, FH: fh,
-		ES: es,
-	})
+	a.a.resultSamples = append(a.a.resultSamples, a.a.pendingSamples...)
+	a.a.pendingSamples = a.a.pendingSamples[:0]
+	a.err = errClosedAppender
 	a.a.mtx.Unlock()
 
-	var partialErr error
-	if a.a.appendExemplarsError != nil {
-		var exErrs []error
-		for range opts.Exemplars {
-			exErrs = append(exErrs, a.a.appendExemplarsError)
-		}
-		if len(exErrs) > 0 {
-			partialErr = &storage.AppendPartialError{ExemplarErrors: exErrs}
-		}
+	if a.a.next != nil {
+		return a.next.Commit()
 	}
+	return nil
+}
+
+func (a *appender) Rollback() error {
+	if err := a.checkErr(); err != nil {
+		return err
+	}
+	defer a.a.openAppenders.Dec()
+
+	a.a.mtx.Lock()
+	a.a.rolledbackSamples = append(a.a.rolledbackSamples, a.a.pendingSamples...)
+	a.a.pendingSamples = a.a.pendingSamples[:0]
+	a.err = errClosedAppender
+	a.a.mtx.Unlock()
 
 	if a.next != nil {
-		ref, err = a.next.Append(ref, ls, st, t, v, h, fh, opts)
-		if err != nil {
-			return ref, err
-		}
+		return a.next.Rollback()
 	}
-	ref, err = computeOrCheckRef(ref, ls)
-	if err != nil {
-		return ref, err
-	}
-	return ref, partialErr
+	return nil
 }

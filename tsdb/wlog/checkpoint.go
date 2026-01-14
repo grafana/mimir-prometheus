@@ -28,6 +28,7 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/record"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
@@ -70,14 +71,14 @@ func DeleteCheckpoints(dir string, maxIndex int) error {
 		return err
 	}
 
-	var errs []error
+	errs := tsdb_errors.NewMulti()
 	for _, checkpoint := range checkpoints {
 		if checkpoint.index >= maxIndex {
 			break
 		}
-		errs = append(errs, os.RemoveAll(filepath.Join(dir, checkpoint.name)))
+		errs.Add(os.RemoveAll(filepath.Join(dir, checkpoint.name)))
 	}
-	return errors.Join(errs...)
+	return errs.Err()
 }
 
 // CheckpointPrefix is the prefix used for checkpoint files.
