@@ -25,6 +25,7 @@ import (
 	"strconv"
 
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
+	tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 )
 
@@ -430,15 +431,13 @@ func cutSegmentFile(dirFile *os.File, magicNumber uint32, chunksFormat byte, all
 	}
 	defer func() {
 		if returnErr != nil {
-			errs := []error{
-				returnErr,
-			}
+			errs := tsdb_errors.NewMulti(returnErr)
 			if f != nil {
-				errs = append(errs, f.Close())
+				errs.Add(f.Close())
 			}
 			// Calling RemoveAll on a non-existent file does not return error.
-			errs = append(errs, os.RemoveAll(ptmp))
-			returnErr = errors.Join(errs...)
+			errs.Add(os.RemoveAll(ptmp))
+			returnErr = errs.Err()
 		}
 	}()
 	if allocSize > 0 {
@@ -666,10 +665,10 @@ func NewDirReader(dir string, pool chunkenc.Pool) (*Reader, error) {
 	for _, fn := range files {
 		f, err := fileutil.OpenMmapFile(fn)
 		if err != nil {
-			return nil, errors.Join(
+			return nil, tsdb_errors.NewMulti(
 				fmt.Errorf("mmap files: %w", err),
-				closeAll(cs),
-			)
+				tsdb_errors.CloseAll(cs),
+			).Err()
 		}
 		cs = append(cs, f)
 		bs = append(bs, realByteSlice(f.Bytes()))
@@ -677,16 +676,16 @@ func NewDirReader(dir string, pool chunkenc.Pool) (*Reader, error) {
 
 	reader, err := newReader(bs, cs, pool)
 	if err != nil {
-		return nil, errors.Join(
+		return nil, tsdb_errors.NewMulti(
 			err,
-			closeAll(cs),
-		)
+			tsdb_errors.CloseAll(cs),
+		).Err()
 	}
 	return reader, nil
 }
 
 func (s *Reader) Close() error {
-	return closeAll(s.cs)
+	return tsdb_errors.CloseAll(s.cs)
 }
 
 // Size returns the size of the chunks.
@@ -774,13 +773,4 @@ func sequenceFiles(dir string) ([]string, error) {
 		res = append(res, filepath.Join(dir, fi.Name()))
 	}
 	return res, nil
-}
-
-// closeAll closes all given closers while recording error in MultiError.
-func closeAll(cs []io.Closer) error {
-	var errs []error
-	for _, c := range cs {
-		errs = append(errs, c.Close())
-	}
-	return errors.Join(errs...)
 }

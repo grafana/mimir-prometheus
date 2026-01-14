@@ -327,8 +327,7 @@ func (ce *CircularExemplarStorage) grow(l int64) int {
 		{from: ce.nextIndex, to: oldSize},
 		{from: 0, to: ce.nextIndex},
 	}
-	totalCopied, _ := copyExemplarRanges(ce.index, newSlice, ce.exemplars, ranges)
-	ce.nextIndex = totalCopied
+	ce.nextIndex = copyExemplarRanges(ce.index, newSlice, ce.exemplars, ranges)
 	ce.exemplars = newSlice
 	return oldSize
 }
@@ -354,7 +353,6 @@ func (ce *CircularExemplarStorage) shrink(l int64) (migrated int) {
 
 	newSlice := make([]circularBufferEntry, int(l))
 
-	var totalCopied int
 	switch {
 	case deleteStart == deleteEnd:
 		// The entire buffer was cleared (shrink to zero). Note that we don't have to
@@ -365,18 +363,18 @@ func (ce *CircularExemplarStorage) shrink(l int64) (migrated int) {
 		return 0
 	case deleteStart < deleteEnd:
 		// We delete an "inner" section of the circular buffer.
-		totalCopied, migrated = copyExemplarRanges(ce.index, newSlice, ce.exemplars, []intRange{
+		migrated = copyExemplarRanges(ce.index, newSlice, ce.exemplars, []intRange{
 			{from: deleteEnd, to: oldSize},
 			{from: 0, to: deleteStart},
 		})
 	case deleteStart > deleteEnd:
 		// We keep an "inner" section of the circular buffer.
-		totalCopied, migrated = copyExemplarRanges(ce.index, newSlice, ce.exemplars, []intRange{
+		migrated = copyExemplarRanges(ce.index, newSlice, ce.exemplars, []intRange{
 			{from: deleteEnd, to: deleteStart},
 		})
 	}
 
-	ce.nextIndex = totalCopied % int(l)
+	ce.nextIndex = migrated % int(l)
 	ce.exemplars = newSlice
 	return migrated
 }
@@ -584,21 +582,20 @@ func (e intRange) contains(i int) bool {
 }
 
 // copyExemplarRanges copies non-overlapping ranges from src into dest and
-// adjusts list pointers in dest and index accordingly. Returns the total
-// number of slots copied (for nextIndex) and the number of non-empty entries
-// migrated.
+// adjusts list pointers in dest and index accordingly. Returns the number of
+// copied items.
 func copyExemplarRanges(
 	index map[string]*indexEntry,
 	dest, src []circularBufferEntry,
 	ranges []intRange,
-) (totalCopied, migratedEntries int) {
+) int {
 	offsets := make([]int, len(ranges))
 	n := 0
 	for i, rng := range ranges {
 		offsets[i] = n - rng.from
 		n += copy(dest[n:], src[rng.from:rng.to])
 	}
-	migratedEntries = n
+	migratedEntries := n
 	for di := range n {
 		e := &dest[di]
 		if e.ref == nil {
@@ -634,5 +631,5 @@ func copyExemplarRanges(
 			}
 		}
 	}
-	return n, migratedEntries
+	return migratedEntries
 }
