@@ -129,12 +129,14 @@ func (c *PrometheusConverter) createAttributes(resource pcommon.Resource, attrib
 
 	// Use cached resource labels if available, otherwise compute them
 	if c.resourceLabels != nil {
-		// Merge cached promoted resource labels
-		c.resourceLabels.promotedLabels.Range(func(l labels.Label) {
-			if c.builder.Get(l.Name) == "" {
-				c.builder.Set(l.Name, l.Value)
-			}
-		})
+		// Merge cached promoted resource labels only if promotion is enabled
+		if settings.PromoteResourceAttributes != nil {
+			c.resourceLabels.promotedLabels.Range(func(l labels.Label) {
+				if c.builder.Get(l.Name) == "" {
+					c.builder.Set(l.Name, l.Value)
+				}
+			})
+		}
 		// Merge cached job/instance labels
 		if c.resourceLabels.jobLabel != "" {
 			c.builder.Set(model.JobLabel, c.resourceLabels.jobLabel)
@@ -183,7 +185,7 @@ func (c *PrometheusConverter) createAttributes(resource pcommon.Resource, attrib
 
 	// Use cached scope labels if available, otherwise compute them
 	promoteScope := settings.PromoteScopeMetadata && scope.name != ""
-	if c.scopeLabels != nil {
+	if c.scopeLabels != nil && promoteScope {
 		// Merge cached scope labels
 		c.scopeLabels.scopeAttrs.Range(func(l labels.Label) {
 			c.builder.Set(l.Name, l.Value)
