@@ -71,6 +71,8 @@ var matcherTestCases = []struct {
 	{1, "job", MatchRegexp, "(ops-service-01)/((compactor.*|cortex|mimir))"},
 	{1.1, "namespace", MatchRegexp, "prod-service-06"},
 	{280, "route", MatchRegexp, "(/base.Ruler/Rules|/indexgatewaypb.IndexGateway/GetChunkRef|/indexgatewaypb.IndexGateway/GetSeries|/indexgatewaypb.IndexGateway/GetShards|/indexgatewaypb.IndexGateway/GetStats|/indexgatewaypb.IndexGateway/GetVolume|/indexgatewaypb.IndexGateway/LabelNamesForMetricName|/indexgatewaypb.IndexGateway/LabelValuesForMetricName|/indexgatewaypb.IndexGateway/QueryIndex|/logproto.BloomGateway/FilterChunkRefs|/logproto.Pattern/Query|/logproto.Querier/GetChunkIDs|/logproto.Querier/GetDetectedLabels|/logproto.Querier/GetStats|/logproto.Querier/GetVolume|/logproto.Querier/Label|/logproto.Querier/Query|/logproto.Querier/QuerySample|/logproto.Querier/Series|/logproto.StreamData/GetStreamRates)"},
+	{4, "namespace", MatchRegexp, ".*prod.*"},
+	{12, "namespace", MatchRegexp, ".*-.*-.*"},
 
 	// != matchers
 	{1, "job", MatchNotEqual, "integrations/db-o11y"},
