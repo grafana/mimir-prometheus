@@ -52,6 +52,7 @@ var matcherTestCases = []struct {
 	// =~ matchers
 	{20, "statefulset", MatchRegexp, "(ingester|mimir-write).*"},
 	{1, "cluster", MatchRegexp, ".+"},
+	{1, "cluster", MatchRegexp, ".*"},
 	{1.1, "cluster", MatchRegexp, "prod-region-1"},
 	{1.1, "tenant", MatchRegexp, "(29)"},
 	{4, "partition", MatchRegexp, longRegex1},
