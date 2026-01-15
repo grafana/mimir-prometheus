@@ -976,7 +976,7 @@ func (cdm *ChunkDiskMapper) Truncate(fileNo uint32) error {
 		// There is a known race condition here because between the check of curFileSize() and the call to CutNewFile()
 		// a new file could already be cut, this is acceptable because it will simply result in an empty file which
 		// won't do any harm.
-		errs.Add(cdm.CutNewFile())
+		errs = append(errs, cdm.CutNewFile())
 	}
 	pendingDeletes, err := cdm.deleteFiles(removedFiles)
 	errs = append(errs, err)
