@@ -241,7 +241,7 @@ func TestLabelValuesWithMatchers(t *testing.T) {
 	// Add another series with an overlapping unique label, but leaving out the tens label
 	seriesEntries = append(seriesEntries, storage.NewListSeries(labels.FromStrings(
 		"unique", "value99",
-	), []chunks.Sample{sample{100, 0, nil, nil}}))
+	), []chunks.Sample{sample{0, 100, 0, nil, nil}}))
 
 	blockDir := createBlock(t, tmpdir, seriesEntries)
 	files, err := sequenceFiles(chunkDir(blockDir))
