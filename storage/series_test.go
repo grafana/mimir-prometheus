@@ -81,14 +81,14 @@ func TestNewListChunkSeriesFromSamples(t *testing.T) {
 	series := NewListChunkSeriesFromSamples(
 		lbls,
 		samples{
-			fSample{0, 0},
-			fSample{1, 1},
-			fSample{1, 1.5},
-			fSample{2, 2},
-			fSample{3, 3},
+			fSample{0, 0, 0},
+			fSample{0, 1, 1},
+			fSample{0, 1, 1.5},
+			fSample{0, 2, 2},
+			fSample{0, 3, 3},
 		},
 		samples{
-			fSample{4, 5},
+			fSample{0, 4, 5},
 		},
 	)
 
