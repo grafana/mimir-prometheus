@@ -647,7 +647,9 @@ func isSimpleConcatenationPattern(re *syntax.Regexp) bool {
 		if !isMatchAny(re) && !isCaseSensitiveLiteral(re) {
 			return false
 		}
-		numLiterals++
+		if isCaseSensitiveLiteral(re) {
+			numLiterals++
+		}
 	}
 
 	// The single case .*-.* is already handled in stringMatcherFromRegexp,
