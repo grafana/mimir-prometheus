@@ -644,10 +644,12 @@ func isSimpleConcatenationPattern(re *syntax.Regexp) bool {
 
 	numLiterals := 0
 	for _, re := range re.Sub[1 : len(re.Sub)-1] {
-		if !isMatchAny(re) && !isCaseSensitiveLiteral(re) {
-			return false
+		if !isMatchAny(re) {
+			if !isCaseSensitiveLiteral(re) {
+				return false
+			}
+			numLiterals++
 		}
-		numLiterals++
 	}
 
 	// The single case .*-.* is already handled in stringMatcherFromRegexp,
