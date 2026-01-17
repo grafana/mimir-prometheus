@@ -500,12 +500,12 @@ func TestNewFastRegexMatcher(t *testing.T) {
 		{`(?i:((foo1|foo2|bar)))`, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "BAR", caseSensitive: false}, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}})})},
 		{"^((?i:foo|oo)|(bar))$", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO", caseSensitive: false}, &equalStringMatcher{s: "OO", caseSensitive: false}, &equalStringMatcher{s: "bar", caseSensitive: true}})},
 		{"(?i:(foo1|foo2|bar))", orStringMatcher([]StringMatcher{&equalStringMatcher{s: "BAR", caseSensitive: false}, orStringMatcher([]StringMatcher{&equalStringMatcher{s: "FOO1", caseSensitive: false}, &equalStringMatcher{s: "FOO2", caseSensitive: false}})})},
-		{".*foo.*", trueMatcher{}},     // The containsInOrder check done in the function returned by compileMatchStringFunction is sufficient.
-		{"(.*)foo.*", trueMatcher{}},   // The containsInOrder check done in the function returned by compileMatchStringFunction is sufficient.
-		{"(.*)foo(.*)", trueMatcher{}}, // The containsInOrder check done in the function returned by compileMatchStringFunction is sufficient.
+		{".*foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: trueMatcher{}, right: trueMatcher{}}},
+		{"(.*)foo.*", &containsStringMatcher{substrings: []string{"foo"}, left: trueMatcher{}, right: trueMatcher{}}},
+		{"(.*)foo(.*)", &containsStringMatcher{substrings: []string{"foo"}, left: trueMatcher{}, right: trueMatcher{}}},
 		{"(.+)foo(.*)", &containsStringMatcher{substrings: []string{"foo"}, left: &anyNonEmptyStringMatcher{matchNL: true}, right: trueMatcher{}}},
 		{"^.+foo.+", &containsStringMatcher{substrings: []string{"foo"}, left: &anyNonEmptyStringMatcher{matchNL: true}, right: &anyNonEmptyStringMatcher{matchNL: true}}},
-		{"^(.*)(foo)(.*)$", trueMatcher{}}, // The containsInOrder check done in the function returned by compileMatchStringFunction is sufficient.
+		{"^(.*)(foo)(.*)$", &containsStringMatcher{substrings: []string{"foo"}, left: trueMatcher{}, right: trueMatcher{}}},
 		{"^(.*)(foo|foobar)(.*)$", &containsStringMatcher{substrings: []string{"foo", "foobar"}, left: trueMatcher{}, right: trueMatcher{}}},
 		{"^(.*)(foo|foobar)(.+)$", &containsStringMatcher{substrings: []string{"foo", "foobar"}, left: trueMatcher{}, right: &anyNonEmptyStringMatcher{matchNL: true}}},
 		{"^(.*)(bar|b|buzz)(.+)$", &containsStringMatcher{substrings: []string{"bar", "b", "buzz"}, left: trueMatcher{}, right: &anyNonEmptyStringMatcher{matchNL: true}}},
