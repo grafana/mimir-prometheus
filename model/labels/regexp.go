@@ -109,6 +109,10 @@ func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		// Remove any capture operations before trying to optimize the remaining operations.
+		clearCapture(parsed)
+
 		if parsed.Op == syntax.OpConcat {
 			m.prefix, m.suffix, m.contains = optimizeConcatRegex(parsed)
 		}
@@ -642,13 +646,21 @@ func isSimpleConcatenationPattern(re *syntax.Regexp) bool {
 		return false
 	}
 
+	numLiterals := 0
 	for _, re := range re.Sub[1 : len(re.Sub)-1] {
-		if !isMatchAny(re) && !isCaseSensitiveLiteral(re) {
-			return false
+		if !isMatchAny(re) {
+			if !isCaseSensitiveLiteral(re) {
+				return false
+			}
+			numLiterals++
 		}
 	}
 
-	return true
+	// The single case .*-.* is already handled in stringMatcherFromRegexp,
+	// by directly modifying re.Sub to remove subexpressions matching empty strings for concatenations.
+	// Removing such subexpressions can greatly decrease cost estimation,
+	// so we shouldn't skip doing so for an optimization.
+	return numLiterals > 1
 }
 
 func isMatchAny(re *syntax.Regexp) bool {
