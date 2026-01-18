@@ -70,7 +70,8 @@ var matcherTestCases = []struct {
 	{1, "job", MatchRegexp, "(prod-service-05)/((gateway|cortex-gw.*))"},
 	{1, "job", MatchRegexp, "(ops-service-01)/((compactor.*|cortex|mimir))"},
 	{1.1, "namespace", MatchRegexp, "prod-service-06"},
-	{280, "route", MatchRegexp, "(/base.Ruler/Rules|/indexgatewaypb.IndexGateway/GetChunkRef|/indexgatewaypb.IndexGateway/GetSeries|/indexgatewaypb.IndexGateway/GetShards|/indexgatewaypb.IndexGateway/GetStats|/indexgatewaypb.IndexGateway/GetVolume|/indexgatewaypb.IndexGateway/LabelNamesForMetricName|/indexgatewaypb.IndexGateway/LabelValuesForMetricName|/indexgatewaypb.IndexGateway/QueryIndex|/logproto.BloomGateway/FilterChunkRefs|/logproto.Pattern/Query|/logproto.Querier/GetChunkIDs|/logproto.Querier/GetDetectedLabels|/logproto.Querier/GetStats|/logproto.Querier/GetVolume|/logproto.Querier/Label|/logproto.Querier/Query|/logproto.Querier/QuerySample|/logproto.Querier/Series|/logproto.StreamData/GetStreamRates)"},
+	{1, "route", MatchRegexp, "(/base.Ruler/Rules|/indexgatewaypb.IndexGateway/GetChunkRef|/indexgatewaypb.IndexGateway/GetSeries|/indexgatewaypb.IndexGateway/GetShards|/indexgatewaypb.IndexGateway/GetStats|/indexgatewaypb.IndexGateway/GetVolume|/indexgatewaypb.IndexGateway/LabelNamesForMetricName|/indexgatewaypb.IndexGateway/LabelValuesForMetricName|/indexgatewaypb.IndexGateway/QueryIndex|/logproto.BloomGateway/FilterChunkRefs|/logproto.Pattern/Query|/logproto.Querier/GetChunkIDs|/logproto.Querier/GetDetectedLabels|/logproto.Querier/GetStats|/logproto.Querier/GetVolume|/logproto.Querier/Label|/logproto.Querier/Query|/logproto.Querier/QuerySample|/logproto.Querier/Series|/logproto.StreamData/GetStreamRates)"},
+	{279, "route", MatchRegexp, "(base.Ruler/Rules|indexgatewaypb.IndexGateway/GetChunkRef|indexgatewaypb.IndexGateway/GetSeries|indexgatewaypb.IndexGateway/GetShards|indexgatewaypb.IndexGateway/GetStats|indexgatewaypb.IndexGateway/GetVolume|indexgatewaypb.IndexGateway/LabelNamesForMetricName|indexgatewaypb.IndexGateway/LabelValuesForMetricName|indexgatewaypb.IndexGateway/QueryIndex|logproto.BloomGateway/FilterChunkRefs|logproto.Pattern/Query|logproto.Querier/GetChunkIDs|logproto.Querier/GetDetectedLabels|logproto.Querier/GetStats|logproto.Querier/GetVolume|logproto.Querier/Label|logproto.Querier/Query|logproto.Querier/QuerySample|logproto.Querier/Series|logproto.StreamData/GetStreamRates)"},
 
 	// != matchers
 	{1, "job", MatchNotEqual, "integrations/db-o11y"},
@@ -89,9 +90,9 @@ var matcherTestCases = []struct {
 	{2.2, "created_by_kind", MatchNotRegexp, "Job|TaskRun"},
 	{1, "namespace", MatchNotRegexp, "kube-.*"},
 	{2.2, "job", MatchNotRegexp, "(ecs-dockerstats-exporter)|(vmagent)"},
-	{31, "job", MatchNotRegexp, ".*envoy-stats.*"},
+	{11, "job", MatchNotRegexp, ".*envoy-stats.*"},
 	{11, "db_name", MatchNotRegexp, "template.*|^$"},
-	{31, "exported_job", MatchNotRegexp, ".*envoy-stats.*"},
+	{11, "exported_job", MatchNotRegexp, ".*envoy-stats.*"},
 	{5.5, "job", MatchNotRegexp, "integrations/(windows|node_exporter|unix|docker|db-o11y)"},
 	{4.4, "job", MatchNotRegexp, "integrations/(windows|node_exporter|unix|docker)"},
 	{2.2, "k8s_src_owner_type", MatchNotRegexp, "Pod|Node"},
@@ -105,8 +106,8 @@ var matcherTestCases = []struct {
 
 	// long matchers
 	{4, "pod", MatchRegexp, longRegex2},
-	{27569, "pod", MatchRegexp, longRegex3},
-	{9065, "pod", MatchRegexp, longRegex4},
+	{1, "pod", MatchRegexp, longRegex3},
+	{1, "pod", MatchRegexp, longRegex4},
 }
 
 func TestSingleMatchCost(t *testing.T) {
