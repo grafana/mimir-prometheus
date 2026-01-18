@@ -23,7 +23,7 @@ env:
 jobs:
   benchmark_start:
     name: Benchmark Start
-    if: github.event.action == 'prombench_start'
+    if: github.event.action == 'prombench_start' && github.repository == 'prometheus/prometheus'
     runs-on: ubuntu-latest
     steps:
       - name: Update status to pending
@@ -58,7 +58,7 @@ jobs:
           "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$LAST_COMMIT_SHA"
   benchmark_cancel:
     name: Benchmark Cancel
-    if: github.event.action == 'prombench_stop'
+    if: github.event.action == 'prombench_stop' && github.repository == 'prometheus/prometheus'
     runs-on: ubuntu-latest
     steps:
       - name: Update status to pending
@@ -93,7 +93,7 @@ jobs:
           "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$LAST_COMMIT_SHA"
   benchmark_restart:
     name: Benchmark Restart
-    if: github.event.action == 'prombench_restart'
+    if: github.event.action == 'prombench_restart' && github.repository == 'prometheus/prometheus'
     runs-on: ubuntu-latest
     steps:
       - name: Update status to pending
