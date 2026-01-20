@@ -237,7 +237,18 @@ jobs:
             - **Local branch**: `${{ needs.check-merge.outputs.local_branch }}`
             - **Latest upstream commit**: ${{ format('[`{0}`](https://github.com/prometheus/prometheus/commit/{0})', needs.check-merge.outputs.upstream_commit) }}
             - **Latest upstream commit date**: ${{ needs.check-merge.outputs.commit_date }}
+          commit-message: "Empty commit to create branch for conflict resolution"
+          branch: ${{ needs.check-merge.outputs.bot_branch }}
+          base: ${{ needs.check-merge.outputs.local_branch }}
+          delete-branch: false
+          draft: true
 
+      - name: Post merge conflict resolution instructions to PR
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          issue-number: ${{ steps.create-conflict-pr.outputs.pull-request-number }}
+          body: |
             ### Action Required
             This **closed PR** serves as a placeholder that holds the branch and instructions for conflict resolution. Follow these steps to resolve conflicts and reopen this PR:
 
@@ -263,7 +274,7 @@ jobs:
             # 5. Re-open the closed PR
 
             # 6. Post the remerge diff as a comment for reviewers:
-            gh pr comment --body "## Merge Conflict Resolution
+            gh pr comment --repo "${{ github.repository }}" --body "## Merge Conflict Resolution
 
             You can review how conflicts were resolved using:
 
@@ -279,12 +290,7 @@ jobs:
             \`\`\`
 
             </details>"
-            ```
-          commit-message: "Empty commit to create branch for conflict resolution"
-          branch: ${{ needs.check-merge.outputs.bot_branch }}
-          base: ${{ needs.check-merge.outputs.local_branch }}
-          delete-branch: false
-          draft: true
+            ``` ${{ steps.create-conflict-pr.outputs.pull-request-number }}
 
       - name: Close PR by force-pushing to HEAD~1
         run: |
