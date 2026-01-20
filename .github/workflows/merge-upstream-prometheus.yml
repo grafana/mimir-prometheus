@@ -289,8 +289,8 @@ jobs:
             $(git show --remerge-diff)
             \`\`\`
 
-            </details>"
-            ``` ${{ steps.create-conflict-pr.outputs.pull-request-number }}
+            </details>" ${{ steps.create-conflict-pr.outputs.pull-request-number }}
+            ```
 
       - name: Close PR by force-pushing to HEAD~1
         run: |
