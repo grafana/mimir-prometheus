@@ -163,6 +163,9 @@ func (n *Manager) ApplyConfig(conf *config.Config) error {
 		configToAlertmanagers[hash] = oldAmSet
 	}
 
+	// Track which old alertmanagerSets had their sendLoops transferred to a new set.
+	consumedOldSets := make(map[*alertmanagerSet]bool)
+
 	for k, cfg := range conf.AlertingConfig.AlertmanagerConfigs.ToMap() {
 		ams, err := newAlertmanagerSet(cfg, n.opts, n.logger, n.metrics)
 		if err != nil {
@@ -178,14 +181,17 @@ func (n *Manager) ApplyConfig(conf *config.Config) error {
 			ams.ams = oldAmSet.ams
 			ams.droppedAms = oldAmSet.droppedAms
 			ams.sendLoops = oldAmSet.sendLoops
+			consumedOldSets[oldAmSet] = true
 		}
 
 		amSets[k] = ams
 	}
 
-	// Clean up the send loops of sets that don't exist in the new config.
-	for k, oldAmSet := range n.alertmanagers {
-		if _, exists := amSets[k]; !exists {
+	// Clean up the send loops of old sets that weren't consumed (sendLoops not transferred).
+	// This handles both: sets whose key doesn't exist in new config, and sets whose key exists
+	// but config hash changed (meaning sendLoops weren't transferred to the new set).
+	for _, oldAmSet := range n.alertmanagers {
+		if !consumedOldSets[oldAmSet] {
 			oldAmSet.mtx.Lock()
 			oldAmSet.cleanSendLoops(oldAmSet.ams...)
 			oldAmSet.mtx.Unlock()
