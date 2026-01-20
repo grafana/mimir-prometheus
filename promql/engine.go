@@ -2982,7 +2982,12 @@ func (ev *evaluator) VectorBinop(op parser.ItemType, lhs, rhs Vector, matching *
 
 		rs, found := rightSigs[sigOrd] // Look for a match in the rhs Vector.
 		if !found {
+			// After the swap for CardOneToMany, physical rhs is original LHS,
+			// so we need to use FillValues.LHS instead of FillValues.RHS.
 			fill := matching.FillValues.RHS
+			if matching.Card == parser.CardOneToMany {
+				fill = matching.FillValues.LHS
+			}
 			if fill == nil {
 				continue
 			}
@@ -2997,7 +3002,13 @@ func (ev *evaluator) VectorBinop(op parser.ItemType, lhs, rhs Vector, matching *
 
 	// For any rhs samples which have not been matched, check if we need to
 	// perform the operation with a fill value from the lhs.
-	if fill := matching.FillValues.LHS; fill != nil {
+	// After the swap for CardOneToMany, physical rhs is original LHS,
+	// so we need to use FillValues.RHS instead of FillValues.LHS.
+	fill := matching.FillValues.LHS
+	if matching.Card == parser.CardOneToMany {
+		fill = matching.FillValues.RHS
+	}
+	if fill != nil {
 		for sigOrd, rs := range rightSigs {
 			if _, matched := matchedSigs[sigOrd]; matched {
 				continue // Already matched.
