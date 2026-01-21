@@ -387,7 +387,7 @@ func (w *Writer) cut() error {
 		return err
 	}
 
-	n, f, _, err := cutSegmentFile(w.dirFile, MagicChunks, chunksFormatV1, w.segmentSize)
+	n, f, _, err := cutSegmentFile(w.dirFile, MagicChunks, chunksFormatV1, w.segmentSize, 0)
 	if err != nil {
 		return err
 	}
@@ -419,10 +419,19 @@ func (w *Writer) cut() error {
 	return nil
 }
 
-func cutSegmentFile(dirFile *os.File, magicNumber uint32, chunksFormat byte, allocSize int64) (headerSize int, newFile *os.File, seq int, returnErr error) {
-	p, seq, err := nextSequenceFile(dirFile.Name())
-	if err != nil {
-		return 0, nil, 0, fmt.Errorf("next sequence file: %w", err)
+func cutSegmentFile(dirFile *os.File, magicNumber uint32, chunksFormat byte, allocSize int64, expectedSeq int) (headerSize int, newFile *os.File, seq int, returnErr error) {
+	var p string
+	var err error
+	if expectedSeq > 0 {
+		// Use the pre-allocated sequence number to avoid race conditions
+		seq = expectedSeq
+		p = segmentFile(dirFile.Name(), seq)
+	} else {
+		// Scan directory to find next sequence (legacy behavior for persisted blocks)
+		p, seq, err = nextSequenceFile(dirFile.Name())
+		if err != nil {
+			return 0, nil, 0, fmt.Errorf("next sequence file: %w", err)
+		}
 	}
 	ptmp := p + ".tmp"
 	f, err := os.OpenFile(ptmp, os.O_WRONLY|os.O_CREATE, 0o666)
