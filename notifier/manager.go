@@ -151,7 +151,6 @@ func (n *Manager) ApplyConfig(conf *config.Config) error {
 		}
 	}
 
-	amSets := make(map[string]*alertmanagerSet)
 	// configToAlertmanagers maps alertmanager sets for each unique AlertmanagerConfig,
 	// helping to avoid dropping known alertmanagers and re-use them without waiting for SD updates when applying the config.
 	configToAlertmanagers := make(map[string]*alertmanagerSet, len(n.alertmanagers))
@@ -163,6 +162,16 @@ func (n *Manager) ApplyConfig(conf *config.Config) error {
 		configToAlertmanagers[hash] = oldAmSet
 	}
 
+	// Phase 1: Create all new alertmanagerSets and compute their hashes.
+	// This phase can fail, but no sendLoops have been transferred yet,
+	// so we can safely return early without leaking goroutines.
+	type amSetWithHash struct {
+		key  string
+		ams  *alertmanagerSet
+		hash string
+	}
+	newAmSets := make([]amSetWithHash, 0, len(conf.AlertingConfig.AlertmanagerConfigs.ToMap()))
+
 	for k, cfg := range conf.AlertingConfig.AlertmanagerConfigs.ToMap() {
 		ams, err := newAlertmanagerSet(cfg, n.opts, n.logger, n.metrics)
 		if err != nil {
@@ -173,6 +182,17 @@ func (n *Manager) ApplyConfig(conf *config.Config) error {
 		if err != nil {
 			return err
 		}
+
+		newAmSets = append(newAmSets, amSetWithHash{key: k, ams: ams, hash: hash})
+	}
+
+	// Phase 2: Transfer sendLoops from old sets to new sets.
+	// This phase only executes after all new sets are successfully created,
+	// ensuring we don't leak sendLoop goroutines on early return.
+	amSets := make(map[string]*alertmanagerSet)
+	for _, item := range newAmSets {
+		ams := item.ams
+		hash := item.hash
 
 		if oldAmSet, ok := configToAlertmanagers[hash]; ok {
 			ams.ams = oldAmSet.ams
@@ -191,7 +211,7 @@ func (n *Manager) ApplyConfig(conf *config.Config) error {
 			oldAmSet.mtx.Unlock()
 		}
 
-		amSets[k] = ams
+		amSets[item.key] = ams
 	}
 
 	// Clean up sendLoops that weren't transferred to new config.
