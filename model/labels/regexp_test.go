@@ -40,6 +40,9 @@ var (
 		"foo()",
 		"^foo",
 		"(foo|bar)",
+		".*foo.*|bar.*",
+		"foo.*|.*bar.*",
+		".*foo.*|.*bar.*",
 		"foo.*",
 		".*foo",
 		"^.*foo$",
@@ -105,6 +108,7 @@ var (
 		"((.*))(?i:f)((.*))o((.*))o((.*))",
 		"((.*))f((.*))(?i:o)((.*))o((.*))",
 		"(.*0.*)",
+		".*zQPbMkNO.*|.*NNSPdvMi.*|.*iWuuSoAl.*|.*qbvKMimS.*|.*IecrXtPa.*|.*seTckYqt.*|.*NxnyHkgB.*|.*fIDlOgKb.*|.*UhlWIygH.*|.*OtNoJxHG.*|.*cUTkFVIV.*|.*mTgFIHjr.*|.*jQkoIDtE.*|.*PPMKxRXl.*|.*AwMfwVkQ.*|.*CQyMrTQJ.*|.*BzrqxVSi.*|.*nTpcWuhF.*|.*PertdywG.*|.*ZZDgCtXN.*|.*WWdDPyyE.*|.*uVtNQsKk.*|.*BdeCHvPZ.*|.*wshRnFlH.*|.*aOUIitIp.*|.*RxZeCdXT.*|.*CFZMslCj.*|.*AVBZRDxl.*|.*IzIGCnhw.*|.*ythYuWiz.*|.*oztXVXhl.*|.*VbLkwqQx.*|.*qvaUgyVC.*|.*VawUjPWC.*|.*ecloYJuj.*|.*boCLTdSU.*|.*uPrKeAZx.*|.*hrMWLWBq.*|.*JOnUNHRM.*|.*rYnujkPq.*|.*dDEdZhIj.*|.*DRrfvugG.*|.*yEGfDxVV.*|.*YMYdJWuP.*|.*PHUQZNWM.*|.*AmKNrLis.*|.*zTxndVfn.*|.*FPsHoJnc.*|.*EIulZTua.*|.*KlAPhdzg.*|.*ScHJJCLt.*|.*NtTfMzME.*|.*eMCwuFdo.*|.*SEpJVJbR.*|.*cdhXZeCx.*|.*sAVtBwRh.*|.*kVFEVcMI.*|.*jzJrxraA.*|.*tGLHTell.*|.*NNWoeSaw.*|.*DcOKSetX.*|.*UXZAJyka.*|.*THpMphDP.*|.*rizheevl.*|.*kDCBRidd.*|.*pCZZRqyu.*|.*pSygkitl.*|.*SwZGkAaW.*|.*wILOrfNX.*|.*QkwVOerj.*|.*kHOMxPDr.*|.*EwOVycJv.*|.*AJvtzQFS.*|.*yEOjKYYB.*|.*LizIINLL.*|.*JBRSsfcG.*|.*YPiUqqNl.*|.*IsdEbvee.*|.*MjEpGcBm.*|.*OxXZVgEQ.*|.*xClXGuxa.*|.*UzRCGFEb.*|.*buJbvfvA.*|.*IPZQxRet.*|.*oFYShsMc.*|.*oBHffuHO.*|.*bzzKrcBR.*|.*KAjzrGCl.*|.*IPUsAVls.*|.*OGMUMbIU.*|.*gyDccHuR.*|.*bjlalnDd.*|.*ZLWjeMna.*|.*fdsuIlxQ.*|.*dVXtiomV.*|.*XxedTjNg.*|.*XWMHlNoA.*|.*nnyqArQX.*|.*opfkWGhb.*|.*wYtnhdYb.*",
 	}
 	values = []string{
 		"foo", " foo bar", "bar", "buzz\nbar", "bar foo", "bfoo", "\n", "\nfoo", "foo\n", "hello foo world", "hello foo\n world", "",
@@ -549,6 +553,7 @@ func TestNewFastRegexMatcher(t *testing.T) {
 		{"(?s)(ext.?|xfs)", orStringMatcher{&literalPrefixSensitiveStringMatcher{prefix: "ext", right: &zeroOrOneCharacterStringMatcher{matchNL: true}}, &equalStringMatcher{s: "xfs", caseSensitive: true}}},
 		{"foo.?", &literalPrefixSensitiveStringMatcher{prefix: "foo", right: &zeroOrOneCharacterStringMatcher{matchNL: true}}},
 		{"f.?o", nil},
+		{".*foo.*|.*bar.*|.*baz.*", &containsStringMatcher{left: trueMatcher{}, substrings: []string{"bar", "baz", "foo"}, right: trueMatcher{}}},
 	} {
 		t.Run(c.pattern, func(t *testing.T) {
 			t.Parallel()

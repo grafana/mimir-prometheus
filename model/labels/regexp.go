@@ -14,6 +14,7 @@
 package labels
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -105,6 +106,9 @@ func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 		if err != nil {
 			return nil, err
 		}
+
+		parsed = optimizeAlternatingSimpleContains(parsed)
+
 		m.re, err = regexp.Compile("^(?s:" + parsed.String() + ")$")
 		if err != nil {
 			return nil, err
@@ -414,6 +418,38 @@ func optimizeAlternatingLiterals(s string) (StringMatcher, []string) {
 	multiMatcher.add(s)
 
 	return multiMatcher, multiMatcher.setMatches()
+}
+
+// optimizeAlternatingSimpleContains checks to see if a regex is a series of alternations that take the form .*literal.*
+// In these cases, the regex itself can be rewritten as .*(foo|bar).*,
+// which can result in a significant performance improvement at execution.
+func optimizeAlternatingSimpleContains(r *syntax.Regexp) *syntax.Regexp {
+	if r.Op != syntax.OpAlternate {
+		return r
+	}
+	containsStrings := make([]string, 0, len(r.Sub))
+	for _, sub := range r.Sub {
+		// If any subexpression does not take the form .*literal.*, we should not try to optimize this
+		if sub.Op != syntax.OpConcat || len(sub.Sub) != 3 {
+			return r
+		}
+		concatSubs := sub.Sub
+		if isCaseSensitiveLiteral(concatSubs[1]) && isMatchAny(concatSubs[0]) && isMatchAny(concatSubs[2]) {
+			containsStrings = append(containsStrings, concatSubs[1].String())
+		} else {
+			return r
+		}
+	}
+
+	if len(containsStrings) > 0 {
+		newRegex := fmt.Sprintf(".*(?:%v).*", strings.Join(containsStrings, "|"))
+		parsed, err := syntax.Parse(newRegex, syntax.Perl|syntax.DotNL)
+		if err != nil {
+			return r
+		}
+		return parsed
+	}
+	return r
 }
 
 // optimizeConcatRegex returns literal prefix/suffix text that can be safely
