@@ -2229,9 +2229,7 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 			continue
 		}
 
-		if value.IsStaleNaN(series.lastValue) ||
-			(series.lastHistogramValue != nil && value.IsStaleNaN(series.lastHistogramValue.Sum)) ||
-			(series.lastFloatHistogramValue != nil && value.IsStaleNaN(series.lastFloatHistogramValue.Sum)) {
+		if series.isStale() {
 			staleSeriesDeleted++
 		}
 
@@ -2292,11 +2290,7 @@ func (s *stripeSeries) gcStaleSeries(seriesRefs []storage.SeriesRef, maxt int64)
 		}
 
 		// Check if the series is still stale.
-		isStale := value.IsStaleNaN(series.lastValue) ||
-			(series.lastHistogramValue != nil && value.IsStaleNaN(series.lastHistogramValue.Sum)) ||
-			(series.lastFloatHistogramValue != nil && value.IsStaleNaN(series.lastFloatHistogramValue.Sum))
-
-		if !isStale {
+		if !series.isStale() {
 			return
 		}
 
@@ -2526,6 +2520,13 @@ func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, shardHash uint64,
 		s.txs = newTxRing(0)
 	}
 	return s
+}
+
+// isStale returns true if the series' last sample is a stale marker.
+func (s *memSeries) isStale() bool {
+	return value.IsStaleNaN(s.lastValue) ||
+		(s.lastHistogramValue != nil && value.IsStaleNaN(s.lastHistogramValue.Sum)) ||
+		(s.lastFloatHistogramValue != nil && value.IsStaleNaN(s.lastFloatHistogramValue.Sum))
 }
 
 func (s *memSeries) minTime() int64 {
