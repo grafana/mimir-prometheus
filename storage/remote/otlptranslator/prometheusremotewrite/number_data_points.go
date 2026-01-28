@@ -85,9 +85,9 @@ func (c *PrometheusConverter) addSumNumberDataPoints(ctx context.Context, dataPo
 			model.MetricNameLabel,
 			meta.MetricFamilyName,
 		)
-		if err != nil {
-			return nil
-		}
+	if err != nil {
+		return err
+	}
 		var val float64
 		switch pt.ValueType() {
 		case pmetric.NumberDataPointValueTypeInt:
