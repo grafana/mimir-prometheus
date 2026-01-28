@@ -434,14 +434,14 @@ func optimizeAlternatingSimpleContains(r *syntax.Regexp) *syntax.Regexp {
 			return r
 		}
 		concatSubs := sub.Sub
-		if isCaseSensitiveLiteral(concatSubs[1]) && isMatchAny(concatSubs[0]) && isMatchAny(concatSubs[2]) {
-			containsStrings = append(containsStrings, concatSubs[1].String())
-		} else {
+		if !(isCaseSensitiveLiteral(concatSubs[1]) && isMatchAny(concatSubs[0]) && isMatchAny(concatSubs[2])) {
 			return r
 		}
+		containsStrings = append(containsStrings, concatSubs[1].String())
 	}
 
-	if len(containsStrings) > 0 {
+	// Only rewrite the regex if there's more than one literal
+	if len(containsStrings) > 1 {
 		newRegex := fmt.Sprintf(".*(?:%v).*", strings.Join(containsStrings, "|"))
 		parsed, err := syntax.Parse(newRegex, syntax.Perl|syntax.DotNL)
 		if err != nil {
