@@ -31,7 +31,7 @@ var matcherTestCases = []struct {
 	t    MatchType
 	v    string
 }{
-	// = matchers
+	//= matchers
 	{1, "__name__", MatchEqual, "mimir_target_series_per_ingester"},
 	{1, "__name__", MatchEqual, "cortex_partition_ring_partitions"},
 	{1, "container", MatchEqual, "distributor"},
@@ -68,7 +68,7 @@ var matcherTestCases = []struct {
 	{1.1, "namespace", MatchRegexp, "ops-service-01"},
 	{4.4, "route", MatchRegexp, "api_(v1|prom)_push|otlp_v1_metrics|api_v1_push_influx_write"},
 	{7, "route", MatchRegexp, ".*v1.*|.*prom.*"},
-	{14, "__name__", MatchRegexp, ".*foo.*|.*bar.*|.*baz.*|.*barn.*|.*bank.*"},
+	{18, "__name__", MatchRegexp, ".*foo.*|.*bar.*|.*baz.*|.*barn.*|.*bank.*"},
 	{1, "job", MatchRegexp, "(prod-service-05)/((gateway|cortex-gw.*))"},
 	{1, "job", MatchRegexp, "(ops-service-01)/((compactor.*|cortex|mimir))"},
 	{1.1, "namespace", MatchRegexp, "prod-service-06"},
