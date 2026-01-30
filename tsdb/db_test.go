@@ -443,6 +443,207 @@ func TestDataNotAvailableAfterRollback(t *testing.T) {
 	require.Equal(t, 0, walFloatHistogramCount, "float histograms should not have been written to WAL")
 }
 
+func TestDBAppenderBatchSeriesRefs(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	ctx := context.Background()
+	app1 := db.Appender(ctx)
+	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
+	require.True(t, ok)
+
+	lset1 := labels.FromStrings("a", "b")
+	entries1 := batchApp1.BatchSeriesRefs([]labels.Labels{lset1}, nil)
+	require.NotZero(t, entries1[0])
+	require.True(t, labels.Equal(entries1[0].Labels, lset1))
+
+	// Reference should already work before commit.
+	ref1 := entries1[0].Ref
+	ref2, err := app1.Append(ref1, labels.EmptyLabels(), 124, 1)
+	require.NoError(t, err)
+	require.Equal(t, ref1, ref2)
+
+	err = app1.Commit()
+	require.NoError(t, err)
+
+	app2 := db.Appender(ctx)
+	batchApp2, ok := app2.(storage.BatchSeriesReferencer)
+	require.True(t, ok)
+
+	lset2 := labels.FromStrings("a", "c")
+	lset3 := labels.FromStrings("x", "y")
+	entries2 := batchApp2.BatchSeriesRefs([]labels.Labels{lset1, lset2, lset3, labels.EmptyLabels()}, nil)
+	require.Equal(t, entries1[0], entries2[0])
+	require.NotEqual(t, entries1[0], entries2[2])
+	require.Zero(t, entries2[3], "Empty labels should not create a new series")
+
+	// first refs should already work in next transaction.
+	ref3, err := app2.Append(ref1, labels.EmptyLabels(), 125, 0)
+	require.NoError(t, err)
+	require.Equal(t, ref1, ref3)
+
+	ref4, err := app2.Append(entries2[1].Ref, labels.EmptyLabels(), 143, 2)
+	require.NoError(t, err)
+	require.Equal(t, entries2[1].Ref, ref4)
+	require.True(t, labels.Equal(entries2[1].Labels, lset2))
+
+	require.NoError(t, app2.Commit())
+
+	q, err := db.Querier(0, 200)
+	require.NoError(t, err)
+
+	res := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "a", ".+"))
+
+	require.Equal(t, map[string][]chunks.Sample{
+		lset1.String(): {
+			sample{t: 124, f: 1},
+			sample{t: 125, f: 0},
+		},
+		lset2.String(): {
+			sample{t: 143, f: 2},
+		},
+	}, res)
+}
+
+func TestBatchDBAppenderBatchSeriesRefsCopiesLabels(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	ctx := context.Background()
+	app1 := db.Appender(ctx)
+	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
+	require.True(t, ok)
+
+	unsafeMutableLabels := labels.EmptyLabels()
+	b := labels.NewScratchBuilder(0)
+	b.Add("a", "1")
+	b.Overwrite(&unsafeMutableLabels)
+
+	entries1 := batchApp1.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
+	require.NotZero(t, entries1[0])
+	require.True(t, labels.Equal(entries1[0].Labels, unsafeMutableLabels))
+
+	// Overwrite previous labels with x=y, that shouldn't affect the labels we were given.
+	b.Reset()
+	b.Add("x", "y")
+	b.Overwrite(&unsafeMutableLabels)
+	require.False(t, labels.Equal(unsafeMutableLabels, entries1[0].Labels))
+
+	// Reference should already work before commit.
+	ref1 := entries1[0].Ref
+	ref2, err := app1.Append(ref1, labels.EmptyLabels(), 124, 1)
+	require.NoError(t, err)
+	require.Equal(t, ref1, ref2)
+
+	err = app1.Commit()
+	require.NoError(t, err)
+
+	// Check that overwritten labels create new series
+	app2 := db.Appender(ctx)
+	batchApp2, ok := app2.(storage.BatchSeriesReferencer)
+	require.True(t, ok)
+	entries2 := batchApp2.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
+	require.NotEqual(t, entries2[0], entries1[0])
+	require.True(t, labels.Equal(entries2[0].Labels, unsafeMutableLabels))
+	require.NoError(t, app2.Commit())
+
+	// Make sure index got the copies of the labels (they were not corrupted).
+	q, err := db.Querier(0, 200)
+	require.NoError(t, err)
+	lvs, _, err := q.LabelValues(ctx, "a", nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1"}, lvs)
+}
+
+func TestBatchDBAppenderBatchSeriesRefsReturnsLabelsFromStorage(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	ctx := context.Background()
+	app1 := db.Appender(ctx)
+	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
+	require.True(t, ok)
+
+	unsafeMutableLabels := labels.EmptyLabels()
+	b := labels.NewScratchBuilder(0)
+	b.Add("a", "1")
+	b.Overwrite(&unsafeMutableLabels)
+
+	entries1 := batchApp1.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
+	require.NotZero(t, entries1[0])
+	require.True(t, labels.Equal(entries1[0].Labels, unsafeMutableLabels))
+
+	require.NoError(t, app1.Commit())
+
+	// Retrieve same labels again, they should exist now.
+	app2 := db.Appender(ctx)
+	batchApp2, ok := app2.(storage.BatchSeriesReferencer)
+	require.True(t, ok)
+	entries2 := batchApp2.BatchSeriesRefs([]labels.Labels{unsafeMutableLabels}, nil)
+	require.Equal(t, entries2[0], entries1[0])
+	require.True(t, labels.Equal(entries2[0].Labels, unsafeMutableLabels))
+
+	// Overwrite previous labels with x=y, that shouldn't affect the labels we were given.
+	b.Reset()
+	b.Add("a", "2")
+	b.Overwrite(&unsafeMutableLabels)
+	require.False(t, labels.Equal(unsafeMutableLabels, entries2[0].Labels))
+
+	require.NoError(t, app2.Commit())
+
+	// Make sure index got the copies of the labels (they were not corrupted).
+	q, err := db.Querier(0, 200)
+	require.NoError(t, err)
+	lvs, _, err := q.LabelValues(ctx, "a", nil)
+	require.NoError(t, err)
+	require.Equal(t, []string{"1"}, lvs)
+}
+
+func TestBatchDBAppenderBatchSeriesRefsTracksCreatedSeriesInWAL(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	db.head.initTime(0)
+	dbDir := db.Dir()
+	ctx := context.Background()
+
+	lbls := labels.FromStrings("labelname", "labelvalue")
+
+	// Append to that DB and close it.
+	{
+		app := db.Appender(ctx)
+		batchApp, ok := app.(storage.BatchSeriesReferencer)
+		require.True(t, ok)
+
+		refs := batchApp.BatchSeriesRefs([]labels.Labels{lbls}, nil)
+		require.NotZero(t, refs[0])
+		_, err := app.Append(refs[0].Ref, labels.EmptyLabels(), 0, 1)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		require.NoError(t, db.Close())
+	}
+
+	// Open again, series should be present.
+	db, err := Open(dbDir, nil, nil, nil, nil)
+	require.NoError(t, err)
+	defer func() { require.NoError(t, db.Close()) }()
+
+	q, err := db.Querier(0, 1)
+	require.NoError(t, err)
+
+	values, ws, err := q.LabelValues(ctx, "labelname", nil)
+	require.NoError(t, err)
+	require.Empty(t, ws)
+	require.Equal(t, []string{"labelvalue"}, values)
+}
+
 func TestDBAppenderAddRef(t *testing.T) {
 	db := newTestDB(t)
 
@@ -515,6 +716,29 @@ func TestAppendEmptyLabelsIgnored(t *testing.T) {
 	require.Equal(t, ref1, ref2)
 
 	err = app1.Commit()
+	require.NoError(t, err)
+}
+
+func TestBatchSeriesRefsEmptyLabelsIgnored(t *testing.T) {
+	db := openTestDB(t, nil, nil)
+	db.head.initTime(123)
+	defer func() {
+		require.NoError(t, db.Close())
+	}()
+
+	ctx := context.Background()
+	app1 := db.Appender(ctx)
+	batchApp1, ok := app1.(storage.BatchSeriesReferencer)
+	require.True(t, ok)
+
+	lset1 := labels.FromStrings("a", "b")
+	lset2 := labels.FromStrings("a", "b", "c", "")
+
+	entries := batchApp1.BatchSeriesRefs([]labels.Labels{lset1, lset2}, nil)
+	require.Len(t, entries, 2)
+	require.Equal(t, entries[0], entries[1])
+
+	err := app1.Commit()
 	require.NoError(t, err)
 }
 
