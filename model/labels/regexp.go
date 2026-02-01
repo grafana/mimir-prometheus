@@ -14,7 +14,6 @@
 package labels
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 	"time"
@@ -427,7 +426,7 @@ func optimizeAlternatingSimpleContains(r *syntax.Regexp) *syntax.Regexp {
 	if r.Op != syntax.OpAlternate {
 		return r
 	}
-	containsStrings := make([]string, 0, len(r.Sub))
+	containsLiterals := make([]*syntax.Regexp, 0, len(r.Sub))
 	for _, sub := range r.Sub {
 		// If any subexpression does not take the form .*literal.*, we should not try to optimize this
 		if sub.Op != syntax.OpConcat || len(sub.Sub) != 3 {
@@ -437,17 +436,23 @@ func optimizeAlternatingSimpleContains(r *syntax.Regexp) *syntax.Regexp {
 		if !(isCaseSensitiveLiteral(concatSubs[1]) && isMatchAny(concatSubs[0]) && isMatchAny(concatSubs[2])) {
 			return r
 		}
-		containsStrings = append(containsStrings, concatSubs[1].String())
+		containsLiterals = append(containsLiterals, concatSubs[1])
 	}
 
 	// Only rewrite the regex if there's more than one literal
-	if len(containsStrings) > 1 {
-		newRegex := fmt.Sprintf(".*(?:%v).*", strings.Join(containsStrings, "|"))
-		parsed, err := syntax.Parse(newRegex, syntax.Perl|syntax.DotNL)
-		if err != nil {
-			return r
+	if len(containsLiterals) > 1 {
+		returnRegex := &syntax.Regexp{Op: syntax.OpConcat}
+		anyMatcher := &syntax.Regexp{Op: syntax.OpStar, Sub: []*syntax.Regexp{{Op: syntax.OpAnyChar}}, Flags: syntax.Perl | syntax.DotNL}
+		alts := &syntax.Regexp{Op: syntax.OpAlternate}
+		for _, alt := range containsLiterals {
+			alts.Sub = append(alts.Sub, alt)
 		}
-		return parsed
+		returnRegex.Sub = []*syntax.Regexp{
+			anyMatcher,
+			alts,
+			anyMatcher,
+		}
+		return returnRegex
 	}
 	return r
 }
