@@ -433,7 +433,7 @@ func optimizeAlternatingSimpleContains(r *syntax.Regexp) *syntax.Regexp {
 			return r
 		}
 		concatSubs := sub.Sub
-		if !(isCaseSensitiveLiteral(concatSubs[1]) && isMatchAny(concatSubs[0]) && isMatchAny(concatSubs[2])) {
+		if !isCaseSensitiveLiteral(concatSubs[1]) || !isMatchAny(concatSubs[0]) || !isMatchAny(concatSubs[2]) {
 			return r
 		}
 		containsLiterals = append(containsLiterals, concatSubs[1])
@@ -444,9 +444,7 @@ func optimizeAlternatingSimpleContains(r *syntax.Regexp) *syntax.Regexp {
 		returnRegex := &syntax.Regexp{Op: syntax.OpConcat}
 		anyMatcher := &syntax.Regexp{Op: syntax.OpStar, Sub: []*syntax.Regexp{{Op: syntax.OpAnyChar}}, Flags: syntax.Perl | syntax.DotNL}
 		alts := &syntax.Regexp{Op: syntax.OpAlternate}
-		for _, alt := range containsLiterals {
-			alts.Sub = append(alts.Sub, alt)
-		}
+		alts.Sub = append(alts.Sub, containsLiterals...)
 		returnRegex.Sub = []*syntax.Regexp{
 			anyMatcher,
 			alts,

@@ -1760,15 +1760,15 @@ func visitStringMatcher(matcher StringMatcher, callback func(matcher StringMatch
 
 func TestToNormalisedLower(t *testing.T) {
 	testCases := map[string]string{
-		"foo":                       "foo",
-		"FOO":                       "foo",
-		"Foo":                       "foo",
-		"foO":                       "foo",
-		"fOo":                       "foo",
-		"AAAAAAAAAAAAAAAAAAAAAAAA":  "aaaaaaaaaaaaaaaaaaaaaaaa",
-		"cccccccccccccccccccccccC":  "cccccccccccccccccccccccc",
+		"foo":                      "foo",
+		"FOO":                      "foo",
+		"Foo":                      "foo",
+		"foO":                      "foo",
+		"fOo":                      "foo",
+		"AAAAAAAAAAAAAAAAAAAAAAAA": "aaaaaaaaaaaaaaaaaaaaaaaa",
+		"cccccccccccccccccccccccC": "cccccccccccccccccccccccc",
 		"ſſſſſſſſſſſſſſſſſſſſſſſſS": "sssssssssssssssssssssssss",
-		"ſſAſſa":                    "ssassa",
+		"ſſAſſa": "ssassa",
 	}
 	for input, expectedOutput := range testCases {
 		require.Equal(t, expectedOutput, toNormalisedLower(input, nil))

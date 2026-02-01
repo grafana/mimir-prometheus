@@ -31,7 +31,7 @@ var matcherTestCases = []struct {
 	t    MatchType
 	v    string
 }{
-	//= matchers
+	// = matchers
 	{1, "__name__", MatchEqual, "mimir_target_series_per_ingester"},
 	{1, "__name__", MatchEqual, "cortex_partition_ring_partitions"},
 	{1, "container", MatchEqual, "distributor"},
