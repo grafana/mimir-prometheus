@@ -210,6 +210,10 @@ func (*FakeChunkSeries) Iterator(_ chunks.Iterator) chunks.Iterator {
 	return &FakeChunkSeriesIterator{}
 }
 
+func (*FakeChunkSeries) ChunkCount() (int, error) {
+	return 0, nil
+}
+
 // FakeChunkSeriesIterator implements chunks.Iterator.
 type FakeChunkSeriesIterator struct{}
 
