@@ -623,13 +623,13 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 						lbls.Range(func(l labels.Label) {
 							lbl = l
 						})
-				samples, err := queryHead(t, head, int64(ts-qryRange), int64(ts), lbl)
+						samples, err := queryHead(t, head, int64(ts-qryRange), int64(ts), lbl)
 						if err != nil {
 							return false, err
 						}
 
 						if len(samples) != 1 {
-					return false, fmt.Errorf("expected 1 sample, got %d", len(samples))
+							return false, fmt.Errorf("expected 1 sample, got %d", len(samples))
 						}
 
 						series := lbls.String()
