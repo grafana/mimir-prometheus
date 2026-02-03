@@ -265,7 +265,6 @@ func (app *otlpInstrumentedAppender) Append(ref storage.SeriesRef, ls labels.Lab
 			return ref, err
 		}
 		app.outOfOrderExemplars.Add(float64(len(partialErr.ExemplarErrors)))
-		return ref, err
 	}
 	if opts.Metadata.IsEmpty() {
 		app.samplesAppendedWithoutMetadata.Inc()

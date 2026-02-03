@@ -299,8 +299,7 @@ func (c *PrometheusConverter) addHistogramDataPoints(
 		}
 
 		appOpts.Exemplars = exemplars[nextExemplarIdx:]
-		// add
-		// le=+Inf bucket
+		// Add le=+Inf bucket.
 		val = float64(pt.Count())
 		if pt.Flags().NoRecordedValue() {
 			val = math.Float64frombits(value.StaleNaN)
