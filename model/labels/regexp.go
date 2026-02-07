@@ -442,13 +442,14 @@ func optimizeAlternatingSimpleContains(r *syntax.Regexp) *syntax.Regexp {
 	// Only rewrite the regex if there's more than one literal
 	if len(containsLiterals) > 1 {
 		returnRegex := &syntax.Regexp{Op: syntax.OpConcat}
-		anyMatcher := &syntax.Regexp{Op: syntax.OpStar, Sub: []*syntax.Regexp{{Op: syntax.OpAnyChar}}, Flags: syntax.Perl | syntax.DotNL}
+		prefixAnyMatcher := &syntax.Regexp{Op: syntax.OpStar, Sub: []*syntax.Regexp{{Op: syntax.OpAnyChar}}, Flags: syntax.Perl | syntax.DotNL}
+		suffixAnyMatcher := &syntax.Regexp{Op: syntax.OpStar, Sub: []*syntax.Regexp{{Op: syntax.OpAnyChar}}, Flags: syntax.Perl | syntax.DotNL}
 		alts := &syntax.Regexp{Op: syntax.OpAlternate}
-		alts.Sub = append(alts.Sub, containsLiterals...)
+		alts.Sub = containsLiterals
 		returnRegex.Sub = []*syntax.Regexp{
-			anyMatcher,
+			prefixAnyMatcher,
 			alts,
-			anyMatcher,
+			suffixAnyMatcher,
 		}
 		return returnRegex
 	}
