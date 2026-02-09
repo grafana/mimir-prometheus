@@ -36,6 +36,7 @@ import (
 	"time"
 
 	"github.com/alecthomas/units"
+	"github.com/felixge/fgprof"
 	"github.com/grafana/regexp"
 	"github.com/mwitkow/go-conntrack"
 	remoteapi "github.com/prometheus/client_golang/exp/api/remote"
@@ -111,6 +112,8 @@ const (
 	Ready
 	Stopping
 )
+
+var fgprofHandler = fgprof.Handler()
 
 // withStackTracer logs the stack trace in case the request panics. The function
 // will re-raise the error which will then be handled by the net/http package.
@@ -356,9 +359,12 @@ func New(logger *slog.Logger, o *Options) *Handler {
 	factoryAr := func(context.Context) api_v1.AlertmanagerRetriever { return h.notifier }
 	FactoryRr := func(context.Context) api_v1.RulesRetriever { return h.ruleManager }
 
-	var app storage.Appendable
+	var (
+		app   storage.Appendable
+		appV2 storage.AppendableV2
+	)
 	if o.EnableRemoteWriteReceiver || o.EnableOTLPWriteReceiver {
-		app = h.storage
+		app, appV2 = h.storage, h.storage
 	}
 
 	version := ""
@@ -366,7 +372,7 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		version = o.Version.Version
 	}
 
-	h.apiV1 = api_v1.NewAPI(h.queryEngine, h.storage, app, h.exemplarStorage, factorySPr, factoryTr, factoryAr,
+	h.apiV1 = api_v1.NewAPI(h.queryEngine, h.storage, app, appV2, h.exemplarStorage, factorySPr, factoryTr, factoryAr,
 		func() config.Config {
 			h.mtx.RLock()
 			defer h.mtx.RUnlock()
@@ -615,6 +621,8 @@ func serveDebug(w http.ResponseWriter, req *http.Request) {
 		pprof.Symbol(w, req)
 	case "trace":
 		pprof.Trace(w, req)
+	case "fgprof":
+		fgprofHandler.ServeHTTP(w, req)
 	default:
 		req.URL.Path = "/debug/pprof/" + subpath
 		pprof.Index(w, req)
