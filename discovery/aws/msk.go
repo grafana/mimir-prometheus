@@ -385,6 +385,12 @@ func (d *MSKDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, error
 		go func(cluster types.Cluster) {
 			defer wg.Done()
 
+			// Skip non-provisioned clusters (e.g., serverless) as they don't have the required fields.
+			if cluster.Provisioned == nil {
+				d.logger.Debug("Skipping non-provisioned cluster", "cluster", aws.ToString(cluster.ClusterName), "type", cluster.ClusterType)
+				return
+			}
+
 			nodes, err := d.listNodes(ctx, aws.ToString(cluster.ClusterArn))
 			if err != nil {
 				d.logger.Error("Failed to list nodes", "cluster", aws.ToString(cluster.ClusterName), "error", err)
@@ -393,18 +399,33 @@ func (d *MSKDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, error
 
 			for _, node := range nodes {
 				labels := model.LabelSet{
-					mskLabelClusterName:                  model.LabelValue(aws.ToString(cluster.ClusterName)),
-					mskLabelClusterARN:                   model.LabelValue(aws.ToString(cluster.ClusterArn)),
-					mskLabelClusterState:                 model.LabelValue(string(cluster.State)),
-					mskLabelClusterType:                  model.LabelValue(string(cluster.ClusterType)),
-					mskLabelClusterVersion:               model.LabelValue(aws.ToString(cluster.CurrentVersion)),
-					mskLabelNodeARN:                      model.LabelValue(aws.ToString(node.NodeARN)),
-					mskLabelNodeAddedTime:                model.LabelValue(aws.ToString(node.AddedToClusterTime)),
-					mskLabelNodeInstanceType:             model.LabelValue(aws.ToString(node.InstanceType)),
-					mskLabelClusterJmxExporterEnabled:    model.LabelValue(strconv.FormatBool(*cluster.Provisioned.OpenMonitoring.Prometheus.JmxExporter.EnabledInBroker)),
-					mskLabelClusterConfigurationARN:      model.LabelValue(aws.ToString(cluster.Provisioned.CurrentBrokerSoftwareInfo.ConfigurationArn)),
-					mskLabelClusterConfigurationRevision: model.LabelValue(strconv.FormatInt(*cluster.Provisioned.CurrentBrokerSoftwareInfo.ConfigurationRevision, 10)),
-					mskLabelClusterKafkaVersion:          model.LabelValue(aws.ToString(cluster.Provisioned.CurrentBrokerSoftwareInfo.KafkaVersion)),
+					mskLabelClusterName:      model.LabelValue(aws.ToString(cluster.ClusterName)),
+					mskLabelClusterARN:       model.LabelValue(aws.ToString(cluster.ClusterArn)),
+					mskLabelClusterState:     model.LabelValue(string(cluster.State)),
+					mskLabelClusterType:      model.LabelValue(string(cluster.ClusterType)),
+					mskLabelClusterVersion:   model.LabelValue(aws.ToString(cluster.CurrentVersion)),
+					mskLabelNodeARN:          model.LabelValue(aws.ToString(node.NodeARN)),
+					mskLabelNodeAddedTime:    model.LabelValue(aws.ToString(node.AddedToClusterTime)),
+					mskLabelNodeInstanceType: model.LabelValue(aws.ToString(node.InstanceType)),
+				}
+
+				// Safely extract JMX exporter enabled status.
+				jmxEnabled := false
+				if cluster.Provisioned.OpenMonitoring != nil &&
+					cluster.Provisioned.OpenMonitoring.Prometheus != nil &&
+					cluster.Provisioned.OpenMonitoring.Prometheus.JmxExporter != nil &&
+					cluster.Provisioned.OpenMonitoring.Prometheus.JmxExporter.EnabledInBroker != nil {
+					jmxEnabled = *cluster.Provisioned.OpenMonitoring.Prometheus.JmxExporter.EnabledInBroker
+				}
+				labels[mskLabelClusterJmxExporterEnabled] = model.LabelValue(strconv.FormatBool(jmxEnabled))
+
+				// Safely extract broker software info fields.
+				if cluster.Provisioned.CurrentBrokerSoftwareInfo != nil {
+					labels[mskLabelClusterConfigurationARN] = model.LabelValue(aws.ToString(cluster.Provisioned.CurrentBrokerSoftwareInfo.ConfigurationArn))
+					if cluster.Provisioned.CurrentBrokerSoftwareInfo.ConfigurationRevision != nil {
+						labels[mskLabelClusterConfigurationRevision] = model.LabelValue(strconv.FormatInt(*cluster.Provisioned.CurrentBrokerSoftwareInfo.ConfigurationRevision, 10))
+					}
+					labels[mskLabelClusterKafkaVersion] = model.LabelValue(aws.ToString(cluster.Provisioned.CurrentBrokerSoftwareInfo.KafkaVersion))
 				}
 
 				for key, value := range cluster.Tags {
@@ -418,7 +439,16 @@ func (d *MSKDiscovery) refresh(ctx context.Context) ([]*targetgroup.Group, error
 					labels[mskLabelBrokerID] = model.LabelValue(fmt.Sprintf("%.0f", aws.ToFloat64(node.BrokerNodeInfo.BrokerId)))
 					labels[mskLabelBrokerClientSubnet] = model.LabelValue(aws.ToString(node.BrokerNodeInfo.ClientSubnet))
 					labels[mskLabelBrokerClientVPCIP] = model.LabelValue(aws.ToString(node.BrokerNodeInfo.ClientVpcIpAddress))
-					labels[mskLabelBrokerNodeExporterEnabled] = model.LabelValue(strconv.FormatBool(*cluster.Provisioned.OpenMonitoring.Prometheus.NodeExporter.EnabledInBroker))
+
+					// Safely extract node exporter enabled status.
+					nodeExporterEnabled := false
+					if cluster.Provisioned.OpenMonitoring != nil &&
+						cluster.Provisioned.OpenMonitoring.Prometheus != nil &&
+						cluster.Provisioned.OpenMonitoring.Prometheus.NodeExporter != nil &&
+						cluster.Provisioned.OpenMonitoring.Prometheus.NodeExporter.EnabledInBroker != nil {
+						nodeExporterEnabled = *cluster.Provisioned.OpenMonitoring.Prometheus.NodeExporter.EnabledInBroker
+					}
+					labels[mskLabelBrokerNodeExporterEnabled] = model.LabelValue(strconv.FormatBool(nodeExporterEnabled))
 
 					for idx, endpoint := range node.BrokerNodeInfo.Endpoints {
 						endpointLabels := labels.Clone()
