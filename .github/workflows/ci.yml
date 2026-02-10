@@ -482,5 +482,5 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":warning: *CI failed for upstream merge PR*\n\n<${{ env.PR_URL || format('{0}/{1}/tree/{2}', env.SERVER_URL, env.REPOSITORY, env.BRANCH_NAME) }}|${{ env.PR_NUMBER && format('PR #{0}', env.PR_NUMBER) || format('Branch {0}', env.BRANCH_NAME) }}>\n\nWorkflow run: <${{ env.SERVER_URL }}/${{ env.REPOSITORY }}/actions/runs/${{ env.RUN_ID }}|View failure details>"
+              "text": ":sadcomputer: *CI failed for upstream merge PR*\n\n<!subteam^S03C2P8659U> please check <${{ env.PR_URL || format('{0}/{1}/tree/{2}', env.SERVER_URL, env.REPOSITORY, env.BRANCH_NAME) }}|${{ env.PR_NUMBER && format('PR #{0}', env.PR_NUMBER) || format('Branch {0}', env.BRANCH_NAME) }}> and the <${{ env.SERVER_URL }}/${{ env.REPOSITORY }}/actions/runs/${{ env.RUN_ID }}|workflow logs> and coordinate fixes for any issues."
             }

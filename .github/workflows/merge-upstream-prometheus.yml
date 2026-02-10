@@ -298,7 +298,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S05TQM9UAAF> check and resolve the conflicts in <${{ steps.create-conflict-pr.outputs.pull-request-url }}|the PR>."
+              "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S03C2P8659U> check and resolve the conflicts in <${{ steps.create-conflict-pr.outputs.pull-request-url }}|the PR>."
             }
 
   handle-error:
@@ -314,7 +314,7 @@ jobs:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: |
             {
-              "text": ":sadcomputer: *Upstream prometheus merge failed* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S05TQM9UAAF> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
+              "text": ":sadcomputer: *Upstream prometheus merge failed* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S03C2P8659U> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
             }
 
       - name: Mark workflow as failed
