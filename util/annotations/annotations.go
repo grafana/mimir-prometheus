@@ -333,6 +333,12 @@ func (e *histogramQuantileForcedMonotonicityErr) Error() string {
 	if e.Query == "" {
 		return e.Err.Error()
 	}
+	// Allow setting all configurable fields (except count since that is not configurable
+	// by user) to 0 to keep the original message until merging annotations is fully
+	// supported in MQE.
+	if e.minTs == 0 && e.maxTs == 0 && e.minBucket == 0 && e.maxBucket == 0 && e.maxDiff == 0 {
+		return e.Err.Error()
+	}
 	startTime := time.Unix(e.minTs/1000, 0).UTC().Format(time.RFC3339)
 	endTime := time.Unix(e.maxTs/1000, 0).UTC().Format(time.RFC3339)
 	return fmt.Sprintf("%s, from buckets %g to %g, with a max diff of %.2g, over %d samples from %s to %s (%s)", e.Err, e.minBucket, e.maxBucket, e.maxDiff, e.count+1, startTime, endTime, e.PositionRange.StartPosInput(e.Query, 0))
