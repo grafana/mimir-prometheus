@@ -138,6 +138,10 @@ func (c *MSKSDConfig) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
+	if c.RequestConcurrency <= 0 {
+		return errors.New("MSK SD request_concurrency must be a positive integer")
+	}
+
 	c.Region, err = loadRegion(context.Background(), c.Region)
 	if err != nil {
 		return fmt.Errorf("could not determine AWS region: %w", err)
