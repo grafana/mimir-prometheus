@@ -45,7 +45,7 @@ require (
 	github.com/hetznercloud/hcloud-go/v2 v2.33.0
 	github.com/ionos-cloud/sdk-go/v6 v6.3.6
 	github.com/json-iterator/go v1.1.12
-	github.com/klauspost/compress v1.18.2
+	github.com/klauspost/compress v1.18.4
 	github.com/kolo/xmlrpc v0.0.0-20220921171641-a4b6fa1dd06b
 	github.com/linode/linodego v1.63.0
 	github.com/miekg/dns v1.1.69
@@ -60,9 +60,9 @@ require (
 	github.com/pb33f/libopenapi-validator v0.10.0
 	github.com/prometheus/alertmanager v0.30.0
 	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/client_golang/exp v0.0.0-20260101091701-2cd067eb23c9
+	github.com/prometheus/client_golang/exp v0.0.0-20260211201220-bf37be4fecc0
 	github.com/prometheus/client_model v0.6.2
-	github.com/prometheus/common v0.67.4
+	github.com/prometheus/common v0.67.5
 	github.com/prometheus/common/assets v0.2.0
 	github.com/prometheus/exporter-toolkit v0.15.0
 	github.com/prometheus/sigv4 v0.3.0
