@@ -874,7 +874,7 @@ func TestUpdateSetsSourceTenants(t *testing.T) {
 	ruleManager.start()
 	defer ruleManager.Stop()
 
-	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml", false, model.UTF8Validation)
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml", false, model.UTF8Validation, testParser)
 	require.Empty(t, errs, "file parsing failures")
 
 	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
@@ -916,7 +916,7 @@ func TestAlignEvaluationTimeOnInterval(t *testing.T) {
 	ruleManager.start()
 	defer ruleManager.Stop()
 
-	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_alignment.yaml", false, model.UTF8Validation)
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_alignment.yaml", false, model.UTF8Validation, testParser)
 	require.Empty(t, errs, "file parsing failures")
 
 	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
@@ -987,7 +987,7 @@ func TestGroupEvaluationContextFuncIsCalledWhenSupplied(t *testing.T) {
 		GroupEvaluationContextFunc: mockContextWrapFunc,
 	})
 
-	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml", false, model.UTF8Validation)
+	rgs, errs := rulefmt.ParseFile("fixtures/rules_with_source_tenants.yaml", false, model.UTF8Validation, testParser)
 	require.Empty(t, errs, "file parsing failures")
 
 	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
@@ -2960,7 +2960,7 @@ func TestOperatorControllableErrorClassifier(t *testing.T) {
 	storage := teststorage.New(t)
 	t.Cleanup(func() { storage.Close() })
 
-	expr, err := parser.ParseExpr("up")
+	expr, err := testParser.ParseExpr("up")
 	require.NoError(t, err)
 	rule := NewRecordingRule("test_rule", expr, labels.EmptyLabels())
 
