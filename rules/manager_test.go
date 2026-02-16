@@ -43,7 +43,6 @@ import (
 	"github.com/prometheus/prometheus/model/timestamp"
 	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/promql"
-	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/promql/promqltest"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb"
@@ -64,7 +63,7 @@ func TestAlertingRule(t *testing.T) {
 			http_requests{job="app-server", instance="1", group="canary", severity="overwrite-me"}	80 90 100 110 120 130 140
 	`)
 
-	expr, err := parser.ParseExpr(`http_requests{group="canary", job="app-server"} < 100`)
+	expr, err := testParser.ParseExpr(`http_requests{group="canary", job="app-server"} < 100`)
 	require.NoError(t, err)
 
 	rule := NewAlertingRule(
@@ -206,7 +205,7 @@ func TestForStateAddSamples(t *testing.T) {
 			http_requests{job="app-server", instance="1", group="canary", severity="overwrite-me"}	80 90 100 110 120 130 140
 	`)
 
-			expr, err := parser.ParseExpr(`http_requests{group="canary", job="app-server"} < 100`)
+			expr, err := testParser.ParseExpr(`http_requests{group="canary", job="app-server"} < 100`)
 			require.NoError(t, err)
 
 			rule := NewAlertingRule(
@@ -367,7 +366,7 @@ func TestForStateRestore(t *testing.T) {
 		http_requests{job="app-server", instance="1", group="canary", severity="overwrite-me"}	125 90 60 0 0 25 0 0 40 0 130
 	`)
 
-			expr, err := parser.ParseExpr(`http_requests{group="canary", job="app-server"} < 100`)
+			expr, err := testParser.ParseExpr(`http_requests{group="canary", job="app-server"} < 100`)
 			require.NoError(t, err)
 
 			ng := testEngine(t)
@@ -552,7 +551,7 @@ func TestStaleness(t *testing.T) {
 			Logger:     promslog.NewNopLogger(),
 		}
 
-		expr, err := parser.ParseExpr("a + 1")
+		expr, err := testParser.ParseExpr("a + 1")
 		require.NoError(t, err)
 		rule := NewRecordingRule("a_plus_one", expr, labels.Labels{})
 		group := NewGroup(GroupOptions{
@@ -810,7 +809,7 @@ func TestUpdate(t *testing.T) {
 	}
 
 	// Groups will be recreated if updated.
-	rgs, errs := rulefmt.ParseFile("fixtures/rules.yaml", false, model.UTF8Validation)
+	rgs, errs := rulefmt.ParseFile("fixtures/rules.yaml", false, model.UTF8Validation, testParser)
 	require.Empty(t, errs, "file parsing failures")
 
 	tmpFile, err := os.CreateTemp("", "rules.test.*.yaml")
@@ -1104,7 +1103,7 @@ func TestNotify(t *testing.T) {
 		ResendDelay: 2 * time.Second,
 	}
 
-	expr, err := parser.ParseExpr("a > 1")
+	expr, err := testParser.ParseExpr("a > 1")
 	require.NoError(t, err)
 	rule := NewAlertingRule("aTooHigh", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 	group := NewGroup(GroupOptions{
@@ -1475,7 +1474,7 @@ func TestRuleHealthUpdates(t *testing.T) {
 		Logger:     promslog.NewNopLogger(),
 	}
 
-	expr, err := parser.ParseExpr("a + 1")
+	expr, err := testParser.ParseExpr("a + 1")
 	require.NoError(t, err)
 	rule := NewRecordingRule("a_plus_one", expr, labels.Labels{})
 	group := NewGroup(GroupOptions{
@@ -1521,7 +1520,7 @@ func TestRuleGroupEvalIterationFunc(t *testing.T) {
 		http_requests{instance="0"}	75  85 50 0 0 25 0 0 40 0 120
 	`)
 
-	expr, err := parser.ParseExpr(`http_requests{group="canary", job="app-server"} < 100`)
+	expr, err := testParser.ParseExpr(`http_requests{group="canary", job="app-server"} < 100`)
 	require.NoError(t, err)
 
 	testValue := 1
@@ -1656,7 +1655,7 @@ func TestNativeHistogramsInRecordingRules(t *testing.T) {
 		Logger:     promslog.NewNopLogger(),
 	}
 
-	expr, err := parser.ParseExpr("sum(histogram_metric)")
+	expr, err := testParser.ParseExpr("sum(histogram_metric)")
 	require.NoError(t, err)
 	rule := NewRecordingRule("sum:histogram_metric", expr, labels.Labels{})
 
@@ -1757,23 +1756,23 @@ func TestDependencyMap(t *testing.T) {
 		Logger:  promslog.NewNopLogger(),
 	}
 
-	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+	expr, err := testParser.ParseExpr("sum by (user) (rate(requests[1m]))")
 	require.NoError(t, err)
 	rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
 
-	expr, err = parser.ParseExpr("user:requests:rate1m <= 0")
+	expr, err = testParser.ParseExpr("user:requests:rate1m <= 0")
 	require.NoError(t, err)
 	rule2 := NewAlertingRule("ZeroRequests", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
-	expr, err = parser.ParseExpr("sum by (user) (rate(requests[5m]))")
+	expr, err = testParser.ParseExpr("sum by (user) (rate(requests[5m]))")
 	require.NoError(t, err)
 	rule3 := NewRecordingRule("user:requests:rate5m", expr, labels.Labels{})
 
-	expr, err = parser.ParseExpr("increase(user:requests:rate1m[1h])")
+	expr, err = testParser.ParseExpr("increase(user:requests:rate1m[1h])")
 	require.NoError(t, err)
 	rule4 := NewRecordingRule("user:requests:increase1h", expr, labels.Labels{})
 
-	expr, err = parser.ParseExpr(`sum by (user) ({__name__=~"user:requests.+5m"})`)
+	expr, err = testParser.ParseExpr(`sum by (user) ({__name__=~"user:requests.+5m"})`)
 	require.NoError(t, err)
 	rule5 := NewRecordingRule("user:requests:sum5m", expr, labels.Labels{})
 
@@ -1815,7 +1814,7 @@ func TestNoDependency(t *testing.T) {
 		Logger:  promslog.NewNopLogger(),
 	}
 
-	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+	expr, err := testParser.ParseExpr("sum by (user) (rate(requests[1m]))")
 	require.NoError(t, err)
 	rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
 
@@ -1846,7 +1845,7 @@ func TestDependenciesEdgeCases(t *testing.T) {
 			Opts:     opts,
 		})
 
-		expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+		expr, err := testParser.ParseExpr("sum by (user) (rate(requests[1m]))")
 		require.NoError(t, err)
 		rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
 
@@ -1857,11 +1856,11 @@ func TestDependenciesEdgeCases(t *testing.T) {
 	})
 
 	t.Run("rules which reference no series", func(t *testing.T) {
-		expr, err := parser.ParseExpr("one")
+		expr, err := testParser.ParseExpr("one")
 		require.NoError(t, err)
 		rule1 := NewRecordingRule("1", expr, labels.Labels{})
 
-		expr, err = parser.ParseExpr("two")
+		expr, err = testParser.ParseExpr("two")
 		require.NoError(t, err)
 		rule2 := NewRecordingRule("2", expr, labels.Labels{})
 
@@ -1879,11 +1878,11 @@ func TestDependenciesEdgeCases(t *testing.T) {
 	})
 
 	t.Run("rule with regexp matcher on metric name", func(t *testing.T) {
-		expr, err := parser.ParseExpr("sum(requests)")
+		expr, err := testParser.ParseExpr("sum(requests)")
 		require.NoError(t, err)
 		rule1 := NewRecordingRule("first", expr, labels.Labels{})
 
-		expr, err = parser.ParseExpr(`sum({__name__=~".+"})`)
+		expr, err = testParser.ParseExpr(`sum({__name__=~".+"})`)
 		require.NoError(t, err)
 		rule2 := NewRecordingRule("second", expr, labels.Labels{})
 
@@ -1901,11 +1900,11 @@ func TestDependenciesEdgeCases(t *testing.T) {
 	})
 
 	t.Run("rule with not equal matcher on metric name", func(t *testing.T) {
-		expr, err := parser.ParseExpr("sum(requests)")
+		expr, err := testParser.ParseExpr("sum(requests)")
 		require.NoError(t, err)
 		rule1 := NewRecordingRule("first", expr, labels.Labels{})
 
-		expr, err = parser.ParseExpr(`sum({__name__!="requests", service="app"})`)
+		expr, err = testParser.ParseExpr(`sum({__name__!="requests", service="app"})`)
 		require.NoError(t, err)
 		rule2 := NewRecordingRule("second", expr, labels.Labels{})
 
@@ -1923,11 +1922,11 @@ func TestDependenciesEdgeCases(t *testing.T) {
 	})
 
 	t.Run("rule with not regexp matcher on metric name", func(t *testing.T) {
-		expr, err := parser.ParseExpr("sum(requests)")
+		expr, err := testParser.ParseExpr("sum(requests)")
 		require.NoError(t, err)
 		rule1 := NewRecordingRule("first", expr, labels.Labels{})
 
-		expr, err = parser.ParseExpr(`sum({__name__!~"requests.+", service="app"})`)
+		expr, err = testParser.ParseExpr(`sum({__name__!~"requests.+", service="app"})`)
 		require.NoError(t, err)
 		rule2 := NewRecordingRule("second", expr, labels.Labels{})
 
@@ -1947,27 +1946,27 @@ func TestDependenciesEdgeCases(t *testing.T) {
 	for _, metaMetric := range []string{alertMetricName, alertForStateMetricName} {
 		t.Run(metaMetric, func(t *testing.T) {
 			t.Run("rule querying alerts meta-metric with alertname", func(t *testing.T) {
-				expr, err := parser.ParseExpr("sum(requests) > 0")
+				expr, err := testParser.ParseExpr("sum(requests) > 0")
 				require.NoError(t, err)
 				rule1 := NewAlertingRule("first", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
-				expr, err = parser.ParseExpr(fmt.Sprintf(`sum(%s{alertname="test"}) > 0`, metaMetric))
+				expr, err = testParser.ParseExpr(fmt.Sprintf(`sum(%s{alertname="test"}) > 0`, metaMetric))
 				require.NoError(t, err)
 				rule2 := NewAlertingRule("second", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
-				expr, err = parser.ParseExpr(fmt.Sprintf(`sum(%s{alertname=~"first.*"}) > 0`, metaMetric))
+				expr, err = testParser.ParseExpr(fmt.Sprintf(`sum(%s{alertname=~"first.*"}) > 0`, metaMetric))
 				require.NoError(t, err)
 				rule3 := NewAlertingRule("third", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
-				expr, err = parser.ParseExpr(fmt.Sprintf(`sum(%s{alertname!="first"}) > 0`, metaMetric))
+				expr, err = testParser.ParseExpr(fmt.Sprintf(`sum(%s{alertname!="first"}) > 0`, metaMetric))
 				require.NoError(t, err)
 				rule4 := NewAlertingRule("fourth", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
-				expr, err = parser.ParseExpr("sum(failures)")
+				expr, err = testParser.ParseExpr("sum(failures)")
 				require.NoError(t, err)
 				rule5 := NewRecordingRule("fifth", expr, labels.Labels{})
 
-				expr, err = parser.ParseExpr(fmt.Sprintf(`fifth > 0 and sum(%s{alertname="fourth"}) > 0`, metaMetric))
+				expr, err = testParser.ParseExpr(fmt.Sprintf(`fifth > 0 and sum(%s{alertname="fourth"}) > 0`, metaMetric))
 				require.NoError(t, err)
 				rule6 := NewAlertingRule("sixth", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
@@ -2006,23 +2005,23 @@ func TestDependenciesEdgeCases(t *testing.T) {
 			})
 
 			t.Run("rule querying alerts meta-metric without alertname", func(t *testing.T) {
-				expr, err := parser.ParseExpr("sum(requests)")
+				expr, err := testParser.ParseExpr("sum(requests)")
 				require.NoError(t, err)
 				rule1 := NewRecordingRule("first", expr, labels.Labels{})
 
-				expr, err = parser.ParseExpr(`sum(requests) > 0`)
+				expr, err = testParser.ParseExpr(`sum(requests) > 0`)
 				require.NoError(t, err)
 				rule2 := NewAlertingRule("second", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
-				expr, err = parser.ParseExpr(fmt.Sprintf(`sum(%s) > 0`, metaMetric))
+				expr, err = testParser.ParseExpr(fmt.Sprintf(`sum(%s) > 0`, metaMetric))
 				require.NoError(t, err)
 				rule3 := NewAlertingRule("third", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
-				expr, err = parser.ParseExpr("sum(failures)")
+				expr, err = testParser.ParseExpr("sum(failures)")
 				require.NoError(t, err)
 				rule4 := NewRecordingRule("fourth", expr, labels.Labels{})
 
-				expr, err = parser.ParseExpr(fmt.Sprintf(`fourth > 0 and sum(%s) > 0`, metaMetric))
+				expr, err = testParser.ParseExpr(fmt.Sprintf(`fourth > 0 and sum(%s) > 0`, metaMetric))
 				require.NoError(t, err)
 				rule5 := NewAlertingRule("fifth", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
@@ -2066,11 +2065,11 @@ func TestNoMetricSelector(t *testing.T) {
 		Logger:  promslog.NewNopLogger(),
 	}
 
-	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+	expr, err := testParser.ParseExpr("sum by (user) (rate(requests[1m]))")
 	require.NoError(t, err)
 	rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
 
-	expr, err = parser.ParseExpr(`count({user="bob"})`)
+	expr, err = testParser.ParseExpr(`count({user="bob"})`)
 	require.NoError(t, err)
 	rule2 := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
 
@@ -2095,15 +2094,15 @@ func TestDependentRulesWithNonMetricExpression(t *testing.T) {
 		Logger:  promslog.NewNopLogger(),
 	}
 
-	expr, err := parser.ParseExpr("sum by (user) (rate(requests[1m]))")
+	expr, err := testParser.ParseExpr("sum by (user) (rate(requests[1m]))")
 	require.NoError(t, err)
 	rule := NewRecordingRule("user:requests:rate1m", expr, labels.Labels{})
 
-	expr, err = parser.ParseExpr("user:requests:rate1m <= 0")
+	expr, err = testParser.ParseExpr("user:requests:rate1m <= 0")
 	require.NoError(t, err)
 	rule2 := NewAlertingRule("ZeroRequests", expr, 0, 0, labels.Labels{}, labels.Labels{}, labels.EmptyLabels(), "", true, promslog.NewNopLogger())
 
-	expr, err = parser.ParseExpr("3")
+	expr, err = testParser.ParseExpr("3")
 	require.NoError(t, err)
 	rule3 := NewRecordingRule("three", expr, labels.Labels{})
 
@@ -2771,11 +2770,11 @@ func TestLabels_FromMaps(t *testing.T) {
 
 func TestParseFiles(t *testing.T) {
 	t.Run("good files", func(t *testing.T) {
-		err := ParseFiles([]string{filepath.Join("fixtures", "rules.y*ml")}, model.UTF8Validation)
+		err := ParseFiles([]string{filepath.Join("fixtures", "rules.y*ml")}, model.UTF8Validation, testParser)
 		require.NoError(t, err)
 	})
 	t.Run("bad files", func(t *testing.T) {
-		err := ParseFiles([]string{filepath.Join("fixtures", "invalid_rules.y*ml")}, model.UTF8Validation)
+		err := ParseFiles([]string{filepath.Join("fixtures", "invalid_rules.y*ml")}, model.UTF8Validation, testParser)
 		require.ErrorContains(t, err, "field unexpected_field not found in type rulefmt.Rule")
 	})
 }
