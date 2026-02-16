@@ -24,12 +24,11 @@ import (
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/promql"
-	"github.com/prometheus/prometheus/promql/parser"
 	"github.com/prometheus/prometheus/util/teststorage"
 )
 
 func TestGroup_Equals(t *testing.T) {
-	testExpression, err := parser.ParseExpr("up")
+	testExpression, err := testParser.ParseExpr("up")
 	require.NoError(t, err)
 
 	tests := map[string]struct {
@@ -291,7 +290,7 @@ func TestEvalDiscardedSamplesDoNotIncrementFailureMetrics(t *testing.T) {
 
 			tc.setupStorage(storage)
 
-			expr, err := parser.ParseExpr("up")
+			expr, err := testParser.ParseExpr("up")
 			require.NoError(t, err)
 			rule := NewRecordingRule("test_rule", expr, labels.EmptyLabels())
 
