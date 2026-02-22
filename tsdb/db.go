@@ -1573,6 +1573,7 @@ func (db *DB) buildSeriesMetadata(blocks []*Block) (seriesmetadata.Reader, error
 	}
 	headMeta.Close()
 
+	merged.BuildResourceAttrIndex()
 	return merged, nil
 }
 
