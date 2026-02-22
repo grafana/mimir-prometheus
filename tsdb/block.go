@@ -402,7 +402,17 @@ func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, p
 	}
 	closers = append(closers, tr)
 
-	smr, sizeSeriesMeta, err := seriesmetadata.ReadSeriesMetadata(logger, dir)
+	// Build a resolver that converts block-level seriesRef → labelsHash
+	// for Parquet mapping rows. The index reader is already open above.
+	var builder labels.ScratchBuilder
+	readRefResolver := seriesmetadata.WithRefResolver(func(seriesRef uint64) (uint64, bool) {
+		if err := ir.Series(storage.SeriesRef(seriesRef), &builder, nil); err != nil {
+			return 0, false
+		}
+		return labels.StableHash(builder.Labels()), true
+	})
+
+	smr, sizeSeriesMeta, err := seriesmetadata.ReadSeriesMetadata(logger, dir, readRefResolver)
 	if err != nil {
 		return nil, err
 	}
