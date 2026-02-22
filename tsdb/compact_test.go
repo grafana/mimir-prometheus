@@ -3222,4 +3222,3 @@ func TestDelayedCompactionDoesNotBlockUnrelatedOps(t *testing.T) {
 		})
 	}
 }
-
