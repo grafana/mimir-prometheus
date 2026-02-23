@@ -102,6 +102,7 @@ type LeveledCompactor struct {
 	concurrencyOpts             LeveledCompactorConcurrencyOptions
 	enableNativeMetadata        bool
 	indexedResourceAttrs        map[string]struct{}
+	enableResourceAttrIndex     bool
 }
 
 type CompactorMetrics struct {
@@ -199,6 +200,9 @@ type LeveledCompactorOptions struct {
 	// IndexedResourceAttrs specifies additional descriptive resource attribute
 	// names to include in the inverted index beyond identifying attributes.
 	IndexedResourceAttrs map[string]struct{}
+	// EnableResourceAttrIndex enables the resource attribute inverted index
+	// in compacted Parquet files.
+	EnableResourceAttrIndex bool
 }
 
 type PostingsDecoderFactory func(meta *BlockMeta) index.PostingsDecoder
@@ -257,6 +261,7 @@ func NewLeveledCompactorWithOptions(ctx context.Context, r prometheus.Registerer
 		blockExcludeFunc:            opts.BlockExcludeFilter,
 		enableNativeMetadata:        opts.EnableNativeMetadata,
 		indexedResourceAttrs:        opts.IndexedResourceAttrs,
+		enableResourceAttrIndex:     opts.EnableResourceAttrIndex,
 	}, nil
 }
 
@@ -1147,7 +1152,7 @@ func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []Bloc
 
 	writeStats := &seriesmetadata.WriteStats{}
 	wopts := seriesmetadata.WriterOptions{
-		EnableInvertedIndex:  true,
+		EnableInvertedIndex:  c.enableResourceAttrIndex,
 		IndexedResourceAttrs: c.indexedResourceAttrs,
 		RefResolver: func(labelsHash uint64) (uint64, bool) {
 			ref, ok := labelsHashToRef[labelsHash]
