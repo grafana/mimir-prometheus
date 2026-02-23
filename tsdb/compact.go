@@ -963,8 +963,14 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blockPop
 
 		// Merge and write series metadata (resources and scopes) from source blocks.
 		if c.enableNativeMetadata {
-			if err := c.mergeAndWriteSeriesMetadata(ob.tmpDir, blocks); err != nil {
+			if err := c.mergeAndWriteSeriesMetadata(ob.tmpDir, blocks, ob.meta); err != nil {
 				return fmt.Errorf("merge and write series metadata: %w", err)
+			}
+			// Re-write meta.json if metadata stats were populated.
+			if ob.meta.SeriesMetadata != nil {
+				if _, err = writeMetaFile(c.logger, ob.tmpDir, ob.meta); err != nil {
+					return fmt.Errorf("rewrite meta with series metadata stats: %w", err)
+				}
 			}
 		}
 
@@ -1052,7 +1058,8 @@ func timeFromMillis(ms int64) time.Time {
 // source blocks and writes them to the new compacted block. The merged data
 // is keyed by labelsHash in memory; on write, a RefResolver built from the
 // new block's index converts labelsHash → seriesRef for Parquet mapping rows.
-func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []BlockReader) error {
+// If metadata is written, meta.SeriesMetadata is populated with stats.
+func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []BlockReader, meta *BlockMeta) error {
 	output := seriesmetadata.NewMemSeriesMetadata()
 
 	for _, b := range blocks {
@@ -1137,6 +1144,8 @@ func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []Bloc
 			return nil
 		})
 	}
+
+	writeStats := &seriesmetadata.WriteStats{}
 	wopts := seriesmetadata.WriterOptions{
 		EnableInvertedIndex:  true,
 		IndexedResourceAttrs: c.indexedResourceAttrs,
@@ -1144,10 +1153,30 @@ func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []Bloc
 			ref, ok := labelsHashToRef[labelsHash]
 			return ref, ok
 		},
+		WriteStats: writeStats,
 	}
 	if _, err := seriesmetadata.WriteFileWithOptions(c.logger, tmp, filtered, wopts); err != nil {
 		return fmt.Errorf("write series metadata file: %w", err)
 	}
+
+	// Populate BlockMeta with metadata stats.
+	if len(writeStats.NamespaceRowCounts) > 0 {
+		nsCounts := make(map[string]uint64, len(writeStats.NamespaceRowCounts))
+		for k, v := range writeStats.NamespaceRowCounts {
+			nsCounts[k] = uint64(v)
+		}
+		indexedAttrs := make([]string, 0, len(c.indexedResourceAttrs))
+		for attr := range c.indexedResourceAttrs {
+			indexedAttrs = append(indexedAttrs, attr)
+		}
+		slices.Sort(indexedAttrs)
+		meta.SeriesMetadata = &BlockSeriesMetadata{
+			Enabled:              true,
+			NamespaceRowCounts:   nsCounts,
+			IndexedResourceAttrs: indexedAttrs,
+		}
+	}
+
 	return nil
 }
 
