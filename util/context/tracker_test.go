@@ -259,16 +259,12 @@ func TestContextsTracker_Concurrency(t *testing.T) {
 		// Concurrently close tracker.
 		fire := make(chan struct{})
 
-		closeWg := sync.WaitGroup{}
+		var closeWg sync.WaitGroup
 		for range 100 {
-			closeWg.Add(1)
-
-			go func() {
-				defer closeWg.Done()
-
+			closeWg.Go(func() {
 				<-fire
 				tracker.Close()
-			}()
+			})
 		}
 
 		requireContextsTrackerExecutionContextDone(t, execCtx, false)
