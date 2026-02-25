@@ -413,14 +413,14 @@ jobs:
           echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
           echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
       - name: Cache dependencies
-        uses: actions/cache@v4.2.2
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.gopaths.outputs.GOMODCACHE }}
           # Use the same dependencies cache for all instances of this 'fuzz' job, given each will use the same dependencies.
           key: ci-fuzz-dependencies-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
       - name: Cache build cache
-        uses: actions/cache@v4.2.2
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: ${{ steps.gopaths.outputs.GOCACHE }}
           # Use the same build cache for each instance of this 'fuzz' job, given each will build the same package (model/labels) with the same build tags.
