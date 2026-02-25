@@ -45,6 +45,7 @@ func TestMain(m *testing.M) {
 }
 
 func TestChunkDiskMapper_WriteChunk_Chunk_IterateChunks(t *testing.T) {
+	t.Parallel()
 	hrw := createChunkDiskMapper(t, "")
 	defer func() {
 		require.NoError(t, hrw.Close())
@@ -219,6 +220,7 @@ func TestChunkDiskMapper_WriteUnsupportedChunk_Chunk_IterateChunks(t *testing.T)
 // * The active file is not deleted even if the passed time makes it eligible to be deleted.
 // * Non-empty current file leads to creation of another file after truncation.
 func TestChunkDiskMapper_Truncate(t *testing.T) {
+	t.Parallel()
 	hrw := createChunkDiskMapper(t, "")
 	defer func() {
 		require.NoError(t, hrw.Close())
@@ -313,6 +315,7 @@ func TestChunkDiskMapper_Truncate(t *testing.T) {
 // This test exposes https://github.com/prometheus/prometheus/issues/7412 where the truncation
 // simply deleted all empty files instead of stopping once it encountered a non-empty file.
 func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
+	t.Parallel()
 	hrw := createChunkDiskMapper(t, "")
 	defer func() {
 		require.NoError(t, hrw.Close())
@@ -397,6 +400,7 @@ func TestChunkDiskMapper_Truncate_PreservesFileSequence(t *testing.T) {
 }
 
 func TestChunkDiskMapper_Truncate_WriteQueueRaceCondition(t *testing.T) {
+	t.Parallel()
 	hrw := createChunkDiskMapper(t, "")
 	t.Cleanup(func() {
 		require.NoError(t, hrw.Close())
@@ -449,6 +453,7 @@ func TestChunkDiskMapper_Truncate_WriteQueueRaceCondition(t *testing.T) {
 // TestHeadReadWriter_TruncateAfterFailedIterateChunks tests for
 // https://github.com/prometheus/prometheus/issues/7753
 func TestHeadReadWriter_TruncateAfterFailedIterateChunks(t *testing.T) {
+	t.Parallel()
 	hrw := createChunkDiskMapper(t, "")
 	defer func() {
 		require.NoError(t, hrw.Close())
@@ -480,6 +485,7 @@ func TestHeadReadWriter_TruncateAfterFailedIterateChunks(t *testing.T) {
 }
 
 func TestHeadReadWriter_ReadRepairOnEmptyLastFile(t *testing.T) {
+	t.Parallel()
 	hrw := createChunkDiskMapper(t, "")
 
 	timeRange := 0
