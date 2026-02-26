@@ -68,6 +68,7 @@ var matcherTestCases = []struct {
 	{1.1, "namespace", MatchRegexp, "ops-service-01"},
 	{4.4, "route", MatchRegexp, "api_(v1|prom)_push|otlp_v1_metrics|api_v1_push_influx_write"},
 	{7, "route", MatchRegexp, ".*v1.*|.*prom.*"},
+	{18, "__name__", MatchRegexp, ".*foo.*|.*bar.*|.*baz.*|.*barn.*|.*bank.*"},
 	{1, "job", MatchRegexp, "(prod-service-05)/((gateway|cortex-gw.*))"},
 	{1, "job", MatchRegexp, "(ops-service-01)/((compactor.*|cortex|mimir))"},
 	{1.1, "namespace", MatchRegexp, "prod-service-06"},
