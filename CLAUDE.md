@@ -170,3 +170,7 @@ These two systems both use `parquet-go` but solve different problems and should 
 - PR titles should follow the format `area: short description` (e.g., `tsdb: reduce disk usage`)
 - Sign commits with `-s` / `--signoff` for DCO compliance
 - Do not mention Claude or AI assistance in commits, issues, or PRs
+
+## Custom Skills
+
+- `/sync-upstream` — Syncs the local `arve/parquet-metadata-resource-attributes` branch (on `origin`, grafana/mimir-prometheus) from the upstream `aknuds1/arve/parquet-metadata-resource-attributes` (on `aknuds1`, aknuds1/prometheus) by cherry-picking new commits from `aknuds1` onto the local branch. See `.claude/skills/sync-upstream/SKILL.md` for the full procedure.
