@@ -971,12 +971,12 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blockPop
 		// so we resolve refs → labels via each block's index, merge by labels hash
 		// (transient in-memory key), then re-key with the new block's refs.
 		if c.enableNativeMetadata {
-			if err := c.mergeAndWriteSeriesMetadata(ob.tmpDir, blocks, &ob.meta); err != nil {
+			if err := c.mergeAndWriteSeriesMetadata(ob.tmpDir, blocks, ob.meta); err != nil {
 				return fmt.Errorf("merge and write series metadata: %w", err)
 			}
 			// Re-write meta.json if metadata stats were populated.
 			if ob.meta.SeriesMetadata != nil {
-				if _, err = writeMetaFile(c.logger, ob.tmpDir, &ob.meta); err != nil {
+				if _, err = writeMetaFile(c.logger, ob.tmpDir, ob.meta); err != nil {
 					return fmt.Errorf("rewrite meta with series metadata stats: %w", err)
 				}
 			}
