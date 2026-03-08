@@ -2299,7 +2299,6 @@ type stripeLock struct {
 	_ [40]byte
 }
 
-
 func newStripeSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *stripeSeries {
 	s := &stripeSeries{
 		size:                    stripeSize,
