@@ -492,10 +492,11 @@ func (h *Head) resetInMemoryState() error {
 	if h.opts.EnableNativeMetadata {
 		h.seriesMeta = seriesmetadata.NewMemSeriesMetadata()
 		h.seriesMeta.SetIndexedResourceAttrs(h.opts.IndexedResourceAttrs)
-		if h.opts.EnableResourceAttrIndex {
-			h.seriesMeta.InitResourceAttrIndex()
-		}
-		h.metaRefStripes, h.metaHashStripes = newMetadataStripes()
+		// Note: InitResourceAttrIndex is NOT called here. The attr index stays nil
+		// during WAL replay so that UpdateResourceAttrIndex early-returns (avoiding
+		// O(n) sortedInsert/sortedRemove churn per series). BuildResourceAttrIndex
+		// is called once after all replay completes — see Init().
+		h.metaRefStripes, h.metaHashStripes = newMetadataStripes(4096)
 	}
 
 	return nil
@@ -1102,6 +1103,12 @@ func (h *Head) Init(minValidTime int64) error {
 	}
 
 	wblReplayDuration := time.Since(wblReplayStart)
+
+	// Build the resource attr index in bulk now that all WAL/WBL data is loaded.
+	// This is much cheaper than incremental updates during replay (O(n) sortedInsert per series).
+	if h.seriesMeta != nil && h.opts.EnableResourceAttrIndex {
+		h.seriesMeta.BuildResourceAttrIndex()
+	}
 
 	totalReplayDuration := time.Since(start)
 	h.metrics.dataTotalReplayDuration.Set(totalReplayDuration.Seconds())
@@ -2783,14 +2790,14 @@ type metadataHashStripe struct {
 	hashToRef map[uint64]chunks.HeadSeriesRef
 }
 
-func newMetadataStripes() ([]metadataRefStripe, []metadataHashStripe) {
+func newMetadataStripes(capacityPerStripe int) ([]metadataRefStripe, []metadataHashStripe) {
 	refs := make([]metadataRefStripe, metadataStripeSize)
 	hashes := make([]metadataHashStripe, metadataStripeSize)
 	for i := range refs {
-		refs[i].refToHash = make(map[chunks.HeadSeriesRef]uint64)
+		refs[i].refToHash = make(map[chunks.HeadSeriesRef]uint64, capacityPerStripe)
 	}
 	for i := range hashes {
-		hashes[i].hashToRef = make(map[uint64]chunks.HeadSeriesRef)
+		hashes[i].hashToRef = make(map[uint64]chunks.HeadSeriesRef, capacityPerStripe)
 	}
 	return refs, hashes
 }
@@ -3425,7 +3432,6 @@ func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, shardHash uint64,
 	}
 	return s
 }
-
 
 func (s *memSeries) minTime() int64 {
 	if len(s.mmappedChunks) > 0 {
