@@ -100,7 +100,7 @@ type FlatScopeIterator interface {
 // iterResourcesFlat uses FlatResourceIterator if available, otherwise falls back
 // to IterVersionedResources with a wrapper. This avoids *Versioned allocation
 // for implementations that support flat iteration.
-func iterResourcesFlat(mr Reader, ctx context.Context, f func(labelsHash uint64, versions []*ResourceVersion) error) error {
+func iterResourcesFlat(ctx context.Context, mr Reader, f func(labelsHash uint64, versions []*ResourceVersion) error) error {
 	if flat, ok := mr.(FlatResourceIterator); ok {
 		return flat.IterVersionedResourcesFlat(ctx, f)
 	}
@@ -111,7 +111,7 @@ func iterResourcesFlat(mr Reader, ctx context.Context, f func(labelsHash uint64,
 
 // iterScopesFlat uses FlatScopeIterator if available, otherwise falls back
 // to IterVersionedScopes with a wrapper.
-func iterScopesFlat(mr Reader, ctx context.Context, f func(labelsHash uint64, versions []*ScopeVersion) error) error {
+func iterScopesFlat(ctx context.Context, mr Reader, f func(labelsHash uint64, versions []*ScopeVersion) error) error {
 	if flat, ok := mr.(FlatScopeIterator); ok {
 		return flat.IterVersionedScopesFlat(ctx, f)
 	}
@@ -1118,7 +1118,7 @@ func WriteFileWithOptions(logger *slog.Logger, dir string, mr Reader, opts Write
 		var mappingRows []metadataRow
 		var keysBuf []string
 
-		err := iterResourcesFlat(mr, context.Background(), func(labelsHash uint64, versions []*ResourceVersion) error {
+		err := iterResourcesFlat(context.Background(), mr, func(labelsHash uint64, versions []*ResourceVersion) error {
 			if opts.HashFilter != nil && !opts.HashFilter(labelsHash) {
 				return nil
 			}
@@ -1186,7 +1186,7 @@ func WriteFileWithOptions(logger *slog.Logger, dir string, mr Reader, opts Write
 		var mappingRows []metadataRow
 		var keysBuf []string
 
-		err := iterScopesFlat(mr, context.Background(), func(labelsHash uint64, versions []*ScopeVersion) error {
+		err := iterScopesFlat(context.Background(), mr, func(labelsHash uint64, versions []*ScopeVersion) error {
 			if opts.HashFilter != nil && !opts.HashFilter(labelsHash) {
 				return nil
 			}
@@ -1377,7 +1377,7 @@ func buildResourceAttrIndexRows(mr Reader, refResolver func(labelsHash uint64) (
 	// clear()ed per series to avoid per-callback map allocation.
 	seen := make(map[uint64]struct{})
 
-	_ = iterResourcesFlat(mr, context.Background(), func(labelsHash uint64, versions []*ResourceVersion) error {
+	_ = iterResourcesFlat(context.Background(), mr, func(labelsHash uint64, versions []*ResourceVersion) error {
 		if hashFilter != nil && !hashFilter(labelsHash) {
 			return nil
 		}
