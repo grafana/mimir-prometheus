@@ -1102,7 +1102,7 @@ func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []Bloc
 		source = output
 		closeSource = func() error { return nil }
 	}
-	defer closeSource()
+	defer closeSource() //nolint:errcheck
 
 	// Check if source has any metadata at all.
 	empty := true
