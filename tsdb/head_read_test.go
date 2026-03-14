@@ -578,7 +578,7 @@ func BenchmarkAppendSeriesChunks(b *testing.B) {
 		b.Run(fmt.Sprintf("headOnly/%d", numHeadChunks), func(b *testing.B) {
 			s := &memSeries{
 				ref:           1,
-				headChunks:    buildHeadChunks(numHeadChunks),
+				headChunks:    buildHeadChunksLight(numHeadChunks),
 				headChunksLen: numHeadChunks,
 			}
 			mint := int64(0)
@@ -603,7 +603,7 @@ func BenchmarkAppendSeriesChunks(b *testing.B) {
 			}
 			s := &memSeries{
 				ref:           1,
-				headChunks:    buildHeadChunks(numHeadChunks),
+				headChunks:    buildHeadChunksLight(numHeadChunks),
 				headChunksLen: numHeadChunks,
 				mmappedChunks: mmapped,
 			}
@@ -641,7 +641,7 @@ func BenchmarkSeriesChunk(b *testing.B) {
 			s := &memSeries{
 				ref:           1,
 				firstChunkID:  0,
-				headChunks:    buildHeadChunks(n),
+				headChunks:    buildHeadChunksLight(n),
 				headChunksLen: n,
 			}
 			// Request the oldest head chunk (HeadChunkID 0) — worst case.
@@ -665,7 +665,7 @@ func BenchmarkChunkLookup(b *testing.B) {
 			s := &memSeries{
 				ref:           1,
 				firstChunkID:  0,
-				headChunks:    buildHeadChunks(n),
+				headChunks:    buildHeadChunksLight(n),
 				headChunksLen: n,
 			}
 			// Request a mid-position chunk (complements BenchmarkSeriesChunk which does worst-case oldest).
@@ -692,9 +692,11 @@ func BenchmarkTruncateChunksBefore(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
 				// Rebuild each iteration since truncate is destructive.
+				// Use lightweight chunks (nil chunk field) since truncation
+				// only reads maxTime and follows prev pointers.
 				s := &memSeries{
 					firstChunkID:  0,
-					headChunks:    buildHeadChunks(n),
+					headChunks:    buildHeadChunksLight(n),
 					headChunksLen: n,
 				}
 				s.truncateChunksBefore(mint, 0)
