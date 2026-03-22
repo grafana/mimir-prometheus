@@ -12,16 +12,16 @@ require (
 	github.com/KimMachineGun/automemlimit v0.7.5
 	github.com/alecthomas/kingpin/v2 v2.4.0
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b
-	github.com/aws/aws-sdk-go-v2 v1.41.1
-	github.com/aws/aws-sdk-go-v2/config v1.32.9
-	github.com/aws/aws-sdk-go-v2/credentials v1.19.9
-	github.com/aws/aws-sdk-go-v2/service/ec2 v1.290.0
-	github.com/aws/aws-sdk-go-v2/service/ecs v1.72.0
-	github.com/aws/aws-sdk-go-v2/service/elasticache v1.51.9
-	github.com/aws/aws-sdk-go-v2/service/kafka v1.48.0
-	github.com/aws/aws-sdk-go-v2/service/lightsail v1.50.11
-	github.com/aws/aws-sdk-go-v2/service/sts v1.41.6
-	github.com/aws/smithy-go v1.24.1
+	github.com/aws/aws-sdk-go-v2 v1.41.4
+	github.com/aws/aws-sdk-go-v2/config v1.32.12
+	github.com/aws/aws-sdk-go-v2/credentials v1.19.12
+	github.com/aws/aws-sdk-go-v2/service/ec2 v1.296.0
+	github.com/aws/aws-sdk-go-v2/service/ecs v1.74.0
+	github.com/aws/aws-sdk-go-v2/service/elasticache v1.51.12
+	github.com/aws/aws-sdk-go-v2/service/kafka v1.49.1
+	github.com/aws/aws-sdk-go-v2/service/lightsail v1.50.14
+	github.com/aws/aws-sdk-go-v2/service/sts v1.41.9
+	github.com/aws/smithy-go v1.24.2
 	github.com/bboreham/go-loser v0.0.0-20230920113527-fcc2c21820a3
 	github.com/cespare/xxhash/v2 v2.3.0
 	github.com/dennwc/varint v1.0.0
@@ -109,7 +109,7 @@ require (
 )
 
 require (
-	github.com/aws/aws-sdk-go-v2/service/signin v1.0.5 // indirect
+	github.com/aws/aws-sdk-go-v2/service/signin v1.0.8 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/basgys/goxml2json v1.1.1-0.20231018121955-e66ee54ceaad // indirect
 	github.com/buger/jsonparser v1.1.1 // indirect
@@ -143,14 +143,14 @@ require (
 	github.com/AzureAD/microsoft-authentication-library-for-go v1.6.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/armon/go-metrics v0.4.1 // indirect
-	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.17
-	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.17 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.17 // indirect
-	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.4 // indirect
-	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.17 // indirect
-	github.com/aws/aws-sdk-go-v2/service/sso v1.30.10 // indirect
-	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.14 // indirect
+	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.18.20
+	github.com/aws/aws-sdk-go-v2/internal/configsources v1.4.20 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/endpoints/v2 v2.7.20 // indirect
+	github.com/aws/aws-sdk-go-v2/internal/ini v1.8.6 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/accept-encoding v1.13.7 // indirect
+	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.13.20 // indirect
+	github.com/aws/aws-sdk-go-v2/service/sso v1.30.13 // indirect
+	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.35.17 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/cncf/xds/go v0.0.0-20251210132809-ee656c7534f5 // indirect
