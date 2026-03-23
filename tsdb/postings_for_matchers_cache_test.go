@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/DmitriyVTitov/size"
 	"github.com/oklog/ulid/v2"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
@@ -32,6 +33,7 @@ import (
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/index"
+	promContext "github.com/prometheus/prometheus/util/context"
 )
 
 func TestPostingsForMatchersCacheFactory(t *testing.T) {
@@ -932,10 +934,11 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.Equal(t, expectedPostings.Clone(context.TODO()), actualPostings)
 		require.Equal(t, int32(2), callsCount.Load())
 
-		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+		expectedBytes := cachedPromiseSizeBytes(matchers, expectedPostings)
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 222
+			postings_for_matchers_cache_bytes_total %d
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
@@ -969,7 +972,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
 			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
 			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
-		`)))
+		`, expectedBytes))))
 	})
 
 	t.Run("initial request context is cancelled, second request is not cancelled", func(t *testing.T) {
@@ -1047,10 +1050,11 @@ func TestPostingsForMatchersCache(t *testing.T) {
 		require.Equal(t, expectedPostings.Clone(context.TODO()), actualPostings)
 		require.Equal(t, int32(1), callsCount.Load())
 
-		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(`
+		expectedBytes := cachedPromiseSizeBytes(matchers, expectedPostings)
+		require.NoError(t, testutil.GatherAndCompare(reg, strings.NewReader(fmt.Sprintf(`
 			# HELP postings_for_matchers_cache_bytes_total Total number of bytes in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_bytes_total gauge
-			postings_for_matchers_cache_bytes_total 222
+			postings_for_matchers_cache_bytes_total %d
 
 			# HELP postings_for_matchers_cache_entries_total Total number of entries in the PostingsForMatchers cache.
 			# TYPE postings_for_matchers_cache_entries_total gauge
@@ -1084,7 +1088,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 			postings_for_matchers_cache_evictions_total{reason="max-items-reached"} 0
 			postings_for_matchers_cache_evictions_total{reason="ttl-expired"} 0
 			postings_for_matchers_cache_evictions_total{reason="unknown"} 0
-		`)))
+		`, expectedBytes))))
 	})
 
 	t.Run("initial and subsequent requests are canceled during execution", func(t *testing.T) {
@@ -1669,6 +1673,23 @@ func BenchmarkMatchersKey(b *testing.B) {
 			_ = sharedCacheKey(1, "foo", headULID, sets[i%matcherSets])
 		}
 	})
+}
+
+// cachedPromiseSizeBytes computes the expected byte size of a cached promise entry,
+// matching the calculation in postingsForMatchersPromise: len(key) + size.Of(promise).
+// This avoids hardcoding byte sizes that vary across Go versions and build tags.
+func cachedPromiseSizeBytes(matchers []*labels.Matcher, cloner PostingsCloner) int {
+	key := cacheKeyForMatchers(matchers)
+	tracker, _ := promContext.NewContextsTracker()
+	tracker.Close()
+	promise := &postingsForMatcherPromise{
+		callersCtxTracker:     tracker,
+		done:                  make(chan struct{}),
+		cloner:                cloner,
+		evaluationCompletedAt: time.Time{},
+	}
+	close(promise.done)
+	return len(key) + size.Of(promise)
 }
 
 func requirePostingsForMatchesCachePromiseTrackedContexts(t *testing.T, cache *PostingsForMatchersCache, cacheKey string, expected int) {
