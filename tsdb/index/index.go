@@ -174,6 +174,9 @@ type Writer struct {
 	Version int
 
 	postingsEncoder PostingsEncoder
+
+	// List of label names that should not be included in the posting offset table.
+	postingsDisabled []string
 }
 
 // TOC represents the index Table Of Contents that states where each section of the index starts.
@@ -257,10 +260,11 @@ func NewWriterWithEncoder(ctx context.Context, fn string, encoder PostingsEncode
 		buf1: encoding.Encbuf{B: make([]byte, 0, 1<<22)},
 		buf2: encoding.Encbuf{B: make([]byte, 0, 1<<22)},
 
-		symbolCache:     make(map[string]symbolCacheEntry, 1<<8),
-		labelNames:      make(map[string]uint64, 1<<8),
-		crc32:           newCRC32(),
-		postingsEncoder: encoder,
+		symbolCache:      make(map[string]symbolCacheEntry, 1<<8),
+		labelNames:       make(map[string]uint64, 1<<8),
+		crc32:            newCRC32(),
+		postingsEncoder:  encoder,
+		postingsDisabled: []string{"__series_hash__"},
 	}
 	if err := iw.writeMeta(); err != nil {
 		return nil, err
@@ -727,7 +731,9 @@ func (w *Writer) writeTOC() error {
 func (w *Writer) writePostingsToTmpFiles() error {
 	names := make([]string, 0, len(w.labelNames))
 	for n := range w.labelNames {
-		names = append(names, n)
+		if !slices.Contains(w.postingsDisabled, n) {
+			names = append(names, n)
+		}
 	}
 	slices.Sort(names)
 
