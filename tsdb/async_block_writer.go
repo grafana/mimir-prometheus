@@ -90,6 +90,10 @@ func (bw *asyncBlockWriter) loop() (res asyncBlockWriterResult) {
 
 		stats.NumChunks += uint64(len(sw.chks))
 		stats.NumSeries++
+		if sw.lbls.Has("__series_hash__") {
+			stats.NumSeriesHash++
+		}
+
 		for _, chk := range sw.chks {
 			samples := uint64(chk.Chunk.NumSamples())
 			stats.NumSamples += samples

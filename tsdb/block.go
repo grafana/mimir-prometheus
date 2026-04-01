@@ -199,6 +199,7 @@ type BlockStats struct {
 	NumFloatSamples     uint64 `json:"numFloatSamples,omitempty"`
 	NumHistogramSamples uint64 `json:"numHistogramSamples,omitempty"`
 	NumSeries           uint64 `json:"numSeries,omitempty"`
+	NumSeriesHash       uint64 `json:"numSeriesHash,omitempty"`
 	NumChunks           uint64 `json:"numChunks,omitempty"`
 	NumTombstones       uint64 `json:"numTombstones,omitempty"`
 }
