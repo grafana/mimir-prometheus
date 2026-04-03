@@ -109,6 +109,9 @@ func (bw *asyncBlockWriter) loop() (res asyncBlockWriterResult) {
 		ref++
 	}
 
+	// After we've completed writing all series, we know the cardinality of all labels.
+	stats.NumSeriesHash = bw.indexw.Cardinality("__series_hash__")
+
 	err := bw.closeSemaphore.Acquire(context.Background(), 1)
 	if err != nil {
 		return asyncBlockWriterResult{err: fmt.Errorf("failed to acquire semaphore before closing writers: %w", err)}

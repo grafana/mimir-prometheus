@@ -53,6 +53,11 @@ type IndexWriter interface {
 	// that are added later.
 	AddSeries(ref storage.SeriesRef, l labels.Labels, chunks ...chunks.Meta) error
 
+	// Cardinality returns the current cardinality of a label based on the
+	// series that have been written to the index so far. This method should only
+	// be called after AddSeries calls have been completed.
+	Cardinality(lbl string) uint64
+
 	// Close writes any finalization and closes the resources associated with
 	// the underlying writer.
 	Close() error
@@ -199,6 +204,7 @@ type BlockStats struct {
 	NumFloatSamples     uint64 `json:"numFloatSamples,omitempty"`
 	NumHistogramSamples uint64 `json:"numHistogramSamples,omitempty"`
 	NumSeries           uint64 `json:"numSeries,omitempty"`
+	NumSeriesHash       uint64 `json:"numSeriesHash,omitempty"`
 	NumChunks           uint64 `json:"numChunks,omitempty"`
 	NumTombstones       uint64 `json:"numTombstones,omitempty"`
 }

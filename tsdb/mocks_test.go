@@ -51,6 +51,10 @@ func (m *mockIndexWriter) AddSeries(_ storage.SeriesRef, l labels.Labels, chks .
 	return nil
 }
 
+func (mockIndexWriter) Cardinality(_ string) uint64 {
+	return 0
+}
+
 func (mockIndexWriter) WriteLabelIndex([]string, []string) error { return nil }
 func (mockIndexWriter) Close() error                             { return nil }
 

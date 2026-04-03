@@ -619,6 +619,10 @@ func (w *Writer) finishSymbols() error {
 	return nil
 }
 
+func (w *Writer) Cardinality(lbl string) uint64 {
+	return w.labelNames[lbl]
+}
+
 // writePostingsOffsetTable writes the postings offset table.
 func (w *Writer) writePostingsOffsetTable() error {
 	// Ensure everything is in the temporary file.
