@@ -1516,7 +1516,8 @@ func TestMemSeries_truncateChunks(t *testing.T) {
 
 	memChunkPool := sync.Pool{
 		New: func() any {
-			return &memChunk{}
+			mc := newMemChunk(nil, nil)
+			return &mc
 		},
 	}
 
@@ -3867,7 +3868,8 @@ func TestIteratorSeekIntoBuffer(t *testing.T) {
 
 	c, _, _, err := s.chunk(0, chunkDiskMapper, &sync.Pool{
 		New: func() any {
-			return &memChunk{}
+			mc := newMemChunk(nil, nil)
+			return &mc
 		},
 	})
 	require.NoError(t, err)

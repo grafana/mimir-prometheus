@@ -370,7 +370,8 @@ func TestMemSeries_chunk(t *testing.T) {
 
 	memChunkPool := &sync.Pool{
 		New: func() any {
-			return &memChunk{}
+			mc := newMemChunk(nil, nil)
+			return &mc
 		},
 	}
 

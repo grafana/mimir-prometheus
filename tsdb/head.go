@@ -320,7 +320,8 @@ func NewHead(r prometheus.Registerer, l *slog.Logger, wal, wbl *wlog.WL, opts *H
 		opts:   opts,
 		memChunkPool: sync.Pool{
 			New: func() any {
-				return &memChunk{}
+				mc := newMemChunk(nil, nil)
+				return &mc
 			},
 		},
 		stats:             stats,
@@ -2630,11 +2631,27 @@ func (s *memSeries) cleanupAppendIDsBelow(bound uint64) {
 	}
 }
 
+// memChunk is a node in a linked list of chunks in memory.
+//
+// Prefer building through [newMemChunk] over literals to ensure the length is
+// memoized correctly.
 type memChunk struct {
 	chunk            chunkenc.Chunk
 	minTime, maxTime int64
 	prev             *memChunk // Link to the previous element on the list.
 	listLen          int       // Cached length of the linked list starting from this element.
+}
+
+func newMemChunk(chunk chunkenc.Chunk, prev *memChunk) memChunk {
+	listLen := 1
+	if prev != nil {
+		listLen = prev.listLen + 1
+	}
+	return memChunk{
+		chunk:   chunk,
+		prev:    prev,
+		listLen: listLen,
+	}
 }
 
 func (mc *memChunk) len() int {
