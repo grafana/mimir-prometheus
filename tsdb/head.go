@@ -2572,7 +2572,9 @@ func (s *memSeries) truncateChunksBefore(mint int64, minOOOMmapRef chunks.ChunkD
 		for chk != nil {
 			if chk.maxTime < mint {
 				// If any head chunk is truncated, we can truncate all mmapped chunks.
-				removedInOrder = chk.len() + len(s.mmappedChunks)
+				// Use cached listLen on the head minus the nodes we've already walked
+				// past (i) to get the count from chk to the end of the list.
+				removedInOrder = (s.headChunks.listLen - i) + len(s.mmappedChunks)
 				s.firstChunkID += chunks.HeadChunkID(removedInOrder)
 				if i == 0 {
 					// This is the first chunk on the list so we need to remove the entire list.
@@ -2580,6 +2582,7 @@ func (s *memSeries) truncateChunksBefore(mint int64, minOOOMmapRef chunks.ChunkD
 				} else {
 					// This is NOT the first chunk, unlink it from parent.
 					nextChk.prev = nil
+					s.headChunks.listLen = i
 				}
 				s.mmappedChunks = nil
 				break
@@ -2631,20 +2634,11 @@ type memChunk struct {
 	chunk            chunkenc.Chunk
 	minTime, maxTime int64
 	prev             *memChunk // Link to the previous element on the list.
+	listLen          int       // Cached length of the linked list starting from this element.
 }
 
-// len returns the length of memChunk list, including the element it was called on.
-func (mc *memChunk) len() (count int) {
-	if mc.prev == nil {
-		return 1
-	}
-
-	elem := mc
-	for elem != nil {
-		count++
-		elem = elem.prev
-	}
-	return count
+func (mc *memChunk) len() int {
+	return mc.listLen
 }
 
 // oldest returns the oldest element on the list.

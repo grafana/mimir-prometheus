@@ -1926,11 +1926,16 @@ func (s *memSeries) appendHistogram(st, t int64, h *histogram.Histogram, appendI
 		return true, false
 	}
 
+	prevLen := 0
+	if s.headChunks != nil {
+		prevLen = s.headChunks.listLen
+	}
 	s.headChunks = &memChunk{
 		chunk:   newChunk,
 		minTime: t,
 		maxTime: t,
 		prev:    s.headChunks,
+		listLen: prevLen + 1,
 	}
 	s.nextAt = rangeForTimestamp(t, o.chunkRange)
 	return true, true
@@ -1983,11 +1988,16 @@ func (s *memSeries) appendFloatHistogram(st, t int64, fh *histogram.FloatHistogr
 		return true, false
 	}
 
+	prevLen := 0
+	if s.headChunks != nil {
+		prevLen = s.headChunks.listLen
+	}
 	s.headChunks = &memChunk{
 		chunk:   newChunk,
 		minTime: t,
 		maxTime: t,
 		prev:    s.headChunks,
+		listLen: prevLen + 1,
 	}
 	s.nextAt = rangeForTimestamp(t, o.chunkRange)
 	return true, true
@@ -2184,10 +2194,15 @@ func (s *memSeries) cutNewHeadChunk(mint int64, e chunkenc.Encoding, chunkRange 
 	// pointing at the current .headChunks, so it forms a linked list.
 	// All but first headChunks list elements will be m-mapped as soon as possible
 	// so this is a single element list most of the time.
+	prevLen := 0
+	if s.headChunks != nil {
+		prevLen = s.headChunks.listLen
+	}
 	s.headChunks = &memChunk{
 		minTime: mint,
 		maxTime: math.MinInt64,
 		prev:    s.headChunks,
+		listLen: prevLen + 1,
 	}
 
 	if chunkenc.IsValidEncoding(e) {
@@ -2280,6 +2295,7 @@ func (s *memSeries) mmapChunks(chunkDiskMapper *chunks.ChunkDiskMapper) (count i
 
 	// Once we've written out all chunks except s.headChunks we need to unlink these from s.headChunk.
 	s.headChunks.prev = nil
+	s.headChunks.listLen = 1
 
 	return count
 }

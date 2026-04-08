@@ -1313,7 +1313,7 @@ func decodeSeriesFromChunkSnapshot(d *record.Decoder, b []byte) (csr chunkSnapsh
 		return csr, err
 	}
 
-	csr.mc = &memChunk{}
+	csr.mc = &memChunk{listLen: 1}
 	csr.mc.minTime = dec.Be64int64()
 	csr.mc.maxTime = dec.Be64int64()
 	enc := chunkenc.Encoding(dec.Byte())
