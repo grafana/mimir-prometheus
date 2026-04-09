@@ -2255,7 +2255,7 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 			staleSeriesDeleted++
 		}
 
-		chunksRemoved += len(series.mmappedChunks)
+		chunksRemoved += len(series.mmappedChunks) + series.headChunksLen
 
 		deleted[storage.SeriesRef(series.ref)] = struct{}{}
 		series.lset.Range(func(l labels.Label) { affected[l] = struct{}{} })
