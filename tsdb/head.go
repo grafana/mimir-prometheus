@@ -2640,7 +2640,7 @@ func (s *memSeries) appendHeadChunk(next *memChunk) {
 func (s *memSeries) reverseHeadChunks() iter.Seq2[int, *memChunk] {
 	// memSeries.atOffset is O(n), so to avoid quadratic behavior when n is big,
 	// let's copy the list into a slice first and iterate from it instead.
-	const precollectThreshold = 100
+	const precollectThreshold = 20
 	if s.headChunksLen >= precollectThreshold {
 		tail := make([]*memChunk, 0, s.headChunksLen)
 		chk := s.headChunks
