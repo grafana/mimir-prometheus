@@ -166,7 +166,7 @@ func TestMemSeries_chunk(t *testing.T) {
 				require.Equal(t, 1, s.headChunks.len(), "wrong number of headChunks")
 				require.Equal(t, chunkRange*3, s.headChunks.oldest().minTime, "wrong minTime on last headChunks element")
 				require.Equal(t, (chunkRange*4)-chunkStep, s.headChunks.maxTime, "wrong maxTime on first headChunks element")
-				s.headChunks = nil
+				s.clearHeadChunks()
 			},
 			inputID:  0,
 			expected: outMmappedChunk,
@@ -180,7 +180,7 @@ func TestMemSeries_chunk(t *testing.T) {
 				require.Equal(t, 1, s.headChunks.len(), "wrong number of headChunks")
 				require.Equal(t, chunkRange*3, s.headChunks.oldest().minTime, "wrong minTime on last headChunks element")
 				require.Equal(t, (chunkRange*4)-chunkStep, s.headChunks.maxTime, "wrong maxTime on first headChunks element")
-				s.headChunks = nil
+				s.clearHeadChunks()
 			},
 			inputID:  2,
 			expected: outMmappedChunk,
@@ -194,7 +194,7 @@ func TestMemSeries_chunk(t *testing.T) {
 				require.Equal(t, 1, s.headChunks.len(), "wrong number of headChunks")
 				require.Equal(t, chunkRange*3, s.headChunks.oldest().minTime, "wrong minTime on last headChunks element")
 				require.Equal(t, (chunkRange*4)-chunkStep, s.headChunks.maxTime, "wrong maxTime on first headChunks element")
-				s.headChunks = nil
+				s.clearHeadChunks()
 			},
 			inputID:  3,
 			expected: outErr,
