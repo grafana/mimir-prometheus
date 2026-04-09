@@ -338,9 +338,8 @@ func appendSeriesChunks(s *memSeries, mint, maxt int64, chks []chunks.Meta) []ch
 
 	if s.headChunks != nil {
 		var maxTime int64
-		var i, j int
-		for i = s.headChunks.len() - 1; i >= 0; i-- {
-			chk := s.headChunks.atOffset(i)
+		var j int
+		for i, chk := range s.reverseHeadChunks() {
 			if i == 0 {
 				// Set the head chunk as open (being appended to) for the first headChunk.
 				maxTime = math.MaxInt64
@@ -558,12 +557,7 @@ func (s *memSeries) chunk(id chunks.HeadChunkID, chunkDiskMapper *chunks.ChunkDi
 	// }
 	ix := int(id) - int(s.firstChunkID)
 
-	var headChunksLen int
-	if s.headChunks != nil {
-		headChunksLen = s.headChunks.len()
-	}
-
-	if ix < 0 || ix > len(s.mmappedChunks)+headChunksLen-1 {
+	if ix < 0 || ix > len(s.mmappedChunks)+s.headChunksLen-1 {
 		return nil, false, false, storage.ErrNotFound
 	}
 
@@ -585,7 +579,7 @@ func (s *memSeries) chunk(id chunks.HeadChunkID, chunkDiskMapper *chunks.ChunkDi
 
 	ix -= len(s.mmappedChunks)
 
-	offset := headChunksLen - ix - 1
+	offset := s.headChunksLen - ix - 1
 	// headChunks is a linked list where first element is the most recent one and the last one is the oldest.
 	// This order is reversed when compared with mmappedChunks, since mmappedChunks[0] is the oldest chunk,
 	// while headChunk.atOffset(0) would give us the most recent chunk.
@@ -651,15 +645,13 @@ func (s *memSeries) iterator(id chunks.HeadChunkID, c chunkenc.Chunk, isoState *
 		ix -= len(s.mmappedChunks)
 		if s.headChunks != nil {
 			// Iterate all head chunks from the oldest to the newest.
-			headChunksLen := s.headChunks.len()
-			for j := headChunksLen - 1; j >= 0; j-- {
-				chk := s.headChunks.atOffset(j)
+			for j, chk := range s.reverseHeadChunks() {
 				chkSamples := chk.chunk.NumSamples()
 				totalSamples += chkSamples
 				// Chunk ID is len(s.mmappedChunks) + $(headChunks list position).
 				// Where $(headChunks list position) is zero for the oldest chunk and $(s.headChunks.len() - 1)
 				// for the newest (open) chunk.
-				if headChunksLen-1-j < ix {
+				if s.headChunksLen-1-j < ix {
 					previousSamples += chkSamples
 				}
 			}

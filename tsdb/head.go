@@ -18,10 +18,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"log/slog"
 	"math"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -1020,7 +1022,7 @@ func (h *Head) loadMmappedChunks(refSeries map[chunks.HeadSeriesRef]*memSeries) 
 			// The head chunk was completed and was m-mapped after taking the snapshot.
 			// Hence remove this chunk.
 			ms.nextAt = 0
-			ms.headChunks = nil
+			ms.clearHeadChunks()
 			ms.app = nil
 		}
 		return nil
@@ -2253,10 +2255,7 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 			staleSeriesDeleted++
 		}
 
-		chunksRemoved += len(series.mmappedChunks)
-		if series.headChunks != nil {
-			chunksRemoved += series.headChunks.len()
-		}
+		chunksRemoved += len(series.mmappedChunks) + series.headChunksLen
 
 		deleted[storage.SeriesRef(series.ref)] = struct{}{}
 		series.lset.Range(func(l labels.Label) { affected[l] = struct{}{} })
@@ -2311,10 +2310,7 @@ func (s *stripeSeries) gcStaleSeries(seriesRefs []storage.SeriesRef, maxt int64)
 			return
 		}
 
-		if series.headChunks != nil {
-			rmChunks += series.headChunks.len()
-		}
-		rmChunks += len(series.mmappedChunks)
+		rmChunks += len(series.mmappedChunks) + series.headChunksLen
 
 		// The series is gone entirely. We need to keep the series lock
 		// and make sure we have acquired the stripe locks for hash and ID of the
@@ -2484,8 +2480,9 @@ type memSeries struct {
 	// Most recent chunks in memory that are still being built or waiting to be mmapped.
 	// This is a linked list, headChunks points to the most recent chunk, headChunks.next points
 	// to older chunk and so on.
-	headChunks   *memChunk
-	firstChunkID chunks.HeadChunkID // HeadChunkID for mmappedChunks[0]
+	headChunks    *memChunk
+	headChunksLen int                // Cached length of headChunks, to avoid O(n)
+	firstChunkID  chunks.HeadChunkID // HeadChunkID for mmappedChunks[0]
 
 	ooo *memSeriesOOOFields
 
@@ -2572,14 +2569,16 @@ func (s *memSeries) truncateChunksBefore(mint int64, minOOOMmapRef chunks.ChunkD
 		for chk != nil {
 			if chk.maxTime < mint {
 				// If any head chunk is truncated, we can truncate all mmapped chunks.
-				removedInOrder = chk.len() + len(s.mmappedChunks)
+				headChunksRemoved := s.headChunksLen - i
+				removedInOrder = headChunksRemoved + len(s.mmappedChunks)
 				s.firstChunkID += chunks.HeadChunkID(removedInOrder)
 				if i == 0 {
 					// This is the first chunk on the list so we need to remove the entire list.
-					s.headChunks = nil
+					s.clearHeadChunks()
 				} else {
 					// This is NOT the first chunk, unlink it from parent.
 					nextChk.prev = nil
+					s.headChunksLen -= headChunksRemoved
 				}
 				s.mmappedChunks = nil
 				break
@@ -2627,6 +2626,41 @@ func (s *memSeries) cleanupAppendIDsBelow(bound uint64) {
 	}
 }
 
+func (s *memSeries) clearHeadChunks() {
+	s.headChunks = nil
+	s.headChunksLen = 0
+}
+
+func (s *memSeries) appendHeadChunk(next *memChunk) {
+	next.prev = s.headChunks
+	s.headChunks = next
+	s.headChunksLen++
+}
+
+func (s *memSeries) reverseHeadChunks() iter.Seq2[int, *memChunk] {
+	// memSeries.atOffset is O(n), so to avoid quadratic behavior when n is big,
+	// let's copy the list into a slice first and iterate from it instead.
+	const precollectThreshold = 20
+	if s.headChunksLen >= precollectThreshold {
+		tail := make([]*memChunk, 0, s.headChunksLen)
+		chk := s.headChunks
+		for chk != nil {
+			tail = append(tail, chk)
+			chk = chk.prev
+		}
+		return slices.Backward(tail)
+	}
+
+	return func(yield func(int, *memChunk) bool) {
+		for i := s.headChunksLen - 1; i >= 0; i-- {
+			chk := s.headChunks.atOffset(i)
+			if !yield(i, chk) {
+				return
+			}
+		}
+	}
+}
+
 type memChunk struct {
 	chunk            chunkenc.Chunk
 	minTime, maxTime int64
@@ -2634,6 +2668,7 @@ type memChunk struct {
 }
 
 // len returns the length of memChunk list, including the element it was called on.
+// For memSeries.headChunks, consider using memSeries.headChunksLen instead.
 func (mc *memChunk) len() (count int) {
 	if mc.prev == nil {
 		return 1
