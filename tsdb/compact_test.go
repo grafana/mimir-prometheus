@@ -1474,6 +1474,51 @@ func BenchmarkCompactionFromHead(b *testing.B) {
 	}
 }
 
+// BenchmarkCompactionFromHeadManyHeadChunks is like BenchmarkCompactionFromHead but
+// with many head chunks per series (one per sample), as can happen with native
+// histograms. This stresses the linked-list traversal in memSeries.chunk().
+func BenchmarkCompactionFromHeadManyHeadChunks(b *testing.B) {
+	nSeries := 10
+	for _, nChunks := range []int{500, 5000, 50000} {
+		b.Run(fmt.Sprintf("series=%d,chunks=%d", nSeries, nChunks), func(b *testing.B) {
+			dir := b.TempDir()
+			chunkDir := b.TempDir()
+			opts := DefaultHeadOptions()
+			opts.ChunkRange = int64(nChunks+1) * 1000 // Wide enough so nothing gets mmapped.
+			opts.ChunkDirRoot = chunkDir
+			h, err := NewHead(nil, nil, nil, nil, opts, nil)
+			require.NoError(b, err)
+
+			app := h.Appender(context.Background())
+			for i := range nSeries {
+				lbls := labels.FromStrings("series", strconv.Itoa(i))
+				for j := range nChunks {
+					// Counter reset on every histogram forces a new head chunk per sample.
+					hist := tsdbutil.GenerateTestHistogram(int64(j))
+					hist.CounterResetHint = histogram.CounterReset
+					_, err := app.AppendHistogram(0, lbls, int64(j)*1000, hist, nil)
+					require.NoError(b, err)
+				}
+			}
+			require.NoError(b, app.Commit())
+
+			// Verify that we have as many chunks per series as expected.
+			for i := range nSeries {
+				lbls := labels.FromStrings("series", strconv.Itoa(i))
+				s := h.series.getByHash(lbls.Hash(), lbls)
+				require.Equal(b, nChunks, s.headChunks.len())
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; b.Loop(); i++ {
+				createBlockFromHead(b, filepath.Join(dir, strconv.Itoa(i)), h)
+			}
+			h.Close()
+		})
+	}
+}
+
 func BenchmarkCompactionFromOOOHead(b *testing.B) {
 	dir := b.TempDir()
 	totalSeries := 100000
