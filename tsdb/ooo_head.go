@@ -108,10 +108,7 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64, useXOR2 bool) (chks []memCh
 
 		if encoding != prevEncoding { // For the first sample, this will always be true as EncNone != EncXOR | EncHistogram | EncFloatHistogram
 			if prevEncoding != chunkenc.EncNone {
-				mc := newMemChunk(chunk, nil)
-				mc.minTime = cmint
-				mc.maxTime = cmaxt
-				chks = append(chks, mc)
+				chks = append(chks, memChunk{chunk, cmint, cmaxt, nil})
 			}
 			cmint = s.t
 			chunk, err = chunkenc.NewEmptyChunk(encoding)
@@ -139,10 +136,7 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64, useXOR2 bool) (chks []memCh
 			newChunk, recoded, app, _ = app.AppendHistogram(prevHApp, s.st, s.t, s.h, false)
 			if newChunk != nil { // A new chunk was allocated.
 				if !recoded {
-					mc := newMemChunk(chunk, nil)
-					mc.minTime = cmint
-					mc.maxTime = cmaxt
-					chks = append(chks, mc)
+					chks = append(chks, memChunk{chunk, cmint, cmaxt, nil})
 					cmint = s.t
 				}
 				chunk = newChunk
@@ -158,10 +152,7 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64, useXOR2 bool) (chks []memCh
 			newChunk, recoded, app, _ = app.AppendFloatHistogram(prevHApp, s.st, s.t, s.fh, false)
 			if newChunk != nil { // A new chunk was allocated.
 				if !recoded {
-					mc := newMemChunk(chunk, nil)
-					mc.minTime = cmint
-					mc.maxTime = cmaxt
-					chks = append(chks, mc)
+					chks = append(chks, memChunk{chunk, cmint, cmaxt, nil})
 					cmint = s.t
 				}
 				chunk = newChunk
@@ -171,10 +162,7 @@ func (o *OOOChunk) ToEncodedChunks(mint, maxt int64, useXOR2 bool) (chks []memCh
 		prevEncoding = encoding
 	}
 	if prevEncoding != chunkenc.EncNone {
-		mc := newMemChunk(chunk, nil)
-		mc.minTime = cmint
-		mc.maxTime = cmaxt
-		chks = append(chks, mc)
+		chks = append(chks, memChunk{chunk, cmint, cmaxt, nil})
 	}
 	return chks, nil
 }

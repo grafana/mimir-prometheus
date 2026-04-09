@@ -638,7 +638,7 @@ func (h *Head) resetSeriesWithMMappedChunks(mSeries *memSeries, mmc, oooMmc []*m
 	// We do not reset oooHeadChunk because that is being replayed from a different WAL
 	// and has not been replayed here.
 	mSeries.nextAt = 0
-	mSeries.headChunks = nil
+	mSeries.clearHeadChunks()
 	mSeries.app = nil
 	return overlapped
 }
@@ -1313,10 +1313,9 @@ func decodeSeriesFromChunkSnapshot(d *record.Decoder, b []byte) (csr chunkSnapsh
 		return csr, err
 	}
 
-	mc := newMemChunk(nil, nil)
-	mc.minTime = dec.Be64int64()
-	mc.maxTime = dec.Be64int64()
-	csr.mc = &mc
+	csr.mc = &memChunk{}
+	csr.mc.minTime = dec.Be64int64()
+	csr.mc.maxTime = dec.Be64int64()
 	enc := chunkenc.Encoding(dec.Byte())
 
 	// The underlying bytes gets re-used later, so make a copy.
@@ -1328,7 +1327,7 @@ func decodeSeriesFromChunkSnapshot(d *record.Decoder, b []byte) (csr chunkSnapsh
 	if err != nil {
 		return csr, fmt.Errorf("chunk from data: %w", err)
 	}
-	mc.chunk = chk
+	csr.mc.chunk = chk
 
 	switch enc {
 	case chunkenc.EncXOR, chunkenc.EncXOR2:
@@ -1726,6 +1725,7 @@ func (h *Head) loadChunkSnapshot() (int, int, map[chunks.HeadSeriesRef]*memSerie
 				}
 				series.nextAt = csr.mc.maxTime // This will create a new chunk on append.
 				series.headChunks = csr.mc
+				series.headChunksLen = csr.mc.len()
 				series.lastValue = csr.lastValue
 				series.lastHistogramValue = csr.lastHistogramValue
 				series.lastFloatHistogramValue = csr.lastFloatHistogramValue

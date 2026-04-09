@@ -1926,10 +1926,11 @@ func (s *memSeries) appendHistogram(st, t int64, h *histogram.Histogram, appendI
 		return true, false
 	}
 
-	mc := newMemChunk(newChunk, s.headChunks)
-	mc.minTime = t
-	mc.maxTime = t
-	s.headChunks = &mc
+	s.appendHeadChunk(&memChunk{
+		chunk:   newChunk,
+		minTime: t,
+		maxTime: t,
+	})
 	s.nextAt = rangeForTimestamp(t, o.chunkRange)
 	return true, true
 }
@@ -1981,10 +1982,11 @@ func (s *memSeries) appendFloatHistogram(st, t int64, fh *histogram.FloatHistogr
 		return true, false
 	}
 
-	mc := newMemChunk(newChunk, s.headChunks)
-	mc.minTime = t
-	mc.maxTime = t
-	s.headChunks = &mc
+	s.appendHeadChunk(&memChunk{
+		chunk:   newChunk,
+		minTime: t,
+		maxTime: t,
+	})
 	s.nextAt = rangeForTimestamp(t, o.chunkRange)
 	return true, true
 }
@@ -2180,10 +2182,10 @@ func (s *memSeries) cutNewHeadChunk(mint int64, e chunkenc.Encoding, chunkRange 
 	// pointing at the current .headChunks, so it forms a linked list.
 	// All but first headChunks list elements will be m-mapped as soon as possible
 	// so this is a single element list most of the time.
-	mc := newMemChunk(nil, s.headChunks)
-	mc.minTime = mint
-	mc.maxTime = math.MinInt64
-	s.headChunks = &mc
+	s.appendHeadChunk(&memChunk{
+		minTime: mint,
+		maxTime: math.MinInt64,
+	})
 
 	if chunkenc.IsValidEncoding(e) {
 		var err error
@@ -2261,8 +2263,10 @@ func (s *memSeries) mmapChunks(chunkDiskMapper *chunks.ChunkDiskMapper) (count i
 	// Write chunks starting from the oldest one and stop before we get to current s.headChunks.
 	// If we have this chain: s.headChunks{t4} -> t3 -> t2 -> t1 -> t0
 	// then we need to write chunks t0 to t3, but skip s.headChunks.
-	for i := s.headChunks.len() - 1; i > 0; i-- {
-		chk := s.headChunks.atOffset(i)
+	for i, chk := range s.reverseHeadChunks() {
+		if i == 0 { // skip s.headChunks
+			break
+		}
 		chunkRef := chunkDiskMapper.WriteChunk(s.ref, chk.minTime, chk.maxTime, chk.chunk, false, handleChunkWriteError)
 		s.mmappedChunks = append(s.mmappedChunks, &mmappedChunk{
 			ref:        chunkRef,
@@ -2275,7 +2279,7 @@ func (s *memSeries) mmapChunks(chunkDiskMapper *chunks.ChunkDiskMapper) (count i
 
 	// Once we've written out all chunks except s.headChunks we need to unlink these from s.headChunk.
 	s.headChunks.prev = nil
-	s.headChunks.listLen = 1
+	s.headChunksLen = 1
 
 	return count
 }
