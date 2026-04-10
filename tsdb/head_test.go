@@ -2573,7 +2573,7 @@ func TestGCChunkAccess(t *testing.T) {
 	require.True(t, ok, "series append failed")
 	require.False(t, chunkCreated, "chunks was created")
 
-	idx := h.indexRange(0, 1500)
+	idx := h.indexRange(0, 1500, false)
 	var (
 		chnks   []chunks.Meta
 		builder labels.ScratchBuilder
@@ -2629,7 +2629,7 @@ func TestGCSeriesAccess(t *testing.T) {
 	require.True(t, ok, "series append failed")
 	require.False(t, chunkCreated, "chunks was created")
 
-	idx := h.indexRange(0, 2000)
+	idx := h.indexRange(0, 2000, false)
 	var (
 		chunks  []chunks.Meta
 		builder labels.ScratchBuilder
@@ -3513,7 +3513,7 @@ func TestHeadLabelNamesValuesWithMinMaxRange(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			headIdxReader := head.indexRange(tt.mint, tt.maxt)
+			headIdxReader := head.indexRange(tt.mint, tt.maxt, false)
 			actualLabelNames, err := headIdxReader.LabelNames(ctx)
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedNames, actualLabelNames)
@@ -3589,7 +3589,7 @@ func TestHeadLabelValuesWithMatchers(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			headIdxReader := head.indexRange(0, 200)
+			headIdxReader := head.indexRange(0, 200, false)
 
 			actualValues, err := headIdxReader.SortedLabelValues(ctx, tt.labelName, nil, tt.matchers...)
 			require.NoError(t, err)
@@ -3659,7 +3659,7 @@ func TestHeadLabelNamesWithMatchers(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			headIdxReader := head.indexRange(0, 200)
+			headIdxReader := head.indexRange(0, 200, false)
 
 			actualNames, err := headIdxReader.LabelNames(context.Background(), tt.matchers...)
 			require.NoError(t, err)
@@ -3683,7 +3683,7 @@ func TestHeadShardedPostings(t *testing.T) {
 	}
 	require.NoError(t, app.Commit())
 
-	ir := head.indexRange(0, 200)
+	ir := head.indexRange(0, 200, false)
 
 	// List all postings for a given label value. This is what we expect to get
 	// in output from all shards.
@@ -3905,7 +3905,7 @@ func BenchmarkHeadLabelValuesWithMatchers(b *testing.B) {
 	}
 	require.NoError(b, app.Commit())
 
-	headIdxReader := head.indexRange(0, 200)
+	headIdxReader := head.indexRange(0, 200, false)
 	matchers := []*labels.Matcher{labels.MustNewMatcher(labels.MatchEqual, "c_ninety", "value0")}
 
 	b.ReportAllocs()

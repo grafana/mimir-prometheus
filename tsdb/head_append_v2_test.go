@@ -1201,7 +1201,7 @@ func TestHeadLabelNamesValuesWithMinMaxRange_AppenderV2(t *testing.T) {
 
 	for _, tt := range testCases {
 		t.Run(tt.name, func(t *testing.T) {
-			headIdxReader := head.indexRange(tt.mint, tt.maxt)
+			headIdxReader := head.indexRange(tt.mint, tt.maxt, false)
 			actualLabelNames, err := headIdxReader.LabelNames(ctx)
 			require.NoError(t, err)
 			require.Equal(t, tt.expectedNames, actualLabelNames)
