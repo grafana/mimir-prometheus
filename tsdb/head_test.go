@@ -54,7 +54,6 @@ import (
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
 	"github.com/prometheus/prometheus/tsdb/record"
-	"github.com/prometheus/prometheus/tsdb/seriesmetadata"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/tsdb/wlog"
@@ -137,8 +136,6 @@ func populateTestWL(t testing.TB, w *wlog.WL, recs []any, buf []byte, enableSTSt
 			buf = enc.Metadata(v, buf)
 		case []record.RefResource:
 			buf = enc.Resources(v, buf)
-		case []record.RefScope:
-			buf = enc.Scopes(v, buf)
 		default:
 			continue
 		}
@@ -193,10 +190,6 @@ func readTestWAL(t testing.TB, dir string) (recs []any) {
 			resources, err := dec.Resources(rec, nil)
 			require.NoError(t, err)
 			recs = append(recs, resources)
-		case record.ScopeUpdate:
-			scopes, err := dec.Scopes(rec, nil)
-			require.NoError(t, err)
-			recs = append(recs, scopes)
 		default:
 			require.Fail(t, "unknown record type")
 		}
@@ -1782,12 +1775,8 @@ func TestMemSeries_truncateChunks_scenarios(t *testing.T) {
 			}
 			require.Len(t, series.mmappedChunks, tc.mmappedChunks, "wrong number of mmapped chunks")
 
-			// Set headChunkCount before truncation (series.append bypasses observeChunkCreated).
-			series.headChunkCount.Store(uint32(tc.headChunks))
-
 			truncated := series.truncateChunksBefore(tc.truncateBefore, 0)
 			require.Equal(t, tc.expectedTruncated, truncated, "wrong number of truncated chunks returned")
-			require.Equal(t, uint32(tc.expectedHead), series.headChunkCount.Load(), "wrong headChunkCount after truncation")
 
 			require.Len(t, series.mmappedChunks, tc.expectedMmap, "wrong number of mmappedChunks after truncation")
 
@@ -8623,7 +8612,7 @@ func TestHead_mmapHeadChunks_oooDoesNotInflateCount(t *testing.T) {
 	require.Equal(t, countBefore, s.headChunkCount.Load(), "OOO insert should not inflate headChunkCount")
 }
 
-func TestResourceAndScopeWALReplay(t *testing.T) {
+func TestResourceWALReplay(t *testing.T) {
 	dir := t.TempDir()
 	opts := newTestHeadDefaultOptions(1000, false)
 	opts.EnableNativeMetadata = true
@@ -8652,7 +8641,6 @@ func TestResourceAndScopeWALReplay(t *testing.T) {
 	_, appErr = app.UpdateResource(ref, lset,
 		map[string]string{"service.name": "frontend"},
 		map[string]string{"host.name": "node-1"},
-		[]storage.EntityData{{Type: "resource", ID: map[string]string{"service.name": "frontend"}}},
 		200,
 	)
 	require.NoError(t, appErr)
@@ -8684,7 +8672,7 @@ func TestResourceAndScopeWALReplay(t *testing.T) {
 	require.Equal(t, "node-1", vr2.Versions[0].Descriptive["host.name"])
 }
 
-func TestResourceAndScopeRollback(t *testing.T) {
+func TestResourceRollback(t *testing.T) {
 	opts := newTestHeadDefaultOptions(1000, false)
 	opts.EnableNativeMetadata = true
 	head, _ := newTestHeadWithOptions(t, compression.None, opts)
@@ -8706,7 +8694,6 @@ func TestResourceAndScopeRollback(t *testing.T) {
 	_, err = app.UpdateResource(ref, lset,
 		map[string]string{"service.name": "frontend"},
 		map[string]string{"host.name": "node-1"},
-		nil,
 		200,
 	)
 	require.NoError(t, err)
@@ -8740,14 +8727,12 @@ func TestResourceDedupInV1Appender(t *testing.T) {
 	_, err = app.UpdateResource(ref, lset,
 		map[string]string{"service.name": "v1"},
 		map[string]string{},
-		nil,
 		200,
 	)
 	require.NoError(t, err)
 	_, err = app.UpdateResource(ref, lset,
 		map[string]string{"service.name": "v2"},
 		map[string]string{},
-		nil,
 		200,
 	)
 	require.NoError(t, err)
@@ -8761,12 +8746,11 @@ func TestResourceDedupInV1Appender(t *testing.T) {
 	require.Equal(t, "v1", vr.Versions[0].Identifying["service.name"])
 }
 
-func TestResourceAndScopeWALReplayWithScope(t *testing.T) {
+func TestResourceWALReplayWithResource(t *testing.T) {
 	opts := newTestHeadDefaultOptions(1000, false)
 	opts.EnableNativeMetadata = true
-	opts.EnableScopeMetadata = true
 	head, w := newTestHeadWithOptions(t, compression.None, opts)
-	// Manually populate the WAL with series + resource + scope records.
+	// Manually populate the WAL with series + resource records.
 	populateTestWL(t, w, []any{
 		[]record.RefSeries{
 			{Ref: 1, Labels: labels.FromStrings("a", "b")},
@@ -8783,18 +8767,7 @@ func TestResourceAndScopeWALReplayWithScope(t *testing.T) {
 				Descriptive: map[string]string{"host.name": "node-1"},
 			},
 		},
-		[]record.RefScope{
-			{
-				Ref:       1,
-				MinTime:   100,
-				MaxTime:   100,
-				Name:      "go.opentelemetry.io/instrumentation",
-				Version:   "0.42.0",
-				SchemaURL: "https://opentelemetry.io/schemas/1.17.0",
-				Attrs:     map[string]string{"lib.custom": "val"},
-			},
-		},
-	}, nil)
+	}, nil, false)
 
 	require.NoError(t, head.Init(0))
 
@@ -8811,19 +8784,10 @@ func TestResourceAndScopeWALReplayWithScope(t *testing.T) {
 	require.Len(t, vr.Versions, 1)
 	require.Equal(t, "frontend", vr.Versions[0].Identifying["service.name"])
 
-	// Scope should be replayed in shared store.
-	vs, vsOK := head.seriesMeta.ScopeStore().GetVersioned(hash)
-	require.True(t, vsOK)
-	require.Len(t, vs.Versions, 1)
-	require.Equal(t, "go.opentelemetry.io/instrumentation", vs.Versions[0].Name)
-	require.Equal(t, "0.42.0", vs.Versions[0].Version)
-	require.Equal(t, "val", vs.Versions[0].Attrs["lib.custom"])
-
 	_ = w
-	_ = seriesmetadata.EntityTypeResource // Ensure import is used.
 }
 
-func TestResourceAndScopeWALFilterUnchanged(t *testing.T) {
+func TestResourceWALFilterUnchanged(t *testing.T) {
 	dir := t.TempDir()
 	opts := newTestHeadDefaultOptions(1000, false)
 	opts.EnableNativeMetadata = true
@@ -8846,7 +8810,6 @@ func TestResourceAndScopeWALFilterUnchanged(t *testing.T) {
 	_, appErr = app.UpdateResource(ref, lset,
 		map[string]string{"service.name": "frontend"},
 		map[string]string{"host.name": "node-1"},
-		nil,
 		100,
 	)
 	require.NoError(t, appErr)
@@ -8868,7 +8831,6 @@ func TestResourceAndScopeWALFilterUnchanged(t *testing.T) {
 	_, appErr = app.UpdateResource(ref, lset,
 		map[string]string{"service.name": "frontend"},
 		map[string]string{"host.name": "node-1"},
-		nil,
 		200,
 	)
 	require.NoError(t, appErr)
@@ -8910,7 +8872,6 @@ func TestResourceAndScopeWALFilterUnchanged(t *testing.T) {
 	_, appErr = app.UpdateResource(ref, lset,
 		map[string]string{"service.name": "backend"},
 		map[string]string{"host.name": "node-2"},
-		nil,
 		300,
 	)
 	require.NoError(t, appErr)
