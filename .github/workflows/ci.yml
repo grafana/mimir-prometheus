@@ -50,6 +50,7 @@ jobs:
   test_version_upgrade:
     name: Go tests for Prometheus upgrades and downgrades
     runs-on: ubuntu-latest
+    if: false # We don't care about this in mimir-prometheus.
     container:
       image: quay.io/prometheus/golang-builder:1.26-base
     steps:
