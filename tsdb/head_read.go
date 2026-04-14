@@ -446,7 +446,7 @@ func (h *headChunkReader) getOrCollectHeadChunks(s *memSeries) []*memChunk {
 	// headChunksBuf) — but keep a large array while it still serves the same
 	// series.
 	if c := cap(buf); c == 0 || (c > headChunksBufMaxCap && key.ref != h.cachedKey.ref) {
-		buf = make([]*memChunk, 0, s.headChunks.len())
+		buf = make([]*memChunk, 0, s.headChunkCount.Load())
 	}
 	h.cachedHeadChunks = collectHeadChunks(s.headChunks, buf)
 	h.cachedKey = key
