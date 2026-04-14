@@ -1193,14 +1193,7 @@ func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []Bloc
 				}
 				return fmt.Errorf("get series metadata from block: %w", err)
 			}
-			hasData := false
-			for _, kind := range seriesmetadata.AllKinds() {
-				if mr.KindLen(kind.ID()) > 0 {
-					hasData = true
-					break
-				}
-			}
-			if hasData {
+			if mr.TotalResources() > 0 {
 				readers = append(readers, mr)
 				closers = append(closers, mr)
 			} else {
@@ -1228,14 +1221,7 @@ func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []Bloc
 	defer closeSource() //nolint:errcheck
 
 	// Check if source has any metadata at all.
-	empty := true
-	for _, kind := range seriesmetadata.AllKinds() {
-		if source.KindLen(kind.ID()) > 0 {
-			empty = false
-			break
-		}
-	}
-	if empty {
+	if source.TotalResources() == 0 {
 		return nil
 	}
 
