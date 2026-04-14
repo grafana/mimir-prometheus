@@ -72,6 +72,8 @@ var (
 		"(?i:(foo1|foo2|bar))",
 		"^(?i:foo|oo)|(bar)$",
 		"(?i:(foo1|foo2|aaa|bbb|ccc|ddd|eee|fff|ggg|hhh|iii|lll|mmm|nnn|ooo|ppp|qqq|rrr|sss|ttt|uuu|vvv|www|xxx|yyy|zzz))",
+		"(?i)report.scheduled.job_runscheduledreports",
+		"report.scheduled.job_runscheduledreports",
 		"((.*)(bar|b|buzz)(.+)|foo)$",
 		"^$",
 		"(prometheus|api_prom)_api_v1_.+",
@@ -134,6 +136,9 @@ var (
 		"foo\xfe",
 		"\xfd",
 		"\xff\xff",
+
+		"report.scheduled.job_runscheduledreports",
+		"Report.Scheduled.JobRunScheduledReports",
 	}
 )
 
@@ -307,7 +312,7 @@ func TestOptimizeConcatRegex(t *testing.T) {
 		parsed, err := syntax.Parse(c.regex, syntax.Perl|syntax.DotNL)
 		require.NoError(t, err)
 
-		prefix, suffix, contains := optimizeConcatRegex(parsed)
+		_, prefix, suffix, contains := optimizeConcatRegex(parsed)
 		require.Equal(t, c.prefix, prefix)
 		require.Equal(t, c.suffix, suffix)
 		require.Equal(t, c.contains, contains)
@@ -559,6 +564,8 @@ func TestNewFastRegexMatcher(t *testing.T) {
 		{"foo.?", &literalPrefixSensitiveStringMatcher{prefix: "foo", right: &zeroOrOneCharacterStringMatcher{matchNL: true}}},
 		{"f.?o", nil},
 		{".*foo.*|.*bar.*|.*baz.*", &containsStringMatcher{left: trueMatcher{}, substrings: []string{"foo", "bar", "baz"}, right: trueMatcher{}}},
+		{"(?i)zeyt.report.scheduled.joblocalprocessor_impl_runscheduledreportsperiodic", nil},
+		{"zeyt.report.scheduled.joblocalprocessor_impl_runscheduledreportsperiodic", nil},
 	} {
 		t.Run(c.pattern, func(t *testing.T) {
 			t.Parallel()
