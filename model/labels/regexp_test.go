@@ -56,6 +56,7 @@ var (
 		"foo\n.+",
 		"foo\n.*",
 		".*foo.*",
+		"(?i).*foo.*",
 		".+foo.+",
 		".*foo.*|",
 		".*foo.*|bar.*",
@@ -139,6 +140,7 @@ var (
 
 		"report.scheduled.job_runscheduledreports",
 		"Report.Scheduled.JobRunScheduledReports",
+		"Report.Scheduled.Job_RunScheduledReports",
 	}
 )
 

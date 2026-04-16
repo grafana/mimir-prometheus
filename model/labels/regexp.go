@@ -153,7 +153,10 @@ func (m *FastRegexMatcher) compileMatchStringFunction() func(string) bool {
 
 	if m.caseInsensitivePrefix && m.prefix != "" {
 		return func(s string) bool {
-			return hasPrefixCaseInsensitive(s, m.prefix)
+			if !hasPrefixCaseInsensitive(s, m.prefix) {
+				return false
+			}
+			return m.re.MatchString(s)
 		}
 	}
 
