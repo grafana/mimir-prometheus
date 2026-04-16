@@ -281,10 +281,11 @@ func readable(s string) string {
 
 func TestOptimizeConcatRegex(t *testing.T) {
 	cases := []struct {
-		regex    string
-		prefix   string
-		suffix   string
-		contains []string
+		regex                   string
+		prefix                  string
+		isCaseInsensitivePrefix bool
+		suffix                  string
+		contains                []string
 	}{
 		{regex: "foo(hello|bar)", prefix: "foo", suffix: "", contains: nil},
 		{regex: "foo(hello|bar)world", prefix: "foo", suffix: "world", contains: nil},
@@ -298,12 +299,12 @@ func TestOptimizeConcatRegex(t *testing.T) {
 		{regex: ".*[abc].*", prefix: "", suffix: "", contains: nil},
 		{regex: ".*((?i)abc).*", prefix: "", suffix: "", contains: nil},
 		{regex: ".*(?i:abc).*", prefix: "", suffix: "", contains: nil},
-		{regex: "(?i:abc).*", prefix: "", suffix: "", contains: nil},
+		{regex: "(?i:abc).*", prefix: "ABC", isCaseInsensitivePrefix: true, suffix: "", contains: nil},
 		{regex: ".*(?i:abc)", prefix: "", suffix: "", contains: nil},
 		{regex: ".*(?i:abc)def.*", prefix: "", suffix: "", contains: []string{"def"}},
 		{regex: "(?i).*(?-i:abc)def", prefix: "", suffix: "", contains: []string{"abc"}},
 		{regex: ".*(?msU:abc).*", prefix: "", suffix: "", contains: []string{"abc"}},
-		{regex: "[aA]bc.*", prefix: "", suffix: "", contains: []string{"bc"}},
+		{regex: "[aA]bc.*", prefix: "A", isCaseInsensitivePrefix: true, suffix: "", contains: []string{"bc"}},
 		{regex: "^5..$", prefix: "5", suffix: "", contains: nil},
 		{regex: "^release.*", prefix: "release", suffix: "", contains: nil},
 		{regex: "^env-[0-9]+laio[1]?[^0-9].*", prefix: "env-", suffix: "", contains: []string{"laio"}},
@@ -311,13 +312,16 @@ func TestOptimizeConcatRegex(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		parsed, err := syntax.Parse(c.regex, syntax.Perl|syntax.DotNL)
-		require.NoError(t, err)
+		t.Run(c.regex, func(t *testing.T) {
+			parsed, err := syntax.Parse(c.regex, syntax.Perl|syntax.DotNL)
+			require.NoError(t, err)
 
-		_, prefix, suffix, contains := optimizeConcatRegex(parsed)
-		require.Equal(t, c.prefix, prefix)
-		require.Equal(t, c.suffix, suffix)
-		require.Equal(t, c.contains, contains)
+			caseInsensitivePrefix, prefix, suffix, contains := optimizeConcatRegex(parsed)
+			require.Equal(t, c.prefix, prefix)
+			require.Equal(t, c.isCaseInsensitivePrefix, caseInsensitivePrefix)
+			require.Equal(t, c.suffix, suffix)
+			require.Equal(t, c.contains, contains)
+		})
 	}
 }
 
