@@ -493,8 +493,8 @@ func optimizeConcatRegex(r *syntax.Regexp) (caseInsensitivePrefix bool, prefix, 
 	if sub[0].Op == syntax.OpLiteral {
 		prefix = string(sub[0].Rune)
 		caseInsensitivePrefix = (sub[0].Flags & syntax.FoldCase) != 0
-
 	}
+
 	if last := len(sub) - 1; sub[last].Op == syntax.OpLiteral && (sub[last].Flags&syntax.FoldCase) == 0 {
 		suffix = string(sub[last].Rune)
 	}
