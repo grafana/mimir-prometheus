@@ -1,0 +1,67 @@
+name: Remind about pending upstream merge PRs
+
+on:
+  schedule:
+    # Run at 9am UTC, Tuesday through Friday (cron days 2-5).
+    # Exclude Mondays (upstream merge PRs are created that day, so reminders start Tuesday) and weekends.
+    - cron: "0 9 * * 2-5"
+  workflow_dispatch:
+
+jobs:
+  check-pending-prs:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      id-token: write
+    steps:
+      - name: Find open upstream merge PRs
+        id: find-prs
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # List open PRs whose head branch matches the bot merge pattern.
+          set -euo pipefail
+          if ! PRS=$(gh pr list \
+            --repo "${{ github.repository }}" \
+            --state open \
+            --json number,title,url,headRefName,createdAt \
+            --jq '[.[] | select(.headRefName | test("^bot/.*/merge-upstream-"))]'); then
+            echo "::error::gh pr list failed -- check token permissions and API availability"
+            exit 1
+          fi
+          if ! COUNT=$(echo "$PRS" | jq 'length'); then
+            echo "::error::Failed to parse gh pr list output as JSON"
+            exit 1
+          fi
+          echo "count=$COUNT" >> "$GITHUB_OUTPUT"
+
+          if [ "$COUNT" -gt 0 ]; then
+            # Build the full Slack payload using jq so all special characters
+            # (quotes, backslashes, newlines) are properly JSON-escaped.
+            PAYLOAD=$(echo "$PRS" | jq '{
+              text: (
+                ":wave: *Reminder: there are open upstream merge PRs waiting for resolution*\n\n"
+                + ([.[] | "- <\(.url)|\(.title)> (opened \(.createdAt | split("T")[0]))"] | join("\n"))
+                + "\n\n<!subteam^S03C2P8659U> please review and merge."
+              )
+            }')
+            if [ -z "$PAYLOAD" ]; then
+              echo "::error::Slack payload is empty after jq processing"
+              exit 1
+            fi
+            DELIMITER="EOF_$(date +%s)"
+            {
+              echo "payload<<$DELIMITER"
+              echo "$PAYLOAD"
+              echo "$DELIMITER"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Found $COUNT open upstream merge PR(s)"
+
+      - name: Send Slack reminder
+        if: steps.find-prs.outputs.payload != ''
+        uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
+        with:
+          channel-id: C04AF91LPFX #mimir-ci-notifications
+          payload: ${{ steps.find-prs.outputs.payload }}
