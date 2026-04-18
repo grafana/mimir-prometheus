@@ -437,7 +437,7 @@ func TestMemSeries_chunk_FastPath(t *testing.T) {
 	}()
 	memChunkPool := &sync.Pool{New: func() any { return &memChunk{} }}
 
-	series := newMemSeries(labels.EmptyLabels(), 1, 0, true, false)
+	series := newMemSeries(labels.EmptyLabels(), 1, 0, 0, 0, true, false)
 
 	// Build 3 mmapped + 3 head chunks.
 	appendSamples(t, series, 0, chunkRange*4, chunkDiskMapper)

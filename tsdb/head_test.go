@@ -8605,3 +8605,185 @@ func TestHead_mmapHeadChunks_oooDoesNotInflateCount(t *testing.T) {
 	// headChunkCount must not change from an OOO insert.
 	require.Equal(t, countBefore, s.headChunkCount.Load(), "OOO insert should not inflate headChunkCount")
 }
+
+// TestHead_mmapReadyCounterConsistency verifies the mmapReady per-stripe
+// counter stays in sync with the actual number of series that have
+// headChunkCount >= 2, across append, mmap, GC, and stale-series deletion.
+func TestHead_mmapReadyCounterConsistency(t *testing.T) {
+	h, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
+	require.NoError(t, h.Init(0))
+
+	interval := DefaultBlockDuration / (4 * 120)
+
+	// mmapReadyCounter returns the sum of mmapReady[i] across all stripes.
+	mmapReadyCounter := func() int32 {
+		var n int32
+		for i := range h.series.size {
+			n += h.series.mmapReady[i].Load()
+		}
+		return n
+	}
+	// actualReady counts series with headChunkCount >= 2 by iterating.
+	actualReady := func() int32 {
+		var n int32
+		for i := range h.series.size {
+			h.series.locks[i].RLock()
+			for _, s := range h.series.series[i] {
+				if s.headChunkCount.Load() >= 2 {
+					n++
+				}
+			}
+			h.series.locks[i].RUnlock()
+		}
+		return n
+	}
+	requireCounterConsistent := func(msg string) {
+		t.Helper()
+		actual := actualReady()
+		counter := mmapReadyCounter()
+		require.Equal(t, actual, counter, "%s: mmapReady counter (%d) != actual ready count (%d)", msg, counter, actual)
+	}
+
+	const chunkCutIterations = 2*DefaultSamplesPerChunk + 10
+
+	lblsA := labels.FromStrings("__name__", "seriesA")
+	lblsB := labels.FromStrings("__name__", "seriesB")
+	lblsC := labels.FromStrings("__name__", "seriesC")
+
+	// Phase 1: Append enough samples to create multiple head chunks.
+	ts := int64(0)
+	var refA, refB, refC storage.SeriesRef
+	app := h.Appender(t.Context())
+	for range chunkCutIterations {
+		var err error
+		refA, err = app.Append(refA, lblsA, ts, float64(ts))
+		require.NoError(t, err)
+		refB, err = app.Append(refB, lblsB, ts, float64(ts))
+		require.NoError(t, err)
+		refC, err = app.Append(refC, lblsC, ts, float64(ts))
+		require.NoError(t, err)
+		ts += interval
+	}
+	require.NoError(t, app.Commit())
+	requireCounterConsistent("after initial appends with chunk cuts")
+	require.Equal(t, int32(3), mmapReadyCounter(), "all three series should be ready")
+
+	// Phase 2: mmapHeadChunks should bring counter to 0.
+	h.mmapHeadChunks()
+	requireCounterConsistent("after mmapHeadChunks")
+	require.Equal(t, int32(0), mmapReadyCounter(), "counter should be 0 after mmap")
+
+	// Phase 3: Make only seriesA ready again, then GC with a mint that
+	// truncates its head chunks back to 1.
+	app = h.Appender(t.Context())
+	for range chunkCutIterations {
+		var err error
+		refA, err = app.Append(refA, lblsA, ts, float64(ts))
+		require.NoError(t, err)
+		ts += interval
+	}
+	require.NoError(t, app.Commit())
+	requireCounterConsistent("after making seriesA ready again")
+	require.Equal(t, int32(1), mmapReadyCounter(), "only seriesA should be ready")
+
+	// Advance minTime so GC will truncate seriesA's old head chunks.
+	// We need to mmap first so the chunks we want truncated are on disk,
+	// then advance time far enough for GC to remove them.
+	h.mmapHeadChunks()
+	requireCounterConsistent("after second mmap")
+	require.Equal(t, int32(0), mmapReadyCounter())
+
+	// Make seriesA ready a third time, then GC at a time that truncates
+	// the mmapped chunks but not the new head chunks.
+	app = h.Appender(t.Context())
+	for range chunkCutIterations {
+		var err error
+		refA, err = app.Append(refA, lblsA, ts, float64(ts))
+		require.NoError(t, err)
+		ts += interval
+	}
+	require.NoError(t, app.Commit())
+	requireCounterConsistent("after third round of appends")
+	require.Equal(t, int32(1), mmapReadyCounter())
+
+	// Set minTime to current ts so GC truncates old chunks. Since seriesA
+	// still has recent head chunks (headChunkCount >= 2), GC's
+	// truncateChunksBefore may or may not reduce headChunkCount depending
+	// on timestamps. Regardless, the counter must stay consistent.
+	h.minTime.Store(ts)
+	h.gc()
+	requireCounterConsistent("after GC truncation")
+
+	// Phase 4: Stale-series deletion via truncateStaleSeries (gcStaleSeries path).
+	// Build seriesB up to headChunkCount >= 2, then mark stale and truncate.
+	app = h.Appender(t.Context())
+	for range chunkCutIterations {
+		var err error
+		refB, err = app.Append(refB, lblsB, ts, float64(ts))
+		require.NoError(t, err)
+		ts += interval
+	}
+	require.NoError(t, app.Commit())
+
+	// Mark seriesB stale so truncateStaleSeries will remove it.
+	app = h.Appender(t.Context())
+	_, err := app.Append(refB, lblsB, ts, math.Float64frombits(value.StaleNaN))
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+	ts += interval
+
+	sB := h.series.getByHash(lblsB.Hash(), lblsB)
+	require.NotNil(t, sB)
+	require.GreaterOrEqual(t, sB.headChunkCount.Load(), uint32(2),
+		"seriesB must be mmap-ready at deletion time for this test to be meaningful")
+	requireCounterConsistent("before stale series deletion")
+	readyBefore := mmapReadyCounter()
+
+	// Use truncateStaleSeries which calls gcStaleSeries internally.
+	require.NoError(t, h.truncateStaleSeries(
+		[]storage.SeriesRef{storage.SeriesRef(sB.ref)}, ts,
+	))
+	requireCounterConsistent("after truncateStaleSeries")
+	require.Less(t, mmapReadyCounter(), readyBefore,
+		"counter should have decreased after deleting a ready series")
+
+	// Phase 5: Verify mmapHeadChunks does not decrement when mmapChunks
+	// returns 0. This simulates the race where a series passes the
+	// headChunkCount >= 2 filter but by the time the series lock is
+	// acquired, another goroutine (GC) has already reduced the count.
+	//
+	// We create a fresh series with 1 head chunk, then artificially set
+	// headChunkCount to 2 and mmapReady to 1. mmapChunks will see
+	// headChunks.prev == nil and return 0. Without the n > 0 guard,
+	// the counter would be decremented to 0 even though the "real"
+	// decrement never happened (simulating a double-decrement).
+	lblsD := labels.FromStrings("__name__", "seriesD")
+	app = h.Appender(t.Context())
+	_, err = app.Append(0, lblsD, ts, float64(ts))
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	sD := h.series.getByHash(lblsD.Hash(), lblsD)
+	require.NotNil(t, sD)
+	require.Equal(t, uint32(1), sD.headChunkCount.Load())
+	require.Nil(t, sD.headChunks.prev, "only one head chunk, prev must be nil")
+	stripeD := uint64(sD.ref) & uint64(h.series.size-1)
+
+	// Simulate the race: inflate headChunkCount so the series passes the
+	// >= 2 filter, and set mmapReady to 1 (as the increment site would).
+	sD.headChunkCount.Store(2)
+	h.series.mmapReady[stripeD].Add(1)
+
+	h.mmapHeadChunks()
+
+	// mmapChunks returned 0 (headChunks.prev is nil). With the n > 0
+	// guard, the counter stays at 1. Without the guard, it would drop
+	// to 0 — an incorrect extra decrement.
+	require.Equal(t, int32(1), h.series.mmapReady[stripeD].Load(),
+		"mmapHeadChunks must not decrement when mmapChunks returns 0")
+
+	// Clean up: restore the real state.
+	sD.headChunkCount.Store(1)
+	h.series.mmapReady[stripeD].Add(-1)
+	requireCounterConsistent("final state")
+}
