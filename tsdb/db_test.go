@@ -9793,6 +9793,142 @@ func TestStaleSeriesCompactionWithZeroSeries(t *testing.T) {
 	require.Empty(t, db.Blocks())
 }
 
+// TestCompactHeadByCustomRefs verifies that CompactHeadByCustomRefs writes the specified series to
+// on-disk blocks and removes them from the head, while leaving unspecified series intact.
+// It also verifies that refs may be provided in any order: the function must sort them by
+// label set internally, because headCustomRefsIndexReader.SortedPostings is a no-op that relies
+// on its input already being label-sorted.
+func TestCompactHeadByCustomRefs(t *testing.T) {
+	opts := DefaultOptions()
+	opts.MinBlockDuration = 1000
+	opts.MaxBlockDuration = 1000
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+	t.Cleanup(func() {
+		require.NoError(t, db.Close())
+	})
+
+	floatVal := 10.0
+
+	// Series are created in reverse label order so that their refs (assigned by creation
+	// order) are in the opposite order to their labels. Passing refs in creation order to
+	// CompactHeadByCustomRefs is therefore passing them in reverse label order, which exercises
+	// the internal label-sort: a missing sort would produce a block with series in wrong
+	// label order, breaking any subsequent multi-block compaction.
+	lsetZZZ := labels.FromStrings("name", "zzz")      // created first → lowest ref, sorts last
+	lsetMMM := labels.FromStrings("name", "mmm")      // created second
+	lsetAAA := labels.FromStrings("name", "aaa")      // created third → highest ref, sorts first
+	lsetRetained := labels.FromStrings("name", "ppp") // not passed to CompactHeadByCustomRefs
+	lsetCross := labels.FromStrings("name", "ccc")    // spans two block boundaries
+
+	app := db.Appender(context.Background())
+	refZZZ, err := app.Append(0, lsetZZZ, 100, floatVal)
+	require.NoError(t, err)
+	refMMM, err := app.Append(0, lsetMMM, 100, floatVal)
+	require.NoError(t, err)
+	refAAA, err := app.Append(0, lsetAAA, 100, floatVal)
+	require.NoError(t, err)
+	_, err = app.Append(0, lsetRetained, 100, floatVal)
+	require.NoError(t, err)
+	refCross, err := app.Append(0, lsetCross, 300, floatVal)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// Add a second sample to target and retained series; cross-boundary series gets samples
+	// in both block ranges.
+	app = db.Appender(context.Background())
+	_, err = app.Append(refZZZ, lsetZZZ, 200, floatVal)
+	require.NoError(t, err)
+	_, err = app.Append(refMMM, lsetMMM, 200, floatVal)
+	require.NoError(t, err)
+	_, err = app.Append(refAAA, lsetAAA, 200, floatVal)
+	require.NoError(t, err)
+	_, err = app.Append(0, lsetRetained, 200, floatVal)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// Cross-boundary series has samples in both block ranges.
+	app = db.Appender(context.Background())
+	_, err = app.Append(refCross, lsetCross, 700, floatVal)
+	require.NoError(t, err)
+	_, err = app.Append(refCross, lsetCross, 1100, floatVal)
+	require.NoError(t, err)
+	_, err = app.Append(refCross, lsetCross, 1200, floatVal)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	require.Equal(t, uint64(5), db.Head().NumSeries())
+
+	// Pass refs in creation order, which is reverse label order: ZZZ, MMM, AAA, cross.
+	// CompactHeadByCustomRefs must re-sort them by label set before writing the block.
+	require.NoError(t, db.CompactHeadByCustomRefs([]storage.SeriesRef{refZZZ, refMMM, refAAA, refCross}))
+
+	// All four compacted series are removed from the head. Only the retained series remains.
+	require.Equal(t, uint64(1), db.Head().NumSeries())
+
+	// Two blocks: one per chunk-range slice ([0,1000) and [1000,2000)).
+	require.Len(t, db.Blocks(), 2)
+	for _, b := range db.Blocks() {
+		m := b.Meta()
+		require.Truef(t, m.Compaction.FromCustomSeries(), "expected custom-series block meta")
+	}
+
+	// Verify that series in each block are stored in label-sorted order. A block written
+	// from unsorted refs would have series in wrong label order, which would silently
+	// corrupt any subsequent compaction that merges this block with another.
+	for _, b := range db.Blocks() {
+		indexr, err := b.Index()
+		require.NoError(t, err)
+		t.Cleanup(func() { require.NoError(t, indexr.Close()) })
+		allKey, allVal := index.AllPostingsKey()
+		p, err := indexr.Postings(context.Background(), allKey, allVal)
+		require.NoError(t, err)
+		var prev labels.Labels
+		var builder labels.ScratchBuilder
+		for p.Next() {
+			require.NoError(t, indexr.Series(p.At(), &builder, nil))
+			curr := builder.Labels()
+			if !prev.IsEmpty() {
+				require.Positive(t, labels.Compare(curr, prev), "series not in label order in block")
+			}
+			prev = curr.Copy()
+		}
+		require.NoError(t, p.Err())
+	}
+
+	// Query both blocks and merge results.
+	querier, err := NewBlockQuerier(db.Blocks()[0], 0, 1000)
+	require.NoError(t, err)
+	t.Cleanup(func() { querier.Close() })
+	seriesSet := queryWithoutReplacingNaNs(t, querier, labels.MustNewMatcher(labels.MatchRegexp, "name", ".*"))
+
+	querier2, err := NewBlockQuerier(db.Blocks()[1], 1000, 2000)
+	require.NoError(t, err)
+	t.Cleanup(func() { querier2.Close() })
+	for seriesKey, seriesSamples := range queryWithoutReplacingNaNs(t, querier2, labels.MustNewMatcher(labels.MatchRegexp, "name", ".*")) {
+		seriesSet[seriesKey] = append(seriesSet[seriesKey], seriesSamples...)
+	}
+
+	checkSamples := func(lset labels.Labels, exp []chunks.Sample) {
+		key := fmt.Sprintf(`{name="%s"}`, lset.Get("name"))
+		got, ok := seriesSet[key]
+		require.Truef(t, ok, "series %s not found in blocks", key)
+		require.Equal(t, exp, got)
+	}
+	checkSamples(lsetZZZ, []chunks.Sample{sample{t: 100, f: floatVal}, sample{t: 200, f: floatVal}})
+	checkSamples(lsetMMM, []chunks.Sample{sample{t: 100, f: floatVal}, sample{t: 200, f: floatVal}})
+	checkSamples(lsetAAA, []chunks.Sample{sample{t: 100, f: floatVal}, sample{t: 200, f: floatVal}})
+	checkSamples(lsetCross, []chunks.Sample{
+		sample{t: 300, f: floatVal}, sample{t: 700, f: floatVal},
+		sample{t: 1100, f: floatVal}, sample{t: 1200, f: floatVal},
+	})
+
+	// The retained series must not appear in any block.
+	retainedKey := fmt.Sprintf(`{name="%s"}`, lsetRetained.Get("name"))
+	_, inBlock := seriesSet[retainedKey]
+	require.False(t, inBlock, "retained series must not appear in compacted blocks")
+}
+
 func TestBeyondSizeRetentionWithPercentage(t *testing.T) {
 	const maxBlock = 100
 	const numBytesChunks = 1024

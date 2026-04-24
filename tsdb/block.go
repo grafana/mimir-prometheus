@@ -252,6 +252,19 @@ func (bm *BlockMetaCompaction) FromStaleSeries() bool {
 	return slices.Contains(bm.Hints, CompactionHintFromStaleSeries)
 }
 
+func (bm *BlockMetaCompaction) SetCustomSeries() {
+	if bm.FromCustomSeries() {
+		return
+	}
+	bm.Hints = append(bm.Hints, CompactionHintFromCustomSeries)
+	slices.Sort(bm.Hints)
+}
+
+// FromCustomSeries reports whether the block was created by CompactHeadByCustomRefs.
+func (bm *BlockMetaCompaction) FromCustomSeries() bool {
+	return slices.Contains(bm.Hints, CompactionHintFromCustomSeries)
+}
+
 const (
 	indexFilename = "index"
 	metaFilename  = "meta.json"
@@ -264,6 +277,10 @@ const (
 	// CompactionHintFromStaleSeries is a hint noting that the block
 	// was created from stale series.
 	CompactionHintFromStaleSeries = "from-stale-series"
+
+	// CompactionHintFromCustomSeries is a hint noting that the block was
+	// created by CompactHeadByCustomRefs from a caller-supplied series list.
+	CompactionHintFromCustomSeries = "from-custom-series"
 )
 
 func chunkDir(dir string) string { return filepath.Join(dir, "chunks") }

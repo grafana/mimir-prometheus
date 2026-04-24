@@ -330,6 +330,79 @@ func (*headStaleIndexReader) SortedPostings(p index.Postings) index.Postings {
 	return p
 }
 
+// headCustomRefsIndexReader is used by CompactHeadByCustomRefs. It restricts all
+// index queries to the caller-supplied, label-sorted ref list.
+type headCustomRefsIndexReader struct {
+	*headIndexReader
+	customSeriesRefs []storage.SeriesRef
+}
+
+func (h *headCustomRefsIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {
+	k, v := index.AllPostingsKey()
+	if len(h.customSeriesRefs) > 0 && name == k && len(values) == 1 && values[0] == v {
+		return index.NewListPostings(h.customSeriesRefs), nil
+	}
+	seriesRefs, err := h.filterCustomSeriesPostings(h.head.postings.Postings(ctx, name, values...))
+	if err != nil {
+		return index.ErrPostings(err), err
+	}
+	return index.NewListPostings(seriesRefs), nil
+}
+
+func (h *headCustomRefsIndexReader) PostingsForLabelMatching(ctx context.Context, name string, match func(string) bool) index.Postings {
+	seriesRefs, err := h.filterCustomSeriesPostings(h.head.postings.PostingsForLabelMatching(ctx, name, match))
+	if err != nil {
+		return index.ErrPostings(err)
+	}
+	return index.NewListPostings(seriesRefs)
+}
+
+func (h *headCustomRefsIndexReader) PostingsForAllLabelValues(ctx context.Context, name string) index.Postings {
+	seriesRefs, err := h.filterCustomSeriesPostings(h.head.postings.PostingsForAllLabelValues(ctx, name))
+	if err != nil {
+		return index.ErrPostings(err)
+	}
+	return index.NewListPostings(seriesRefs)
+}
+
+// SortedPostings returns postings as-is; all paths above already return label-sorted results.
+func (*headCustomRefsIndexReader) SortedPostings(p index.Postings) index.Postings {
+	return p
+}
+
+// filterCustomSeriesPostings intersects the given postings with the custom ref set and
+// returns the matching series sorted by label set.
+func (h *headCustomRefsIndexReader) filterCustomSeriesPostings(p index.Postings) ([]storage.SeriesRef, error) {
+	refSet := make(map[chunks.HeadSeriesRef]struct{}, len(h.customSeriesRefs))
+	for _, ref := range h.customSeriesRefs {
+		refSet[chunks.HeadSeriesRef(ref)] = struct{}{}
+	}
+
+	var series []*memSeries
+	for p.Next() {
+		id := chunks.HeadSeriesRef(p.At())
+		if _, ok := refSet[id]; !ok {
+			continue
+		}
+		if s := h.head.series.getByID(id); s != nil {
+			series = append(series, s)
+		}
+	}
+	if err := p.Err(); err != nil {
+		return nil, fmt.Errorf("expand postings: %w", err)
+	}
+
+	slices.SortFunc(series, func(a, b *memSeries) int {
+		return labels.Compare(a.labels(), b.labels())
+	})
+
+	refs := make([]storage.SeriesRef, 0, len(series))
+	for _, s := range series {
+		refs = append(refs, storage.SeriesRef(s.ref))
+	}
+	return refs, nil
+}
+
 // SortedStaleSeriesRefsNoOOOData returns all the series refs of the stale series that do not have any out-of-order data.
 func (h *Head) SortedStaleSeriesRefsNoOOOData(ctx context.Context) ([]storage.SeriesRef, error) {
 	k, v := index.AllPostingsKey()
