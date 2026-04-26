@@ -66,7 +66,7 @@ require (
 	github.com/pb33f/libopenapi-validator v0.13.3
 	github.com/prometheus/alertmanager v0.31.1
 	github.com/prometheus/client_golang v1.23.2
-	github.com/prometheus/client_golang/exp v0.0.0-20260325093428-d8591d0db856
+	github.com/prometheus/client_golang/exp v0.0.0-20260423082357-773db0a948a8
 	github.com/prometheus/client_model v0.6.2
 	github.com/prometheus/common v0.67.5
 	github.com/prometheus/common/assets v0.2.0
