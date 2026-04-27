@@ -53,7 +53,7 @@ jobs:
           echo "Bot branch: $BOT_BRANCH"
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ steps.set-branches.outputs.local_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -127,7 +127,7 @@ jobs:
       merge_result: ${{ steps.merge-attempt.outputs.merge_result }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ needs.check-merge.outputs.local_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -184,7 +184,7 @@ jobs:
       pr_url: ${{ steps.create-conflict-pr.outputs.pull-request-url }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ needs.check-merge.outputs.local_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -336,7 +336,7 @@ jobs:
       id-token: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
           ref: ${{ needs.check-merge.outputs.local_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
