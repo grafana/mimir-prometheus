@@ -33,11 +33,11 @@
     "lru-cache": "^11.2.7"
   },
   "devDependencies": {
-    "@codemirror/autocomplete": "^6.20.1",
-    "@codemirror/language": "^6.12.3",
-    "@codemirror/lint": "^6.9.5",
-    "@codemirror/state": "^6.6.0",
-    "@codemirror/view": "^6.40.0",
+    "@codemirror/autocomplete": "6.20.1",
+    "@codemirror/language": "6.12.3",
+    "@codemirror/lint": "6.9.5",
+    "@codemirror/state": "6.6.0",
+    "@codemirror/view": "6.41.1",
     "@lezer/common": "^1.5.1",
     "@lezer/highlight": "^1.2.3",
     "@lezer/lr": "^1.4.8",
