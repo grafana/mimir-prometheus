@@ -480,9 +480,12 @@ type dbMetrics struct {
 	maxBytes                        prometheus.Gauge
 	maxPercentage                   prometheus.Gauge
 	retentionDuration               prometheus.Gauge
-	staleSeriesCompactionsTriggered prometheus.Counter
-	staleSeriesCompactionsFailed    prometheus.Counter
-	staleSeriesCompactionDuration   prometheus.Histogram
+	staleSeriesCompactionsTriggered  prometheus.Counter
+	staleSeriesCompactionsFailed     prometheus.Counter
+	staleSeriesCompactionDuration    prometheus.Histogram
+	customSeriesCompactionsTriggered prometheus.Counter
+	customSeriesCompactionsFailed    prometheus.Counter
+	customSeriesCompactionDuration   prometheus.Histogram
 }
 
 func newDBMetrics(db *DB, r prometheus.Registerer) *dbMetrics {
@@ -587,6 +590,22 @@ func newDBMetrics(db *DB, r prometheus.Registerer) *dbMetrics {
 		NativeHistogramMaxBucketNumber:  100,
 		NativeHistogramMinResetDuration: 1 * time.Hour,
 	})
+	m.customSeriesCompactionsTriggered = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "prometheus_tsdb_custom_series_compactions_triggered_total",
+		Help: "Total number of triggered custom series compactions.",
+	})
+	m.customSeriesCompactionsFailed = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "prometheus_tsdb_custom_series_compactions_failed_total",
+		Help: "Total number of custom series compactions that failed.",
+	})
+	m.customSeriesCompactionDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:                            "prometheus_tsdb_custom_series_compaction_duration_seconds",
+		Help:                            "Duration of custom series compaction runs.",
+		Buckets:                         prometheus.ExponentialBuckets(1, 2, 14),
+		NativeHistogramBucketFactor:     1.1,
+		NativeHistogramMaxBucketNumber:  100,
+		NativeHistogramMinResetDuration: 1 * time.Hour,
+	})
 
 	if r != nil {
 		r.MustRegister(
@@ -608,6 +627,9 @@ func newDBMetrics(db *DB, r prometheus.Registerer) *dbMetrics {
 			m.staleSeriesCompactionsTriggered,
 			m.staleSeriesCompactionsFailed,
 			m.staleSeriesCompactionDuration,
+			m.customSeriesCompactionsTriggered,
+			m.customSeriesCompactionsFailed,
+			m.customSeriesCompactionDuration,
 		)
 	}
 	return m
@@ -1924,6 +1946,81 @@ func (db *DB) CompactStaleHead() (err error) {
 	elapsed := time.Since(start)
 	db.metrics.staleSeriesCompactionDuration.Observe(elapsed.Seconds())
 	db.logger.Info("Ending stale series compaction", "num_series", len(staleSeriesRefs), "duration", elapsed)
+	return nil
+}
+
+// CompactHeadByCustomRefs writes the series identified by the caller-provided refs
+// to one or more on-disk blocks (one per chunk-range slice) and then removes those
+// series from the Head and the WAL. The series do not need to be stale.
+func (db *DB) CompactHeadByCustomRefs(refs []storage.SeriesRef) (err error) {
+	if len(refs) == 0 {
+		return nil
+	}
+
+	db.cmtx.Lock()
+	defer func() {
+		db.cmtx.Unlock()
+		if err != nil {
+			db.metrics.customSeriesCompactionsFailed.Inc()
+		}
+	}()
+
+	db.metrics.customSeriesCompactionsTriggered.Inc()
+
+	db.logger.Info("Starting custom series compaction")
+	start := time.Now()
+
+	// Collect the series objects so we can sort them by label set.
+	// headStaleIndexReader.SortedPostings is a no-op that relies on its postings
+	// already being in label order, so we must satisfy that invariant here rather
+	// than requiring callers to do so.
+	series := make([]*memSeries, 0, len(refs))
+	for _, ref := range refs {
+		if s := db.head.series.getByID(chunks.HeadSeriesRef(ref)); s != nil {
+			series = append(series, s)
+		}
+	}
+	slices.SortFunc(series, func(a, b *memSeries) int {
+		return labels.Compare(a.labels(), b.labels())
+	})
+	sortedRefs := make([]storage.SeriesRef, 0, len(series))
+	for _, s := range series {
+		sortedRefs = append(sortedRefs, storage.SeriesRef(s.ref))
+	}
+
+	meta := &BlockMeta{}
+	meta.Compaction.SetCustomSeries()
+
+	mint, maxt := db.head.opts.ChunkRange*(db.head.MinTime()/db.head.opts.ChunkRange), db.head.MaxTime()
+	for ; mint < maxt; mint += db.head.chunkRange.Load() {
+		customHead := NewCustomRefsHead(db.Head(), mint, mint+db.head.chunkRange.Load()-1, sortedRefs)
+
+		uids, err := db.compactor.Write(db.dir, customHead, customHead.MinTime(), customHead.BlockMaxTime(), meta)
+		if err != nil {
+			return fmt.Errorf("persist custom series head block: %w", err)
+		}
+
+		db.logger.Info("Custom series block created", "ulids", fmt.Sprintf("%v", uids), "min_time", mint, "max_time", maxt)
+
+		if err := db.reloadBlocks(); err != nil {
+			errs := []error{fmt.Errorf("reloadBlocks after custom series compaction: %w", err)}
+			for _, uid := range uids {
+				if errRemoveAll := os.RemoveAll(filepath.Join(db.dir, uid.String())); errRemoveAll != nil {
+					errs = append(errs, fmt.Errorf("delete block after failed reloadBlocks %s: %w", uid, errRemoveAll))
+				}
+			}
+			return errors.Join(errs...)
+		}
+	}
+
+	if err := db.head.truncateCustomSeries(sortedRefs, maxt); err != nil {
+		return fmt.Errorf("head truncate of custom series: %w", err)
+	}
+	db.head.RebuildSymbolTable(db.logger)
+
+	elapsed := time.Since(start)
+	db.metrics.customSeriesCompactionDuration.Observe(elapsed.Seconds())
+	db.logger.Info("Ending custom series compaction", "num_series", len(sortedRefs), "duration", elapsed)
 	return nil
 }
 
