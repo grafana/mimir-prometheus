@@ -56,6 +56,7 @@ var (
 		"foo\n.+",
 		"foo\n.*",
 		".*foo.*",
+		"(?i).*foo.*",
 		".+foo.+",
 		".*foo.*|",
 		".*foo.*|bar.*",
@@ -72,6 +73,8 @@ var (
 		"(?i:(foo1|foo2|bar))",
 		"^(?i:foo|oo)|(bar)$",
 		"(?i:(foo1|foo2|aaa|bbb|ccc|ddd|eee|fff|ggg|hhh|iii|lll|mmm|nnn|ooo|ppp|qqq|rrr|sss|ttt|uuu|vvv|www|xxx|yyy|zzz))",
+		"(?i)report.scheduled.job_runscheduledreports",
+		"report.scheduled.job_runscheduledreports",
 		"((.*)(bar|b|buzz)(.+)|foo)$",
 		"^$",
 		"(prometheus|api_prom)_api_v1_.+",
@@ -134,6 +137,10 @@ var (
 		"foo\xfe",
 		"\xfd",
 		"\xff\xff",
+
+		"report.scheduled.job_runscheduledreports",
+		"Report.Scheduled.JobRunScheduledReports",
+		"Report.Scheduled.Job_RunScheduledReports",
 	}
 )
 
@@ -274,10 +281,11 @@ func readable(s string) string {
 
 func TestOptimizeConcatRegex(t *testing.T) {
 	cases := []struct {
-		regex    string
-		prefix   string
-		suffix   string
-		contains []string
+		regex                   string
+		prefix                  string
+		isCaseInsensitivePrefix bool
+		suffix                  string
+		contains                []string
 	}{
 		{regex: "foo(hello|bar)", prefix: "foo", suffix: "", contains: nil},
 		{regex: "foo(hello|bar)world", prefix: "foo", suffix: "world", contains: nil},
@@ -291,12 +299,12 @@ func TestOptimizeConcatRegex(t *testing.T) {
 		{regex: ".*[abc].*", prefix: "", suffix: "", contains: nil},
 		{regex: ".*((?i)abc).*", prefix: "", suffix: "", contains: nil},
 		{regex: ".*(?i:abc).*", prefix: "", suffix: "", contains: nil},
-		{regex: "(?i:abc).*", prefix: "", suffix: "", contains: nil},
+		{regex: "(?i:abc).*", prefix: "ABC", isCaseInsensitivePrefix: true, suffix: "", contains: nil},
 		{regex: ".*(?i:abc)", prefix: "", suffix: "", contains: nil},
 		{regex: ".*(?i:abc)def.*", prefix: "", suffix: "", contains: []string{"def"}},
 		{regex: "(?i).*(?-i:abc)def", prefix: "", suffix: "", contains: []string{"abc"}},
 		{regex: ".*(?msU:abc).*", prefix: "", suffix: "", contains: []string{"abc"}},
-		{regex: "[aA]bc.*", prefix: "", suffix: "", contains: []string{"bc"}},
+		{regex: "[aA]bc.*", prefix: "A", isCaseInsensitivePrefix: true, suffix: "", contains: []string{"bc"}},
 		{regex: "^5..$", prefix: "5", suffix: "", contains: nil},
 		{regex: "^release.*", prefix: "release", suffix: "", contains: nil},
 		{regex: "^env-[0-9]+laio[1]?[^0-9].*", prefix: "env-", suffix: "", contains: []string{"laio"}},
@@ -304,13 +312,16 @@ func TestOptimizeConcatRegex(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		parsed, err := syntax.Parse(c.regex, syntax.Perl|syntax.DotNL)
-		require.NoError(t, err)
+		t.Run(c.regex, func(t *testing.T) {
+			parsed, err := syntax.Parse(c.regex, syntax.Perl|syntax.DotNL)
+			require.NoError(t, err)
 
-		prefix, suffix, contains := optimizeConcatRegex(parsed)
-		require.Equal(t, c.prefix, prefix)
-		require.Equal(t, c.suffix, suffix)
-		require.Equal(t, c.contains, contains)
+			caseInsensitivePrefix, prefix, suffix, contains := optimizeConcatRegex(parsed)
+			require.Equal(t, c.prefix, prefix)
+			require.Equal(t, c.isCaseInsensitivePrefix, caseInsensitivePrefix)
+			require.Equal(t, c.suffix, suffix)
+			require.Equal(t, c.contains, contains)
+		})
 	}
 }
 
@@ -559,6 +570,8 @@ func TestNewFastRegexMatcher(t *testing.T) {
 		{"foo.?", &literalPrefixSensitiveStringMatcher{prefix: "foo", right: &zeroOrOneCharacterStringMatcher{matchNL: true}}},
 		{"f.?o", nil},
 		{".*foo.*|.*bar.*|.*baz.*", &containsStringMatcher{left: trueMatcher{}, substrings: []string{"foo", "bar", "baz"}, right: trueMatcher{}}},
+		{"(?i)zeyt.report.scheduled.joblocalprocessor_impl_runscheduledreportsperiodic", nil},
+		{"zeyt.report.scheduled.joblocalprocessor_impl_runscheduledreportsperiodic", nil},
 	} {
 		t.Run(c.pattern, func(t *testing.T) {
 			t.Parallel()
