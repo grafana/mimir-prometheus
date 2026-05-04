@@ -1320,6 +1320,36 @@ func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64) e
 	return nil
 }
 
+// truncateCustomSeries removes the provided series unconditionally, regardless of staleness.
+func (h *Head) truncateCustomSeries(seriesRefs []storage.SeriesRef, maxt int64) error {
+	h.chunkSnapshotMtx.Lock()
+	defer h.chunkSnapshotMtx.Unlock()
+
+	if h.MinTime() >= maxt {
+		return nil
+	}
+
+	h.WaitForPendingReadersInTimeRange(h.MinTime(), maxt)
+
+	deleted := h.gcCustomSeries(seriesRefs, maxt)
+
+	// Record the deleted series refs in the WAL so that they are ignored during replay.
+	if h.wal != nil {
+		stones := make([]tombstones.Stone, 0, len(deleted))
+		for ref := range deleted {
+			stones = append(stones, tombstones.Stone{
+				Ref:       ref,
+				Intervals: tombstones.Intervals{{Mint: math.MinInt64, Maxt: math.MaxInt64}},
+			})
+		}
+		var enc record.Encoder
+		if err := h.wal.Log(enc.Tombstones(stones, nil)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // WaitForPendingReadersInTimeRange waits for queries overlapping with given range to finish querying.
 // The query timeout limits the max wait time of this function implicitly.
 // The mint is inclusive and maxt is the truncation time hence exclusive.
@@ -1718,6 +1748,54 @@ func (h *StaleHead) Meta() BlockMeta {
 // errors or logs.
 func (h *StaleHead) String() string {
 	return fmt.Sprintf("stale head (mint: %d, maxt: %d)", h.MinTime(), h.MaxTime())
+}
+
+// CustomRefsHead allows compacting a caller-specified set of series from the Head
+// via an IndexReader, ChunkReader and tombstones.Reader. Used only for compactions.
+type CustomRefsHead struct {
+	RangeHead
+	customSeriesRefs []storage.SeriesRef
+}
+
+// NewCustomRefsHead returns a *CustomRefsHead.
+func NewCustomRefsHead(head *Head, mint, maxt int64, customSeriesRefs []storage.SeriesRef) *CustomRefsHead {
+	return &CustomRefsHead{
+		RangeHead: RangeHead{
+			head: head,
+			mint: mint,
+			maxt: maxt,
+		},
+		customSeriesRefs: customSeriesRefs,
+	}
+}
+
+func (h *CustomRefsHead) Index() (_ IndexReader, err error) {
+	return &headCustomRefsIndexReader{
+		headIndexReader:  h.head.indexRange(h.mint, h.maxt),
+		customSeriesRefs: h.customSeriesRefs,
+	}, nil
+}
+
+func (h *CustomRefsHead) NumSeries() uint64 {
+	return uint64(len(h.customSeriesRefs))
+}
+
+var customRefsHeadULID = ulid.MustParse("00000000000000CSTMREFSHEAD")
+
+func (h *CustomRefsHead) Meta() BlockMeta {
+	return BlockMeta{
+		MinTime: h.MinTime(),
+		MaxTime: h.MaxTime(),
+		ULID:    customRefsHeadULID,
+		Stats: BlockStats{
+			NumSeries: h.NumSeries(),
+		},
+	}
+}
+
+// String returns a human readable representation of the custom refs head.
+func (h *CustomRefsHead) String() string {
+	return fmt.Sprintf("custom refs head (mint: %d, maxt: %d)", h.MinTime(), h.MaxTime())
 }
 
 // Delete all samples in the range of [mint, maxt] for series that satisfy the given
@@ -2266,6 +2344,43 @@ func (h *Head) gcStaleSeries(seriesRefs []storage.SeriesRef, maxt int64) map[sto
 	return deleted
 }
 
+// gcCustomSeries removes the provided series unconditionally as long as the series
+// maxt is <= the given max. It does not require the series to be stale.
+// The returned references are the series that got deleted.
+func (h *Head) gcCustomSeries(seriesRefs []storage.SeriesRef, maxt int64) map[storage.SeriesRef]struct{} {
+	deleted, affected, chunksRemoved, staleRemoved := h.series.gcCustomSeries(seriesRefs, maxt)
+	seriesRemoved := len(deleted)
+
+	h.metrics.seriesRemoved.Add(float64(seriesRemoved))
+	h.metrics.chunksRemoved.Add(float64(chunksRemoved))
+	h.metrics.chunks.Sub(float64(chunksRemoved))
+	h.numSeries.Sub(uint64(seriesRemoved))
+	h.numStaleSeries.Sub(uint64(staleRemoved))
+
+	// Remove deleted series IDs from the postings lists.
+	h.postings.Delete(deleted, affected)
+
+	// Remove tombstones referring to the deleted series.
+	h.tombstones.DeleteTombstones(deleted)
+
+	if h.wal != nil {
+		_, last, _ := wlog.Segments(h.wal.Dir())
+		h.walExpiriesMtx.Lock()
+		// Keep series records until we're past segment 'last'
+		// because the WAL will still have samples records with
+		// this ref ID. If we didn't keep these series records then
+		// on start up when we replay the WAL, or any other code
+		// that reads the WAL, wouldn't be able to use those
+		// samples since we would have no labels for that ref ID.
+		for ref := range deleted {
+			h.walExpiries[chunks.HeadSeriesRef(ref)] = int64(last)
+		}
+		h.walExpiriesMtx.Unlock()
+	}
+
+	return deleted
+}
+
 // deleteSeriesByID deletes the series with the given reference.
 // Only used for WAL replay.
 func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
@@ -2390,6 +2505,68 @@ func (s *stripeSeries) gcStaleSeries(seriesRefs []storage.SeriesRef, maxt int64)
 	s.iterForDeletion(check)
 
 	return deleted, affected, rmChunks
+}
+
+// gcCustomSeries removes the provided series unconditionally as long as the series
+// maxt is <= the given max. It does not require the series to be stale.
+// Returns deleted refs, affected labels, chunks removed, and the count of those deleted series that were stale.
+func (s *stripeSeries) gcCustomSeries(seriesRefs []storage.SeriesRef, maxt int64) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _ int, _ int) {
+	var (
+		deleted      = map[storage.SeriesRef]struct{}{}
+		affected     = map[labels.Label]struct{}{}
+		rmChunks     = 0
+		staleRemoved = 0
+	)
+
+	targetSet := map[storage.SeriesRef]struct{}{}
+	for _, ref := range seriesRefs {
+		targetSet[ref] = struct{}{}
+	}
+
+	check := func(hashShard int, hash uint64, series *memSeries, deletedForCallback map[chunks.HeadSeriesRef]labels.Labels) {
+		if _, exists := targetSet[storage.SeriesRef(series.ref)]; !exists {
+			return
+		}
+
+		series.Lock()
+		defer series.Unlock()
+
+		if series.maxTime() > maxt {
+			return
+		}
+
+		if series.headChunks != nil {
+			rmChunks += series.headChunks.len()
+		}
+		rmChunks += len(series.mmappedChunks)
+
+		if value.IsStaleNaN(series.lastValue) ||
+			(series.lastHistogramValue != nil && value.IsStaleNaN(series.lastHistogramValue.Sum)) ||
+			(series.lastFloatHistogramValue != nil && value.IsStaleNaN(series.lastFloatHistogramValue.Sum)) {
+			staleRemoved++
+		}
+
+		// The series is gone entirely. We need to keep the series lock
+		// and make sure we have acquired the stripe locks for hash and ID of the
+		// series alike.
+		// If we don't hold them all, there's a very small chance that a series receives
+		// samples again while we are half-way into deleting it.
+		refShard := int(series.ref) & (s.size - 1)
+		if hashShard != refShard {
+			s.locks[refShard].Lock()
+			defer s.locks[refShard].Unlock()
+		}
+
+		deleted[storage.SeriesRef(series.ref)] = struct{}{}
+		series.lset.Range(func(l labels.Label) { affected[l] = struct{}{} })
+		s.hashes[hashShard].del(hash, series.ref)
+		delete(s.series[refShard], series.ref)
+		deletedForCallback[series.ref] = series.lset // OK to access lset; series is locked at the top of this function.
+	}
+
+	s.iterForDeletion(check)
+
+	return deleted, affected, rmChunks, staleRemoved
 }
 
 // The iterForDeletion function iterates through all series, invoking the checkDeletedFunc for each.
