@@ -7894,6 +7894,42 @@ func TestHead_NumStaleSeries(t *testing.T) {
 	verifySeriesCounts(4, 5)
 }
 
+// TestHead_FilterSeriesRefsWithoutOOOData exercises the helper directly, covering the three
+// outcomes for a given ref: kept (clean series), skipped (series carries OOO data), and
+// silently dropped (ref does not resolve to any series in the head).
+func TestHead_FilterSeriesRefsWithoutOOOData(t *testing.T) {
+	head, _ := newTestHead(t, 1000, compression.None, false)
+	t.Cleanup(func() { _ = head.Close() })
+	require.NoError(t, head.Init(0))
+
+	// Enable OOO so we can push an OOO sample.
+	head.opts.OutOfOrderTimeWindow.Store(1000)
+
+	clean := labels.FromStrings("name", "clean")
+	withOOO := labels.FromStrings("name", "with-ooo")
+
+	app := head.Appender(context.Background())
+	cleanRef, err := app.Append(0, clean, 200, 1.0)
+	require.NoError(t, err)
+	withOOORef, err := app.Append(0, withOOO, 200, 2.0)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// Push an OOO sample for the second series so its s.ooo becomes non-nil.
+	app = head.Appender(context.Background())
+	_, err = app.Append(withOOORef, withOOO, 100, 2.5)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// A ref that does not resolve to any series in the head must be silently dropped
+	// (matching the pattern used by SortedStaleSeriesRefsNoOOOData).
+	bogusRef := storage.SeriesRef(math.MaxUint64)
+
+	kept, skipped := head.FilterSeriesRefsWithoutOOOData([]storage.SeriesRef{cleanRef, withOOORef, bogusRef})
+	require.Equal(t, []storage.SeriesRef{cleanRef}, kept)
+	require.Equal(t, []storage.SeriesRef{withOOORef}, skipped)
+}
+
 // TestHistogramStalenessConversionMetrics verifies that staleness marker conversion correctly
 // increments the right appender metrics for both histogram and float histogram scenarios.
 func TestHistogramStalenessConversionMetrics(t *testing.T) {
