@@ -1983,7 +1983,7 @@ func (db *DB) CompactStaleHead() (err error) {
 
 	if err := db.compactHeadPortionLocked(
 		func(h *Head, mint, maxt int64) BlockReader {
-			return NewStaleHead(h, mint, maxt, staleSeriesRefs)
+			return NewSelectedSeriesHead(h, mint, maxt, staleSeriesRefs)
 		},
 		func(maxt int64) error {
 			return db.head.truncateStaleSeries(staleSeriesRefs, maxt)
@@ -2048,7 +2048,7 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 
 	if err := db.compactHeadPortionLocked(
 		func(h *Head, mint, maxt int64) BlockReader {
-			return NewStaleHead(h, mint, maxt, seriesRefs)
+			return NewSelectedSeriesHead(h, mint, maxt, seriesRefs)
 		},
 		func(maxt int64) error {
 			return db.head.truncateSelectedSeries(seriesRefs, maxt)
