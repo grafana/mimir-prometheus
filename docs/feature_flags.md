@@ -170,19 +170,6 @@ fixes the possible problem with the feature flag.)
 
 It is possible to craft a query that aggregates by `__name__` and puts samples with and without delayed name removal into the same group. In that case, the name is removed from the affected group. Note that this case hardly occurs in queries that fulfill a practical purpose.
 
-## Auto Reload Config
-
-`--enable-feature=auto-reload-config`
-
-When enabled, Prometheus will automatically reload its configuration file at a
-specified interval. The interval is defined by the
-`--config.auto-reload-interval` flag, which defaults to `30s`.
-
-Configuration reloads are triggered by detecting changes in the checksum of the
-main configuration file or any referenced files, such as rule and scrape
-configurations. To ensure consistency and avoid issues during reloads, it's
-recommended to update these files atomically.
-
 ## OTLP Delta Conversion
 
 `--enable-feature=otlp-deltatocumulative`

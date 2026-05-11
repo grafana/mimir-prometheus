@@ -252,10 +252,7 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 				logger.Info("Experimental per-step statistics reporting")
 			case "auto-reload-config":
 				c.enableAutoReload = true
-				if s := time.Duration(c.autoReloadInterval).Seconds(); s > 0 && s < 1 {
-					c.autoReloadInterval, _ = model.ParseDuration("1s")
-				}
-				logger.Info("Enabled automatic configuration file reloading. Checking for configuration changes every", "interval", c.autoReloadInterval)
+				logger.Warn("This option for --enable-feature is deprecated. Use --config.auto-reload instead.", "option", o)
 			case "concurrent-rule-eval":
 				c.enableConcurrentRuleEval = true
 				logger.Info("Experimental concurrent rule evaluation enabled.")
@@ -398,7 +395,10 @@ func main() {
 	a.Flag("config.file", "Prometheus configuration file path.").
 		Default("prometheus.yml").StringVar(&cfg.configFile)
 
-	a.Flag("config.auto-reload-interval", "Specifies the interval for checking and automatically reloading the Prometheus configuration file upon detecting changes.").
+	a.Flag("config.auto-reload", "Enable automatic configuration file reloading. See also --config.auto-reload-interval.").
+		Default("false").BoolVar(&cfg.enableAutoReload)
+
+	a.Flag("config.auto-reload-interval", "Specifies the interval for checking and automatically reloading the Prometheus configuration file upon detecting changes. Only used when --config.auto-reload is set.").
 		Default("30s").SetValue(&cfg.autoReloadInterval)
 
 	a.Flag("web.listen-address", "Address to listen on for UI, API, and telemetry. Can be repeated.").
@@ -619,7 +619,7 @@ func main() {
 	a.Flag("scrape.discovery-reload-interval", "Interval used by scrape manager to throttle target groups updates.").
 		Hidden().Default("5s").SetValue(&cfg.scrape.DiscoveryReloadInterval)
 
-	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: auto-reload-config, concurrent-rule-eval, created-timestamp-zero-ingestion, delayed-compaction, exemplar-storage, extra-scrape-metrics, memory-snapshot-on-shutdown, metadata-wal-records, old-ui, otlp-deltatocumulative, otlp-native-delta-ingestion, promql-binop-fill-modifiers, promql-delayed-name-removal, promql-experimental-functions, promql-extended-range-selectors, promql-per-step-stats, st-storage, type-and-unit-labels, use-start-timestamps, use-uncached-io, xor2-encoding. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
+	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: concurrent-rule-eval, created-timestamp-zero-ingestion, delayed-compaction, exemplar-storage, extra-scrape-metrics, memory-snapshot-on-shutdown, metadata-wal-records, old-ui, otlp-deltatocumulative, otlp-native-delta-ingestion, promql-binop-fill-modifiers, promql-delayed-name-removal, promql-experimental-functions, promql-extended-range-selectors, promql-per-step-stats, st-storage, type-and-unit-labels, use-start-timestamps, use-uncached-io, xor2-encoding. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
 		StringsVar(&cfg.featureList)
 
 	a.Flag("agent", "Run Prometheus in 'Agent mode'.").BoolVar(&agentMode)
@@ -653,6 +653,13 @@ func main() {
 	if err := cfg.setFeatureListOptions(logger); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing feature list: %s\n", err)
 		os.Exit(1)
+	}
+
+	if cfg.enableAutoReload {
+		if s := time.Duration(cfg.autoReloadInterval).Seconds(); s < 1 {
+			cfg.autoReloadInterval, _ = model.ParseDuration("1s")
+		}
+		logger.Info("Automatic configuration file reloading enabled", "interval", cfg.autoReloadInterval)
 	}
 
 	promqlParser := parser.NewParser(cfg.parserOpts)
