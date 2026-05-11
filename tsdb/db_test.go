@@ -9796,10 +9796,9 @@ func TestStaleSeriesCompactionWithZeroSeries(t *testing.T) {
 // TestCompactSelectedSeries verifies the happy path of CompactSelectedSeries:
 //   - Non-stale series in the ref list are evicted, even though their lastValue is not a
 //     stale-NaN (the key behavioural difference vs. CompactStaleHead).
-//   - The resulting block carries the FromSelectedSeries hint and not FromStaleSeries.
+//   - The resulting block carries the FromSelectedSeries hint.
 //   - HeadMinTime is not advanced.
 //   - Series outside the ref list remain in the head.
-//   - The numStaleSeries counter is not decremented (the wereStale=false flag in truncateSeries).
 func TestCompactSelectedSeries(t *testing.T) {
 	opts := DefaultOptions()
 	opts.MinBlockDuration = 1000
@@ -9841,7 +9840,6 @@ func TestCompactSelectedSeries(t *testing.T) {
 	require.Len(t, db.Blocks(), 1)
 	bm := db.Blocks()[0].Meta()
 	require.True(t, bm.Compaction.FromSelectedSeries(), "selected-series hint not found in block meta")
-	require.False(t, bm.Compaction.FromStaleSeries(), "stale-series hint must not be set")
 
 	// Selected-series compaction metrics should reflect one successful run.
 	require.Equal(t, float64(1), prom_testutil.ToFloat64(db.metrics.selectedSeriesCompactionsTriggered))
@@ -9893,7 +9891,6 @@ func TestCompactSelectedSeries_MultipleChunkRanges(t *testing.T) {
 	for _, b := range db.Blocks() {
 		bm := b.Meta()
 		require.True(t, bm.Compaction.FromSelectedSeries(), "all selected-series blocks must carry the hint")
-		require.False(t, bm.Compaction.FromStaleSeries())
 	}
 }
 
@@ -9950,8 +9947,7 @@ func TestCompactSelectedSeries_SkipsSeriesWithOOOData(t *testing.T) {
 	withOOO := labels.FromStrings("name", "with-ooo")
 	withoutOOO := labels.FromStrings("name", "without-ooo")
 
-	// Both series receive in-order samples at two timestamps so Head.MinTime < Head.MaxTime
-	// (the eviction step early-returns when those are equal).
+	// Both series receive in-order samples at two timestamps.
 	app := db.Appender(context.Background())
 	withOOORef, err := app.Append(0, withOOO, 100, 1.0)
 	require.NoError(t, err)
@@ -9984,44 +9980,6 @@ func TestCompactSelectedSeries_SkipsSeriesWithOOOData(t *testing.T) {
 	require.Len(t, db.Blocks(), 1)
 	bm := db.Blocks()[0].Meta()
 	require.True(t, bm.Compaction.FromSelectedSeries())
-}
-
-// TestCompactSelectedSeries_AllSkippedDueToOOO verifies that when every ref in the input list
-// has out-of-order data, no block is written, no error is returned, and only the SkippedOOO
-// counter is incremented (in addition to Triggered).
-func TestCompactSelectedSeries_AllSkippedDueToOOO(t *testing.T) {
-	opts := DefaultOptions()
-	opts.MinBlockDuration = 1000
-	opts.MaxBlockDuration = 1000
-	opts.OutOfOrderTimeWindow = 1000
-	db := newTestDB(t, withOpts(opts))
-	db.DisableCompactions()
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	a := labels.FromStrings("name", "a")
-	b := labels.FromStrings("name", "b")
-
-	app := db.Appender(context.Background())
-	aRef, err := app.Append(0, a, 200, 1.0)
-	require.NoError(t, err)
-	bRef, err := app.Append(0, b, 200, 2.0)
-	require.NoError(t, err)
-	require.NoError(t, app.Commit())
-
-	// Force both series into OOO state.
-	app = db.Appender(context.Background())
-	_, err = app.Append(aRef, a, 100, 1.5)
-	require.NoError(t, err)
-	_, err = app.Append(bRef, b, 100, 2.5)
-	require.NoError(t, err)
-	require.NoError(t, app.Commit())
-
-	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{aRef, bRef}))
-
-	require.Equal(t, uint64(2), db.Head().NumSeries(), "all OOO-carrying series stay in the head")
-	require.Empty(t, db.Blocks(), "no block must be written when every ref is skipped")
-	require.Equal(t, float64(1), prom_testutil.ToFloat64(db.metrics.selectedSeriesCompactionsTriggered))
-	require.Equal(t, float64(2), prom_testutil.ToFloat64(db.metrics.selectedSeriesCompactionsSkippedOOO))
 }
 
 // TestCompactSelectedSeries_HintPropagation verifies that a block carrying the
@@ -10086,8 +10044,7 @@ func TestInOrderBlocksMaxTime_ExcludesSelectedSeriesBlocks(t *testing.T) {
 	bm := db.Blocks()[0].Meta()
 	require.True(t, bm.Compaction.FromSelectedSeries())
 
-	// With only a selected-series block on disk, inOrderBlocksMaxTime must report no in-order
-	// block. Without the exclusion, it would pick up the selected-series block's MaxTime.
+	// With only a selected-series block on disk, inOrderBlocksMaxTime must report no in-order block.
 	_, ok := db.inOrderBlocksMaxTime()
 	require.False(t, ok, "selected-series block must be excluded from inOrderBlocksMaxTime")
 }

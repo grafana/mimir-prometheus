@@ -1298,8 +1298,7 @@ func isStaleSeries(s *memSeries) bool {
 		(s.lastFloatHistogramValue != nil && value.IsStaleNaN(s.lastFloatHistogramValue.Sum))
 }
 
-// alwaysEvictSeries is the predicate used by ref-list eviction paths that don't require any
-// per-series value-based check (the caller has already vetted which series should be evicted).
+// alwaysEvictSeries is a predicate that unconditionally marks all series for eviction.
 func alwaysEvictSeries(*memSeries) bool {
 	return true
 }
@@ -1309,12 +1308,8 @@ func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64) e
 	return h.truncateSeries(seriesRefs, maxt, isStaleSeries, true)
 }
 
-// truncateSelectedSeries removes the provided series from the head without requiring them to
-// carry stale-NaN markers. Series which received fresh samples since the caller collected the
-// ref list are skipped.
-//
-// Intended for callers that maintain their own list of series refs (for example, an external
-// ownership tracker) and want to evict specific series outside the stale-series flow.
+// truncateSelectedSeries removes the series identified by the provided refs from the head.
+// Series that received fresh samples since the caller collected the ref list are skipped.
 func (h *Head) truncateSelectedSeries(seriesRefs []storage.SeriesRef, maxt int64) error {
 	return h.truncateSeries(seriesRefs, maxt, alwaysEvictSeries, false)
 }
@@ -1737,8 +1732,7 @@ func (h *StaleHead) Index() (_ IndexReader, err error) {
 
 // NumSeries returns the number of series the view exposes. This is the size of the explicit
 // ref list captured at construction time, which is stable for the lifetime of the view and
-// matches the count of series the resulting block will contain. For the existing stale-series
-// compaction path this is equal to Head.NumStaleSeries() at collection time.
+// matches the count of series the resulting block will contain.
 func (h *StaleHead) NumSeries() uint64 {
 	return uint64(len(h.staleSeriesRefs))
 }

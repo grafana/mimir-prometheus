@@ -7921,8 +7921,7 @@ func TestHead_FilterSeriesRefsWithoutOOOData(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, app.Commit())
 
-	// A ref that does not resolve to any series in the head must be silently dropped
-	// (matching the pattern used by SortedStaleSeriesRefsNoOOOData).
+	// A ref that does not resolve to any series in the head must be silently dropped.
 	bogusRef := storage.SeriesRef(math.MaxUint64)
 
 	kept, skipped := head.FilterSeriesRefsWithoutOOOData([]storage.SeriesRef{cleanRef, withOOORef, bogusRef})
