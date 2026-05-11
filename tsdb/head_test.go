@@ -7894,10 +7894,10 @@ func TestHead_NumStaleSeries(t *testing.T) {
 	verifySeriesCounts(4, 5)
 }
 
-// TestHead_FilterSeriesRefsWithoutOOOData exercises the helper directly, covering the three
-// outcomes for a given ref: kept (clean series), skipped (series carries OOO data), and
+// TestHead_PartitionAndSortSeriesRefsByOOOData exercises the helper directly, covering the
+// three outcomes for a given ref: kept (clean series), skipped (series carries OOO data), and
 // silently dropped (ref does not resolve to any series in the head).
-func TestHead_FilterSeriesRefsWithoutOOOData(t *testing.T) {
+func TestHead_PartitionAndSortSeriesRefsByOOOData(t *testing.T) {
 	head, _ := newTestHead(t, 1000, compression.None, false)
 	t.Cleanup(func() { _ = head.Close() })
 	require.NoError(t, head.Init(0))
@@ -7924,9 +7924,9 @@ func TestHead_FilterSeriesRefsWithoutOOOData(t *testing.T) {
 	// A ref that does not resolve to any series in the head must be silently dropped.
 	bogusRef := storage.SeriesRef(math.MaxUint64)
 
-	kept, skipped := head.FilterSeriesRefsWithoutOOOData([]storage.SeriesRef{cleanRef, withOOORef, bogusRef})
+	kept, err := head.SortedSelectedSeriesRefNoOOOData([]storage.SeriesRef{cleanRef, withOOORef, bogusRef})
+	require.NoError(t, err)
 	require.Equal(t, []storage.SeriesRef{cleanRef}, kept)
-	require.Equal(t, []storage.SeriesRef{withOOORef}, skipped)
 }
 
 // TestHistogramStalenessConversionMetrics verifies that staleness marker conversion correctly

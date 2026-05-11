@@ -9975,7 +9975,6 @@ func TestCompactSelectedSeries_SkipsSeriesWithOOOData(t *testing.T) {
 	require.Equal(t, uint64(1), db.Head().NumSeries())
 	require.Equal(t, float64(1), prom_testutil.ToFloat64(db.metrics.selectedSeriesCompactionsTriggered))
 	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.metrics.selectedSeriesCompactionsFailed))
-	require.Equal(t, float64(1), prom_testutil.ToFloat64(db.metrics.selectedSeriesCompactionsSkippedOOO))
 
 	require.Len(t, db.Blocks(), 1)
 	bm := db.Blocks()[0].Meta()
