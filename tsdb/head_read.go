@@ -342,10 +342,11 @@ func (h *Head) filterSelectedSeriesAndSortPostings(p index.Postings) ([]storage.
 		}
 
 		s.Lock()
-		if s.ooo != nil {
+		hasOOO := s.ooo != nil
+		s.Unlock()
+		if hasOOO {
 			// Has out-of-order data; skip it because we cannot determine if a series
 			// is stale when it's getting out-of-order data.
-			s.Unlock()
 			continue
 		}
 
