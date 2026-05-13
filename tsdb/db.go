@@ -1714,6 +1714,38 @@ func (db *DB) CompactOOOHead(ctx context.Context) error {
 	return db.compactOOOHead(ctx)
 }
 
+// ForceDropOOOInHead drops all OOO data currently in the head without writing
+// it to a block. The dropped data is permanently lost. This is an escape hatch
+// intended for recovery from repeated compaction failures (e.g., panics during
+// OOO compaction caused by corrupt data); regular operation should always go
+// through CompactOOOHead.
+func (db *DB) ForceDropOOOInHead(ctx context.Context) error {
+	db.cmtx.Lock()
+	defer db.cmtx.Unlock()
+
+	if !db.oooWasEnabled.Load() {
+		return nil
+	}
+
+	oooHead, err := NewOOOCompactionHead(ctx, db.head)
+	if err != nil {
+		return fmt.Errorf("get ooo compaction head: %w", err)
+	}
+
+	lastWBLFile, minOOOMmapRef := oooHead.LastWBLFile(), oooHead.LastMmapRef()
+	if lastWBLFile == 0 && minOOOMmapRef == 0 {
+		return nil
+	}
+
+	if minOOOMmapRef != 0 {
+		db.mtx.Lock()
+		db.lastGarbageCollectedMmapRef = minOOOMmapRef
+		db.mtx.Unlock()
+	}
+
+	return db.head.truncateOOO(lastWBLFile, minOOOMmapRef)
+}
+
 // Callback for testing.
 var compactOOOHeadTestingCallback func()
 
