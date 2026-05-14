@@ -1221,7 +1221,16 @@ func (p *populateWithDelChunkSeriesIterator) populateChunksFromIterable() bool {
 		// not capable.
 		st = p.currDelIter.AtST()
 		needTS := st != 0
-		if currentValueType != prevValueType || !hasTS && needTS {
+		overSizeChunk := func() bool {
+			switch currentValueType {
+			case chunkenc.ValFloat:
+				return len(currentChunk.Bytes()) > chunkenc.MaxBytesPerXORChunkBeforeAppend
+			case chunkenc.ValHistogram, chunkenc.ValFloatHistogram:
+				return len(currentChunk.Bytes()) > chunkenc.TargetBytesPerHistogramChunk && currentChunk.NumSamples() > chunkenc.MinSamplesPerHistogramChunk
+			}
+			return false
+		}
+		if currentValueType != prevValueType || !hasTS && needTS || overSizeChunk() {
 			if prevValueType != chunkenc.ValNone {
 				p.chunksFromIterable = append(p.chunksFromIterable, chunks.Meta{Chunk: currentChunk, MinTime: cmint, MaxTime: cmaxt})
 			}
