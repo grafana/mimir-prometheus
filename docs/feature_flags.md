@@ -107,6 +107,19 @@ Besides enabling this feature in Prometheus, start timestamps need to be exposed
 
 Enables the use of start timestamps (ST) in PromQL functions such as `rate()`, `irate()`, and `increase()`. This feature doesn't currently work with extended range selectors (`promql-extended-range-selectors`). 
 
+## Start timestamp (ST) synthesis
+
+`--enable-feature=st-synthesis`
+
+Enables the synthesis of start timestamps (ST) for cumulative metrics (Counters, Classic Histograms, Native Histograms) when they are not provided by the source. Similar to [the official OpenTelemetry metricstarttimeprocessor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/metricstarttimeprocessor#strategy-subtract-initial-point), it tracks previous values to detect resets and subtracts the initial reference point to synthesize a zero-based timeline from the first sample.
+
+> NOTE: This is an experimental feature.
+> * The first sample is dropped when this feature is turned on to establish the start timestamp reference point. As a result, if a series has only a single point reported, turning this feature on may result in no points being ingested for that series.
+> * Synthesis yields accurate Start Timestamp while maintaining accurate counter rates. However, the raw counter values will be different that what's scraped. This is because the first point is dropped and its timestamp is used as the start timestamp for all subsequent points. All subsequent points are normalized against that dropped point (i.e. subtracted by it). Effectively, synthesis create new counter streams with the known start timestamp from the original data.
+> * Synthesis works only with scraped data (RW and Otel receiver are not implemented).
+> * Synthesis requires ordered samples. As a result, cumulative samples without ST that are out of order will be rejected despite the `tsdb. out_of_order_time_window` setting.
+> * If an append fails for a series (e.g., due to out-of-order samples being rejected), the synthesis state for that series is cleared. As a result, the next sample received after the failure will be treated as the first sample again and will be dropped to establish a new reference point.
+
 ## Concurrent evaluation of independent rules
 
 `--enable-feature=concurrent-rule-eval`
@@ -191,6 +204,63 @@ Enabling this _can_ have negative impact on performance, because the in-memory
 state is mutex guarded. Cumulative-only OTLP requests are not affected.
 
 [d2c]: https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/processor/deltatocumulativeprocessor
+
+## PromQL arithmetic expressions in time durations
+
+`--enable-feature=promql-duration-expr`
+
+With this flag, arithmetic expressions can be used in time durations in range queries and offset durations.
+
+In range queries:
+```
+rate(http_requests_total[5m * 2])  # 10 minute range
+rate(http_requests_total[(5+2) * 1m])  # 7 minute range
+```
+
+In offset durations:
+```
+http_requests_total offset (1h / 2)  # 30 minute offset
+http_requests_total offset ((2 ^ 3) * 1m)  # 8 minute offset
+```
+
+When using offset with duration expressions, you must wrap the expression in
+parentheses. Without parentheses, only the first duration value will be used in
+the offset calculation.
+
+`step()` can be used in duration expressions.
+For a **range query**, it resolves to the step width of the range query.
+For an **instant query**, it resolves to `0s`.
+
+`range()` can be used in duration expressions.
+For a **range query**, it resolves to the full range of the query (end time - start time).
+For an **instant query**, it resolves to `0s`.
+This is particularly useful in combination with `@end()` to look back over the entire query range, e.g., `max_over_time(metric[range()] @ end())`.
+
+`min(<duration>, <duration>)` and `max(<duration>, <duration>)` can be used to find the minimum or maximum of two duration expressions.
+
+**Note**: Duration expressions are not supported in the @ timestamp operator.
+
+The following operators are supported:
+
+* `+` - addition
+* `-` - subtraction
+* `*` - multiplication
+* `/` - division
+* `%` - modulo
+* `^` - exponentiation
+
+Examples of equivalent durations:
+
+* `5m * 2` is equivalent to `10m` or `600s`
+* `10m - 1m` is equivalent to `9m` or `540s`
+* `(5+2) * 1m` is equivalent to `7m` or `420s`
+* `1h / 2` is equivalent to `30m` or `1800s`
+* `4h % 3h` is equivalent to `1h` or `3600s`
+* `(2 ^ 3) * 1m` is equivalent to `8m` or `480s`
+* `step() + 1` is equivalent to the query step width increased by 1s.
+* `max(step(), 5s)` is equivalent to the larger of the query step width and `5s`.
+* `min(2 * step() + 5s, 5m)` is equivalent to the smaller of twice the query step increased by `5s` and `5m`.
+
 
 ## OTLP Native Delta Support
 

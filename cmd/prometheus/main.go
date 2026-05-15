@@ -260,7 +260,8 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 				c.parserOpts.EnableExperimentalFunctions = true
 				logger.Info("Experimental PromQL functions enabled.")
 			case "promql-duration-expr":
-				logger.Warn("This option for --enable-feature is now permanently enabled and therefore a no-op.", "option", o)
+				c.parserOpts.ExperimentalDurationExpr = true
+				logger.Info("Experimental duration expression parsing enabled.")
 			case "native-histograms":
 				logger.Warn("This option for --enable-feature is a no-op. To scrape native histograms, set the scrape_native_histograms scrape config setting to true.", "option", o)
 			case "ooo-native-histograms":
@@ -281,6 +282,11 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 			case "xor2-encoding":
 				c.tsdb.EnableXOR2Encoding = true
 				logger.Info("Experimental XOR2 chunk encoding enabled.")
+			case "st-synthesis":
+				// TODO(ridwanmsharif): Move this to scrape configuration once stable.
+				c.scrape.SynthesizeST = true
+				features.Enable(features.Scrape, "st-synthesis")
+				logger.Info("Experimental start timestamp synthesis enabled.")
 			case "st-storage":
 				c.scrape.ParseST = true
 				c.tsdb.EnableSTStorage = true
@@ -619,7 +625,7 @@ func main() {
 	a.Flag("scrape.discovery-reload-interval", "Interval used by scrape manager to throttle target groups updates.").
 		Hidden().Default("5s").SetValue(&cfg.scrape.DiscoveryReloadInterval)
 
-	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: concurrent-rule-eval, created-timestamp-zero-ingestion, delayed-compaction, exemplar-storage, extra-scrape-metrics, memory-snapshot-on-shutdown, metadata-wal-records, old-ui, otlp-deltatocumulative, otlp-native-delta-ingestion, promql-binop-fill-modifiers, promql-delayed-name-removal, promql-experimental-functions, promql-extended-range-selectors, promql-per-step-stats, st-storage, type-and-unit-labels, use-start-timestamps, use-uncached-io, xor2-encoding. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
+	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: concurrent-rule-eval, created-timestamp-zero-ingestion, delayed-compaction, exemplar-storage, extra-scrape-metrics, memory-snapshot-on-shutdown, metadata-wal-records, old-ui, otlp-deltatocumulative, otlp-native-delta-ingestion, promql-binop-fill-modifiers, promql-delayed-name-removal, promql-duration-expr, promql-experimental-functions, promql-extended-range-selectors, promql-per-step-stats, st-storage, st-synthesis, type-and-unit-labels, use-start-timestamps, use-uncached-io, xor2-encoding. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
 		StringsVar(&cfg.featureList)
 
 	a.Flag("agent", "Run Prometheus in 'Agent mode'.").BoolVar(&agentMode)
@@ -824,7 +830,7 @@ func main() {
 			if cfg.tsdb.MaxBytes > 0 {
 				logger.Warn("storage.tsdb.retention.size is ignored, because storage.tsdb.retention.percentage is specified")
 			}
-			if prom_runtime.FsSize(localStoragePath) == 0 {
+			if storagePathFsSize(localStoragePath) == 0 {
 				fmt.Fprintln(os.Stderr, fmt.Errorf("unable to detect total capacity of metric storage at %s, please disable retention percentage (%g%%)", localStoragePath, cfg.tsdb.MaxPercentage))
 				os.Exit(2)
 			}
@@ -1754,6 +1760,25 @@ func computeExternalURL(u, listenAddr string) (*url.URL, error) {
 	eu.Path = ppref
 
 	return eu, nil
+}
+
+// storagePathFsSize returns the filesystem size for path or its closest existing parent.
+func storagePathFsSize(path string) uint64 {
+	for {
+		if size := prom_runtime.FsSize(path); size > 0 {
+			return size
+		}
+
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			return 0
+		}
+
+		parent := filepath.Dir(path)
+		if parent == path {
+			return 0
+		}
+		path = parent
+	}
 }
 
 // readyStorage implements the Storage interface while allowing to set the actual
