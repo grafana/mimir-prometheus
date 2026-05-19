@@ -1292,45 +1292,55 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 
 // isStaleSeries reports whether the most recent in-order sample of the series carries a
 // stale-NaN marker (covering float, integer histogram and float histogram samples).
+// isSeriesWithoutOOO reports whether s has no pending out-of-order data and is
+// therefore safe to evict. A series with OOO data must not be evicted before
+// its OOO chunks are flushed by CompactOOOHead, or those chunks would be orphaned.
+func isSeriesWithoutOOO(s *memSeries) bool {
+	return s.ooo == nil
+}
+
 func isStaleSeries(s *memSeries) bool {
-	return value.IsStaleNaN(s.lastValue) ||
+	return isSeriesWithoutOOO(s) && (value.IsStaleNaN(s.lastValue) ||
 		(s.lastHistogramValue != nil && value.IsStaleNaN(s.lastHistogramValue.Sum)) ||
-		(s.lastFloatHistogramValue != nil && value.IsStaleNaN(s.lastFloatHistogramValue.Sum))
+		(s.lastFloatHistogramValue != nil && value.IsStaleNaN(s.lastFloatHistogramValue.Sum)))
 }
 
-// alwaysEvictSeries is a predicate that unconditionally marks all series for eviction.
-func alwaysEvictSeries(*memSeries) bool {
-	return true
-}
-
-// truncateStaleSeries removes the provided series as long as they are still stale.
+// truncateStaleSeries removes the provided series as long as they are still stale,
+// and decrements Head.numStaleSeries by the number of series that were actually evicted.
 func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64) error {
-	return h.truncateSeries(seriesRefs, maxt, isStaleSeries, true)
+	n, err := h.truncateSeries(seriesRefs, maxt, isStaleSeries)
+	if err != nil {
+		return err
+	}
+	h.numStaleSeries.Sub(uint64(n))
+	return nil
 }
 
 // truncateSelectedSeries removes the series identified by the provided refs from the head.
-// Series that received fresh samples since the caller collected the ref list are skipped.
+// Series that received fresh samples or acquired OOO data since the caller collected the ref
+// list are skipped; the latter must be flushed by CompactOOOHead before they can be evicted.
 func (h *Head) truncateSelectedSeries(seriesRefs []storage.SeriesRef, maxt int64) error {
-	return h.truncateSeries(seriesRefs, maxt, alwaysEvictSeries, false)
+	_, err := h.truncateSeries(seriesRefs, maxt, isSeriesWithoutOOO)
+	return err
 }
 
 // truncateSeries removes the provided series from the head, taking the chunk-snapshot lock,
 // waiting for in-flight readers in the affected time range to finish, and recording WAL
 // tombstones so the deleted series are ignored on replay. shouldEvict is the per-series
 // predicate that decides whether each ref is evicted; series that received fresh samples since
-// the caller collected the ref list are skipped before the predicate is consulted. wereStale
-// controls whether Head.numStaleSeries should be decremented by the number of evicted series.
-func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool, wereStale bool) error {
+// the caller collected the ref list are skipped before the predicate is consulted.
+// It returns the number of series that were actually evicted.
+func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (int, error) {
 	h.chunkSnapshotMtx.Lock()
 	defer h.chunkSnapshotMtx.Unlock()
 
 	if h.MinTime() >= maxt {
-		return nil
+		return 0, nil
 	}
 
 	h.WaitForPendingReadersInTimeRange(h.MinTime(), maxt)
 
-	deleted := h.gcSeries(seriesRefs, maxt, shouldEvict, wereStale)
+	deleted := h.gcSeries(seriesRefs, maxt, shouldEvict)
 
 	// Record the deleted series refs in the WAL so that we can ignore them during replay.
 	if h.wal != nil {
@@ -1343,10 +1353,10 @@ func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, should
 		}
 		var enc record.Encoder
 		if err := h.wal.Log(enc.Tombstones(stones, nil)); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	return len(deleted), nil
 }
 
 // WaitForPendingReadersInTimeRange waits for queries overlapping with given range to finish querying.
@@ -2262,11 +2272,10 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 // gcSeries removes the provided series from the head index and updates head metrics,
 // postings, tombstones and WAL expiries accordingly. shouldEvict is the per-series predicate
 // applied after the safety check for series that received fresh samples since the caller
-// collected the ref list. wereStale indicates whether the deleted series were counted in
-// Head.numStaleSeries and the counter should be decremented.
+// collected the ref list.
 //
 // The returned references are the series that got deleted.
-func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool, wereStale bool) map[storage.SeriesRef]struct{} {
+func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) map[storage.SeriesRef]struct{} {
 	// Drop old chunks and remember series IDs and hashes if they can be
 	// deleted entirely.
 	deleted, affected, chunksRemoved := h.series.gcSeries(seriesRefs, maxt, shouldEvict)
@@ -2276,9 +2285,6 @@ func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict 
 	h.metrics.chunksRemoved.Add(float64(chunksRemoved))
 	h.metrics.chunks.Sub(float64(chunksRemoved))
 	h.numSeries.Sub(uint64(seriesRemoved))
-	if wereStale {
-		h.numStaleSeries.Sub(uint64(seriesRemoved))
-	}
 
 	// Remove deleted series IDs from the postings lists.
 	h.postings.Delete(deleted, affected)

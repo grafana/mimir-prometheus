@@ -327,8 +327,9 @@ func (h *Head) filterStaleSeriesAndSortPostings(p index.Postings) ([]storage.Ser
 	return refs, nil
 }
 
-// filterSelectedSeriesAndSortPostings returns the series references from the given postings
-// that do not have any out-of-order data.
+// filterSelectedSeriesAndSortPostings filters the given postings to those whose series exist in
+// the head and carry no out-of-order data, then returns them sorted by series labels. Refs that
+// do not resolve to any series in the head are silently dropped.
 func (h *Head) filterSelectedSeriesAndSortPostings(p index.Postings) ([]storage.SeriesRef, error) {
 	keptSeries := make([]*memSeries, 0, 1024)
 
@@ -345,8 +346,8 @@ func (h *Head) filterSelectedSeriesAndSortPostings(p index.Postings) ([]storage.
 		hasOOO := s.ooo != nil
 		s.Unlock()
 		if hasOOO {
-			// Has out-of-order data; skip it because we cannot determine if a series
-			// is stale when it's getting out-of-order data.
+			// Skip series with out-of-order data: evicting them before their OOO chunks
+			// have been flushed by CompactOOOHead would orphan those chunks.
 			continue
 		}
 
@@ -381,14 +382,6 @@ func (*headSelectedSeriesIndexReader) SortedPostings(p index.Postings) index.Pos
 func (h *Head) SortedStaleSeriesRefsNoOOOData(ctx context.Context) ([]storage.SeriesRef, error) {
 	k, v := index.AllPostingsKey()
 	return h.filterStaleSeriesAndSortPostings(h.postings.Postings(ctx, k, v))
-}
-
-// SortedSelectedSeriesRefNoOOOData partitions the given series refs into those whose series
-// do not currently carry out-of-order data (kept) and those that do (skipped). Kept refs are
-// returned sorted by series labels; refs whose series cannot be found in the head are silently
-// dropped.
-func (h *Head) SortedSelectedSeriesRefNoOOOData(seriesRefs []storage.SeriesRef) ([]storage.SeriesRef, error) {
-	return h.filterSelectedSeriesAndSortPostings(index.NewListPostings(seriesRefs))
 }
 
 // appendSeriesChunks appends chunk metadata for s to chks.

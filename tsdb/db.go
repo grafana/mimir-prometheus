@@ -1894,38 +1894,33 @@ func (db *DB) compactHead(head *RangeHead, truncateMemory bool) error {
 	return nil
 }
 
-// HeadPortionDecorator builds a BlockReader view of a portion of the head, restricted to the
+// headViewFactory builds a restricted BlockReader view of a portion of the head, covering the
 // closed time range [mint, maxt]. Implementations decide which subset of series the view exposes
-// (for example, by filtering on a list of series refs). The decorator is invoked once per
+// (for example, by filtering on a list of series refs). The factory is invoked once per
 // chunk-range slice during compaction.
-type HeadPortionDecorator func(head *Head, mint, maxt int64) BlockReader
+type headViewFactory func(head *Head, mint, maxt int64) BlockReader
 
-// HeadPortionEvictor removes the compacted series from the head after their block has been
+// headSeriesEvictor removes the compacted series from the head after their block has been
 // written and reloaded. It receives the maxt the compaction wrote up to so it can apply any
 // per-series safety check that protects against series receiving fresh samples since ref
 // collection. HeadMinTime is not advanced by this step.
-type HeadPortionEvictor func(maxt int64) error
+type headSeriesEvictor func(maxt int64) error
 
-// CompactHeadPortion writes a block (or sequence of blocks, one per chunk range) covering the
-// portion of the head described by decorator, then runs evictor to remove those series from the
-// head. HeadMinTime is not advanced; series outside the portion are unaffected.
-//
-// For example, this engine powers CompactStaleHead. Callers that maintain their own list of
-// series refs (for example, an external ownership tracker) can invoke it directly with their
-// own decorator/evictor pair.
-func (db *DB) CompactHeadPortion(decorator HeadPortionDecorator, evict HeadPortionEvictor, meta *BlockMeta) error {
-	db.cmtx.Lock()
-	defer db.cmtx.Unlock()
-	return db.compactHeadPortionLocked(decorator, evict, meta)
-}
-
-// compactHeadPortionLocked is the body of CompactHeadPortion, intended for internal callers
-// that already hold db.cmtx.
-func (db *DB) compactHeadPortionLocked(decorator HeadPortionDecorator, evict HeadPortionEvictor, meta *BlockMeta) error {
+// compactHeadViewLocked writes a block (or sequence of blocks, one per chunk range) for the
+// restricted head view produced by viewFactory, then runs evictor to remove those series from the
+// head. HeadMinTime is not advanced; series outside the view are unaffected. configure, if
+// non-nil, is called on the freshly created BlockMeta before each write to set compaction hints
+// or other optional fields.
+// The caller must hold db.cmtx.
+func (db *DB) compactHeadViewLocked(viewFactory headViewFactory, evict headSeriesEvictor, configure func(*BlockMeta)) error {
 	mint, maxt := db.head.opts.ChunkRange*(db.head.MinTime()/db.head.opts.ChunkRange), db.head.MaxTime()
 	for ; mint < maxt; mint += db.head.chunkRange.Load() {
-		view := decorator(db.head, mint, mint+db.head.chunkRange.Load()-1)
+		view := viewFactory(db.head, mint, mint+db.head.chunkRange.Load()-1)
 
+		meta := &BlockMeta{}
+		if configure != nil {
+			configure(meta)
+		}
 		uids, err := db.compactor.Write(db.dir, view, view.Meta().MinTime, view.Meta().MaxTime+1, meta)
 		if err != nil {
 			return fmt.Errorf("persist head portion: %w", err)
@@ -1972,17 +1967,14 @@ func (db *DB) CompactStaleHead() (err error) {
 	if err != nil {
 		return err
 	}
-	meta := &BlockMeta{}
-	meta.Compaction.SetStaleSeries()
-
-	if err := db.compactHeadPortionLocked(
+	if err := db.compactHeadViewLocked(
 		func(h *Head, mint, maxt int64) BlockReader {
 			return NewSelectedSeriesHead(h, mint, maxt, staleSeriesRefs, db.head.filterStaleSeriesAndSortPostings)
 		},
 		func(maxt int64) error {
 			return db.head.truncateStaleSeries(staleSeriesRefs, maxt)
 		},
-		meta,
+		func(meta *BlockMeta) { meta.Compaction.SetStaleSeries() },
 	); err != nil {
 		return err
 	}
@@ -2024,7 +2016,7 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 	// Skip series with out-of-order data: the ref-list pipeline writes only in-order chunks,
 	// so a series whose OOO state is non-empty would have its OOO chunks orphaned upon
 	// eviction. Such series stay in the head and are picked up on a later cycle.
-	seriesRefs, err = db.head.SortedSelectedSeriesRefNoOOOData(seriesRefs)
+	seriesRefs, err = db.head.filterSelectedSeriesAndSortPostings(index.NewListPostings(seriesRefs))
 	if err != nil {
 		return err
 	}
@@ -2038,17 +2030,14 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 		return nil
 	}
 
-	meta := &BlockMeta{}
-	meta.Compaction.SetSelectedSeries()
-
-	if err := db.compactHeadPortionLocked(
+	if err := db.compactHeadViewLocked(
 		func(h *Head, mint, maxt int64) BlockReader {
 			return NewSelectedSeriesHead(h, mint, maxt, seriesRefs, db.head.filterSelectedSeriesAndSortPostings)
 		},
 		func(maxt int64) error {
 			return db.head.truncateSelectedSeries(seriesRefs, maxt)
 		},
-		meta,
+		func(meta *BlockMeta) { meta.Compaction.SetSelectedSeries() },
 	); err != nil {
 		return err
 	}
