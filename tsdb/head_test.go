@@ -7926,7 +7926,7 @@ func TestHead_FilterSelectedSeriesAndSortPostings(t *testing.T) {
 
 	kept, err := head.filterSelectedSeriesAndSortPostings(index.NewListPostings([]storage.SeriesRef{cleanRef, withOOORef, bogusRef}))
 	require.NoError(t, err)
-	require.Equal(t, []storage.SeriesRef{cleanRef}, kept)
+	require.Equal(t, seriesRefs{sortedByRef: []storage.SeriesRef{cleanRef}, sortedByLabels: []storage.SeriesRef{cleanRef}}, kept)
 }
 
 // TestHistogramStalenessConversionMetrics verifies that staleness marker conversion correctly

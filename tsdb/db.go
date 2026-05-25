@@ -1963,16 +1963,16 @@ func (db *DB) CompactStaleHead() (err error) {
 
 	// We get the stale series reference first because this list can change during the compaction below.
 	// It is more efficient and easier to provide an index interface for the stale series when we have a static list.
-	staleSeriesRefs, err := db.head.SortedStaleSeriesRefsNoOOOData(context.Background())
+	staleSeriesRefs, err := db.head.sortedStaleSeriesRefsNoOOOData(context.Background())
 	if err != nil {
 		return err
 	}
 	if err := db.compactHeadViewLocked(
 		func(h *Head, mint, maxt int64) BlockReader {
-			return NewSelectedSeriesHead(h, mint, maxt, staleSeriesRefs, db.head.filterStaleSeriesAndSortPostings)
+			return NewSelectedSeriesHead(h, mint, maxt, staleSeriesRefs)
 		},
 		func(maxt int64) error {
-			return db.head.truncateStaleSeries(staleSeriesRefs, maxt)
+			return db.head.truncateStaleSeries(staleSeriesRefs.sortedByRef, maxt)
 		},
 		func(meta *BlockMeta) { meta.Compaction.SetStaleSeries() },
 	); err != nil {
@@ -1981,7 +1981,7 @@ func (db *DB) CompactStaleHead() (err error) {
 
 	elapsed := time.Since(start)
 	db.metrics.staleSeriesCompactionDuration.Observe(elapsed.Seconds())
-	db.logger.Info("Ending stale series compaction", "num_series", len(staleSeriesRefs), "duration", elapsed)
+	db.logger.Info("Ending stale series compaction", "num_series", len(staleSeriesRefs.sortedByRef), "duration", elapsed)
 	return nil
 }
 
@@ -2016,14 +2016,14 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 	// Skip series with out-of-order data: the ref-list pipeline writes only in-order chunks,
 	// so a series whose OOO state is non-empty would have its OOO chunks orphaned upon
 	// eviction. Such series stay in the head and are picked up on a later cycle.
-	seriesRefs, err = db.head.filterSelectedSeriesAndSortPostings(index.NewListPostings(seriesRefs))
+	selectedSeriesRefs, err := db.head.filterSelectedSeriesAndSortPostings(index.NewListPostings(seriesRefs))
 	if err != nil {
 		return err
 	}
-	skippedSeries := totalSeries - len(seriesRefs)
-	db.logger.Info("Starting selected series compaction", "num_series", len(seriesRefs), "num_skipped_ooo", skippedSeries)
+	skippedSeries := totalSeries - len(selectedSeriesRefs.sortedByRef)
+	db.logger.Info("Starting selected series compaction", "num_series", len(selectedSeriesRefs.sortedByRef), "num_skipped_ooo", skippedSeries)
 
-	if len(seriesRefs) == 0 {
+	if len(selectedSeriesRefs.sortedByRef) == 0 {
 		elapsed := time.Since(start)
 		db.metrics.selectedSeriesCompactionDuration.Observe(elapsed.Seconds())
 		db.logger.Info("Ending selected series compaction", "num_series", 0, "num_skipped_ooo", skippedSeries, "duration", elapsed)
@@ -2032,7 +2032,7 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 
 	if err := db.compactHeadViewLocked(
 		func(h *Head, mint, maxt int64) BlockReader {
-			return NewSelectedSeriesHead(h, mint, maxt, seriesRefs, db.head.filterSelectedSeriesAndSortPostings)
+			return NewSelectedSeriesHead(h, mint, maxt, selectedSeriesRefs)
 		},
 		func(maxt int64) error {
 			return db.head.truncateSelectedSeries(seriesRefs, maxt)
@@ -2044,7 +2044,7 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 
 	elapsed := time.Since(start)
 	db.metrics.selectedSeriesCompactionDuration.Observe(elapsed.Seconds())
-	db.logger.Info("Ending selected series compaction", "num_series", len(seriesRefs), "num_skipped_ooo", skippedSeries, "duration", elapsed)
+	db.logger.Info("Ending selected series compaction", "num_series", len(selectedSeriesRefs.sortedByRef), "num_skipped_ooo", skippedSeries, "duration", elapsed)
 	return nil
 }
 
