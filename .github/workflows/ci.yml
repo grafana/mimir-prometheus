@@ -414,10 +414,10 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout Repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v5.4.0
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
         with:
           go-version: '~1.23.0'
           cache: false # We do this ourselves below to avoid conflicts between the different jobs.
@@ -428,14 +428,14 @@ jobs:
           echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
           echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
       - name: Cache dependencies
-        uses: actions/cache@v4.2.2
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ${{ steps.gopaths.outputs.GOMODCACHE }}
           # Use the same dependencies cache for all instances of this 'fuzz' job, given each will use the same dependencies.
           key: ci-fuzz-dependencies-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
       - name: Cache build cache
-        uses: actions/cache@v4.2.2
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ${{ steps.gopaths.outputs.GOCACHE }}
           # Use the same build cache for each instance of this 'fuzz' job, given each will build the same package (model/labels) with the same build tags.
