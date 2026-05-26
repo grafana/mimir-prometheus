@@ -2,34 +2,32 @@
 # Please keep this file in sync with the MAINTAINERS.md file!
 #
 
-# Prometheus team members are members of the "default maintainers" github team.
-# They are code owners by default for the whole repo.
-* @prometheus/default-maintainers
+# Note that mimir-maintainers have been added to the default list to reflect that
+# they own this fork.
+* @prometheus/default-maintainers @grafana/mimir-maintainers
 
 # Subsystems.
-/Makefile                       @prometheus/default-maintainers @simonpasquier @SuperQ
-/cmd/promtool                   @prometheus/default-maintainers @dgl
-/documentation/prometheus-mixin @prometheus/default-maintainers @metalmatze
-/model/histogram                @prometheus/default-maintainers @beorn7 @krajorama
-/web/ui                         @prometheus/default-maintainers @juliusv
-/web/ui/module                  @prometheus/default-maintainers @juliusv @nexucis
-/promql                         @prometheus/default-maintainers @roidelapluie
-/storage/remote                 @prometheus/default-maintainers @cstyan @bwplotka @tomwilkie @alexgreenbank
-/storage/remote/otlptranslator  @prometheus/default-maintainers @aknuds1 @jesusvazquez @ArthurSens
-/tsdb                           @prometheus/default-maintainers @jesusvazquez @codesome @bwplotka @krajorama
-/tsdb/agent                     @prometheus/default-maintainers @jesusvazquez @codesome @bwplotka @krajorama @kgeckhart
+/Makefile                       @prometheus/default-maintainers @grafana/mimir-maintainers @simonpasquier @SuperQ
+/cmd/promtool                   @prometheus/default-maintainers @grafana/mimir-maintainers @dgl
+/documentation/prometheus-mixin @prometheus/default-maintainers @grafana/mimir-maintainers @metalmatze
+/model/histogram                @prometheus/default-maintainers @grafana/mimir-maintainers @beorn7 @krajorama
+/web/ui                         @prometheus/default-maintainers @grafana/mimir-maintainers @juliusv
+/web/ui/module                  @prometheus/default-maintainers @grafana/mimir-maintainers @juliusv @nexucis
+/promql                         @prometheus/default-maintainers @grafana/mimir-maintainers @roidelapluie
+/storage/remote                 @prometheus/default-maintainers @grafana/mimir-maintainers @cstyan @bwplotka @tomwilkie @alexgreenbank
+/storage/remote/otlptranslator  @prometheus/default-maintainers @grafana/mimir-maintainers @aknuds1 @jesusvazquez @ArthurSens
+/tsdb                           @prometheus/default-maintainers @grafana/mimir-maintainers @jesusvazquez @codesome @bwplotka @krajorama
+/tsdb/agent                     @prometheus/default-maintainers @grafana/mimir-maintainers @jesusvazquez @codesome @bwplotka @krajorama @kgeckhart
 
 # Service discovery.
-/discovery/kubernetes           @prometheus/default-maintainers @brancz @rexagod
-/discovery/stackit              @prometheus/default-maintainers @jkroepke
-/discovery/aws/                 @prometheus/default-maintainers @matt-gp @sysadmind
-/discovery/consul               @prometheus/default-maintainers @mrvarmazyar
-/discovery/hetzner              @prometheus/default-maintainers @jooola @apricote
-/discovery/scaleway             @prometheus/default-maintainers @remyleone
+/discovery/kubernetes           @prometheus/default-maintainers @grafana/mimir-maintainers @brancz @rexagod
+/discovery/stackit              @prometheus/default-maintainers @grafana/mimir-maintainers @jkroepke
+/discovery/aws/                 @prometheus/default-maintainers @grafana/mimir-maintainers @matt-gp @sysadmind
+/discovery/consul               @prometheus/default-maintainers @grafana/mimir-maintainers @mrvarmazyar
+/discovery/hetzner              @prometheus/default-maintainers @grafana/mimir-maintainers @jooola @apricote
+/discovery/scaleway             @prometheus/default-maintainers @grafana/mimir-maintainers @remyleone
 # Pending
 # https://github.com/prometheus/prometheus/pull/15212#issuecomment-3575225179
 # /discovery/aliyun               @prometheus/default-maintainers @KeyOfSpectator
 # https://github.com/prometheus/prometheus/pull/14108#issuecomment-2639515421
 # /discovery/nomad                @prometheus/default-maintainers @jaloren @jrasell
-
-/.github/  @prometheus/default-maintainers @grafana/mimir-maintainers
