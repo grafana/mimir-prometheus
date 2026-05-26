@@ -31,3 +31,5 @@
 # /discovery/aliyun               @prometheus/default-maintainers @KeyOfSpectator
 # https://github.com/prometheus/prometheus/pull/14108#issuecomment-2639515421
 # /discovery/nomad                @prometheus/default-maintainers @jaloren @jrasell
+
+/.github/  @prometheus/default-maintainers @grafana/mimir-maintainers

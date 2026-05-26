@@ -53,7 +53,7 @@ jobs:
           echo "Bot branch: $BOT_BRANCH"
 
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ steps.set-branches.outputs.local_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -127,7 +127,7 @@ jobs:
       merge_result: ${{ steps.merge-attempt.outputs.merge_result }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.check-merge.outputs.local_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -135,21 +135,25 @@ jobs:
           set-safe-directory: "*"
 
       - name: Add prometheus/prometheus remote and fetch
+        env:
+          UPSTREAM_COMMIT: ${{ needs.check-merge.outputs.upstream_commit }}
         run: |
           git remote add prometheus https://github.com/prometheus/prometheus.git
-          git fetch prometheus ${{ needs.check-merge.outputs.upstream_commit }}
+          git fetch prometheus "$UPSTREAM_COMMIT"
 
       - name: Attempt merge
         id: merge-attempt
+        env:
+          UPSTREAM_COMMIT: ${{ needs.check-merge.outputs.upstream_commit }}
         run: |
           # Configure git for the merge
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
 
-          echo "Attempting to merge ${{ needs.check-merge.outputs.upstream_commit }}..."
+          echo "Attempting to merge $UPSTREAM_COMMIT..."
 
           # Attempt the merge
-          if git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit; then
+          if git merge "$UPSTREAM_COMMIT" --no-edit; then
             echo "merge_result=success" >> $GITHUB_OUTPUT
             echo "Merge successful!"
             git log --oneline -1
@@ -158,7 +162,7 @@ jobs:
             git merge --abort
 
             # Check if conflicts exist
-            git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-commit --no-ff || true
+            git merge "$UPSTREAM_COMMIT" --no-commit --no-ff || true
 
             if git diff --name-only --diff-filter=U | grep -q .; then
               echo "merge_result=conflicts" >> $GITHUB_OUTPUT
@@ -184,7 +188,7 @@ jobs:
       pr_url: ${{ steps.create-conflict-pr.outputs.pull-request-url }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.check-merge.outputs.local_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -284,10 +288,13 @@ jobs:
             ```
 
       - name: Close PR by force-pushing to HEAD~1
+        env:
+          LOCAL_BRANCH: ${{ needs.check-merge.outputs.local_branch }}
+          BOT_BRANCH: ${{ needs.check-merge.outputs.bot_branch }}
         run: |
           # Force-push to the same commit as the base branch (removes the empty commit, leaving no commits in the PR).
           # This closes the PR while keeping the branch and instructions as a placeholder
-          git push --force origin ${{needs.check-merge.outputs.local_branch}}:${{ needs.check-merge.outputs.bot_branch }}
+          git push --force origin "${LOCAL_BRANCH}:${BOT_BRANCH}"
 
       - name: Send Slack notification for merge conflicts
         uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
@@ -327,7 +334,7 @@ jobs:
       id-token: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.check-merge.outputs.local_branch }}
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -335,16 +342,18 @@ jobs:
           set-safe-directory: "*"
 
       - name: Add prometheus/prometheus remote and perform merge
+        env:
+          UPSTREAM_COMMIT: ${{ needs.check-merge.outputs.upstream_commit }}
         run: |
           git remote add prometheus https://github.com/prometheus/prometheus.git
-          git fetch prometheus ${{ needs.check-merge.outputs.upstream_commit }}
+          git fetch prometheus "$UPSTREAM_COMMIT"
 
           # Configure git
           git config user.name "mimir-github-bot[bot]"
           git config user.email "mimir-github-bot[bot]@users.noreply.github.com"
 
           # Perform the merge (we know it will succeed)
-          git merge ${{ needs.check-merge.outputs.upstream_commit }} --no-edit
+          git merge "$UPSTREAM_COMMIT" --no-edit
 
       # This job uses "mimir-github-bot" instead of "github-actions bot" (secrets.GITHUB_TOKEN)
       # because any events triggered by the later don't spawn GitHub actions.

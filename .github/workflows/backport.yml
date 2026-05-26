@@ -32,8 +32,10 @@ jobs:
           ref: ea415d5eaa70337430db7ae7782f28dd14a15525
           persist-credentials: false
 
+      # --ignore-scripts blocks transitive lifecycle scripts; id-token: write
+      # is in scope on the App-token step below, so install must not run code.
       - name: Install Actions
-        run: npm install --production --prefix ./actions
+        run: npm install --production --prefix ./actions --ignore-scripts
 
       - name: Generate GitHub App Token
         id: app-token
