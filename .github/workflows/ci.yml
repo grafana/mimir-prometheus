@@ -427,23 +427,19 @@ jobs:
         run: |
           echo "GOMODCACHE=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
           echo "GOCACHE=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
-      # github.ref scopes caches per branch/PR so a malicious PR cannot poison
-      # main; restore-keys lets PRs warm-start from main's cache read-only.
       - name: Cache dependencies
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ${{ steps.gopaths.outputs.GOMODCACHE }}
-          key: ci-fuzz-dependencies-${{ runner.os }}-${{ github.ref }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ci-fuzz-dependencies-${{ runner.os }}-refs/heads/main-${{ hashFiles('**/go.sum') }}
+          # Use the same dependencies cache for all instances of this 'fuzz' job, given each will use the same dependencies.
+          key: ci-fuzz-dependencies-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
       - name: Cache build cache
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772146be0bf # v4.2.2
         with:
           path: ${{ steps.gopaths.outputs.GOCACHE }}
-          key: ci-fuzz-build-cache-${{ runner.os }}-${{ github.ref }}-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            ci-fuzz-build-cache-${{ runner.os }}-refs/heads/main-${{ hashFiles('**/go.sum') }}
+          # Use the same build cache for each instance of this 'fuzz' job, given each will build the same package (model/labels) with the same build tags.
+          key: ci-fuzz-build-cache-${{ runner.os }}-${{ hashFiles('**/go.sum') }}
 
       - name: Set -fuzztime=10m for 'main' branch
         if: github.ref == 'refs/heads/main'
