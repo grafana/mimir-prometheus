@@ -75,6 +75,8 @@ var matcherTestCases = []struct {
 	{279, "route", MatchRegexp, "(base.Ruler/Rules|indexgatewaypb.IndexGateway/GetChunkRef|indexgatewaypb.IndexGateway/GetSeries|indexgatewaypb.IndexGateway/GetShards|indexgatewaypb.IndexGateway/GetStats|indexgatewaypb.IndexGateway/GetVolume|indexgatewaypb.IndexGateway/LabelNamesForMetricName|indexgatewaypb.IndexGateway/LabelValuesForMetricName|indexgatewaypb.IndexGateway/QueryIndex|logproto.BloomGateway/FilterChunkRefs|logproto.Pattern/Query|logproto.Querier/GetChunkIDs|logproto.Querier/GetDetectedLabels|logproto.Querier/GetStats|logproto.Querier/GetVolume|logproto.Querier/Label|logproto.Querier/Query|logproto.Querier/QuerySample|logproto.Querier/Series|logproto.StreamData/GetStreamRates)"},
 	{4, "namespace", MatchRegexp, ".*prod.*"},
 	{2, "namespace", MatchRegexp, ".*-.*-.*"},
+	{1, "pod", MatchRegexp, "(?i)report.scheduled.job_runscheduledreports"},
+	{1, "pod", MatchRegexp, "report.scheduled.job_runscheduledreports"},
 
 	// != matchers
 	{1, "job", MatchNotEqual, "integrations/db-o11y"},

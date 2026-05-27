@@ -161,6 +161,13 @@ func (m *Matcher) Prefix() string {
 	return m.re.prefix
 }
 
+func (m *Matcher) IsCaseInsensitivePrefix() bool {
+	if m.re == nil {
+		return false
+	}
+	return m.re.caseInsensitivePrefix
+}
+
 // IsRegexOptimized returns whether regex is optimized.
 func (m *Matcher) IsRegexOptimized() bool {
 	if m.re == nil {
