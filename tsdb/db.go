@@ -2016,7 +2016,7 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 	// Skip series with out-of-order data: the ref-list pipeline writes only in-order chunks,
 	// so a series whose OOO state is non-empty would have its OOO chunks orphaned upon
 	// eviction. Such series stay in the head and are picked up on a later cycle.
-	selectedSeriesRefs, err := db.head.filterSelectedSeriesAndSortPostings(index.NewListPostings(seriesRefs))
+	selectedSeriesRefs, err := db.head.filterSeriesAndSortPostings(index.NewListPostings(seriesRefs), isSeriesWithoutOOO)
 	if err != nil {
 		return err
 	}

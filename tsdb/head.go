@@ -1296,25 +1296,25 @@ func (h *Head) truncateMemory(mint int64) (err error) {
 	return h.truncateSeriesAndChunkDiskMapper("truncateMemory")
 }
 
-// isStaleSeries reports whether the most recent in-order sample of the series carries a
-// stale-NaN marker (covering float, integer histogram and float histogram samples).
-// isSeriesWithoutOOO reports whether s has no pending out-of-order data and is
-// therefore safe to evict. A series with OOO data must not be evicted before
-// its OOO chunks are flushed by CompactOOOHead, or those chunks would be orphaned.
+// isSeriesWithoutOOO reports whether s has no pending out-of-order data.
 func isSeriesWithoutOOO(s *memSeries) bool {
 	return s.ooo == nil
 }
 
+// isStaleSeries reports whether s's most recent in-order sample is a stale-NaN marker.
 func isStaleSeries(s *memSeries) bool {
-	return isSeriesWithoutOOO(s) && (value.IsStaleNaN(s.lastValue) ||
+	return value.IsStaleNaN(s.lastValue) ||
 		(s.lastHistogramValue != nil && value.IsStaleNaN(s.lastHistogramValue.Sum)) ||
-		(s.lastFloatHistogramValue != nil && value.IsStaleNaN(s.lastFloatHistogramValue.Sum)))
+		(s.lastFloatHistogramValue != nil && value.IsStaleNaN(s.lastFloatHistogramValue.Sum))
 }
 
-// truncateStaleSeries removes the provided series as long as they are still stale,
-// and decrements Head.numStaleSeries by the number of series that were actually evicted.
+// truncateStaleSeries removes the provided series as long as they are still stale and
+// carry no out-of-order data, and decrements Head.numStaleSeries by the number of series
+// that were actually evicted.
 func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64) error {
-	n, err := h.truncateSeries(seriesRefs, maxt, isStaleSeries)
+	n, err := h.truncateSeries(seriesRefs, maxt, func(s *memSeries) bool {
+		return isSeriesWithoutOOO(s) && isStaleSeries(s)
+	})
 	if err != nil {
 		return err
 	}

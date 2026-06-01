@@ -8092,7 +8092,7 @@ func TestHead_FilterSelectedSeriesAndSortPostings(t *testing.T) {
 	// A ref that does not resolve to any series in the head must be silently dropped.
 	bogusRef := storage.SeriesRef(math.MaxUint64)
 
-	kept, err := head.filterSelectedSeriesAndSortPostings(index.NewListPostings([]storage.SeriesRef{cleanRef, withOOORef, bogusRef}))
+	kept, err := head.filterSeriesAndSortPostings(index.NewListPostings([]storage.SeriesRef{cleanRef, withOOORef, bogusRef}), isSeriesWithoutOOO)
 	require.NoError(t, err)
 	require.Equal(t, seriesRefs{sortedByRef: []storage.SeriesRef{cleanRef}, sortedByLabels: []storage.SeriesRef{cleanRef}}, kept)
 }
