@@ -1,7 +1,7 @@
 {
   "name": "@prometheus-io/mantine-ui",
   "private": true,
-  "version": "0.311.3",
+  "version": "0.312.0",
   "type": "module",
   "scripts": {
     "start": "vite",
@@ -28,7 +28,7 @@
     "@microsoft/fetch-event-source": "^2.0.1",
     "@nexucis/fuzzy": "^0.5.1",
     "@nexucis/kvsearch": "^0.9.1",
-    "@prometheus-io/codemirror-promql": "0.311.3",
+    "@prometheus-io/codemirror-promql": "0.312.0",
     "@reduxjs/toolkit": "^2.11.2",
     "@tabler/icons-react": "^3.43.0",
     "@tanstack/react-query": "^5.100.9",
@@ -46,7 +46,7 @@
     "react-infinite-scroll-component": "^6.1.1",
     "react-redux": "^9.2.0",
     "react-router-dom": "^7.15.0",
-    "sanitize-html": "^2.17.3",
+    "sanitize-html": "^2.17.4",
     "uplot": "^1.6.32",
     "uplot-react": "^1.2.4",
     "use-query-params": "^2.2.2"
