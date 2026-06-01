@@ -1608,10 +1608,10 @@ func TestCancelCompactions(t *testing.T) {
 	})
 }
 
-type blockPopulatorFunc func(context.Context, *CompactorMetrics, *slog.Logger, chunkenc.Pool, storage.VerticalChunkSeriesMergeFunc, []BlockReader, *BlockMeta, IndexWriter, ChunkWriter, IndexReaderPostingsFunc) error
+type blockPopulatorFunc func(context.Context, *CompactorMetrics, *slog.Logger, chunkenc.Pool, storage.VerticalChunkSeriesMergeFunc, LeveledCompactorConcurrencyOptions, []BlockReader, int64, int64, []shardedBlock, IndexReaderPostingsFunc) error
 
-func (f blockPopulatorFunc) PopulateBlock(ctx context.Context, metrics *CompactorMetrics, logger *slog.Logger, chunkPool chunkenc.Pool, mergeFunc storage.VerticalChunkSeriesMergeFunc, blocks []BlockReader, meta *BlockMeta, indexw IndexWriter, chunkw ChunkWriter, postingsFunc IndexReaderPostingsFunc) error {
-	return f(ctx, metrics, logger, chunkPool, mergeFunc, blocks, meta, indexw, chunkw, postingsFunc)
+func (f blockPopulatorFunc) PopulateBlock(ctx context.Context, metrics *CompactorMetrics, logger *slog.Logger, chunkPool chunkenc.Pool, mergeFunc storage.VerticalChunkSeriesMergeFunc, concurrencyOpts LeveledCompactorConcurrencyOptions, blocks []BlockReader, minT, maxT int64, outBlocks []shardedBlock, postingsFunc IndexReaderPostingsFunc) error {
+	return f(ctx, metrics, logger, chunkPool, mergeFunc, concurrencyOpts, blocks, minT, maxT, outBlocks, postingsFunc)
 }
 
 // TestCanceledCompactionDoesNotMarkBlocksFailed ensures that a compaction
@@ -1631,10 +1631,10 @@ func TestCanceledCompactionDoesNotMarkBlocksFailed(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = compactor.CompactWithBlockPopulator(tmpdir, blockDirs, nil, blockPopulatorFunc(
-		func(context.Context, *CompactorMetrics, *slog.Logger, chunkenc.Pool, storage.VerticalChunkSeriesMergeFunc, []BlockReader, *BlockMeta, IndexWriter, ChunkWriter, IndexReaderPostingsFunc) error {
+		func(context.Context, *CompactorMetrics, *slog.Logger, chunkenc.Pool, storage.VerticalChunkSeriesMergeFunc, LeveledCompactorConcurrencyOptions, []BlockReader, int64, int64, []shardedBlock, IndexReaderPostingsFunc) error {
 			return context.Canceled
 		},
-	))
+	), 1)
 	require.ErrorIs(t, err, context.Canceled)
 
 	for _, dir := range blockDirs {
