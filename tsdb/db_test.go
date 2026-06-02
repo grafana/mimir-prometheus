@@ -10167,6 +10167,70 @@ func TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart(t *test
 		"visible samples after restart must match the expected watermark-guard outcome")
 }
 
+// TestCompactSelectedSeries_EvictedSeriesRecordKeptInCheckpoint verifies that
+// after CompactSelectedSeries evicts a series, the series's label record is
+// retained in the next WAL checkpoint while the WAL still holds sample records
+// referencing its ref. The test forces a checkpoint via truncateWAL with a
+// mint between head.MinTime and head.MaxTime, then reads the checkpoint and
+// asserts that the evicted series's record is present.
+func TestCompactSelectedSeries_EvictedSeriesRecordKeptInCheckpoint(t *testing.T) {
+	const chunkRange = 1000
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.MaxBlockDuration = chunkRange
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+
+	sel := labels.FromStrings("name", "selected")
+	app := db.Appender(context.Background())
+	selRef, err := app.Append(0, sel, 100, 1.0)
+	require.NoError(t, err)
+	_, err = app.Append(selRef, sel, 200, 2.0)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// Evict sel via gcSeries → sets walExpiries[selRef] = head.MaxTime() (200).
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{selRef}))
+	_, ok := db.Head().getWALExpiry(chunks.HeadSeriesRef(selRef))
+	require.True(t, ok, "walExpiry must be recorded for the evicted ref")
+
+	// truncateMint sits between the two head bounds: > head.MinTime so the
+	// checkpoint can run, and <= head.MaxTime so the walExpiry (200) is
+	// considered still in effect and the series record must be kept.
+	truncateMint := int64(150)
+
+	// Each truncateWAL call rolls to a new WAL segment; truncateWAL is a no-op
+	// until there are enough segments to checkpoint, so loop until a checkpoint
+	// is actually produced.
+	for range 10 {
+		db.head.lastWALTruncationTime.Store(0) // force re-truncation each iteration
+		require.NoError(t, db.head.truncateWAL(truncateMint))
+		if _, _, err := wlog.LastCheckpoint(db.head.wal.Dir()); err == nil {
+			break
+		}
+	}
+
+	checkpointDir, _, err := wlog.LastCheckpoint(db.head.wal.Dir())
+	require.NoError(t, err, "a checkpoint must have been produced")
+
+	records := readTestWAL(t, checkpointDir)
+	selRefPresent := false
+	for _, rec := range records {
+		seriesRecs, ok := rec.([]record.RefSeries)
+		if !ok {
+			continue
+		}
+		for _, s := range seriesRecs {
+			if storage.SeriesRef(s.Ref) == selRef {
+				selRefPresent = true
+			}
+		}
+	}
+	require.True(t, selRefPresent,
+		"the evicted series's record must remain in the checkpoint while the WAL still "+
+			"holds sample records referencing this ref")
+}
+
 func TestBeyondSizeRetentionWithPercentage(t *testing.T) {
 	const maxBlock = 100
 	const numBytesChunks = 1024
