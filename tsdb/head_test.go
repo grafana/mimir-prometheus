@@ -1051,7 +1051,7 @@ func TestHead_WALMultiRef_StaleDeletion_ChunkGaugeNotNegative(t *testing.T) {
 
 	// Truncate stale series: removes ref1 from the head and writes a
 	// [MinInt64, MaxInt64] tombstone record to the WAL.
-	require.NoError(t, head.truncateStaleSeries([]storage.SeriesRef{ref1}, 3500))
+	require.NoError(t, head.truncateStaleSeries([]storage.SeriesRef{ref1}, 3500, math.MaxUint64))
 
 	// Append a single sample with the same labels to create ref2.
 	// Ref2 has 0 m-mapped chunks, fewer than ref1's 3.
@@ -8589,7 +8589,7 @@ func TestWALReplayRaceWithStaleSeriesCompaction(t *testing.T) {
 		require.NotNil(t, ms)
 		staleRefs = append(staleRefs, storage.SeriesRef(ms.ref))
 	}
-	require.NoError(t, head.truncateStaleSeries(staleRefs, 300))
+	require.NoError(t, head.truncateStaleSeries(staleRefs, 300, math.MaxUint64))
 	require.Equal(t, uint64(0), head.NumStaleSeries())
 	require.Equal(t, uint64(0), head.NumSeries())
 
@@ -9197,7 +9197,7 @@ func TestHead_mmapHeadChunks(t *testing.T) {
 
 		// Use truncateStaleSeries which calls gcStaleSeries internally.
 		require.NoError(t, h.truncateStaleSeries(
-			[]storage.SeriesRef{storage.SeriesRef(sB.ref)}, ts,
+			[]storage.SeriesRef{storage.SeriesRef(sB.ref)}, ts, math.MaxUint64,
 		))
 		requireCounterConsistent("after truncateStaleSeries")
 		require.Less(t, mmapReadyCounter(), readyBefore,

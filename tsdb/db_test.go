@@ -10048,6 +10048,107 @@ func TestInOrderBlocksMaxTime_ExcludesSelectedSeriesBlocks(t *testing.T) {
 	require.False(t, ok, "selected-series block must be excluded from inOrderBlocksMaxTime")
 }
 
+// TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart
+// verifies that a sample appended after the block write starts but
+// before eviction is not lost.
+//
+// The sample is committed too late to be included in the generated
+// block, but early enough that its timestamp still falls within the
+// compaction range. Without the appendID watermark check, the series
+// would be evicted, causing the late sample to disappear from both the
+// head and the WAL replay path after restart.
+//
+// The test injects such an append via
+// compactHeadViewBeforeEvictTestingCallback and verifies that the
+// sample remains visible both before and after restart.
+func TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart(t *testing.T) {
+	const chunkRange = 1000
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.MaxBlockDuration = chunkRange
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+
+	// Filler series keeps head.MaxTime at 700, ensuring the late append at
+	// t=400 remains within appendableMinValidTime() = max(700-500, 0)=200,
+	// and is accepted.
+	filler := labels.FromStrings("name", "filler")
+	sel := labels.FromStrings("name", "selected")
+
+	app := db.Appender(context.Background())
+	_, err := app.Append(0, filler, 100, 0.1)
+	require.NoError(t, err)
+	_, err = app.Append(0, filler, 700, 0.7)
+	require.NoError(t, err)
+	selRef, err := app.Append(0, sel, 100, 10.0)
+	require.NoError(t, err)
+	_, err = app.Append(selRef, sel, 200, 20.0)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	require.Equal(t, int64(700), db.Head().MaxTime())
+	appendableMinValid, _ := db.Head().AppendableMinValidTime()
+	require.LessOrEqual(t, appendableMinValid, int64(400),
+		"appendableMinValidTime must allow t=400")
+
+	const lateT = int64(400)
+	const lateV = 40.0
+
+	// The hook runs after the block has been written and reloaded, but
+	// before eviction. It injects the late append that races with
+	// compaction: an in-order sample for sel with a timestamp below maxt
+	// (700), so it falls within the compaction range yet is not present in
+	// the generated block.
+	var hookErr error
+	compactHeadViewBeforeEvictTestingCallback = func() {
+		hookApp := db.Appender(context.Background())
+		if _, err := hookApp.Append(selRef, sel, lateT, lateV); err != nil {
+			hookErr = err
+			return
+		}
+		hookErr = hookApp.Commit()
+	}
+	t.Cleanup(func() { compactHeadViewBeforeEvictTestingCallback = nil })
+
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{selRef}))
+	require.NoError(t, hookErr, "the late append/commit inside the hook must itself succeed")
+
+	require.Len(t, db.Blocks(), 1)
+	// sel must not be evicted: its appendID is above the watermark captured
+	// before the block write, so the evictor must skip it.
+	// The filler is unrelated and should remain in the head too.
+	require.Equal(t, uint64(2), db.Head().NumSeries(),
+		"sel must remain in the head: its appendID exceeds the watermark, so it is not safe to evict")
+
+	querySelected := func(d *DB) []chunks.Sample {
+		q, err := d.Querier(0, chunkRange)
+		require.NoError(t, err)
+		seriesSet := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "name", "selected"))
+		return seriesSet[`{name="selected"}`]
+	}
+
+	expected := []chunks.Sample{
+		sample{t: 100, f: 10.0},
+		sample{t: 200, f: 20.0},
+		sample{t: lateT, f: lateV},
+	}
+
+	beforeRestart := querySelected(db)
+	require.Equal(t, expected, beforeRestart,
+		"all three samples must be visible before restart")
+
+	// Verify the same data is visible after a restart driven by WAL replay.
+	require.NoError(t, db.Close())
+	db, err = Open(db.Dir(), nil, nil, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	afterRestart := querySelected(db)
+	require.Equal(t, expected, afterRestart,
+		"all three samples must remain visible after restart: no tombstone was written "+
+			"because sel was never evicted, so the WAL replay rebuilds the series intact")
+}
+
 func TestBeyondSizeRetentionWithPercentage(t *testing.T) {
 	const maxBlock = 100
 	const numBytesChunks = 1024

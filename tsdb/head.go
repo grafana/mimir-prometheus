@@ -1309,11 +1309,14 @@ func isStaleSeries(s *memSeries) bool {
 }
 
 // truncateStaleSeries removes the provided series as long as they are still stale and
-// carry no out-of-order data, and decrements Head.numStaleSeries by the number of series
+// carry no out-of-order data. It decrements Head.numStaleSeries by the number of series
 // that were actually evicted.
-func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64) error {
+// appendIDWatermark is the lastAppendID captured before the upstream block write. Series that
+// have received samples with greater appendIDs are skipped, because those samples may not be
+// present in the generated block.
+func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64, appendIDWatermark uint64) error {
 	n, err := h.truncateSeries(seriesRefs, maxt, func(s *memSeries) bool {
-		return isSeriesWithoutOOO(s) && isStaleSeries(s)
+		return isSeriesWithoutOOO(s) && isStaleSeries(s) && !hasAppendIDAbove(s, appendIDWatermark)
 	})
 	if err != nil {
 		return err
@@ -1323,11 +1326,36 @@ func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64) e
 }
 
 // truncateSelectedSeries removes the series identified by the provided refs from the head.
-// Series that received fresh samples or acquired OOO data since the caller collected the ref
-// list are skipped; the latter must be flushed by CompactOOOHead before they can be evicted.
-func (h *Head) truncateSelectedSeries(seriesRefs []storage.SeriesRef, maxt int64) error {
-	_, err := h.truncateSeries(seriesRefs, maxt, isSeriesWithoutOOO)
+// Series that received fresh samples or acquired OOO data after the caller collected the ref
+// list are skipped. The latter must be flushed by CompactOOOHead before they can be evicted.
+// appendIDWatermark is the lastAppendID captured before the upstream block write. Series that
+// have received samples with greater appendIDs are skipped, because those samples may not be
+// present in the generated block.
+func (h *Head) truncateSelectedSeries(seriesRefs []storage.SeriesRef, maxt int64, appendIDWatermark uint64) error {
+	_, err := h.truncateSeries(seriesRefs, maxt, func(s *memSeries) bool {
+		return isSeriesWithoutOOO(s) && !hasAppendIDAbove(s, appendIDWatermark)
+	})
 	return err
+}
+
+// hasAppendIDAbove reports whether s contains any in-memory sample with an appendID
+// greater than watermark.
+// When isolation is disabled (s.txs == nil), it always returns false;  in that mode,
+// CompactSelectedSeries and CompactStaleHead rely on their existing requirement that
+// no concurrent writes target the affected series.
+// Must be called with s.Lock held.
+func hasAppendIDAbove(s *memSeries, watermark uint64) bool {
+	if s.txs == nil {
+		return false
+	}
+	it := s.txs.iterator()
+	for i := uint32(0); i < s.txs.txIDCount; i++ {
+		if it.At() > watermark {
+			return true
+		}
+		it.Next()
+	}
+	return false
 }
 
 // truncateSeries removes the provided series from the head, taking the chunk-snapshot lock,
