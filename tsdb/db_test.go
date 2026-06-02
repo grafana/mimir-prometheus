@@ -10167,6 +10167,58 @@ func TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart(t *test
 		"visible samples after restart must match the expected watermark-guard outcome")
 }
 
+// TestCompactSelectedSeries_ChunkBoundarySampleNotLost verifies that
+// CompactSelectedSeries preserves a sample whose timestamp lands exactly on
+// a chunk-range boundary.
+//
+// CompactSelectedSeries walks the head's time range one fixed-width slice
+// (chunkRange) at a time, writes one on-disk block per slice for the chosen
+// series, then removes those series from memory. A sample sitting exactly on
+// the upper boundary must still be captured by a block before the in-memory
+// copy is removed.
+//
+// The test plants a selected series with samples at t=500 and at
+// t=chunkRange (=1000). The earlier sample keeps the head's lower bound
+// below the boundary so the removal step runs end to end; the boundary
+// sample exercises the last walk iteration. After CompactSelectedSeries
+// completes, both samples must still be queryable.
+func TestCompactSelectedSeries_ChunkBoundarySampleNotLost(t *testing.T) {
+	const chunkRange = 1000
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.MaxBlockDuration = chunkRange
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+
+	sel := labels.FromStrings("name", "selected")
+	app := db.Appender(context.Background())
+	selRef, err := app.Append(0, sel, 500, 1.0)
+	require.NoError(t, err)
+	_, err = app.Append(selRef, sel, chunkRange, 2.0) // T == chunkRange, on the boundary
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	require.Equal(t, int64(500), db.Head().MinTime(), "test precondition")
+	require.Equal(t, int64(chunkRange), db.Head().MaxTime(), "test precondition")
+
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{selRef}))
+
+	q, err := db.Querier(0, 2*chunkRange)
+	require.NoError(t, err)
+	seriesSet := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "name", "selected"))
+	actual := seriesSet[`{name="selected"}`]
+
+	expected := []chunks.Sample{
+		sample{t: 500, f: 1.0},
+		sample{t: chunkRange, f: 2.0},
+	}
+	require.Equal(t, expected, actual,
+		"the sample at T=chunkRange (the chunk-range boundary) must be captured "+
+			"in a block. With the loop bound `mint < maxt`, the iteration that "+
+			"would have produced a block over [chunkRange, 2*chunkRange-1] never "+
+			"runs, so the boundary sample is lost when sel is evicted.")
+}
+
 // TestCompactSelectedSeries_EvictedSeriesRecordKeptInCheckpoint verifies that
 // after CompactSelectedSeries evicts a series, the series's label record is
 // retained in the next WAL checkpoint while the WAL still holds sample records

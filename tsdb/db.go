@@ -1946,7 +1946,7 @@ func (db *DB) compactHeadViewLocked(viewFactory headViewFactory, evict headSerie
 	// only if it has not received any samples with appendID > watermark
 	// since compaction began.
 	appendIDWatermark := db.head.iso.lastAppendID()
-	for ; mint < maxt; mint += db.head.chunkRange.Load() {
+	for ; mint <= maxt; mint += db.head.chunkRange.Load() {
 		view := viewFactory(db.head, mint, mint+db.head.chunkRange.Load()-1)
 
 		meta := &BlockMeta{}
