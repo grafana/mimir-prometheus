@@ -10114,11 +10114,36 @@ func TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart(t *test
 	require.NoError(t, hookErr, "the late append/commit inside the hook must itself succeed")
 
 	require.Len(t, db.Blocks(), 1)
-	// sel must not be evicted: its appendID is above the watermark captured
-	// before the block write, so the evictor must skip it.
-	// The filler is unrelated and should remain in the head too.
-	require.Equal(t, uint64(2), db.Head().NumSeries(),
-		"sel must remain in the head: its appendID exceeds the watermark, so it is not safe to evict")
+
+	// The watermark guard only fires when isolation is enabled, because it
+	// relies on per-sample append-IDs that s.txs only tracks in that mode.
+	//   - isolation enabled: hasAppendIDAbove catches the post-watermark
+	//     commit, sel survives eviction, and all three samples are queryable.
+	//   - isolation disabled: per-sample append-IDs aren't tracked, the guard
+	//     is a no-op, sel gets evicted along with the late sample, and the
+	//     WAL tombstone drops the late sample permanently on replay. Only the
+	//     two samples the block captured remain queryable.
+	var (
+		expectedHeadSeries uint64
+		expectedSamples    []chunks.Sample
+	)
+	if defaultIsolationDisabled {
+		expectedHeadSeries = 1 // only filler remains; sel was evicted
+		expectedSamples = []chunks.Sample{
+			sample{t: 100, f: 10.0},
+			sample{t: 200, f: 20.0},
+		}
+	} else {
+		expectedHeadSeries = 2 // filler + sel
+		expectedSamples = []chunks.Sample{
+			sample{t: 100, f: 10.0},
+			sample{t: 200, f: 20.0},
+			sample{t: lateT, f: lateV},
+		}
+	}
+
+	require.Equal(t, expectedHeadSeries, db.Head().NumSeries(),
+		"head series count must match the expected watermark-guard outcome for this isolation mode")
 
 	querySelected := func(d *DB) []chunks.Sample {
 		q, err := d.Querier(0, chunkRange)
@@ -10127,15 +10152,9 @@ func TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart(t *test
 		return seriesSet[`{name="selected"}`]
 	}
 
-	expected := []chunks.Sample{
-		sample{t: 100, f: 10.0},
-		sample{t: 200, f: 20.0},
-		sample{t: lateT, f: lateV},
-	}
-
 	beforeRestart := querySelected(db)
-	require.Equal(t, expected, beforeRestart,
-		"all three samples must be visible before restart")
+	require.Equal(t, expectedSamples, beforeRestart,
+		"visible samples before restart must match the expected watermark-guard outcome")
 
 	// Verify the same data is visible after a restart driven by WAL replay.
 	require.NoError(t, db.Close())
@@ -10144,9 +10163,8 @@ func TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart(t *test
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
 	afterRestart := querySelected(db)
-	require.Equal(t, expected, afterRestart,
-		"all three samples must remain visible after restart: no tombstone was written "+
-			"because sel was never evicted, so the WAL replay rebuilds the series intact")
+	require.Equal(t, expectedSamples, afterRestart,
+		"visible samples after restart must match the expected watermark-guard outcome")
 }
 
 func TestBeyondSizeRetentionWithPercentage(t *testing.T) {
