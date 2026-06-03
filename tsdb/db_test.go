@@ -10344,6 +10344,82 @@ func TestCompactSelectedSeries_ChunkBoundarySampleNotLost(t *testing.T) {
 			"runs, so the boundary sample is lost when sel is evicted.")
 }
 
+// TestCompactSelectedSeries_SparseSelectedAcrossWideHead verifies that when the
+// selected series only covers a small part of the head's time range — because
+// unselected series extend head.MaxTime well past the selected series's last
+// sample — CompactSelectedSeries does not write empty blocks for the chunk-range
+// slices that have no selected-series data.
+//
+// compactHeadViewLocked walks every chunk-range slice between the head's
+// MinTime and MaxTime, both of which are computed across all head series, not
+// just the selected ones. So when the selected series is sparse the loop calls
+// compactor.Write many times with views that contain no chunks at all. The
+// contract this test pins down is that compactor.Write no-ops on empty views
+// (returns no ULID and writes nothing to disk), so the net result is a single
+// block holding the selected-series data and no labels-only debris in db.Dir.
+func TestCompactSelectedSeries_SparseSelectedAcrossWideHead(t *testing.T) {
+	const chunkRange = 1000
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.MaxBlockDuration = chunkRange
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+
+	sel := labels.FromStrings("name", "selected")
+	filler := labels.FromStrings("name", "filler")
+
+	// sel covers [100, 200]; filler extends head.MaxTime to 10500. The loop in
+	// compactHeadViewLocked will iterate over 11 chunk-range slices (mint=0,
+	// 1000, ..., 10000), but only the first one contains any selected-series
+	// data. compactor.Write must no-op for the other ten.
+	app := db.Appender(context.Background())
+	selRef, err := app.Append(0, sel, 100, 1.0)
+	require.NoError(t, err)
+	_, err = app.Append(selRef, sel, 200, 2.0)
+	require.NoError(t, err)
+	_, err = app.Append(0, filler, 10500, 100.0)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	require.Equal(t, int64(100), db.Head().MinTime())
+	require.Equal(t, int64(10500), db.Head().MaxTime())
+
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{selRef}))
+
+	blocks := db.Blocks()
+	require.Len(t, blocks, 1,
+		"exactly one block must be produced — the slice covering [0, 1000) where "+
+			"sel has data; the other chunk-range slices yield empty views and must "+
+			"not create blocks")
+
+	m := blocks[0].Meta()
+	require.True(t, m.Compaction.FromSelectedSeries(), "block must carry the selected-series hint")
+	require.Equal(t, int64(0), m.MinTime, "block covers chunk-range slice [0, 1000)")
+	require.Equal(t, int64(chunkRange), m.MaxTime, "block covers chunk-range slice [0, 1000)")
+	require.Equal(t, uint64(1), m.Stats.NumSeries, "block must contain exactly one series (sel)")
+	require.Equal(t, uint64(2), m.Stats.NumSamples,
+		"block must contain exactly two samples (sel's t=100 and t=200)")
+
+	// Also assert via the on-disk directory listing that no extra block dirs
+	// were left over from the empty iterations.
+	dirEntries, err := os.ReadDir(db.Dir())
+	require.NoError(t, err)
+	blockDirCount := 0
+	for _, e := range dirEntries {
+		if !e.IsDir() {
+			continue
+		}
+		// Block directories are ULID-named (26 chars). Anything else is a
+		// well-known subdir like "wal" or "chunks_head".
+		if len(e.Name()) == 26 {
+			blockDirCount++
+		}
+	}
+	require.Equal(t, 1, blockDirCount,
+		"exactly one block directory must exist on disk; empty-view iterations must "+
+			"not leave block directories behind")
+}
+
 // TestCompactSelectedSeries_EvictedSeriesRecordKeptInCheckpoint verifies that
 // after CompactSelectedSeries evicts a series, the series's label record is
 // retained in the next WAL checkpoint while the WAL still holds sample records
