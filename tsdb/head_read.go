@@ -245,7 +245,7 @@ type headSelectedSeriesIndexReader struct {
 	selectedSeriesRefs seriesRefs
 }
 
-type allStaleSeriesPostings struct{ index.Postings }
+type allSelectedSeriesPostings struct{ index.Postings }
 
 func (h *headSelectedSeriesIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {
 	if len(h.selectedSeriesRefs.sortedByRef) == 0 {
@@ -259,7 +259,7 @@ func (h *headSelectedSeriesIndexReader) Postings(ctx context.Context, name strin
 	// This marker will be used by SortedPostings to swap the full postings by the ones sorted by labels.
 	// However, the results is still valid to be used as normal postings as well.
 	if k, v := index.AllPostingsKey(); name == k && len(values) == 1 && values[0] == v {
-		return allStaleSeriesPostings{selectedSeriesPostings}, nil
+		return allSelectedSeriesPostings{selectedSeriesPostings}, nil
 	}
 
 	// This is not expected to be used, as headSelectedSeriesIndexReader is only expected to be used during compaction.
@@ -350,7 +350,7 @@ func (h *Head) filterSeriesAndSortPostings(p index.Postings, keep func(*memSerie
 // and will return the pre-sorted postings by labels in that case.
 func (h *headSelectedSeriesIndexReader) SortedPostings(p index.Postings) index.Postings {
 	switch p.(type) {
-	case allStaleSeriesPostings:
+	case allSelectedSeriesPostings:
 		// This is the marker we expect.
 		return index.NewListPostings(h.selectedSeriesRefs.sortedByLabels)
 	default:
