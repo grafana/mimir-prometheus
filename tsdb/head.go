@@ -2359,14 +2359,12 @@ func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict 
 
 	if h.wal != nil {
 		h.walExpiriesMtx.Lock()
-		// Keep series records until we're past timestamp 'maxt' because
-		// the WAL will still have samples records with this ref ID. The
-		// value must be a timestamp (not e.g. a WAL segment number)
-		// because the reader and the cleaner both compare it against a
-		// timestamp. If we didn't keep these series records then on start
-		// up when we replay the WAL, or any other code that reads the
-		// WAL, wouldn't be able to use those samples since we would have
-		// no labels for that ref ID.
+		// Keep series records until we're past timestamp maxt
+		// because the WAL will still have samples records with
+		// this ref ID. If we didn't keep these series records then
+		// on start up when we replay the WAL, or any other code
+		// that reads the WAL, wouldn't be able to use those
+		// samples since we would have no labels for that ref ID.
 		for ref := range deleted {
 			h.walExpiries[chunks.HeadSeriesRef(ref)] = maxt
 		}
