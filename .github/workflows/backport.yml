@@ -43,7 +43,7 @@ jobs:
           persist-credentials: false
 
       - name: Run backport
-        uses: grafana/grafana-github-actions-go/backport@6782bcaa01680648bdbba76cce1847e1862dbb22
+        uses: grafana/grafana-github-actions-go/backport@f2ff9dbe233e961f553cb7738b114b039ec26e8b
         with:
           token: ${{ steps.app-token.outputs.token }}
           # If triggered by being labelled, only backport that label.
