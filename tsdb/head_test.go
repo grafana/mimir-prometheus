@@ -3780,36 +3780,40 @@ func TestHeadShardedPostings(t *testing.T) {
 	require.NoError(t, p.Err())
 	require.NotEmpty(t, expected)
 
-	// Query the same postings for each shard.
-	const shardCount = uint64(4)
-	actualShards := make(map[uint64][]storage.SeriesRef)
-	actualPostings := make([]storage.SeriesRef, 0, len(expected))
+	// Test both a power-of-two shard count (bitwise AND path) and a non-power-of-two one (modulo path).
+	for _, shardCount := range []uint64{3, 4} {
+		t.Run(fmt.Sprintf("shardCount=%d", shardCount), func(t *testing.T) {
+			// Query the same postings for each shard.
+			actualShards := make(map[uint64][]storage.SeriesRef)
+			actualPostings := make([]storage.SeriesRef, 0, len(expected))
 
-	for shardIndex := range shardCount {
-		p, err = ir.Postings(ctx, "const", "1")
-		require.NoError(t, err)
+			for shardIndex := range shardCount {
+				p, err := ir.Postings(ctx, "const", "1")
+				require.NoError(t, err)
 
-		p = ir.ShardedPostings(p, shardIndex, shardCount)
-		for p.Next() {
-			ref := p.At()
+				p = ir.ShardedPostings(p, shardIndex, shardCount)
+				for p.Next() {
+					ref := p.At()
 
-			actualShards[shardIndex] = append(actualShards[shardIndex], ref)
-			actualPostings = append(actualPostings, ref)
-		}
-		require.NoError(t, p.Err())
-	}
+					actualShards[shardIndex] = append(actualShards[shardIndex], ref)
+					actualPostings = append(actualPostings, ref)
+				}
+				require.NoError(t, p.Err())
+			}
 
-	// We expect the postings merged out of shards is the exact same of the non sharded ones.
-	require.ElementsMatch(t, expected, actualPostings)
+			// We expect the postings merged out of shards is the exact same of the non sharded ones.
+			require.ElementsMatch(t, expected, actualPostings)
 
-	// We expect the series in each shard are the expected ones.
-	for shardIndex, ids := range actualShards {
-		for _, id := range ids {
-			var lbls labels.ScratchBuilder
+			// We expect the series in each shard are the expected ones.
+			for shardIndex, ids := range actualShards {
+				for _, id := range ids {
+					var lbls labels.ScratchBuilder
 
-			require.NoError(t, ir.Series(id, &lbls, nil))
-			require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount)
-		}
+					require.NoError(t, ir.Series(id, &lbls, nil))
+					require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount)
+				}
+			}
+		})
 	}
 }
 

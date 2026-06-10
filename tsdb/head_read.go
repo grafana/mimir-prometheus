@@ -160,36 +160,115 @@ func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
 	return index.NewListPostings(ep)
 }
 
-// ShardedPostings implements IndexReader. This function returns an failing postings list if sharding
+// ShardedPostings implements IndexReader. This function returns a failing postings list if sharding
 // has not been enabled in the Head.
+//
+// The returned postings filter lazily: each call to Next/Seek looks up the series in the Head to
+// check shard membership. This keeps the series hot in the CPU cache for the subsequent Series()
+// call that the caller typically makes to retrieve the labels of the same ref.
 func (h *headIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCount uint64) index.Postings {
 	if !h.head.opts.EnableSharding {
 		return index.ErrPostings(errors.New("sharding is disabled"))
 	}
 
-	out := make([]storage.SeriesRef, 0, 128)
-	notFoundSeriesCount := 0
-
-	for p.Next() {
-		s := h.head.series.getByID(chunks.HeadSeriesRef(p.At()))
-		if s == nil {
-			notFoundSeriesCount++
-			continue
-		}
-
-		// Check if the series belong to the shard.
-		if s.shardHash%shardCount != shardIndex {
-			continue
-		}
-
-		out = append(out, storage.SeriesRef(s.ref))
+	// When shardCount is a power of two, the modulo used to compute shard membership can be
+	// replaced by a cheaper bitwise AND with shardCount-1.
+	if shardCount > 0 && shardCount&(shardCount-1) == 0 {
+		return &lazyPostingsShardPowerOfTwo{p: p, shardIndex: shardIndex, shardCount: shardCount, head: h.head}
 	}
-	if notFoundSeriesCount > 0 {
-		h.head.logger.Debug("Looked up series not found", "count", notFoundSeriesCount)
-	}
-
-	return index.NewListPostings(out)
+	return &lazyPostingsShardDecimal{p: p, shardIndex: shardIndex, shardCount: shardCount, head: h.head}
 }
+
+// lazyPostingsShardDecimal is a lazy index.Postings that filters the wrapped postings p, keeping only
+// the series belonging to shardIndex out of shardCount, using a modulo division.
+type lazyPostingsShardDecimal struct {
+	p          index.Postings
+	shardIndex uint64
+	shardCount uint64
+	head       *Head
+	cur        storage.SeriesRef
+}
+
+// Next implements index.Postings.
+func (p *lazyPostingsShardDecimal) Next() bool {
+	for p.p.Next() {
+		s := p.head.series.getByID(chunks.HeadSeriesRef(p.p.At()))
+		if s == nil || s.shardHash%p.shardCount != p.shardIndex {
+			continue
+		}
+		p.cur = storage.SeriesRef(s.ref)
+		return true
+	}
+	return false
+}
+
+// Seek implements index.Postings.
+func (p *lazyPostingsShardDecimal) Seek(v storage.SeriesRef) bool {
+	if p.cur >= v {
+		return true
+	}
+	for ok := p.p.Seek(v); ok; ok = p.p.Next() {
+		s := p.head.series.getByID(chunks.HeadSeriesRef(p.p.At()))
+		if s == nil || s.shardHash%p.shardCount != p.shardIndex {
+			continue
+		}
+		p.cur = storage.SeriesRef(s.ref)
+		return true
+	}
+	return false
+}
+
+// At implements index.Postings.
+func (p *lazyPostingsShardDecimal) At() storage.SeriesRef { return p.cur }
+
+// Err implements index.Postings.
+func (p *lazyPostingsShardDecimal) Err() error { return p.p.Err() }
+
+// lazyPostingsShardPowerOfTwo is a lazy index.Postings that filters the wrapped postings p, keeping
+// only the series belonging to shardIndex out of shardCount, using a bitwise AND. It is only valid
+// when shardCount is a power of two.
+type lazyPostingsShardPowerOfTwo struct {
+	p          index.Postings
+	shardIndex uint64
+	shardCount uint64
+	head       *Head
+	cur        storage.SeriesRef
+}
+
+// Next implements index.Postings.
+func (p *lazyPostingsShardPowerOfTwo) Next() bool {
+	for p.p.Next() {
+		s := p.head.series.getByID(chunks.HeadSeriesRef(p.p.At()))
+		if s == nil || s.shardHash&(p.shardCount-1) != p.shardIndex {
+			continue
+		}
+		p.cur = storage.SeriesRef(s.ref)
+		return true
+	}
+	return false
+}
+
+// Seek implements index.Postings.
+func (p *lazyPostingsShardPowerOfTwo) Seek(v storage.SeriesRef) bool {
+	if p.cur >= v {
+		return true
+	}
+	for ok := p.p.Seek(v); ok; ok = p.p.Next() {
+		s := p.head.series.getByID(chunks.HeadSeriesRef(p.p.At()))
+		if s == nil || s.shardHash&(p.shardCount-1) != p.shardIndex {
+			continue
+		}
+		p.cur = storage.SeriesRef(s.ref)
+		return true
+	}
+	return false
+}
+
+// At implements index.Postings.
+func (p *lazyPostingsShardPowerOfTwo) At() storage.SeriesRef { return p.cur }
+
+// Err implements index.Postings.
+func (p *lazyPostingsShardPowerOfTwo) Err() error { return p.p.Err() }
 
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
 func (h *headIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
