@@ -1341,10 +1341,14 @@ role: <string>
 # instead be specified in the relabeling rule.
 [ port: <int> | default = 80 ]
 
-# Filters can be used optionally to filter the instance list by other criteria (ec2 role only).
+# Filters can be used optionally to filter the instance list by other criteria (ec2 & rds role only).
 # Available filter criteria can be found here:
-# https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstances.html
-# Filter API documentation: https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_Filter.html
+# EC2:
+#  - https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_DescribeInstances.html
+#  - Filter API documentation: https://docs.aws.amazon.com/AWSEC2/latest/APIReference/API_Filter.html
+# RDS:
+#  - https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_DescribeDBInstances.html
+#  - Filter API documentation: https://docs.aws.amazon.com/AmazonRDS/latest/APIReference/API_Filter.html
 filters:
   [ - name: <string>
       values: <string>, [...] ]
@@ -3830,6 +3834,18 @@ azuread:
       [ client_id: <string> ]
       [ client_secret: <string> ]
       [ tenant_id: <string> ] ]
+
+  # Azure Certificate-based authentication.
+  [ certificate:
+      client_id: <string>
+      tenant_id: <string>
+      certificate_path: <file_name>
+      # Optional path to private key file if separate from certificate
+      [ certificate_key_path: <file_name> ]
+      # Optional password for password-protected certificate files (PFX/PKCS12)
+      [ certificate_password: <secret> ]
+      # Whether to send the certificate chain in the x5c header
+      [ send_certificate_chain: <boolean> | default = false ] ]
 
   # Azure SDK auth.
   # See https://learn.microsoft.com/en-us/azure/developer/go/azure-sdk-authentication
