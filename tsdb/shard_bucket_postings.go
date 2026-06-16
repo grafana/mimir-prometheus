@@ -22,37 +22,44 @@ import (
 	"github.com/prometheus/prometheus/tsdb/index"
 )
 
-// DefaultShardedPostingsBuckets is the default number of shard hash buckets
-// the head indexes series into when sharding is enabled.
-const DefaultShardedPostingsBuckets = 64
+// DefaultShardedPostingsBuckets is the default number of shard hash buckets the
+// head indexes series into when sharding is enabled. It is a power of two large
+// enough that common query shard counts divide it and so use the exact
+// (non-sub-filtered) shard postings path.
+const DefaultShardedPostingsBuckets = 128
 
-// shardBucketPostings holds one sorted list of series refs per shard hash
-// bucket, so that postings can be filtered by shard through sorted-list
-// intersection instead of a per-series lookup. Memory is proportional to the
-// number of series held: one ref per series.
+// shardBucketPostings holds, per shard hash bucket, one sorted list of series
+// refs and the matching shard hashes, so that postings can be filtered by shard
+// through sorted-list intersection instead of a per-series lookup. When the
+// requested shard count does not divide the bucket count a bucket holds series
+// from several shards; the stored hashes then let the bucket be sub-filtered
+// (hash % shardCount == shardIndex) without resolving each series. Memory is
+// proportional to the number of series held: one ref and one hash per series.
 //
-// A series is added to the list of bucket shardHash % len(buckets) when it is
-// created, before it becomes visible in the head postings index, and refs are
-// removed after deleted series have been removed from the postings index.
-// Together this guarantees the invariant readers depend on: every ref
-// readable from the postings index is present in its bucket list. Refs of
-// deleted series may linger until the next removal and are resolved by
-// readers like any other stale postings entry.
+// A series is added to bucket shardHash % len(buckets) when it is created,
+// before it becomes visible in the head postings index, and refs are removed
+// after deleted series have been removed from the postings index. Together this
+// guarantees the invariant readers depend on: every ref readable from the
+// postings index is present in its bucket list. Refs of deleted series may
+// linger until the next removal and are resolved by readers like any other
+// stale postings entry.
 //
 // Refs increase monotonically, so adds normally append in sorted position;
 // out-of-order adds (concurrent creations racing, snapshot replay) mark the
-// bucket dirty and it is re-sorted into a fresh slice the next time it is
-// read. List contents visible to a reader are never mutated in place, so
-// returned postings remain valid after the lock is released.
+// bucket dirty and its refs and hashes are re-sorted together into fresh slices
+// the next time it is read. List contents visible to a reader are never mutated
+// in place, so returned postings remain valid after the lock is released.
 type shardBucketPostings struct {
 	mtx     sync.RWMutex
 	buckets [][]storage.SeriesRef
-	dirty   []bool // Buckets appended out of order; re-sorted on next read.
+	hashes  [][]uint64 // hashes[b][i] is the shard hash of buckets[b][i]; kept aligned and co-sorted by ref.
+	dirty   []bool      // Buckets appended out of order; re-sorted on next read.
 }
 
 func newShardBucketPostings(buckets int) *shardBucketPostings {
 	return &shardBucketPostings{
 		buckets: make([][]storage.SeriesRef, buckets),
+		hashes:  make([][]uint64, buckets),
 		dirty:   make([]bool, buckets),
 	}
 }
@@ -66,12 +73,14 @@ func (s *shardBucketPostings) add(ref chunks.HeadSeriesRef, shardHash uint64) {
 		s.dirty[b] = true
 	}
 	s.buckets[b] = append(list, storage.SeriesRef(ref))
+	s.hashes[b] = append(s.hashes[b], shardHash)
 	s.mtx.Unlock()
 }
 
 // remove drops the given deleted series refs from the bucket lists. Buckets
-// containing any deleted ref are replaced with filtered copies, so reader
-// snapshots stay intact. A nil receiver (sharding disabled) is a no-op.
+// containing any deleted ref are replaced with filtered copies, refs and hashes
+// in lockstep, so reader snapshots stay intact. A nil receiver (sharding
+// disabled) is a no-op.
 func (s *shardBucketPostings) remove(deleted map[storage.SeriesRef]struct{}) {
 	if s == nil || len(deleted) == 0 {
 		return
@@ -89,37 +98,64 @@ func (s *shardBucketPostings) remove(deleted map[storage.SeriesRef]struct{}) {
 		if first < 0 {
 			continue
 		}
+		hashes := s.hashes[b]
 		repl := make([]storage.SeriesRef, first, len(list)-1)
+		replH := make([]uint64, first, len(list)-1)
 		copy(repl, list[:first])
-		for _, ref := range list[first+1:] {
-			if _, ok := deleted[ref]; !ok {
-				repl = append(repl, ref)
+		copy(replH, hashes[:first])
+		for i := first + 1; i < len(list); i++ {
+			if _, ok := deleted[list[i]]; !ok {
+				repl = append(repl, list[i])
+				replH = append(replH, hashes[i])
 			}
 		}
 		s.buckets[b] = repl
+		s.hashes[b] = replH
 	}
 }
 
-// postingsFor returns one sorted postings list per bucket belonging to the
-// given shard, or ok == false when the shard count does not divide the
-// bucket count, in which case the caller must filter per series. A nil
-// receiver (sharding disabled) always returns false.
-func (s *shardBucketPostings) postingsFor(shardIndex, shardCount uint64) ([]index.Postings, bool) {
-	if s == nil || shardCount == 0 || uint64(len(s.buckets))%shardCount != 0 {
+// postingsFor returns sorted postings lists that together cover exactly the
+// series of the given shard. When the shard count divides the bucket count each
+// list is a whole bucket; otherwise a bucket holds series from several shards,
+// so its candidate buckets are wrapped in a sub-filter on the shard hash and
+// subFiltered is true (the caller may account for the more expensive path).
+//
+// A series is in shard i of N iff shardHash % N == i. With B buckets and
+// g = gcd(N, B), such a series always lands in a bucket b ≡ i (mod g): g | B so
+// b ≡ shardHash (mod g), and g | N so shardHash ≡ i (mod g). Iterating those
+// candidate buckets and (when N ∤ B) sub-filtering by shardHash % N == i is
+// therefore exact. When N | B (g == N) every series in a candidate bucket is
+// already in the shard, so no sub-filter is needed.
+//
+// A nil receiver (sharding disabled) or a zero shard count returns no lists.
+func (s *shardBucketPostings) postingsFor(shardIndex, shardCount uint64) (lists []index.Postings, subFiltered bool) {
+	if s == nil || shardCount == 0 {
 		return nil, false
 	}
+	bucketCount := uint64(len(s.buckets))
+	g := gcd(shardCount, bucketCount)
+	subFiltered = bucketCount%shardCount != 0
+	base := shardIndex % g
+
 	s.mtx.RLock()
-	for s.anyDirtyLocked(shardIndex, shardCount) {
+	for s.anyDirtyLocked(base, g) {
 		s.mtx.RUnlock()
 		s.sortDirty()
 		s.mtx.RLock()
 	}
-	lists := make([]index.Postings, 0, uint64(len(s.buckets))/shardCount)
-	for b := shardIndex; b < uint64(len(s.buckets)); b += shardCount {
-		lists = append(lists, index.NewListPostings(s.buckets[b]))
+	lists = make([]index.Postings, 0, bucketCount/g)
+	for b := base; b < bucketCount; b += g {
+		if subFiltered {
+			// Capture both slice headers under the read lock so the sub-filter
+			// reads a consistent (ref, hash) pair even if the bucket is later
+			// re-sorted or rebuilt.
+			lists = append(lists, newShardHashFilterPostings(s.buckets[b], s.hashes[b], shardIndex, shardCount))
+		} else {
+			lists = append(lists, index.NewListPostings(s.buckets[b]))
+		}
 	}
 	s.mtx.RUnlock()
-	return lists, true
+	return lists, subFiltered
 }
 
 // numSeries returns the total number of refs held, including refs of deleted
@@ -137,10 +173,10 @@ func (s *shardBucketPostings) numSeries() int {
 	return n
 }
 
-// anyDirtyLocked reports whether any bucket of the given shard needs
-// re-sorting. The caller must hold the read lock.
-func (s *shardBucketPostings) anyDirtyLocked(shardIndex, shardCount uint64) bool {
-	for b := shardIndex; b < uint64(len(s.buckets)); b += shardCount {
+// anyDirtyLocked reports whether any candidate bucket (those stepped by step
+// from base) needs re-sorting. The caller must hold the read lock.
+func (s *shardBucketPostings) anyDirtyLocked(base, step uint64) bool {
+	for b := base; b < uint64(len(s.buckets)); b += step {
 		if s.dirty[b] {
 			return true
 		}
@@ -148,7 +184,8 @@ func (s *shardBucketPostings) anyDirtyLocked(shardIndex, shardCount uint64) bool
 	return false
 }
 
-// sortDirty replaces dirty buckets with sorted copies.
+// sortDirty replaces dirty buckets with sorted copies, permuting the bucket's
+// hashes by the same order so refs and hashes stay aligned.
 func (s *shardBucketPostings) sortDirty() {
 	s.mtx.Lock()
 	defer s.mtx.Unlock()
@@ -156,11 +193,99 @@ func (s *shardBucketPostings) sortDirty() {
 		if !d {
 			continue
 		}
-		sorted := slices.Clone(s.buckets[b])
-		slices.Sort(sorted)
-		s.buckets[b] = sorted
+		refs := s.buckets[b]
+		hashes := s.hashes[b]
+		order := make([]int, len(refs))
+		for i := range order {
+			order[i] = i
+		}
+		slices.SortFunc(order, func(x, y int) int {
+			switch {
+			case refs[x] < refs[y]:
+				return -1
+			case refs[x] > refs[y]:
+				return 1
+			default:
+				return 0
+			}
+		})
+		sortedRefs := make([]storage.SeriesRef, len(refs))
+		sortedHashes := make([]uint64, len(refs))
+		for newPos, old := range order {
+			sortedRefs[newPos] = refs[old]
+			sortedHashes[newPos] = hashes[old]
+		}
+		s.buckets[b] = sortedRefs
+		s.hashes[b] = sortedHashes
 		s.dirty[b] = false
 	}
+}
+
+// gcd returns the greatest common divisor of a and b (Euclid). Both are > 0 in
+// use here, so the result is >= 1.
+func gcd(a, b uint64) uint64 {
+	for b != 0 {
+		a, b = b, a%b
+	}
+	return a
+}
+
+// shardHashFilterPostings yields the refs of one bucket whose shard hash maps to
+// the requested shard, i.e. hash % shardCount == shardIndex. It is used when the
+// shard count does not divide the bucket count, so a bucket holds series from
+// several shards. refs is sorted ascending and hashes is aligned to it, so the
+// emitted refs stay sorted.
+type shardHashFilterPostings struct {
+	refs       []storage.SeriesRef
+	hashes     []uint64
+	shardIndex uint64
+	shardCount uint64
+	idx        int
+	cur        storage.SeriesRef
+}
+
+func newShardHashFilterPostings(refs []storage.SeriesRef, hashes []uint64, shardIndex, shardCount uint64) *shardHashFilterPostings {
+	return &shardHashFilterPostings{refs: refs, hashes: hashes, shardIndex: shardIndex, shardCount: shardCount, idx: -1}
+}
+
+func (it *shardHashFilterPostings) Next() bool {
+	for it.idx++; it.idx < len(it.refs); it.idx++ {
+		if it.hashes[it.idx]%it.shardCount == it.shardIndex {
+			it.cur = it.refs[it.idx]
+			return true
+		}
+	}
+	it.cur = 0
+	return false
+}
+
+func (it *shardHashFilterPostings) Seek(v storage.SeriesRef) bool {
+	// cur == 0 means no successful Next yet (idx < 0) or exhausted: 0 is never a
+	// valid series ref.
+	if it.cur != 0 && it.cur >= v {
+		return true
+	}
+	// Binary search the sorted refs from the next position for the first ref
+	// >= v, then skip-filter forward from there.
+	lo := it.idx + 1
+	if lo < 0 {
+		lo = 0
+	}
+	if lo < len(it.refs) {
+		off, _ := slices.BinarySearch(it.refs[lo:], v)
+		it.idx = lo + off - 1
+	} else {
+		it.idx = len(it.refs) - 1
+	}
+	return it.Next()
+}
+
+func (it *shardHashFilterPostings) At() storage.SeriesRef {
+	return it.cur
+}
+
+func (*shardHashFilterPostings) Err() error {
+	return nil
 }
 
 // shardFilterPostings filters the input postings to the refs present in the

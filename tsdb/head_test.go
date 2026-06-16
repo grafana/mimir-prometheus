@@ -3751,6 +3751,101 @@ func TestHeadLabelNamesWithMatchers(t *testing.T) {
 	}
 }
 
+// TestHeadShardedPostingsSubFilter exercises the head ShardedPostings path for
+// shard counts that do not divide the bucket count (served by hash sub-filtering
+// of candidate buckets), plus the single-bucket exact case (128).
+func TestHeadShardedPostingsSubFilter(t *testing.T) {
+	t.Parallel()
+	headOpts := newTestHeadDefaultOptions(1000, false)
+	headOpts.EnableSharding = true
+	head, _ := newTestHeadWithOptions(t, compression.None, headOpts)
+
+	ctx := context.Background()
+	app := head.Appender(ctx)
+	for i := range 200 {
+		_, err := app.Append(0, labels.FromStrings("unique", fmt.Sprintf("value%d", i), "const", "1"), 100, 0)
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+
+	ir := head.indexRange(0, 200)
+	p, err := ir.Postings(ctx, "const", "1")
+	require.NoError(t, err)
+	var expected []storage.SeriesRef
+	for p.Next() {
+		expected = append(expected, p.At())
+	}
+	require.NoError(t, p.Err())
+	require.NotEmpty(t, expected)
+
+	// 6 and 96 do not divide the 128 buckets (hash sub-filter); 128 is the exact
+	// single-bucket case.
+	for _, shardCount := range []uint64{6, 96, 128} {
+		var actualPostings []storage.SeriesRef
+		for shardIndex := range shardCount {
+			p, err = ir.Postings(ctx, "const", "1")
+			require.NoError(t, err)
+			sp := ir.ShardedPostings(p, shardIndex, shardCount)
+			for sp.Next() {
+				ref := sp.At()
+				var lbls labels.ScratchBuilder
+				require.NoError(t, ir.Series(ref, &lbls, nil))
+				require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount, "shardCount %d", shardCount)
+				actualPostings = append(actualPostings, ref)
+			}
+			require.NoError(t, sp.Err())
+		}
+		require.ElementsMatch(t, expected, actualPostings, "shardCount %d: shards must partition the postings", shardCount)
+	}
+}
+
+// TestHeadShardedAllPostings verifies (*Head).ShardedAllPostings returns exactly
+// the series of each shard, partitioning all series, for exact and sub-filtered
+// shard counts. This is the path active-series uses in place of the removed
+// ForEachShardHash.
+func TestHeadShardedAllPostings(t *testing.T) {
+	t.Parallel()
+	headOpts := newTestHeadDefaultOptions(1000, false)
+	headOpts.EnableSharding = true
+	head, _ := newTestHeadWithOptions(t, compression.None, headOpts)
+
+	ctx := context.Background()
+	app := head.Appender(ctx)
+	const numSeries = 500
+	for i := range numSeries {
+		_, err := app.Append(0, labels.FromStrings("unique", fmt.Sprintf("value%d", i)), 100, 0)
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+
+	ir := head.indexRange(math.MinInt64, math.MaxInt64)
+	// 4 and 128 divide the 128 buckets (exact path); 6 does not (sub-filter).
+	for _, shardCount := range []uint64{4, 6, 128} {
+		seen := map[storage.SeriesRef]struct{}{}
+		var total int
+		for shardIndex := range shardCount {
+			refs, err := index.ExpandPostings(head.ShardedAllPostings(shardIndex, shardCount))
+			require.NoError(t, err)
+			require.True(t, slices.IsSorted(refs), "shardCount %d shard %d", shardCount, shardIndex)
+			for _, ref := range refs {
+				var lbls labels.ScratchBuilder
+				require.NoError(t, ir.Series(ref, &lbls, nil))
+				require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount, "shardCount %d", shardCount)
+				_, dup := seen[ref]
+				require.False(t, dup, "ref %d returned by multiple shards", ref)
+				seen[ref] = struct{}{}
+			}
+			total += len(refs)
+		}
+		require.Equal(t, numSeries, total, "shardCount %d must cover all series", shardCount)
+	}
+
+	// An out-of-range shard index selects nothing.
+	refs, err := index.ExpandPostings(head.ShardedAllPostings(4, 4))
+	require.NoError(t, err)
+	require.Empty(t, refs)
+}
+
 func TestHeadShardedPostings(t *testing.T) {
 	t.Run("shards partition the postings", func(t *testing.T) {
 		t.Parallel()

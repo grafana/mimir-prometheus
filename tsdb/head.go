@@ -465,7 +465,7 @@ type headMetrics struct {
 	seriesCreated             prometheus.Counter
 	seriesRemoved             prometheus.Counter
 	seriesNotFound            prometheus.Counter
-	shardedPostingsFallback   prometheus.Counter
+	shardedPostingsSubfiltered   prometheus.Counter
 	shardBucketSeries         prometheus.GaugeFunc
 	chunks                    prometheus.Gauge
 	chunksCreated             prometheus.Counter
@@ -529,9 +529,9 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_head_series_not_found_total",
 			Help: "Total number of requests for series that were not found.",
 		}),
-		shardedPostingsFallback: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "prometheus_tsdb_head_sharded_postings_fallback_total",
-			Help: "Total number of ShardedPostings calls served by per-series filtering because the shard count does not divide the shard bucket count.",
+		shardedPostingsSubfiltered: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_sharded_postings_subfiltered_total",
+			Help: "Total number of ShardedPostings calls served by sub-filtering candidate buckets because the shard count does not divide the shard bucket count.",
 		}),
 		shardBucketSeries: prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "prometheus_tsdb_head_shard_bucket_postings_series",
@@ -665,7 +665,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.seriesCreated,
 			m.seriesRemoved,
 			m.seriesNotFound,
-			m.shardedPostingsFallback,
+			m.shardedPostingsSubfiltered,
 			m.shardBucketSeries,
 			m.gcDuration,
 			m.walTruncateDuration,
@@ -3059,37 +3059,18 @@ func (h *Head) ForEachSecondaryHash(fn func(ref []chunks.HeadSeriesRef, secondar
 	}
 }
 
-// ForEachShardHash iterates over all series in the Head, and passes references and shard hashes of the series
-// to fn. fn is called with batch of refs and hashes, in no specific order. The order of the refs
-// in the same as the order of the hashes. Each series in the head is included exactly once.
-// Series may be deleted while the function is running, and series inserted while this function runs may be reported or ignored.
-//
-// No locks are held when fn is called.
-//
-// Slices passed to fn are reused between calls.
-func (h *Head) ForEachShardHash(fn func(ref []storage.SeriesRef, shardHash []uint64)) {
-	slices := newPairOfSlices[storage.SeriesRef, uint64](512)
-
-	for i := 0; i < h.series.size; i++ {
-		slices = slices.reset()
-
-		h.series.locks[i].RLock()
-		for _, s := range h.series.hashes[i].unique {
-			// No need to lock series lock, as we're only accessing its immutable shard hash.
-			slices = slices.append(storage.SeriesRef(s.ref), s.shardHash)
-		}
-		for _, all := range h.series.hashes[i].conflicts {
-			for _, s := range all {
-				// No need to lock series lock, as we're only accessing its immutable shard hash.
-				slices = slices.append(storage.SeriesRef(s.ref), s.shardHash)
-			}
-		}
-		h.series.locks[i].RUnlock()
-
-		if slices.len() > 0 {
-			fn(slices.slice1, slices.slice2)
-		}
+// ShardedAllPostings returns the postings of all series in the head that belong
+// to shard shardIndex of shardCount, using the shard hash bucket index. The
+// returned postings are sorted by ref and may include refs of series deleted
+// since the call began, which callers resolve like any other stale postings
+// entry. It returns empty postings when sharding is disabled or the shard index
+// is out of range.
+func (h *Head) ShardedAllPostings(shardIndex, shardCount uint64) index.Postings {
+	if !h.opts.EnableSharding || shardIndex >= shardCount {
+		return index.EmptyPostings()
 	}
+	lists, _ := h.shardBuckets.postingsFor(shardIndex, shardCount)
+	return index.Merge(context.Background(), lists...)
 }
 
 type pairOfSlices[T1, T2 any] struct {

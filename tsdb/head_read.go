@@ -176,42 +176,19 @@ func (h *headIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 		return p
 	}
 
-	// Fast path: a shard is the union of the shard hash buckets congruent to
-	// the shard index, so filtering tests membership against sorted ref
-	// lists instead of looking up every series. The input postings are
-	// drained sequentially, never seeked: the input may be an expensive
-	// postings tree, while the bucket side seeks cheaply. The returned
-	// postings may include refs of series deleted since p was built; readers
-	// resolve those like any other stale postings entry.
-	if lists, ok := h.head.shardBuckets.postingsFor(shardIndex, shardCount); ok {
-		return newShardFilterPostings(p, index.Merge(context.Background(), lists...))
+	// A shard is served from the shard hash buckets: candidate buckets congruent
+	// to the shard index, sub-filtered by shard hash when the shard count does
+	// not divide the bucket count. Membership is tested against sorted ref lists
+	// instead of looking up every series. The input postings are drained
+	// sequentially, never seeked: the input may be an expensive postings tree,
+	// while the bucket side seeks cheaply. The returned postings may include refs
+	// of series deleted since p was built; readers resolve those like any other
+	// stale postings entry.
+	lists, subFiltered := h.head.shardBuckets.postingsFor(shardIndex, shardCount)
+	if subFiltered {
+		h.head.metrics.shardedPostingsSubfiltered.Inc()
 	}
-
-	// The shard count does not divide the bucket count: filter by looking up
-	// every series instead.
-	h.head.metrics.shardedPostingsFallback.Inc()
-	out := make([]storage.SeriesRef, 0, 128)
-	notFoundSeriesCount := 0
-
-	for p.Next() {
-		s := h.head.series.getByID(chunks.HeadSeriesRef(p.At()))
-		if s == nil {
-			notFoundSeriesCount++
-			continue
-		}
-
-		// Check if the series belong to the shard.
-		if s.shardHash%shardCount != shardIndex {
-			continue
-		}
-
-		out = append(out, storage.SeriesRef(s.ref))
-	}
-	if notFoundSeriesCount > 0 {
-		h.head.logger.Debug("Looked up series not found", "count", notFoundSeriesCount)
-	}
-
-	return index.NewListPostings(out)
+	return newShardFilterPostings(p, index.Merge(context.Background(), lists...))
 }
 
 // LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
