@@ -4197,6 +4197,9 @@ func testChunkQuerierOverlappingInOrderAndOOOChunks(t *testing.T, valType chunke
 	opts.OutOfOrderCapMax = oooCapMax
 	opts.OutOfOrderTimeWindow = 24 * time.Hour.Milliseconds()
 	opts.EnableSTStorage = storeST
+	if storeST {
+		opts.FloatChunkEncoding = chunkenc.EncXOR2
+	}
 	db := newTestDB(t, withOpts(opts))
 	db.DisableCompactions()
 
