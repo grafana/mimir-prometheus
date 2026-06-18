@@ -297,11 +297,13 @@ jobs:
           git push --force origin "${LOCAL_BRANCH}:${BOT_BRANCH}"
 
       - name: Send Slack notification for merge conflicts
-        uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
+        uses: grafana/shared-workflows/actions/send-slack-message@551bc8d50017d3e95d5da3f8a4826e733a208dc0 # v3.0.2
         with:
-          channel-id: C04AF91LPFX #mimir-ci-notifications
+          method: chat.postMessage
+          # channel C04AF91LPFX is #mimir-ci-notifications
           payload: |
             {
+              "channel": "C04AF91LPFX",
               "text": ":sadcomputer: *Merge conflicts detected in upstream prometheus merge* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S03C2P8659U> check and resolve the conflicts in <${{ steps.create-conflict-pr.outputs.pull-request-url }}|the PR>."
             }
 
@@ -313,11 +315,13 @@ jobs:
       id-token: write
     steps:
       - name: Send Slack notification for merge error
-        uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
+        uses: grafana/shared-workflows/actions/send-slack-message@551bc8d50017d3e95d5da3f8a4826e733a208dc0 # v3.0.2
         with:
-          channel-id: C04AF91LPFX #mimir-ci-notifications
+          method: chat.postMessage
+          # channel C04AF91LPFX is #mimir-ci-notifications
           payload: |
             {
+              "channel": "C04AF91LPFX",
               "text": ":sadcomputer: *Upstream prometheus merge failed* (prometheus/`${{ needs.check-merge.outputs.upstream_branch }}` -> mimir-prometheus/`${{ needs.check-merge.outputs.local_branch }}`)\n\n<!subteam^S03C2P8659U> please investigate the <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|workflow logs> and resolve manually."
             }
 
