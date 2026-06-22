@@ -99,8 +99,18 @@ func (s *shardBucketPostings) remove(deleted map[storage.SeriesRef]struct{}) {
 			continue
 		}
 		hashes := s.hashes[b]
-		repl := make([]storage.SeriesRef, first, len(list)-1)
-		replH := make([]uint64, first, len(list)-1)
+		// Size the rebuilt slices to the surviving count, not the pre-removal
+		// length: keeping cap at len(list)-1 leaves the dropped refs' capacity
+		// resident until the next rebuild, which under series churn keeps the
+		// index several times larger than the live series it holds.
+		survivors := first
+		for i := first + 1; i < len(list); i++ {
+			if _, ok := deleted[list[i]]; !ok {
+				survivors++
+			}
+		}
+		repl := make([]storage.SeriesRef, first, survivors)
+		replH := make([]uint64, first, survivors)
 		copy(repl, list[:first])
 		copy(replH, hashes[:first])
 		for i := first + 1; i < len(list); i++ {

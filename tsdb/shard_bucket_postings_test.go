@@ -350,6 +350,43 @@ func TestShardBucketPostings(t *testing.T) {
 	})
 }
 
+// BenchmarkShardBucketPostingsFootprint measures the resident size of the index
+// relative to the live series it holds, after churn — new series created and an
+// equal number removed, as the head turns over between GCs. It reports the slice
+// capacity (refs plus the aligned hashes) as bytes per live series and the
+// cap/len ratio, so a regression in the index's memory amplification is visible:
+// cap/len above ~1 means remove retained the dropped refs' capacity.
+func BenchmarkShardBucketPostingsFootprint(b *testing.B) {
+	const live = 100_000
+	for _, churn := range []int{0, 1, 2} {
+		b.Run(fmt.Sprintf("churn=%dx", churn), func(b *testing.B) {
+			var capEntries, entries int
+			for b.Loop() {
+				s := newShardBucketPostings(DefaultShardedPostingsBuckets)
+				rng := rand.New(rand.NewSource(1))
+				total := (1 + churn) * live
+				for ref := 1; ref <= total; ref++ {
+					s.add(chunks.HeadSeriesRef(ref), rng.Uint64())
+				}
+				// Remove churn*live of them, leaving `live` live.
+				deleted := make(map[storage.SeriesRef]struct{}, churn*live)
+				for ref := 1; ref <= churn*live; ref++ {
+					deleted[storage.SeriesRef(ref)] = struct{}{}
+				}
+				s.remove(deleted)
+
+				capEntries, entries = 0, s.numSeries()
+				for _, bk := range s.buckets {
+					capEntries += cap(bk)
+				}
+			}
+			// Each entry costs a storage.SeriesRef (8B) plus an aligned shard hash (8B).
+			b.ReportMetric(float64(capEntries)*16/float64(live), "capbytes/live")
+			b.ReportMetric(float64(capEntries)/float64(entries), "cap/len")
+		})
+	}
+}
+
 func BenchmarkShardBucketPostings(b *testing.B) {
 	// Precompute random shard hashes once so the hot loop measures the
 	// structure (lock + append), not StableHash. Random spread mimics how
