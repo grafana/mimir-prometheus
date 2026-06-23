@@ -3799,6 +3799,93 @@ func TestHeadShardedPostingsSubFilter(t *testing.T) {
 	}
 }
 
+// TestHeadShardedPostingsDispatch verifies headIndexReader.ShardedPostings
+// dispatches between the bucket sub-filter and the per-series getByID scan by
+// candidate-bucket spread AND matched-input size, that both bucket paths return
+// identical sorted shard partitions, and that the dispatched result is correct
+// whichever path is taken (including the prefix replay for large inputs).
+func TestHeadShardedPostingsDispatch(t *testing.T) {
+	t.Parallel()
+	// A low getByID input cap so the 300-series set straddles it: a 10-ref input
+	// is "small" (getByID territory), the full set is "large" (always sub-filter).
+	const getByIDMaxSeries = 64
+	headOpts := newTestHeadDefaultOptions(1000, false)
+	headOpts.EnableSharding = true
+	headOpts.ShardedPostingsGetByIDMaxSeries = getByIDMaxSeries
+	head, _ := newTestHeadWithOptions(t, compression.None, headOpts)
+
+	ctx := context.Background()
+	app := head.Appender(ctx)
+	for i := range 300 {
+		_, err := app.Append(0, labels.FromStrings("unique", fmt.Sprintf("value%d", i), "const", "1"), 100, 0)
+		require.NoError(t, err)
+	}
+	require.NoError(t, app.Commit())
+
+	ir := head.indexRange(0, 200)
+	collect := func(p index.Postings) []storage.SeriesRef {
+		var out []storage.SeriesRef
+		for p.Next() {
+			out = append(out, p.At())
+		}
+		require.NoError(t, p.Err())
+		return out
+	}
+	all, err := ir.Postings(ctx, "const", "1")
+	require.NoError(t, err)
+	allRefs := collect(all)
+	require.Greater(t, len(allRefs), getByIDMaxSeries)
+	require.True(t, slices.IsSorted(allRefs))
+
+	// Both bucket paths return identical, sorted shard partitions across exact
+	// (16/64), narrow (96/48/24) and wide (12/3) spreads.
+	for _, shardCount := range []uint64{16, 64, 96, 48, 24, 12, 3} {
+		var union []storage.SeriesRef
+		for shardIndex := range shardCount {
+			viaSubFilter := collect(ir.shardedPostingsViaSubFilter(index.NewListPostings(allRefs), shardIndex, shardCount))
+			viaGetByID := collect(ir.shardedPostingsViaGetByID(index.NewListPostings(allRefs), shardIndex, shardCount))
+			require.ElementsMatch(t, viaGetByID, viaSubFilter, "shardCount=%d shardIndex=%d: bucket paths disagree", shardCount, shardIndex)
+			require.True(t, slices.IsSorted(viaGetByID), "shardCount=%d shardIndex=%d: getByID output not sorted", shardCount, shardIndex)
+			require.True(t, slices.IsSorted(viaSubFilter), "shardCount=%d shardIndex=%d: sub-filter output not sorted", shardCount, shardIndex)
+			for _, ref := range viaSubFilter {
+				var lbls labels.ScratchBuilder
+				require.NoError(t, ir.Series(ref, &lbls, nil))
+				require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount, "shardCount=%d", shardCount)
+			}
+			union = append(union, viaSubFilter...)
+		}
+		require.ElementsMatch(t, allRefs, union, "shardCount=%d: shards must partition the input", shardCount)
+	}
+
+	// ShardedPostings routes to getByID only for a wide spread on a small input;
+	// a large input always sub-filters (the input-size guard), and exact/narrow
+	// spreads ignore input size. The dispatched result equals the shard either
+	// way — the large wide-spread case exercises the peeked-prefix replay.
+	for _, tc := range []struct {
+		shardCount  uint64
+		input       []storage.SeriesRef
+		wantGetByID bool
+		wantSubfilt bool
+	}{
+		{64, allRefs, false, false},     // exact divisor: whole-bucket path
+		{96, allRefs[:10], false, true}, // narrow spread, small input: sub-filter
+		{96, allRefs, false, true},      // narrow spread, large input: sub-filter
+		{3, allRefs[:10], true, false},  // wide spread, small input: getByID
+		{3, allRefs, false, true},       // wide spread, large input: sub-filter
+	} {
+		gbi0 := prom_testutil.ToFloat64(head.metrics.shardedPostingsGetByID)
+		sub0 := prom_testutil.ToFloat64(head.metrics.shardedPostingsSubfiltered)
+		got := collect(ir.ShardedPostings(index.NewListPostings(tc.input), 0, tc.shardCount))
+		gbi1 := prom_testutil.ToFloat64(head.metrics.shardedPostingsGetByID)
+		sub1 := prom_testutil.ToFloat64(head.metrics.shardedPostingsSubfiltered)
+		require.Equal(t, tc.wantGetByID, gbi1 > gbi0, "shardCount=%d len(input)=%d: getByID routing", tc.shardCount, len(tc.input))
+		require.Equal(t, tc.wantSubfilt, sub1 > sub0, "shardCount=%d len(input)=%d: sub-filter routing", tc.shardCount, len(tc.input))
+		require.True(t, slices.IsSorted(got), "shardCount=%d len(input)=%d: output not sorted", tc.shardCount, len(tc.input))
+		want := collect(ir.shardedPostingsViaGetByID(index.NewListPostings(tc.input), 0, tc.shardCount))
+		require.ElementsMatch(t, want, got, "shardCount=%d len(input)=%d: wrong shard", tc.shardCount, len(tc.input))
+	}
+}
+
 // TestHeadShardedAllPostings verifies (*Head).ShardedAllPostings returns exactly
 // the series of each shard, partitioning all series, for exact and sub-filtered
 // shard counts. This is the path active-series uses in place of the removed
