@@ -222,6 +222,23 @@ type HeadOptions struct {
 	// Only used when EnableSharding is true.
 	ShardedPostingsBuckets int
 
+	// ShardedPostingsSubFilterMaxBuckets is the candidate-bucket spread
+	// (ShardedPostingsBuckets / gcd(shardCount, ShardedPostingsBuckets)) above
+	// which a small-input ShardedPostings for a non-dividing shard count is
+	// served by a per-series getByID scan instead of sub-filtering candidate
+	// buckets. 0 means defaultShardedPostingsSubFilterMaxBuckets.
+	// Only used when EnableSharding is true.
+	ShardedPostingsSubFilterMaxBuckets uint64
+
+	// ShardedPostingsGetByIDMaxSeries is the matched-input size below which a
+	// wide-spread ShardedPostings (see ShardedPostingsSubFilterMaxBuckets) is
+	// served by a per-series getByID scan rather than sub-filtering; larger
+	// inputs always sub-filter. The wide-spread path peeks up to this many input
+	// refs into a buffer to classify the input size, so a large value raises the
+	// transient per-query allocation. 0 or negative means
+	// defaultShardedPostingsGetByIDMaxSeries. Only used when EnableSharding is true.
+	ShardedPostingsGetByIDMaxSeries int
+
 	// IndexLookupPlannerFunc can be optionally used when querying the index of the Head.
 	IndexLookupPlannerFunc IndexLookupPlannerFunc
 
@@ -263,20 +280,22 @@ const (
 
 func DefaultHeadOptions() *HeadOptions {
 	ho := &HeadOptions{
-		ChunkRange:                      DefaultBlockDuration,
-		ChunkDirRoot:                    "",
-		ChunkPool:                       chunkenc.NewPool(),
-		ChunkWriteBufferSize:            chunks.DefaultWriteBufferSize,
-		ChunkEndTimeVariance:            0,
-		ChunkWriteQueueSize:             chunks.DefaultWriteQueueSize,
-		SamplesPerChunk:                 DefaultSamplesPerChunk,
-		StripeSize:                      DefaultStripeSize,
-		SeriesCallback:                  &noopSeriesLifecycleCallback{},
-		ShardedPostingsBuckets:          DefaultShardedPostingsBuckets,
-		IsolationDisabled:               defaultIsolationDisabled,
-		PostingsForMatchersCacheFactory: DefaultPostingsForMatchersCacheFactory,
-		WALReplayConcurrency:            defaultWALReplayConcurrency,
-		IndexLookupPlannerFunc:          DefaultIndexLookupPlannerFunc,
+		ChunkRange:                         DefaultBlockDuration,
+		ChunkDirRoot:                       "",
+		ChunkPool:                          chunkenc.NewPool(),
+		ChunkWriteBufferSize:               chunks.DefaultWriteBufferSize,
+		ChunkEndTimeVariance:               0,
+		ChunkWriteQueueSize:                chunks.DefaultWriteQueueSize,
+		SamplesPerChunk:                    DefaultSamplesPerChunk,
+		StripeSize:                         DefaultStripeSize,
+		SeriesCallback:                     &noopSeriesLifecycleCallback{},
+		ShardedPostingsBuckets:             DefaultShardedPostingsBuckets,
+		ShardedPostingsSubFilterMaxBuckets: defaultShardedPostingsSubFilterMaxBuckets,
+		ShardedPostingsGetByIDMaxSeries:    defaultShardedPostingsGetByIDMaxSeries,
+		IsolationDisabled:                  defaultIsolationDisabled,
+		PostingsForMatchersCacheFactory:    DefaultPostingsForMatchersCacheFactory,
+		WALReplayConcurrency:               defaultWALReplayConcurrency,
+		IndexLookupPlannerFunc:             DefaultIndexLookupPlannerFunc,
 	}
 	ho.OutOfOrderCapMax.Store(DefaultOutOfOrderCapMax)
 	ho.FloatChunkEncoding.Store(uint32(chunkenc.EncXOR))
@@ -459,39 +478,40 @@ func (h *Head) resetWLReplayResources() {
 }
 
 type headMetrics struct {
-	activeAppenders           prometheus.Gauge
-	series                    prometheus.GaugeFunc
-	staleSeries               prometheus.GaugeFunc
-	seriesCreated             prometheus.Counter
-	seriesRemoved             prometheus.Counter
-	seriesNotFound            prometheus.Counter
-	shardedPostingsSubfiltered   prometheus.Counter
-	shardBucketSeries         prometheus.GaugeFunc
-	chunks                    prometheus.Gauge
-	chunksCreated             prometheus.Counter
-	chunksRemoved             prometheus.Counter
-	gcDuration                prometheus.Summary
-	samplesAppended           *prometheus.CounterVec
-	outOfOrderSamplesAppended *prometheus.CounterVec
-	outOfBoundSamples         *prometheus.CounterVec
-	outOfOrderSamples         *prometheus.CounterVec
-	tooOldSamples             *prometheus.CounterVec
-	walTruncateDuration       prometheus.Summary
-	walCorruptionsTotal       prometheus.Counter
-	dataTotalReplayDuration   prometheus.Gauge
-	headTruncateFail          prometheus.Counter
-	headTruncateTotal         prometheus.Counter
-	checkpointDeleteFail      prometheus.Counter
-	checkpointDeleteTotal     prometheus.Counter
-	checkpointCreationFail    prometheus.Counter
-	checkpointCreationTotal   prometheus.Counter
-	mmapChunkCorruptionTotal  prometheus.Counter
-	snapshotReplayErrorTotal  prometheus.Counter // Will be either 0 or 1.
-	oooHistogram              prometheus.Histogram
-	mmapChunksTotal           prometheus.Counter
-	headChunksMaxMmapped      prometheus.Gauge
-	walReplayUnknownRefsTotal *prometheus.CounterVec
-	wblReplayUnknownRefsTotal *prometheus.CounterVec
+	activeAppenders            prometheus.Gauge
+	series                     prometheus.GaugeFunc
+	staleSeries                prometheus.GaugeFunc
+	seriesCreated              prometheus.Counter
+	seriesRemoved              prometheus.Counter
+	seriesNotFound             prometheus.Counter
+	shardedPostingsSubfiltered prometheus.Counter
+	shardedPostingsGetByID     prometheus.Counter
+	shardBucketSeries          prometheus.GaugeFunc
+	chunks                     prometheus.Gauge
+	chunksCreated              prometheus.Counter
+	chunksRemoved              prometheus.Counter
+	gcDuration                 prometheus.Summary
+	samplesAppended            *prometheus.CounterVec
+	outOfOrderSamplesAppended  *prometheus.CounterVec
+	outOfBoundSamples          *prometheus.CounterVec
+	outOfOrderSamples          *prometheus.CounterVec
+	tooOldSamples              *prometheus.CounterVec
+	walTruncateDuration        prometheus.Summary
+	walCorruptionsTotal        prometheus.Counter
+	dataTotalReplayDuration    prometheus.Gauge
+	headTruncateFail           prometheus.Counter
+	headTruncateTotal          prometheus.Counter
+	checkpointDeleteFail       prometheus.Counter
+	checkpointDeleteTotal      prometheus.Counter
+	checkpointCreationFail     prometheus.Counter
+	checkpointCreationTotal    prometheus.Counter
+	mmapChunkCorruptionTotal   prometheus.Counter
+	snapshotReplayErrorTotal   prometheus.Counter // Will be either 0 or 1.
+	oooHistogram               prometheus.Histogram
+	mmapChunksTotal            prometheus.Counter
+	headChunksMaxMmapped       prometheus.Gauge
+	walReplayUnknownRefsTotal  *prometheus.CounterVec
+	wblReplayUnknownRefsTotal  *prometheus.CounterVec
 }
 
 const (
@@ -531,7 +551,11 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 		}),
 		shardedPostingsSubfiltered: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_sharded_postings_subfiltered_total",
-			Help: "Total number of ShardedPostings calls served by sub-filtering candidate buckets because the shard count does not divide the shard bucket count.",
+			Help: "Total number of ShardedPostings calls for a shard count that does not divide the shard bucket count served by sub-filtering candidate buckets (rather than the per-series getByID scan); together with prometheus_tsdb_head_sharded_postings_getbyid_total this covers all non-dividing calls.",
+		}),
+		shardedPostingsGetByID: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_sharded_postings_getbyid_total",
+			Help: "Total number of ShardedPostings calls served by a per-series getByID scan, chosen for a shard count whose candidate-bucket spread is wide and whose matched input is small, where getByID beats sub-filtering.",
 		}),
 		shardBucketSeries: prometheus.NewGaugeFunc(prometheus.GaugeOpts{
 			Name: "prometheus_tsdb_head_shard_bucket_postings_series",
@@ -666,6 +690,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.seriesRemoved,
 			m.seriesNotFound,
 			m.shardedPostingsSubfiltered,
+			m.shardedPostingsGetByID,
 			m.shardBucketSeries,
 			m.gcDuration,
 			m.walTruncateDuration,

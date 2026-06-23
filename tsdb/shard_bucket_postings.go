@@ -28,6 +28,25 @@ import (
 // (non-sub-filtered) shard postings path.
 const DefaultShardedPostingsBuckets = 128
 
+// Default dispatch thresholds for headIndexReader.ShardedPostings, overridable
+// per head via HeadOptions. A shard count that does not divide the bucket count
+// is served by a per-series getByID scan instead of sub-filtering candidate
+// buckets only when both hold: its candidate-bucket spread
+// (bucketCount / gcd(shardCount, bucketCount)) exceeds
+// defaultShardedPostingsSubFilterMaxBuckets, AND the matched input has fewer
+// than defaultShardedPostingsGetByIDMaxSeries series. The sub-filter's setup
+// cost (merging that many candidate buckets) is fixed per call while getByID is
+// proportional to the input, so getByID wins only for a wide spread on a small
+// input; larger inputs always sub-filter. Both bounds are pinned by
+// BenchmarkHeadShardedPostingsInputSize: 1024 is at or below the sub-filter
+// crossover of the narrowest qualifying spread (32 buckets ≈ 1k series), so the
+// default never routes an input to getByID where the sub-filter would be
+// cheaper. ShardedAllPostings (no input) always sub-filters and ignores these.
+const (
+	defaultShardedPostingsSubFilterMaxBuckets = 16
+	defaultShardedPostingsGetByIDMaxSeries    = 1024
+)
+
 // shardBucketPostings holds, per shard hash bucket, one sorted list of series
 // refs and the matching shard hashes, so that postings can be filtered by shard
 // through sorted-list intersection instead of a per-series lookup. When the
@@ -53,7 +72,7 @@ type shardBucketPostings struct {
 	mtx     sync.RWMutex
 	buckets [][]storage.SeriesRef
 	hashes  [][]uint64 // hashes[b][i] is the shard hash of buckets[b][i]; kept aligned and co-sorted by ref.
-	dirty   []bool      // Buckets appended out of order; re-sorted on next read.
+	dirty   []bool     // Buckets appended out of order; re-sorted on next read.
 }
 
 func newShardBucketPostings(buckets int) *shardBucketPostings {
@@ -166,6 +185,20 @@ func (s *shardBucketPostings) postingsFor(shardIndex, shardCount uint64) (lists 
 	}
 	s.mtx.RUnlock()
 	return lists, subFiltered
+}
+
+// shardSpread reports how many candidate buckets a shard occupies
+// (bucketCount / gcd(shardCount, bucketCount)) and whether serving it needs
+// sub-filtering (the shard count does not divide the bucket count). It reads
+// only the fixed-length bucket slice, so it takes no lock and builds no lists:
+// ShardedPostings uses it to choose between sub-filtering and a getByID scan
+// before doing any work. A nil receiver or zero shard count reports no spread.
+func (s *shardBucketPostings) shardSpread(shardCount uint64) (candidateBuckets uint64, subFiltered bool) {
+	if s == nil || shardCount == 0 {
+		return 0, false
+	}
+	bucketCount := uint64(len(s.buckets))
+	return bucketCount / gcd(shardCount, bucketCount), bucketCount%shardCount != 0
 }
 
 // numSeries returns the total number of refs held, including refs of deleted

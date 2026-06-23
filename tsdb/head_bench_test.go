@@ -590,24 +590,6 @@ func BenchmarkHeadShardedAllPostings(b *testing.B) {
 	}
 }
 
-// shardedPostingsViaGetByID is the pre-optimization ShardedPostings fallback
-// (what vanilla does): look up every input series and keep those whose shard
-// hash maps to the requested shard. BenchmarkHeadShardedPostingsInputSize uses
-// it as the baseline the bucket sub-filter must beat.
-func shardedPostingsViaGetByID(h *Head, p index.Postings, shardIndex, shardCount uint64) index.Postings {
-	out := make([]storage.SeriesRef, 0, 128)
-	for p.Next() {
-		s := h.series.getByID(chunks.HeadSeriesRef(p.At()))
-		if s == nil {
-			continue
-		}
-		if s.shardHash%shardCount == shardIndex {
-			out = append(out, storage.SeriesRef(s.ref))
-		}
-	}
-	return index.NewListPostings(out)
-}
-
 // BenchmarkHeadShardedPostingsInputSize sweeps the matched-input size for
 // ShardedPostings (the with-input query path) at non-divisor shard counts,
 // comparing the bucket sub-filter against the per-series getByID fallback. The
@@ -627,8 +609,8 @@ func BenchmarkHeadShardedPostingsInputSize(b *testing.B) {
 				name string
 				fn   func(index.Postings, uint64, uint64) index.Postings
 			}{
-				{"subfilter", ir.ShardedPostings},
-				{"getbyid", func(p index.Postings, i, c uint64) index.Postings { return shardedPostingsViaGetByID(h, p, i, c) }},
+				{"subfilter", ir.shardedPostingsViaSubFilter},
+				{"getbyid", ir.shardedPostingsViaGetByID},
 			}
 			for _, s := range strategies {
 				b.Run(fmt.Sprintf("buckets=%03d/N=%07d/%s", candidateBuckets, n, s.name), func(b *testing.B) {
