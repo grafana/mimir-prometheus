@@ -590,6 +590,63 @@ func BenchmarkHeadShardedAllPostings(b *testing.B) {
 	}
 }
 
+// shardedPostingsViaGetByID is the pre-optimization ShardedPostings fallback
+// (what vanilla does): look up every input series and keep those whose shard
+// hash maps to the requested shard. BenchmarkHeadShardedPostingsInputSize uses
+// it as the baseline the bucket sub-filter must beat.
+func shardedPostingsViaGetByID(h *Head, p index.Postings, shardIndex, shardCount uint64) index.Postings {
+	out := make([]storage.SeriesRef, 0, 128)
+	for p.Next() {
+		s := h.series.getByID(chunks.HeadSeriesRef(p.At()))
+		if s == nil {
+			continue
+		}
+		if s.shardHash%shardCount == shardIndex {
+			out = append(out, storage.SeriesRef(s.ref))
+		}
+	}
+	return index.NewListPostings(out)
+}
+
+// BenchmarkHeadShardedPostingsInputSize sweeps the matched-input size for
+// ShardedPostings (the with-input query path) at non-divisor shard counts,
+// comparing the bucket sub-filter against the per-series getByID fallback. The
+// sub-filter pays a fixed setup cost (merging bucketCount/gcd candidate buckets)
+// independent of input size, while getByID is ∝ input size — so getByID should
+// win below some input size, the more so the more candidate buckets (lower gcd).
+func BenchmarkHeadShardedPostingsInputSize(b *testing.B) {
+	const numSeries = 1_000_000
+	h, refs := setupHeadWithSeriesForSharding(b, numSeries)
+	ir := h.indexRange(math.MinInt64, math.MaxInt64)
+
+	for _, shardCount := range []uint64{96, 12, 3} {
+		candidateBuckets := uint64(DefaultShardedPostingsBuckets) / gcd(shardCount, DefaultShardedPostingsBuckets)
+		for _, n := range []int{10, 100, 1_000, 10_000, 100_000, 1_000_000} {
+			input := refs[:n]
+			strategies := []struct {
+				name string
+				fn   func(index.Postings, uint64, uint64) index.Postings
+			}{
+				{"subfilter", ir.ShardedPostings},
+				{"getbyid", func(p index.Postings, i, c uint64) index.Postings { return shardedPostingsViaGetByID(h, p, i, c) }},
+			}
+			for _, s := range strategies {
+				b.Run(fmt.Sprintf("buckets=%03d/N=%07d/%s", candidateBuckets, n, s.name), func(b *testing.B) {
+					b.ReportAllocs()
+					shard := uint64(0)
+					for b.Loop() {
+						p := s.fn(index.NewListPostings(input), shard%shardCount, shardCount)
+						for p.Next() {
+						}
+						require.NoError(b, p.Err())
+						shard++
+					}
+				})
+			}
+		}
+	}
+}
+
 func BenchmarkStripeSeriesShardHashLookup(b *testing.B) {
 	for _, numSeries := range []int{1_000_000, 3_000_000} {
 		b.Run(fmt.Sprintf("series=%d", numSeries), func(b *testing.B) {
