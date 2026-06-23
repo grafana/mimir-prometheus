@@ -19,6 +19,7 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
+	"slices"
 	"strconv"
 	"testing"
 
@@ -521,6 +522,72 @@ func BenchmarkHeadShardedPostings(b *testing.B) {
 		}
 		b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(len(refs)), "ns/series")
 	})
+}
+
+// shardedAllPostingsViaFullScan reproduces the pre-optimization active-series
+// path (the removed Head.ForEachShardHash): scan every series in the head and
+// keep the refs whose shard hash maps to the requested shard. It is the vanilla
+// baseline that Head.ShardedAllPostings' bucket index replaced, used by
+// BenchmarkHeadShardedAllPostings to find where the bucket sub-filter wins or
+// loses against a full scan.
+func shardedAllPostingsViaFullScan(h *Head, shardIndex, shardCount uint64) index.Postings {
+	out := make([]storage.SeriesRef, 0, 128)
+	for i := range h.series.size {
+		h.series.locks[i].RLock()
+		for _, s := range h.series.hashes[i].unique {
+			if s.shardHash%shardCount == shardIndex {
+				out = append(out, storage.SeriesRef(s.ref))
+			}
+		}
+		for _, all := range h.series.hashes[i].conflicts {
+			for _, s := range all {
+				if s.shardHash%shardCount == shardIndex {
+					out = append(out, storage.SeriesRef(s.ref))
+				}
+			}
+		}
+		h.series.locks[i].RUnlock()
+	}
+	slices.Sort(out)
+	return index.NewListPostings(out)
+}
+
+// BenchmarkHeadShardedAllPostings compares the two ways to enumerate all series
+// of one shard (the active-series path, which has no input postings): the
+// shard-bucket sub-filter (Head.ShardedAllPostings) vs a full series scan
+// (shardedAllPostingsViaFullScan). Shard counts span the candidate-bucket
+// spread — divisors 16/128 (exact whole-bucket path) and non-divisors 96/12/3
+// (gcd 32/4/1 -> 4/32/128 candidate buckets). The sub-filter touches
+// 128/gcd(shardCount,128) of the series, so it should beat the full scan at high
+// gcd and lose at gcd 1 (all buckets scanned plus merge overhead).
+func BenchmarkHeadShardedAllPostings(b *testing.B) {
+	const numSeries = 1_000_000
+	h, _ := setupHeadWithSeriesForSharding(b, numSeries)
+
+	for _, shardCount := range []uint64{16, 128, 96, 12, 3} {
+		candidateBuckets := uint64(DefaultShardedPostingsBuckets) / gcd(shardCount, DefaultShardedPostingsBuckets)
+		strategies := []struct {
+			name string
+			fn   func(shardIndex, shardCount uint64) index.Postings
+		}{
+			{"subfilter", h.ShardedAllPostings},
+			{"fullscan", func(i, n uint64) index.Postings { return shardedAllPostingsViaFullScan(h, i, n) }},
+		}
+		for _, s := range strategies {
+			b.Run(fmt.Sprintf("shardCount=%03d/buckets=%03d/%s", shardCount, candidateBuckets, s.name), func(b *testing.B) {
+				b.ReportAllocs()
+				shard := uint64(0)
+				for b.Loop() {
+					p := s.fn(shard%shardCount, shardCount)
+					for p.Next() {
+					}
+					require.NoError(b, p.Err())
+					shard++
+				}
+				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(numSeries), "ns/series")
+			})
+		}
+	}
 }
 
 func BenchmarkStripeSeriesShardHashLookup(b *testing.B) {
