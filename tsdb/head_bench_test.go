@@ -19,7 +19,6 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
-	"slices"
 	"strconv"
 	"testing"
 
@@ -425,7 +424,7 @@ func benchmarkHeadShardedPostings(b *testing.B, h *Head, refs []storage.SeriesRe
 
 func BenchmarkHeadShardedPostings(b *testing.B) {
 	for _, numSeries := range []int{100_000, 1_000_000} {
-		for _, shardCount := range []uint64{16, 64} {
+		for _, shardCount := range []uint64{16, 64, 256} {
 			b.Run(fmt.Sprintf("series=%d/shardCount=%d", numSeries, shardCount), func(b *testing.B) {
 				h, refs := setupHeadWithSeriesForSharding(b, numSeries)
 				benchmarkHeadShardedPostings(b, h, refs, shardCount)
@@ -531,41 +530,24 @@ func BenchmarkHeadShardedPostings(b *testing.B) {
 // BenchmarkHeadShardedAllPostings to find where the bucket sub-filter wins or
 // loses against a full scan.
 func shardedAllPostingsViaFullScan(h *Head, shardIndex, shardCount uint64) index.Postings {
-	out := make([]storage.SeriesRef, 0, 128)
-	for i := range h.series.size {
-		h.series.locks[i].RLock()
-		for _, s := range h.series.hashes[i].unique {
-			if s.shardHash%shardCount == shardIndex {
-				out = append(out, storage.SeriesRef(s.ref))
-			}
-		}
-		for _, all := range h.series.hashes[i].conflicts {
-			for _, s := range all {
-				if s.shardHash%shardCount == shardIndex {
-					out = append(out, storage.SeriesRef(s.ref))
-				}
-			}
-		}
-		h.series.locks[i].RUnlock()
-	}
-	slices.Sort(out)
-	return index.NewListPostings(out)
+	return h.shardedAllPostingsViaSeriesScan(shardIndex, shardCount)
 }
 
 // BenchmarkHeadShardedAllPostings compares the two ways to enumerate all series
 // of one shard (the active-series path, which has no input postings): the
 // shard-bucket sub-filter (Head.ShardedAllPostings) vs a full series scan
-// (shardedAllPostingsViaFullScan). Shard counts span the candidate-bucket
-// spread — divisors 16/128 (exact whole-bucket path) and non-divisors 96/12/3
-// (gcd 32/4/1 -> 4/32/128 candidate buckets). The sub-filter touches
-// 128/gcd(shardCount,128) of the series, so it should beat the full scan at high
-// gcd and lose at gcd 1 (all buckets scanned plus merge overhead).
+// (shardedAllPostingsViaFullScan). Shard counts cover exact multi-bucket
+// routing (16), exact single-bucket routing (128), and one-bucket hash
+// sub-filtering (256).
 func BenchmarkHeadShardedAllPostings(b *testing.B) {
 	const numSeries = 1_000_000
 	h, _ := setupHeadWithSeriesForSharding(b, numSeries)
 
-	for _, shardCount := range []uint64{16, 128, 96, 12, 3} {
-		candidateBuckets := uint64(DefaultShardedPostingsBuckets) / gcd(shardCount, DefaultShardedPostingsBuckets)
+	for _, shardCount := range []uint64{16, 128, 256} {
+		candidateBuckets := uint64(DefaultShardedPostingsBuckets) / shardCount
+		if shardCount > uint64(DefaultShardedPostingsBuckets) {
+			candidateBuckets = 1
+		}
 		strategies := []struct {
 			name string
 			fn   func(shardIndex, shardCount uint64) index.Postings
@@ -586,45 +568,6 @@ func BenchmarkHeadShardedAllPostings(b *testing.B) {
 				}
 				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(numSeries), "ns/series")
 			})
-		}
-	}
-}
-
-// BenchmarkHeadShardedPostingsInputSize sweeps the matched-input size for
-// ShardedPostings (the with-input query path) at non-divisor shard counts,
-// comparing the bucket sub-filter against the per-series getByID fallback. The
-// sub-filter pays a fixed setup cost (merging bucketCount/gcd candidate buckets)
-// independent of input size, while getByID is ∝ input size — so getByID should
-// win below some input size, the more so the more candidate buckets (lower gcd).
-func BenchmarkHeadShardedPostingsInputSize(b *testing.B) {
-	const numSeries = 1_000_000
-	h, refs := setupHeadWithSeriesForSharding(b, numSeries)
-	ir := h.indexRange(math.MinInt64, math.MaxInt64)
-
-	for _, shardCount := range []uint64{96, 12, 3} {
-		candidateBuckets := uint64(DefaultShardedPostingsBuckets) / gcd(shardCount, DefaultShardedPostingsBuckets)
-		for _, n := range []int{10, 100, 1_000, 10_000, 100_000, 1_000_000} {
-			input := refs[:n]
-			strategies := []struct {
-				name string
-				fn   func(index.Postings, uint64, uint64) index.Postings
-			}{
-				{"subfilter", ir.shardedPostingsViaSubFilter},
-				{"getbyid", ir.shardedPostingsViaGetByID},
-			}
-			for _, s := range strategies {
-				b.Run(fmt.Sprintf("buckets=%03d/N=%07d/%s", candidateBuckets, n, s.name), func(b *testing.B) {
-					b.ReportAllocs()
-					shard := uint64(0)
-					for b.Loop() {
-						p := s.fn(index.NewListPostings(input), shard%shardCount, shardCount)
-						for p.Next() {
-						}
-						require.NoError(b, p.Err())
-						shard++
-					}
-				})
-			}
 		}
 	}
 }

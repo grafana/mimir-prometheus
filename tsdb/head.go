@@ -216,28 +216,14 @@ type HeadOptions struct {
 	EnableSharding bool
 
 	// ShardedPostingsBuckets is the number of shard hash buckets the head
-	// indexes series into for ShardedPostings. Must be a power of two; shard
-	// counts that do not divide it are served by per-series filtering
-	// instead of the bucket index. 0 means DefaultShardedPostingsBuckets.
+	// indexes series into for ShardedPostings. Positive values must be powers of
+	// two; shard counts that are powers of two use the bucket index, with counts
+	// larger than the bucket count served from a single bucket plus a hash
+	// sub-filter. Other shard counts fall back to per-series filtering. 0 means
+	// DefaultShardedPostingsBuckets, and negative values disable the bucket index
+	// while keeping sharding enabled through the generic fallback.
 	// Only used when EnableSharding is true.
 	ShardedPostingsBuckets int
-
-	// ShardedPostingsSubFilterMaxBuckets is the candidate-bucket spread
-	// (ShardedPostingsBuckets / gcd(shardCount, ShardedPostingsBuckets)) above
-	// which a small-input ShardedPostings for a non-dividing shard count is
-	// served by a per-series getByID scan instead of sub-filtering candidate
-	// buckets. 0 means defaultShardedPostingsSubFilterMaxBuckets.
-	// Only used when EnableSharding is true.
-	ShardedPostingsSubFilterMaxBuckets uint64
-
-	// ShardedPostingsGetByIDMaxSeries is the matched-input size below which a
-	// wide-spread ShardedPostings (see ShardedPostingsSubFilterMaxBuckets) is
-	// served by a per-series getByID scan rather than sub-filtering; larger
-	// inputs always sub-filter. The wide-spread path peeks up to this many input
-	// refs into a buffer to classify the input size, so a large value raises the
-	// transient per-query allocation. 0 or negative means
-	// defaultShardedPostingsGetByIDMaxSeries. Only used when EnableSharding is true.
-	ShardedPostingsGetByIDMaxSeries int
 
 	// IndexLookupPlannerFunc can be optionally used when querying the index of the Head.
 	IndexLookupPlannerFunc IndexLookupPlannerFunc
@@ -280,22 +266,20 @@ const (
 
 func DefaultHeadOptions() *HeadOptions {
 	ho := &HeadOptions{
-		ChunkRange:                         DefaultBlockDuration,
-		ChunkDirRoot:                       "",
-		ChunkPool:                          chunkenc.NewPool(),
-		ChunkWriteBufferSize:               chunks.DefaultWriteBufferSize,
-		ChunkEndTimeVariance:               0,
-		ChunkWriteQueueSize:                chunks.DefaultWriteQueueSize,
-		SamplesPerChunk:                    DefaultSamplesPerChunk,
-		StripeSize:                         DefaultStripeSize,
-		SeriesCallback:                     &noopSeriesLifecycleCallback{},
-		ShardedPostingsBuckets:             DefaultShardedPostingsBuckets,
-		ShardedPostingsSubFilterMaxBuckets: defaultShardedPostingsSubFilterMaxBuckets,
-		ShardedPostingsGetByIDMaxSeries:    defaultShardedPostingsGetByIDMaxSeries,
-		IsolationDisabled:                  defaultIsolationDisabled,
-		PostingsForMatchersCacheFactory:    DefaultPostingsForMatchersCacheFactory,
-		WALReplayConcurrency:               defaultWALReplayConcurrency,
-		IndexLookupPlannerFunc:             DefaultIndexLookupPlannerFunc,
+		ChunkRange:                      DefaultBlockDuration,
+		ChunkDirRoot:                    "",
+		ChunkPool:                       chunkenc.NewPool(),
+		ChunkWriteBufferSize:            chunks.DefaultWriteBufferSize,
+		ChunkEndTimeVariance:            0,
+		ChunkWriteQueueSize:             chunks.DefaultWriteQueueSize,
+		SamplesPerChunk:                 DefaultSamplesPerChunk,
+		StripeSize:                      DefaultStripeSize,
+		SeriesCallback:                  &noopSeriesLifecycleCallback{},
+		ShardedPostingsBuckets:          DefaultShardedPostingsBuckets,
+		IsolationDisabled:               defaultIsolationDisabled,
+		PostingsForMatchersCacheFactory: DefaultPostingsForMatchersCacheFactory,
+		WALReplayConcurrency:            defaultWALReplayConcurrency,
+		IndexLookupPlannerFunc:          DefaultIndexLookupPlannerFunc,
 	}
 	ho.OutOfOrderCapMax.Store(DefaultOutOfOrderCapMax)
 	ho.FloatChunkEncoding.Store(uint32(chunkenc.EncXOR))
@@ -350,7 +334,7 @@ func NewHead(r prometheus.Registerer, l *slog.Logger, wal, wbl *wlog.WL, opts *H
 		if opts.ShardedPostingsBuckets == 0 {
 			opts.ShardedPostingsBuckets = DefaultShardedPostingsBuckets
 		}
-		if opts.ShardedPostingsBuckets < 0 || opts.ShardedPostingsBuckets&(opts.ShardedPostingsBuckets-1) != 0 {
+		if opts.ShardedPostingsBuckets > 0 && opts.ShardedPostingsBuckets&(opts.ShardedPostingsBuckets-1) != 0 {
 			return nil, fmt.Errorf("invalid sharded postings bucket count %d, must be a power of two", opts.ShardedPostingsBuckets)
 		}
 	}
@@ -447,7 +431,7 @@ func (h *Head) resetInMemoryState() error {
 	h.exemplarMetrics = em
 	h.exemplars = es
 	h.postings = index.NewUnorderedMemPostings()
-	if h.opts.EnableSharding {
+	if h.opts.EnableSharding && h.opts.ShardedPostingsBuckets >= 0 {
 		buckets := h.opts.ShardedPostingsBuckets
 		if buckets == 0 {
 			buckets = DefaultShardedPostingsBuckets
@@ -485,8 +469,8 @@ type headMetrics struct {
 	seriesRemoved              prometheus.Counter
 	seriesNotFound             prometheus.Counter
 	shardedPostingsSubfiltered prometheus.Counter
-	shardedPostingsGetByID     prometheus.Counter
-	shardBucketSeries          prometheus.GaugeFunc
+	shardedPostingsFallback    prometheus.Counter
+	shardedAllPostingsFallback prometheus.Counter
 	chunks                     prometheus.Gauge
 	chunksCreated              prometheus.Counter
 	chunksRemoved              prometheus.Counter
@@ -551,17 +535,15 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 		}),
 		shardedPostingsSubfiltered: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_sharded_postings_subfiltered_total",
-			Help: "Total number of ShardedPostings calls for a shard count that does not divide the shard bucket count served by sub-filtering candidate buckets (rather than the per-series getByID scan); together with prometheus_tsdb_head_sharded_postings_getbyid_total this covers all non-dividing calls.",
+			Help: "Total number of ShardedPostings calls for a power-of-two shard count larger than the shard bucket count, served by sub-filtering the single candidate bucket.",
 		}),
-		shardedPostingsGetByID: prometheus.NewCounter(prometheus.CounterOpts{
-			Name: "prometheus_tsdb_head_sharded_postings_getbyid_total",
-			Help: "Total number of ShardedPostings calls served by a per-series getByID scan, chosen for a shard count whose candidate-bucket spread is wide and whose matched input is small, where getByID beats sub-filtering.",
+		shardedPostingsFallback: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_sharded_postings_fallback_total",
+			Help: "Total number of ShardedPostings calls served by per-series filtering because the shard count is not a power of two or the shard bucket index is disabled.",
 		}),
-		shardBucketSeries: prometheus.NewGaugeFunc(prometheus.GaugeOpts{
-			Name: "prometheus_tsdb_head_shard_bucket_postings_series",
-			Help: "Number of series refs held in the head shard bucket postings lists, including refs of deleted series not yet removed.",
-		}, func() float64 {
-			return float64(h.shardBuckets.numSeries())
+		shardedAllPostingsFallback: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "prometheus_tsdb_head_sharded_all_postings_fallback_total",
+			Help: "Total number of ShardedAllPostings calls served by a full series scan because the shard count is not a power of two or the shard bucket index is disabled.",
 		}),
 		chunks: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "prometheus_tsdb_head_chunks",
@@ -690,8 +672,8 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.seriesRemoved,
 			m.seriesNotFound,
 			m.shardedPostingsSubfiltered,
-			m.shardedPostingsGetByID,
-			m.shardBucketSeries,
+			m.shardedPostingsFallback,
+			m.shardedAllPostingsFallback,
 			m.gcDuration,
 			m.walTruncateDuration,
 			m.walCorruptionsTotal,
@@ -2124,12 +2106,10 @@ func (h *Head) getOrCreateWithOptionalID(id chunks.HeadSeriesRef, hash uint64, l
 	h.metrics.seriesCreated.Inc()
 	h.numSeries.Inc()
 
-	if h.shardBuckets != nil {
-		// The series must be in its shard bucket before it becomes visible
-		// in the postings index: ShardedPostings relies on every
-		// postings-visible ref being present in its bucket.
-		h.shardBuckets.add(id, shardHash)
-	}
+	// The series must be in its shard bucket before it becomes visible in the
+	// postings index: ShardedPostings relies on every postings-visible ref being
+	// present in its bucket. add is a no-op when the bucket index is disabled.
+	h.shardBuckets.add(id, shardHash)
 	h.postings.Add(storage.SeriesRef(id), lset)
 
 	// Adding the series in the postings marks the creation of series
@@ -3085,17 +3065,49 @@ func (h *Head) ForEachSecondaryHash(fn func(ref []chunks.HeadSeriesRef, secondar
 }
 
 // ShardedAllPostings returns the postings of all series in the head that belong
-// to shard shardIndex of shardCount, using the shard hash bucket index. The
-// returned postings are sorted by ref and may include refs of series deleted
-// since the call began, which callers resolve like any other stale postings
-// entry. It returns empty postings when sharding is disabled or the shard index
-// is out of range.
+// to shard shardIndex of shardCount. Power-of-two shard counts use the shard
+// hash bucket index when it is enabled; other shard counts and disabled bucket
+// indexes fall back to a full series scan. The returned postings are sorted by
+// ref and may include refs of series deleted since the call began, which callers
+// resolve like any other stale postings entry. It returns empty postings when
+// sharding is disabled or the shard index is out of range.
 func (h *Head) ShardedAllPostings(shardIndex, shardCount uint64) index.Postings {
 	if !h.opts.EnableSharding || shardIndex >= shardCount {
 		return index.EmptyPostings()
 	}
+	if h.shardBuckets == nil || !isPowerOfTwo(shardCount) {
+		return h.shardedAllPostingsViaSeriesScan(shardIndex, shardCount)
+	}
 	lists, _ := h.shardBuckets.postingsFor(shardIndex, shardCount)
 	return index.Merge(context.Background(), lists...)
+}
+
+func (h *Head) shardedAllPostingsViaSeriesScan(shardIndex, shardCount uint64) index.Postings {
+	h.metrics.shardedAllPostingsFallback.Inc()
+
+	capacity := h.NumSeries() / shardCount
+	if capacity > uint64(math.MaxInt) {
+		capacity = uint64(math.MaxInt)
+	}
+	out := make([]storage.SeriesRef, 0, int(capacity))
+	for i := range h.series.size {
+		h.series.locks[i].RLock()
+		for _, s := range h.series.hashes[i].unique {
+			if s.shardHash%shardCount == shardIndex {
+				out = append(out, storage.SeriesRef(s.ref))
+			}
+		}
+		for _, all := range h.series.hashes[i].conflicts {
+			for _, s := range all {
+				if s.shardHash%shardCount == shardIndex {
+					out = append(out, storage.SeriesRef(s.ref))
+				}
+			}
+		}
+		h.series.locks[i].RUnlock()
+	}
+	slices.Sort(out)
+	return index.NewListPostings(out)
 }
 
 type pairOfSlices[T1, T2 any] struct {
