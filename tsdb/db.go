@@ -2001,7 +2001,7 @@ func (db *DB) compactHeadViewLocked(viewFactory headViewFactory, evict headSerie
 		if len(uids) == 0 {
 			continue
 		}
-		
+
 		db.logger.Info("Head portion block created", "ulids", fmt.Sprintf("%v", uids), "min_time", mint, "max_time", maxt)
 
 		if err := db.reloadBlocks(); err != nil {
@@ -2116,7 +2116,7 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 			return NewSelectedSeriesHead(h, mint, maxt, selectedSeriesRefs)
 		},
 		func(maxt int64, appendIDWatermark uint64) error {
-			return db.head.truncateSelectedSeries(seriesRefs, maxt, appendIDWatermark)
+			return db.head.truncateSelectedSeries(selectedSeriesRefs.sortedByRef, maxt, appendIDWatermark)
 		},
 		func(meta *BlockMeta) { meta.Compaction.SetSelectedSeries() },
 	); err != nil {
