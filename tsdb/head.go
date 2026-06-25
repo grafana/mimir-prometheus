@@ -1935,9 +1935,8 @@ func (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {
 	h.numSeries.Sub(uint64(seriesRemoved))
 	h.numStaleSeries.Sub(uint64(staleSeriesDeleted))
 
-	// Remove deleted series IDs from the postings lists.
-	h.postings.Delete(deleted, affected)
-	h.shardBuckets.remove(deleted)
+	// Remove deleted series IDs from the postings indexes.
+	h.deletePostingsForSeries(deleted, affected)
 
 	// Remove tombstones referring to the deleted series.
 	h.tombstones.DeleteTombstones(deleted)
@@ -1956,6 +1955,21 @@ func (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {
 	}
 
 	return actualInOrderMint, minOOOTime, minMmapFile
+}
+
+// deletePostingsForSeries removes deleted series from both head postings indexes.
+func (h *Head) deletePostingsForSeries(deleted map[storage.SeriesRef]struct{}, affected map[labels.Label]struct{}) {
+	h.postings.Delete(deleted, affected)
+	h.shardBuckets.remove(deleted)
+}
+
+// addPostingsForSeries adds a series to both head postings indexes.
+func (h *Head) addPostingsForSeries(id chunks.HeadSeriesRef, shardHash uint64, lset labels.Labels) {
+	// The series must be in its shard bucket before it becomes visible in the
+	// postings index: ShardedPostings relies on every postings-visible ref being
+	// present in its bucket. add is a no-op when the bucket index is disabled.
+	h.shardBuckets.add(id, shardHash)
+	h.postings.Add(storage.SeriesRef(id), lset)
 }
 
 // Tombstones returns a new reader over the head's tombstones.
@@ -2106,11 +2120,7 @@ func (h *Head) getOrCreateWithOptionalID(id chunks.HeadSeriesRef, hash uint64, l
 	h.metrics.seriesCreated.Inc()
 	h.numSeries.Inc()
 
-	// The series must be in its shard bucket before it becomes visible in the
-	// postings index: ShardedPostings relies on every postings-visible ref being
-	// present in its bucket. add is a no-op when the bucket index is disabled.
-	h.shardBuckets.add(id, shardHash)
-	h.postings.Add(storage.SeriesRef(id), lset)
+	h.addPostingsForSeries(id, shardHash, lset)
 
 	// Adding the series in the postings marks the creation of series
 	// as any further calls to this and the read methods would return that series.
@@ -2318,7 +2328,7 @@ func newStripeSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *st
 // gc garbage collects old chunks that are strictly before mint and removes
 // series entirely that have no chunks left.
 // note: returning map[chunks.HeadSeriesRef]struct{} would be more accurate,
-// but the returned map goes into postings.Delete() which expects a map[storage.SeriesRef]struct
+// but the returned map goes into Head.deletePostingsForSeries() which expects a map[storage.SeriesRef]struct
 // and there's no easy way to cast maps.
 // minMmapFile is the min mmap file number seen in the series (in-order and out-of-order) after gc'ing the series.
 func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _, _ int, _, _ int64, minMmapFile int) {
@@ -2423,9 +2433,8 @@ func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict 
 	h.metrics.chunks.Sub(float64(chunksRemoved))
 	h.numSeries.Sub(uint64(seriesRemoved))
 
-	// Remove deleted series IDs from the postings lists.
-	h.postings.Delete(deleted, affected)
-	h.shardBuckets.remove(deleted)
+	// Remove deleted series IDs from the postings indexes.
+	h.deletePostingsForSeries(deleted, affected)
 
 	// Remove tombstones referring to the deleted series.
 	h.tombstones.DeleteTombstones(deleted)
@@ -2505,9 +2514,8 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 	h.numSeries.Sub(uint64(len(deleted)))
 	h.numStaleSeries.Sub(uint64(staleSeriesDeleted))
 
-	// Remove deleted series IDs from the postings lists.
-	h.postings.Delete(deleted, affected)
-	h.shardBuckets.remove(deleted)
+	// Remove deleted series IDs from the postings indexes.
+	h.deletePostingsForSeries(deleted, affected)
 
 	// Remove tombstones referring to the deleted series.
 	h.tombstones.DeleteTombstones(deleted)
