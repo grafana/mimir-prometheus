@@ -224,19 +224,19 @@ importers:
         version: 11.5.1
     devDependencies:
       '@codemirror/autocomplete':
-        specifier: ^6.20.3
+        specifier: 6.20.3
         version: 6.20.3
       '@codemirror/language':
-        specifier: ^6.12.3
+        specifier: 6.12.3
         version: 6.12.3
       '@codemirror/lint':
-        specifier: ^6.9.7
+        specifier: 6.9.7
         version: 6.9.7
       '@codemirror/state':
-        specifier: ^6.6.0
+        specifier: 6.6.0
         version: 6.6.0
       '@codemirror/view':
-        specifier: ^6.43.1
+        specifier: 6.43.1
         version: 6.43.1
       '@eslint/compat':
         specifier: ^1.4.1
