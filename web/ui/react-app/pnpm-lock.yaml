@@ -148,13 +148,13 @@ importers:
         specifier: ^22.19.21
         version: 22.19.21
       '@types/react':
-        specifier: ^17.0.93
+        specifier: 17.0.93
         version: 17.0.93
       '@types/react-copy-to-clipboard':
         specifier: ^5.0.7
         version: 5.0.7
       '@types/react-dom':
-        specifier: ^17.0.26
+        specifier: 17.0.26
         version: 17.0.26(@types/react@17.0.93)
       '@types/react-router-dom':
         specifier: ^5.3.3
