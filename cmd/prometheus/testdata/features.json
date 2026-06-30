@@ -32,7 +32,7 @@
     "bool": true,
     "by": true,
     "delayed_name_removal": false,
-    "duration_expr": false,
+    "duration_expr": true,
     "fill": false,
     "fill_left": false,
     "fill_right": false,
@@ -212,6 +212,7 @@
     "msk": true,
     "nerve": true,
     "nomad": true,
+    "oci": true,
     "openstack": true,
     "outscale": true,
     "ovhcloud": true,
@@ -262,8 +263,8 @@
     "isolation": true,
     "native_histograms": true,
     "st_storage": false,
-    "xor2_encoding": false,
-    "use_uncached_io": false
+    "use_uncached_io": false,
+    "xor2_encoding": false
   },
   "ui": {
     "ui_v2": false,
