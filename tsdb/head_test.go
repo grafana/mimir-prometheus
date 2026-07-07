@@ -911,6 +911,40 @@ func TestHead_ReadWAL(t *testing.T) {
 	}
 }
 
+func TestHead_ReadWAL_TombstonesAdvanceLastSeriesID(t *testing.T) {
+	entries := []any{
+		[]record.RefSeries{
+			{Ref: 10, Labels: labels.FromStrings("a", "1")},
+		},
+		[]record.RefSample{
+			{Ref: 10, T: 100, V: 1},
+		},
+		[]tombstones.Stone{
+			// Interval tombstone for a ref with no series record in the WAL.
+			{Ref: 35, Intervals: []tombstones.Interval{{Mint: 0, Maxt: 100}}},
+			// Full-range tombstone for a ref with no series record in the WAL,
+			// e.g. because the record was dropped from the checkpoint after the
+			// tombstone deleted the series during an earlier replay.
+			{Ref: 42, Intervals: []tombstones.Interval{{Mint: math.MinInt64, Maxt: math.MaxInt64}}},
+		},
+	}
+
+	head, w := newTestHead(t, 1000, compression.None, false)
+	defer func() {
+		require.NoError(t, head.Close())
+	}()
+
+	populateTestWL(t, w, entries, nil, false)
+
+	require.NoError(t, head.Init(math.MinInt64))
+
+	// lastSeriesID must account for tombstone refs, not just series records:
+	// otherwise a new series could be issued ref 42, and the full-range
+	// tombstone (retained in checkpoints indefinitely) would delete it on the
+	// next replay.
+	require.Equal(t, uint64(42), head.lastSeriesID.Load())
+}
+
 func TestHead_LoadWALSeriesMissingAcrossSegments(t *testing.T) {
 	head, w := newTestHead(t, 1000, compression.None, false)
 	defer func() {
