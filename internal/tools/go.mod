@@ -30,7 +30,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/bufbuild/protocompile v0.14.2-0.20260306221011-519528254156 // indirect
-	github.com/bufbuild/protoplugin v0.0.0-20250218205857-750e09ce93e1 // indirect
+	github.com/bufbuild/protoplugin v0.0.0-20260414125817-25d1d281b46b // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/cli/browser v1.3.0 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
