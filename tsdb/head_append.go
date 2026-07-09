@@ -1636,13 +1636,11 @@ func (s *memSeries) appendHistogram(t int64, h *histogram.Histogram, appendID ui
 		return true, false
 	}
 
-	s.headChunks = &memChunk{
+	s.pushHeadChunk(&memChunk{
 		chunk:   newChunk,
 		minTime: t,
 		maxTime: t,
-		prev:    s.headChunks,
-	}
-	s.headChunkCount.Add(1)
+	})
 	s.nextAt = rangeForTimestamp(t, o.chunkRange)
 	return true, true
 }
@@ -1694,13 +1692,11 @@ func (s *memSeries) appendFloatHistogram(t int64, fh *histogram.FloatHistogram, 
 		return true, false
 	}
 
-	s.headChunks = &memChunk{
+	s.pushHeadChunk(&memChunk{
 		chunk:   newChunk,
 		minTime: t,
 		maxTime: t,
-		prev:    s.headChunks,
-	}
-	s.headChunkCount.Add(1)
+	})
 	s.nextAt = rangeForTimestamp(t, o.chunkRange)
 	return true, true
 }
@@ -1896,33 +1892,31 @@ func (s *memSeries) cutNewHeadChunk(mint int64, e chunkenc.Encoding, chunkRange 
 	// pointing at the current .headChunks, so it forms a linked list.
 	// All but first headChunks list elements will be m-mapped as soon as possible
 	// so this is a single element list most of the time.
-	s.headChunks = &memChunk{
+	chk := s.pushHeadChunk(&memChunk{
 		minTime: mint,
 		maxTime: math.MinInt64,
-		prev:    s.headChunks,
-	}
-	s.headChunkCount.Add(1)
+	})
 
 	if chunkenc.IsValidEncoding(e) {
 		var err error
-		s.headChunks.chunk, err = chunkenc.NewEmptyChunk(e)
+		chk.chunk, err = chunkenc.NewEmptyChunk(e)
 		if err != nil {
 			panic(err) // This should never happen.
 		}
 	} else {
-		s.headChunks.chunk = chunkenc.NewXORChunk()
+		chk.chunk = chunkenc.NewXORChunk()
 	}
 
 	// Set upper bound on when the next chunk must be started. An earlier timestamp
 	// may be chosen dynamically at a later point.
 	s.nextAt = rangeForTimestamp(mint, chunkRange)
 
-	app, err := s.headChunks.chunk.Appender()
+	app, err := chk.chunk.Appender()
 	if err != nil {
 		panic(err)
 	}
 	s.app = app
-	return s.headChunks
+	return chk
 }
 
 // cutNewOOOHeadChunk cuts a new OOO chunk and m-maps the old chunk.
@@ -1993,7 +1987,7 @@ func (s *memSeries) mmapChunks(chunkDiskMapper *chunks.ChunkDiskMapper) (count i
 
 	// Remove the tail of the list, leaving only the most recent head chunk.
 	s.headChunks.prev = nil
-	s.headChunkCount.Store(1)
+	s.setHeadChunks(s.headChunks, 1)
 
 	return count
 }
