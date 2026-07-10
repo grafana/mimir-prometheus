@@ -68,7 +68,7 @@ func TestPostingsForMatchersCache(t *testing.T) {
 	newPostingsForMatchersCache := func(config PostingsForMatchersCacheConfig, pfm func(_ context.Context, ix IndexPostingsReader, ms ...*labels.Matcher) (index.Postings, error), timeMock *timeNowMock) *PostingsForMatchersCache {
 		c := NewPostingsForMatchersCacheFactory(config).NewPostingsForMatchersCache(nil)
 		if c.postingsForMatchers == nil {
-			t.Fatalf("NewPostingsForMatchersCache() didn't assign postingsForMatchers func")
+			t.Fatal("NewPostingsForMatchersCache() didn't assign postingsForMatchers func")
 		}
 		c.postingsForMatchers = pfm
 		c.timeNow = timeMock.timeNow

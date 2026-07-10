@@ -1153,6 +1153,7 @@ func TestMetricsUpdate(t *testing.T) {
 		"prometheus_rule_evaluation_failures_total",
 		"prometheus_rule_group_interval_seconds",
 		"prometheus_rule_group_last_duration_seconds",
+		"prometheus_rule_group_last_rule_duration_sum_seconds",
 		"prometheus_rule_group_last_evaluation_timestamp_seconds",
 		"prometheus_rule_group_rules",
 	}
@@ -1197,11 +1198,11 @@ func TestMetricsUpdate(t *testing.T) {
 	}{
 		{
 			files:   files,
-			metrics: 14,
+			metrics: 16,
 		},
 		{
 			files:   files[:1],
-			metrics: 7,
+			metrics: 8,
 		},
 		{
 			files:   files[:0],
@@ -1209,7 +1210,7 @@ func TestMetricsUpdate(t *testing.T) {
 		},
 		{
 			files:   files[1:],
-			metrics: 7,
+			metrics: 8,
 		},
 	}
 
