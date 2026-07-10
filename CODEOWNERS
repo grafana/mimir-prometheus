@@ -10,10 +10,10 @@
 /Makefile                       @prometheus/default-maintainers @grafana/mimir-maintainers @simonpasquier @SuperQ
 /cmd/promtool                   @prometheus/default-maintainers @grafana/mimir-maintainers @dgl
 /documentation/prometheus-mixin @prometheus/default-maintainers @grafana/mimir-maintainers @metalmatze
-/model/histogram                @prometheus/default-maintainers @grafana/mimir-maintainers @beorn7 @krajorama
+/model/histogram                @prometheus/default-maintainers @grafana/mimir-maintainers @krajorama
 /web/ui                         @prometheus/default-maintainers @grafana/mimir-maintainers @juliusv
 /web/ui/module                  @prometheus/default-maintainers @grafana/mimir-maintainers @juliusv @nexucis
-/promql                         @prometheus/default-maintainers @grafana/mimir-maintainers @roidelapluie
+/promql                         @prometheus/default-maintainers @grafana/mimir-maintainers @roidelapluie @vpranckaitis
 /storage/remote                 @prometheus/default-maintainers @grafana/mimir-maintainers @cstyan @bwplotka @tomwilkie @alexgreenbank
 /storage/remote/otlptranslator  @prometheus/default-maintainers @grafana/mimir-maintainers @aknuds1 @jesusvazquez @ArthurSens
 /tsdb                           @prometheus/default-maintainers @grafana/mimir-maintainers @jesusvazquez @codesome @bwplotka @krajorama
