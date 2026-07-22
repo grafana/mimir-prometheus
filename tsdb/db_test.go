@@ -4143,9 +4143,26 @@ func TestQuerierShouldNotFailIfOOOCompactionOccursAfterRetrievingQuerier(t *test
 		compactionErr <- db.CompactOOOHead(ctx)
 	}()
 
-	// Give CompactOOOHead time to start work.
-	// If it does not wait for querierCreatedBeforeCompaction to be closed, then the query will return incorrect results or fail.
-	time.Sleep(time.Second)
+	// Wait until CompactOOOHead has written the OOO block, reloaded, and published
+	// lastGarbageCollectedMmapRef before creating the second querier below.
+	// Until that ref is set, the second querier would capture the stale ref (0)
+	// and permanently block the OOO reader-wait loop, which has no timeout, hanging
+	// the test on slow runners.
+	// If compaction exits before publishing the ref, stop waiting so its error can
+	// be reported below instead of being masked by the timeout.
+	require.Eventually(t, func() bool {
+		if compactionComplete.Load() {
+			return true
+		}
+		db.mtx.RLock()
+		defer db.mtx.RUnlock()
+		return db.lastGarbageCollectedMmapRef != 0
+	}, time.Minute, 10*time.Millisecond, "CompactOOOHead did not reach the reader-wait phase")
+	if compactionComplete.Load() {
+		require.NoError(t, <-compactionErr)
+	}
+	// The compaction must still be waiting for querierCreatedBeforeCompaction to be
+	// closed. If it does not wait, then the query will return incorrect results or fail.
 	require.False(t, compactionComplete.Load(), "compaction completed before reading chunks or closing querier created before compaction")
 
 	// Get another querier. This one should only use the compacted blocks from disk and ignore the chunks that will be garbage collected.
@@ -8775,8 +8792,8 @@ func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenari
 	checkMmapFileContents([]string{"000001", "000002"}, nil)
 
 	// NOTE: We are investigating flaky errors from this compaction on i386 architecture. Compaction panics due to chunk
-	// mapper fatal error. Recover here to understand the error cause. Leaving panic recovery to test causes deadlock
-	// as t.Cleanup tries to close DB with open locks.
+	// mapper fatal error. mmapHeadChunks and NewOOOCompactionHead now use deferred unlocking, so panics no longer
+	// cause deadlocks during cleanup.
 	// See https://github.com/prometheus/prometheus/issues/17941#issuecomment-3846381263
 	require.NotPanics(t, func() {
 		require.NoError(t, db.Compact(ctx))
@@ -8790,8 +8807,8 @@ func testDiskFillingUpAfterDisablingOOO(t *testing.T, scenario sampleTypeScenari
 	checkMmapFileContents([]string{"000002", "000003"}, []string{"000001"})
 
 	// NOTE: We are investigating flaky errors from this compaction on i386 architecture. Compaction panics due to chunk
-	// mapper fatal error. Recover here to understand the error cause. Leaving panic recovery to test causes deadlock
-	// as t.Cleanup tries to close DB with open locks.
+	// mapper fatal error. mmapHeadChunks and NewOOOCompactionHead now use deferred unlocking, so panics no longer
+	// cause deadlocks during cleanup.
 	// See https://github.com/prometheus/prometheus/issues/17941#issuecomment-3846381263
 	require.NotPanics(t, func() {
 		require.NoError(t, db.Compact(ctx))
@@ -9377,9 +9394,7 @@ func TestChunkQuerierReadWriteRace(t *testing.T) {
 			it := cs.Iterator(nil)
 			for it.Next() {
 				m := it.At()
-				b := m.Chunk.Bytes()
-				bb := make([]byte, len(b))
-				copy(bb, b) // This copying of chunk bytes detects any race.
+				_ = bytes.Clone(m.Chunk.Bytes()) // This copying of chunk bytes detects any race.
 			}
 		}
 		require.NoError(t, ss.Err())

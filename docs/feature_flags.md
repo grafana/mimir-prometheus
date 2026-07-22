@@ -114,7 +114,7 @@ Besides enabling this feature in Prometheus, start timestamps need to be exposed
 
 `--enable-feature=use-start-timestamps`
 
-Enables the use of start timestamps (ST) in PromQL functions such as `rate()`, `irate()`, and `increase()`. This feature doesn't currently work with extended range selectors (`promql-extended-range-selectors`). 
+Enables the use of start timestamps (ST) in PromQL functions such as `rate()`, `irate()`, `increase()` and `start_timestamp()`. This feature doesn't currently work with extended range selectors (`promql-extended-range-selectors`). 
 
 ## Start timestamp (ST) synthesis
 
@@ -139,7 +139,7 @@ reason to run them sequentially.
 When the `concurrent-rule-eval` feature flag is enabled, rules without any dependency on other rules within a rule group will be evaluated concurrently.
 This has the potential to improve rule group evaluation latency and resource utilization at the expense of adding more concurrent query load.
 
-The number of concurrent rule evaluations can be configured with `--rules.max-concurrent-rule-evals`, which is set to `4` by default.
+The number of concurrent rule evaluations can be configured with `--rules.max-concurrent-evals`, which is set to `4` by default.
 
 ## Serve old Prometheus UI
 

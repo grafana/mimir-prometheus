@@ -722,7 +722,7 @@ tls_config:
 # that should be excluded from proxying. IP and domain names can
 # contain port numbers.
 [ no_proxy: <string> ]
-# Use proxy URL indicated by environment variables (HTTP_PROXY, https_proxy, HTTPs_PROXY, https_proxy, and no_proxy)
+# Use proxy URL indicated by environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, and their lowercase versions)
 [ proxy_from_environment: <boolean> | default: false ]
 # Specifies headers to send to proxies during CONNECT requests.
 [ proxy_connect_header:
@@ -857,7 +857,7 @@ tls_config:
 # that should be excluded from proxying. IP and domain names can
 # contain port numbers.
 [ no_proxy: <string> ]
-# Use proxy URL indicated by environment variables (HTTP_PROXY, https_proxy, HTTPs_PROXY, https_proxy, and no_proxy)
+# Use proxy URL indicated by environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, and their lowercase versions)
 [ proxy_from_environment: <boolean> | default: false ]
 # Specifies headers to send to proxies during CONNECT requests.
 [ proxy_connect_header:
@@ -3041,7 +3041,7 @@ region: <string>
 # that should be excluded from proxying. IP and domain names can
 # contain port numbers.
 [ no_proxy: <string> ]
-# Use proxy URL indicated by environment variables (HTTP_PROXY, https_proxy, HTTPs_PROXY, https_proxy, and no_proxy)
+# Use proxy URL indicated by environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, and their lowercase versions)
 [ proxy_from_environment: <boolean> | default: false ]
 # Specifies headers to send to proxies during CONNECT requests.
 [ proxy_connect_header:
@@ -4054,7 +4054,7 @@ metadata_config:
   # How frequently metric metadata is sent to remote storage.
   [ send_interval: <duration> | default = 1m ]
   # Maximum number of samples per send.
-  [ max_samples_per_send: <int> | default = 500]
+  [ max_samples_per_send: <int> | default = 2000]
 
 # HTTP client settings, including authentication methods (such as basic auth and
 # authorization), proxy configurations, TLS options, custom HTTP headers, etc.
