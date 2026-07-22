@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- [CHANGE] relabel: `separator` and `replacement` are no longer `omitempty` in the YAML/JSON representation of a relabel config, so they are always serialized (including as empty strings). Empty values set explicitly now survive a marshal/unmarshal round-trip instead of being silently reset to the defaults (`;` / `$1`). `Regexp` YAML marshaling now emits `""` for a non-nil empty regex instead of dropping it. #18653
 - [BUGFIX] Discovery/AWS: Defer region resolution in EC2, ECS, RDS, MSK, ElastiCache, and Lightsail service discovery configs from YAML unmarshaling to SD init time. `promtool check config` and other config-only operations no longer make network calls to the EC2 instance metadata service (IMDS) when the region is omitted, which is supported by the documented configuration. Region resolution errors now surface at the discovery's first refresh instead of failing config validation. #19037
 
 ## 3.13.0 / 2026-07-01
