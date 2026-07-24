@@ -51,7 +51,7 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gofrs/flock v0.13.0 // indirect
-	github.com/google/cel-go v0.27.0 // indirect
+	github.com/google/cel-go v0.29.0 // indirect
 	github.com/google/go-containerregistry v0.20.7 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hexops/gotextdiff v1.0.3 // indirect
