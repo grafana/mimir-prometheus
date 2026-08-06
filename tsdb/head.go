@@ -1641,7 +1641,8 @@ func (h *Head) truncateWAL(mint int64) error {
 		}
 		return false
 	}
-	if _, err = wlog.Checkpoint(h.logger, h.wal, first, last, keep, mint, h.opts.EnableSTStorage.Load()); err != nil {
+	cpStats, err := wlog.Checkpoint(h.logger, h.wal, first, last, keep, mint, h.opts.EnableSTStorage.Load())
+	if err != nil {
 		h.metrics.checkpointCreationFail.Inc()
 		var cerr *chunks.CorruptionErr
 		if errors.As(err, &cerr) {
@@ -1663,6 +1664,10 @@ func (h *Head) truncateWAL(mint int64) error {
 			"dropped_expired_expiry", droppedExpiredExpiry,
 			"wal_expiries_tracked", walExpiriesTracked,
 			"example_dropped_refs", fmt.Sprintf("%v", exampleDroppedRefs),
+			"stats_total_series", cpStats.TotalSeries,
+			"stats_dropped_series", cpStats.DroppedSeries,
+			"stats_total_samples", cpStats.TotalSamples,
+			"stats_dropped_samples", cpStats.DroppedSamples,
 		)
 	}
 	if err := h.wal.Truncate(last + 1); err != nil {
@@ -1673,13 +1678,37 @@ func (h *Head) truncateWAL(mint int64) error {
 	}
 
 	// The checkpoint is written and data before mint is truncated, so stop tracking expired series.
+	// DIAGNOSTIC (unknown-series-refs investigation): count and report the series-record
+	// protections dropped here. This is the lifecycle event that lets a *later* checkpoint
+	// drop a still-referenced series record: once the expiry is gone, keepSeriesInWALCheckpointFn
+	// returns false for that ref. Correlate max_deleted_keep_until against the orphaned
+	// samples' time range from replay. Remove once the investigation concludes.
 	h.walExpiriesMtx.Lock()
+	deletedExpiries := 0
+	minDeletedKeepUntil, maxDeletedKeepUntil := int64(math.MaxInt64), int64(math.MinInt64)
 	for ref, keepUntil := range h.walExpiries {
 		if keepUntil < mint {
 			delete(h.walExpiries, ref)
+			deletedExpiries++
+			if keepUntil < minDeletedKeepUntil {
+				minDeletedKeepUntil = keepUntil
+			}
+			if keepUntil > maxDeletedKeepUntil {
+				maxDeletedKeepUntil = keepUntil
+			}
 		}
 	}
+	remainingExpiries := len(h.walExpiries)
 	h.walExpiriesMtx.Unlock()
+	if deletedExpiries > 0 {
+		h.logger.Info("DIAGNOSTIC WAL truncation dropped expired series-record protections",
+			"mint", mint,
+			"deleted_expiries", deletedExpiries,
+			"min_deleted_keep_until", minDeletedKeepUntil,
+			"max_deleted_keep_until", maxDeletedKeepUntil,
+			"remaining_expiries", remainingExpiries,
+		)
+	}
 
 	h.metrics.checkpointDeleteTotal.Inc()
 	if err := wlog.DeleteCheckpoints(h.wal.Dir(), last); err != nil {
