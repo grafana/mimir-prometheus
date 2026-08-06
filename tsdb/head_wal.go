@@ -843,6 +843,25 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmapp
 	missingSeries := make(map[chunks.HeadSeriesRef]struct{})
 	var unknownSampleRefs, unknownHistogramRefs, mmapOverlappingChunks uint64
 
+	// DIAGNOSTIC (unknown-series-refs investigation): capture the timestamp span and
+	// a few example refs of samples whose series record was missing, so we can
+	// correlate the orphaned samples' time range with the checkpoint mint reported
+	// by the "DIAGNOSTIC WAL checkpoint keep decisions" log. Remove once the
+	// investigation concludes.
+	orphanMinT, orphanMaxT := int64(math.MaxInt64), int64(math.MinInt64)
+	orphanExampleRefs := make([]chunks.HeadSeriesRef, 0, 5)
+	trackOrphan := func(ref chunks.HeadSeriesRef, t int64) {
+		if t < orphanMinT {
+			orphanMinT = t
+		}
+		if t > orphanMaxT {
+			orphanMaxT = t
+		}
+		if len(orphanExampleRefs) < cap(orphanExampleRefs) {
+			orphanExampleRefs = append(orphanExampleRefs, ref)
+		}
+	}
+
 	minValidTime := h.minValidTime.Load()
 	mint, maxt := int64(math.MaxInt64), int64(math.MinInt64)
 	// storeST must be passed here so that appendPreprocessor cuts an in-progress
@@ -873,6 +892,7 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmapp
 			if ms == nil {
 				unknownSampleRefs++
 				missingSeries[s.Ref] = struct{}{}
+				trackOrphan(s.Ref, s.T)
 				continue
 			}
 			if s.T <= ms.mmMaxTime {
@@ -899,6 +919,7 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmapp
 			if ms == nil {
 				unknownHistogramRefs++
 				missingSeries[s.ref] = struct{}{}
+				trackOrphan(s.ref, s.t)
 				continue
 			}
 			if s.t <= ms.mmMaxTime {
@@ -927,6 +948,21 @@ func (wp *walSubsetProcessor) processWALSamples(h *Head, mmappedChunks, oooMmapp
 		}
 	}
 	h.updateMinMaxTime(mint, maxt)
+
+	// DIAGNOSTIC (unknown-series-refs investigation): report the orphaned-sample
+	// timestamp span for this replay shard when any were seen. Correlate orphan_min_t
+	// / orphan_max_t against the checkpoint mint to determine whether the missing
+	// series records were dropped by a checkpoint whose mint fell within the orphaned
+	// samples' time range. Remove once the investigation concludes.
+	if unknownSampleRefs > 0 || unknownHistogramRefs > 0 {
+		h.logger.Warn("DIAGNOSTIC WAL replay shard orphaned samples (no series record)",
+			"unknown_float_samples", unknownSampleRefs,
+			"unknown_histogram_samples", unknownHistogramRefs,
+			"orphan_min_t", orphanMinT,
+			"orphan_max_t", orphanMaxT,
+			"example_refs", fmt.Sprintf("%v", orphanExampleRefs),
+		)
+	}
 
 	return missingSeries, unknownSampleRefs, unknownHistogramRefs, mmapOverlappingChunks
 }

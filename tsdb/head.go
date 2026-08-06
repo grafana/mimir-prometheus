@@ -1428,6 +1428,21 @@ func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, should
 
 	deleted := h.gcSeries(seriesRefs, maxt, shouldEvict)
 
+	// DIAGNOSTIC (unknown-series-refs investigation): record the WAL-expiry horizon
+	// (maxt) armed for the evicted series. gcSeries sets walExpiries[ref] = maxt so
+	// their series records are kept in checkpoints until mint passes maxt. If a later
+	// checkpoint drops these records while their samples remain in the WAL, replay
+	// reports "unknown series references". Correlate this with the checkpoint
+	// keep-decision log in truncateWAL. Remove once the investigation concludes.
+	if h.wal != nil && len(deleted) > 0 {
+		h.logger.Info("DIAGNOSTIC selected-series eviction armed WAL expiries",
+			"num_evicted", len(deleted),
+			"wal_expiry_maxt", maxt,
+			"head_min_time", h.MinTime(),
+			"head_max_time", h.MaxTime(),
+		)
+	}
+
 	// Record the deleted series refs in the WAL so that we can ignore them during replay.
 	if h.wal != nil {
 		stones := make([]tombstones.Stone, 0, len(seriesRefs))
@@ -1595,13 +1610,60 @@ func (h *Head) truncateWAL(mint int64) error {
 	}
 
 	h.metrics.checkpointCreationTotal.Inc()
-	if _, err = wlog.Checkpoint(h.logger, h.wal, first, last, h.keepSeriesInWALCheckpointFn(mint), mint, h.opts.EnableSTStorage.Load()); err != nil {
+	// DIAGNOSTIC (unknown-series-refs investigation): wrap the keep predicate to
+	// categorize why each record is kept in or dropped from the checkpoint. This is
+	// the decisive signal: it tells us whether evicted series lost their record
+	// because no WAL expiry was tracked at checkpoint time (dropped_no_expiry ->
+	// eviction-path/expiry-lifecycle bug) or because the checkpoint mint advanced
+	// past the armed expiry (dropped_expired_expiry -> timing). Semantics are
+	// identical to keepSeriesInWALCheckpointFn(mint); keep is called sequentially by
+	// wlog.Checkpoint, so plain counters are safe. Remove once the investigation
+	// concludes.
+	var keptInHead, keptByExpiry, droppedNoExpiry, droppedExpiredExpiry int64
+	exampleDroppedRefs := make([]chunks.HeadSeriesRef, 0, 10)
+	keep := func(id chunks.HeadSeriesRef) bool {
+		if h.series.getByID(id) != nil {
+			keptInHead++
+			return true
+		}
+		keepUntil, ok := h.getWALExpiry(id)
+		if ok && keepUntil >= mint {
+			keptByExpiry++
+			return true
+		}
+		if ok {
+			droppedExpiredExpiry++
+		} else {
+			droppedNoExpiry++
+		}
+		if len(exampleDroppedRefs) < cap(exampleDroppedRefs) {
+			exampleDroppedRefs = append(exampleDroppedRefs, id)
+		}
+		return false
+	}
+	if _, err = wlog.Checkpoint(h.logger, h.wal, first, last, keep, mint, h.opts.EnableSTStorage.Load()); err != nil {
 		h.metrics.checkpointCreationFail.Inc()
 		var cerr *chunks.CorruptionErr
 		if errors.As(err, &cerr) {
 			h.metrics.walCorruptionsTotal.Inc()
 		}
 		return fmt.Errorf("create checkpoint: %w", err)
+	}
+	if droppedNoExpiry+droppedExpiredExpiry > 0 {
+		h.walExpiriesMtx.Lock()
+		walExpiriesTracked := len(h.walExpiries)
+		h.walExpiriesMtx.Unlock()
+		h.logger.Info("DIAGNOSTIC WAL checkpoint keep decisions",
+			"mint", mint,
+			"first_segment", first,
+			"last_segment", last,
+			"kept_in_head", keptInHead,
+			"kept_by_expiry", keptByExpiry,
+			"dropped_no_expiry", droppedNoExpiry,
+			"dropped_expired_expiry", droppedExpiredExpiry,
+			"wal_expiries_tracked", walExpiriesTracked,
+			"example_dropped_refs", fmt.Sprintf("%v", exampleDroppedRefs),
+		)
 	}
 	if err := h.wal.Truncate(last + 1); err != nil {
 		// If truncating fails, we'll just try again at the next checkpoint.
