@@ -72,6 +72,21 @@ func (s *seriesRefSet) count() int {
 	return len(s.refs)
 }
 
+// addRef records a single ref. DIAGNOSTIC (unknown-series-refs investigation) helper.
+func (s *seriesRefSet) addRef(ref chunks.HeadSeriesRef) {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	s.refs[ref] = struct{}{}
+}
+
+// contains reports whether ref is present. DIAGNOSTIC (unknown-series-refs investigation) helper.
+func (s *seriesRefSet) contains(ref chunks.HeadSeriesRef) bool {
+	s.mtx.Lock()
+	defer s.mtx.Unlock()
+	_, ok := s.refs[ref]
+	return ok
+}
+
 func counterAddNonZero(v *prometheus.CounterVec, value float64, lvs ...string) {
 	if value > 0 {
 		v.WithLabelValues(lvs...).Add(value)
@@ -336,6 +351,13 @@ Outer:
 						h.series.unlinkHash(series.lset.Hash(), ref)
 						mod := uint64(ref) % uint64(concurrency)
 						deleteSeriesShards[mod] = append(deleteSeriesShards[mod], ref)
+						// DIAGNOSTIC (unknown-series-refs investigation): remember that this ref
+						// was deleted by a full-delete tombstone during replay, so later orphaned
+						// samples referencing it can be attributed to a mid-replay deletion rather
+						// than a genuinely absent series record.
+						if h.replayFullDeleteTombstoneRefs != nil {
+							h.replayFullDeleteTombstoneRefs.addRef(ref)
+						}
 					}
 					continue
 				}
@@ -566,6 +588,41 @@ Outer:
 
 		// Merge missing series refs in this segment into the global list.
 		globalMissingSeriesRefs.merge(unknownSeriesRefs.refs)
+
+		// DIAGNOSTIC (unknown-series-refs investigation): split the truly-missing refs by
+		// cause — deleted by a full-delete tombstone earlier in this replay (mid-replay
+		// deletion, e.g. from early-compaction eviction) vs never seen as a series record
+		// at all (genuinely absent from the checkpoint + segments). This is the bit that
+		// tells us which failure mode we are actually in. Remove once the investigation
+		// concludes.
+		tombstoneDeleted, neverSeen := 0, 0
+		neverSeenExamples := make([]chunks.HeadSeriesRef, 0, 10)
+		unknownSeriesRefs.mtx.Lock()
+		for walRef := range unknownSeriesRefs.refs {
+			headRef := walRef
+			if mr, ok := multiRef[walRef]; ok {
+				headRef = mr
+			}
+			if h.replayFullDeleteTombstoneRefs != nil &&
+				(h.replayFullDeleteTombstoneRefs.contains(walRef) || h.replayFullDeleteTombstoneRefs.contains(headRef)) {
+				tombstoneDeleted++
+			} else {
+				neverSeen++
+				if len(neverSeenExamples) < cap(neverSeenExamples) {
+					neverSeenExamples = append(neverSeenExamples, walRef)
+				}
+			}
+		}
+		unknownSeriesRefs.mtx.Unlock()
+		h.logger.Warn("DIAGNOSTIC orphaned refs attribution",
+			"segment", r.Segment(),
+			"truly_missing", unknownSeriesRefs.count(),
+			"deleted_by_tombstone_in_replay", tombstoneDeleted,
+			"never_seen_series_record", neverSeen,
+			"never_seen_examples", fmt.Sprintf("%v", neverSeenExamples),
+		)
+		counterAddNonZero(h.metrics.walReplayUnknownRefsTotal, float64(tombstoneDeleted), "orphan_deleted_by_tombstone")
+		counterAddNonZero(h.metrics.walReplayUnknownRefsTotal, float64(neverSeen), "orphan_never_seen_series_record")
 
 		counterAddNonZero(h.metrics.walReplayUnknownRefsTotal, float64(foundSeries), "found_series")
 		counterAddNonZero(h.metrics.walReplayUnknownRefsTotal, float64(unknownSeriesRefs.count()), "truly_missing_series")

@@ -124,6 +124,14 @@ type Head struct {
 	walExpiriesMtx sync.Mutex
 	walExpiries    map[chunks.HeadSeriesRef]int64 // Series no longer in the head, and what time they must be kept until.
 
+	// DIAGNOSTIC (unknown-series-refs investigation): refs deleted by a full-delete
+	// tombstone during the current WAL replay. Populated across loadWAL calls (checkpoint
+	// then segments) so the "orphaned samples" reporting can distinguish samples orphaned
+	// because their series was deleted mid-replay by a tombstone from samples orphaned
+	// because the series record was genuinely absent from the WAL. Remove once the
+	// investigation concludes.
+	replayFullDeleteTombstoneRefs *seriesRefSet
+
 	// TODO(codesome): Extend MemPostings to return only OOOPostings, Set OOOStatus, ... Like an additional map of ooo postings.
 	postings *index.MemPostings // Postings lists for terms.
 	pfmc     *PostingsForMatchersCache
@@ -909,6 +917,9 @@ func (h *Head) Init(minValidTime int64) error {
 	syms := labels.NewSymbolTable() // One table for the whole WAL.
 	multiRef := map[chunks.HeadSeriesRef]chunks.HeadSeriesRef{}
 	unknownSeriesRefs := &seriesRefSet{refs: make(map[chunks.HeadSeriesRef]struct{}), mtx: sync.Mutex{}}
+	// DIAGNOSTIC (unknown-series-refs investigation): reset the per-replay set of
+	// tombstone-deleted refs at the start of every WAL replay.
+	h.replayFullDeleteTombstoneRefs = &seriesRefSet{refs: make(map[chunks.HeadSeriesRef]struct{}), mtx: sync.Mutex{}}
 	if err == nil && startFrom >= snapIdx {
 		sr, err := wlog.NewSegmentsReader(dir)
 		if err != nil {
