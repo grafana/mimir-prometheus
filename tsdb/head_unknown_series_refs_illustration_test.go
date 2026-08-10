@@ -5,6 +5,7 @@ package tsdb
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
 	"strings"
 	"testing"
@@ -94,6 +95,14 @@ func TestUnknownSeriesRefs_EarlyCompactionOrphansWALSamples(t *testing.T) {
 	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{aRef}))
 	require.Equal(t, uint64(1), db.head.NumSeries(), "A evicted, K remains")
 	require.Len(t, db.Blocks(), 1, "A persisted to exactly one block before eviction")
+
+	// Prove the safeguard IS armed immediately after eviction (before the checkpoint below
+	// deletes it as expired).
+	db.head.walExpiriesMtx.Lock()
+	a, armedBefore := db.head.walExpiries[chunks.HeadSeriesRef(aRef)]
+	db.head.walExpiriesMtx.Unlock()
+	require.True(t, armedBefore, "walExpiries must be armed for A immediately after eviction")
+	fmt.Printf("db.head.walExpiries[chunks.HeadSeriesRef(%d)]=%d\n", aRef, a)
 
 	// --- A checkpoint whose mint is past A's data ---
 	// This is what DB.Compact does. mint=1000 > A's walExpiry (=A.maxt=20), so A's record is
@@ -230,6 +239,11 @@ func TestUnknownSeriesRefs_RestartLosesWALExpiriesNoExpiryDrop(t *testing.T) {
 	db2.head.walExpiriesMtx.Unlock()
 	require.False(t, armedAfter, "restart must have lost A's walExpiry (and replay must not re-arm it)")
 
+	// Weakness #1 is harmless w.r.t. orphans: A came back EMPTY (no samples), so there is
+	// nothing to orphan. dropped_no_expiry never produces an "unknown series reference".
+	require.Zero(t, prom_testutil.ToFloat64(db2.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("samples")),
+		"a dropped_no_expiry series has no lingering samples, so it must not orphan")
+
 	// Now the checkpoint that a startup Compact runs sees A's record (still carried in the prior
 	// checkpoint) but A is neither in the head nor expiry-protected, so it drops the record with
 	// dropped_no_expiry — exactly the production path.
@@ -253,4 +267,101 @@ func TestUnknownSeriesRefs_RestartLosesWALExpiriesNoExpiryDrop(t *testing.T) {
 	}, got, "series A must remain fully queryable from the block")
 
 	require.NotEmpty(t, strings.TrimSpace(logs))
+}
+
+// TestUnknownSeriesRefs_RestartReArmsExpiry_OrphanIsExpiredNotNoExpiry proves that a restart
+// (which wipes the in-memory walExpiries) does NOT turn an orphan into a dropped_no_expiry
+// (weakness #1) case: replay RE-ARMS the expiry from the series' still-present sample, so the
+// record drop is dropped_expired_expiry (weakness #2) and the orphan surfaces via #2.
+//
+// The mechanism is the re-arm. A record is dropped as dropped_no_expiry only when the series
+// replays "empty": deleteSeriesByID skips re-arming the expiry when maxTime == MinInt64 (no
+// samples applied). But any sample that could later orphan is, by definition, still present and
+// replayable — so on replay it IS applied, which re-arms the expiry from that sample, forcing
+// the expired path. In short: an orphan-able sample always forces dropped_expired_expiry;
+// dropped_no_expiry only happens when there is nothing left to orphan (see
+// TestUnknownSeriesRefs_RestartLosesWALExpiriesNoExpiryDrop, which asserts zero orphans). So the
+// only orphan-producing weakness is #2.
+//
+// Scope: this concerns orphans caused by a checkpoint dropping the series record (the
+// never_seen_series_record kind). A full-delete tombstone that is still present at replay and
+// deletes the series mid-replay is a separate path (deleted_by_tombstone_in_replay), not
+// covered here.
+//
+// End to end: evict A mid-life (tombstone + armed expiry), restart (wipes walExpiries), replay
+// re-arms A's expiry from its lingering retained sample, a checkpoint drops A's record via
+// dropped_expired_expiry, and A's retained sample orphans on the next replay — weakness #2.
+func TestUnknownSeriesRefs_RestartReArmsExpiry_OrphanIsExpiredNotNoExpiry(t *testing.T) {
+	dir := t.TempDir()
+
+	opts := DefaultOptions()
+	opts.MinBlockDuration = 100000
+	opts.MaxBlockDuration = 100000
+	opts.WALSegmentSize = 32 * 1024
+	opts, rngs, err := validateOpts(opts, nil)
+	require.NoError(t, err)
+
+	db, err := open(dir, nil, nil, opts, rngs, nil)
+	require.NoError(t, err)
+	db.DisableCompactions()
+
+	aLbls := labels.FromStrings("series", "A_non_owned")
+	kLbls := labels.FromStrings("series", "K_keeper")
+	appendSample := func(ref storage.SeriesRef, lbls labels.Labels, ts int64, v float64) storage.SeriesRef {
+		app := db.Appender(context.Background())
+		r, err := app.Append(ref, lbls, ts, v)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		return r
+	}
+	nextSegment := func() { _, err := db.head.wal.NextSegment(); require.NoError(t, err) }
+
+	aRef := appendSample(0, aLbls, 10, 1.0)
+	kRef := appendSample(0, kLbls, 1, 1.0)
+	for i := int64(2); i <= 8; i++ {
+		nextSegment()
+		kRef = appendSample(kRef, kLbls, i, float64(i))
+	}
+	nextSegment()
+	aRef = appendSample(aRef, aLbls, 20, 2.0) // A's second sample in a retained segment.
+
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{aRef}))
+	require.NoError(t, db.Close()) // restart -> walExpiries wiped
+
+	// Reopen #1: replay. Does A come back empty (=> no re-arm) or do its samples get applied (=> re-arm)?
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	reg := prometheus.NewRegistry()
+	db2, err := open(dir, logger, reg, opts, rngs, nil)
+	require.NoError(t, err)
+	db2.DisableCompactions()
+
+	// After the restart, walExpiries started empty — but replay APPLIED A's still-present
+	// sample and the tombstone then re-armed the expiry from it. So the safeguard is back,
+	// and there is no orphan yet (A's record is present, its sample binds to it).
+	db2.head.walExpiriesMtx.Lock()
+	keepUntil, armedAfter := db2.head.walExpiries[chunks.HeadSeriesRef(aRef)]
+	db2.head.walExpiriesMtx.Unlock()
+	orphan2 := prom_testutil.ToFloat64(db2.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("samples"))
+	require.True(t, armedAfter, "replay must re-arm A's walExpiry from its still-present sample, despite the restart wiping the in-memory map")
+	require.Equal(t, int64(20), keepUntil, "re-armed expiry must equal A's max applied sample time")
+	require.Zero(t, orphan2, "no orphan while A's record is still present")
+
+	// Drop A's record. Because the expiry was re-armed (=20) and mint=1000 > 20, this is the
+	// EXPIRED path (weakness #2), NOT no_expiry (weakness #1).
+	require.NoError(t, db2.head.truncateWAL(1000))
+	logs := logBuf.String()
+	t.Logf("checkpoint keep-decision log:\n%s", logs)
+	require.Contains(t, logs, "dropped_expired_expiry=1", "the drop must be via an expired (present) expiry")
+	require.Contains(t, logs, "dropped_no_expiry=0", "the drop must NOT be via a missing expiry")
+	require.NoError(t, db2.Close())
+
+	// Reopen #2: now A's record is gone; A's retained sample orphans — via the #2 (expired) path.
+	reg3 := prometheus.NewRegistry()
+	db3, err := open(dir, nil, reg3, opts, rngs, nil)
+	require.NoError(t, err)
+	db3.DisableCompactions()
+	defer func() { require.NoError(t, db3.Close()) }()
+	orphan3 := prom_testutil.ToFloat64(db3.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("samples"))
+	require.Positive(t, orphan3, "A's retained sample orphans after its record is dropped (via the expired path)")
 }
