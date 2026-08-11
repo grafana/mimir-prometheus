@@ -1007,10 +1007,10 @@ The following meta labels are available on targets during [relabeling](#relabel_
 * `__meta_msk_cluster_name`: the name of the MSK cluster
 * `__meta_msk_cluster_arn`: the ARN of the MSK cluster
 * `__meta_msk_cluster_state`: the state of the MSK cluster (e.g., ACTIVE, CREATING, DELETING)
-* `__meta_msk_cluster_type`: the type of the MSK cluster (e.g., PROVISIONED, SERVERLESS)
+* `__meta_msk_cluster_type`: the type of the MSK cluster (always PROVISIONED, as serverless clusters are skipped)
 * `__meta_msk_cluster_version`: the current version of the MSK cluster
 * `__meta_msk_cluster_kafka_version`: the Kafka version running on the cluster
-* `__meta_msk_cluster_jmx_exporter_enabled`: whether JMX exporter is enabled on the cluster
+* `__meta_msk_cluster_jmx_exporter_enabled`: whether JMX exporter is enabled on the cluster; this label is absent (not `false`) when Open Monitoring is not enabled on the cluster
 * `__meta_msk_cluster_configuration_arn`: the ARN of the MSK configuration
 * `__meta_msk_cluster_configuration_revision`: the revision of the MSK configuration
 * `__meta_msk_cluster_tag_<tagkey>`: each cluster tag value, keyed by tag name
@@ -1023,7 +1023,7 @@ The following meta labels are available on targets during [relabeling](#relabel_
 * `__meta_msk_broker_endpoint_index`: the index of the broker endpoint (broker nodes only)
 * `__meta_msk_broker_client_subnet`: the client subnet of the broker (broker nodes only)
 * `__meta_msk_broker_client_vpc_ip`: the VPC IP address of the broker (broker nodes only)
-* `__meta_msk_broker_node_exporter_enabled`: whether node exporter is enabled on brokers (broker nodes only)
+* `__meta_msk_broker_node_exporter_enabled`: whether node exporter is enabled on brokers (broker nodes only); this label is absent (not `false`) when Open Monitoring is not enabled on the cluster
 * `__meta_msk_controller_endpoint_index`: the index of the controller endpoint (controller nodes only)
 
 #### `elasticache`
@@ -1686,7 +1686,7 @@ created using the `port` parameter defined in the SD configuration.
 
 Available meta labels:
 
-* `__meta_dockerswarm_container_label_<labelname>`: each label of the container, with any unsupported characters converted to an underscore
+* `__meta_dockerswarm_container_label_<labelname>`: each label configured in the task's `ContainerSpec`, with any unsupported characters converted to an underscore. Labels defined in the image are not available through the Docker Swarm task API. To expose image metadata, copy the required values to a container or service label when deploying the service.
 * `__meta_dockerswarm_task_id`: the id of the task
 * `__meta_dockerswarm_task_container_id`: the container id of the task
 * `__meta_dockerswarm_task_desired_state`: the desired state of the task
@@ -2289,9 +2289,7 @@ The following meta labels are available on all targets during [relabeling](#rela
 * `__meta_hetzner_public_ipv4`: the public ipv4 address of the server
 * `__meta_hetzner_public_ipv6_network`: the public ipv6 network (/64) of the server
 
-Note that the `__meta_hetzner_datacenter` label is deprecated for both roles `robot` and `hcloud`:
-- For the `robot` role, the replacement label is `__meta_hetzner_robot_datacenter`.
-- For the `hcloud` role, the label will be removed after 1 July 2026. For more details, see the [changelog](https://docs.hetzner.cloud/changelog#2025-12-16-phasing-out-datacenters).
+Note that the `__meta_hetzner_datacenter` label is deprecated for the `robot` role, the replacement label is `__meta_hetzner_robot_datacenter`.
 
 The labels below are only available for targets with `role` set to `hcloud`:
 
@@ -3560,8 +3558,8 @@ label is set to the `job_name` value of the respective scrape configuration.
 
 You can also use special labels like `__address__`, `__scheme__`, `__metrics_path__`,
 `__scrape_interval__`, `__scrape_timeout__`, `__convert_classic_histograms_to_nhcb__`,
-`__always_scrape_classic_histograms__`, `__scrape_native_histograms__`
-to customize the defined targets. These will
+`__always_scrape_classic_histograms__`, `__scrape_native_histograms__`,
+`__unix_socket__` to customize the defined targets. These will
 override the respective settings in the scrape configuration.
 
 The `__address__` label is set to the `<host>:<port>` address of the target.
@@ -3596,6 +3594,11 @@ The `__scrape_native_histograms__` label is set to the target's
 the configured global). Setting it during relabeling overrides, per target,
 whether native histograms are scraped. Its value must parse as a boolean; a
 target with an invalid value is dropped.
+
+The `__unix_socket__` label, when set, causes the scrape client to connect via
+the specified Unix domain socket path instead of the target's `__address__`.
+Set `__scheme__` to `http` or `https` to specify the protocol used over
+the socket (defaults to `http`).
 
 Additional labels prefixed with `__meta_` may be available during the
 relabeling phase. They are set by the service discovery mechanism that provided
