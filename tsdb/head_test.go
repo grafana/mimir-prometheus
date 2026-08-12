@@ -10832,3 +10832,162 @@ func TestHead_mmapHeadChunks(t *testing.T) {
 		requireCounterConsistent("final state")
 	})
 }
+
+func TestHeadAppender_DuplicateSamplesDroppedMetric(t *testing.T) {
+	ctx := context.Background()
+	lbls := labels.FromStrings("foo", "bar")
+
+	statsOf := func(t *testing.T, app storage.Appender) DiscardedSampleStats {
+		t.Helper()
+		reporter, ok := app.(CommitStatsReporter)
+		require.True(t, ok, "appender must report commit stats")
+		return reporter.CommitStats().DiscardedSamples
+	}
+	requireStats := func(t *testing.T, app storage.Appender, wantSameValue, wantDifferentValue int) {
+		t.Helper()
+		stats := statsOf(t, app)
+		require.Equal(t, wantSameValue, stats.TotalSameValue(), "same-value dropped samples")
+		require.Equal(t, wantDifferentValue, stats.TotalDifferentValue(), "different-value dropped samples")
+	}
+
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			head, _ := newTestHead(t, DefaultBlockDuration, compression.None, true)
+
+			dupsDropped := func() float64 {
+				return prom_testutil.ToFloat64(head.metrics.duplicateSamples.WithLabelValues(scenario.sampleType))
+			}
+
+			app := head.Appender(ctx)
+			_, _, err := scenario.appendFunc(app, lbls, 60_000, 1)
+			require.NoError(t, err)
+			_, _, err = scenario.appendFunc(app, lbls, 120_000, 2)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			requireStats(t, app, 0, 0)
+
+			// Exact duplicate of the latest in-order sample: dropped at commit.
+			app = head.Appender(ctx)
+			_, _, err = scenario.appendFunc(app, lbls, 120_000, 2)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			require.Equal(t, 1.0, dupsDropped())
+			requireStats(t, app, 1, 0)
+
+			// Different value against a committed sample: Append error. Counted in
+			// the metric (all duplicate discards) but NOT in CommitStats, which only
+			// reclassifies samples that Append accepted.
+			app = head.Appender(ctx)
+			_, _, err = scenario.appendFunc(app, lbls, 120_000, 3)
+			require.ErrorIs(t, err, storage.ErrDuplicateSampleForTimestamp)
+			require.NoError(t, app.Commit())
+			require.Equal(t, 2.0, dupsDropped())
+			requireStats(t, app, 0, 0)
+			// Must not be counted as an out-of-order rejection.
+			require.Equal(t, 0.0, prom_testutil.ToFloat64(head.metrics.outOfOrderSamples.WithLabelValues(scenario.sampleType)))
+
+			// Within-batch conflict: passes Append, dropped at commit, first sample wins.
+			app = head.Appender(ctx)
+			_, _, err = scenario.appendFunc(app, lbls, 180_000, 6)
+			require.NoError(t, err)
+			_, _, err = scenario.appendFunc(app, lbls, 180_000, 7)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			require.Equal(t, 3.0, dupsDropped())
+			requireStats(t, app, 0, 1)
+
+			// Within-batch exact duplicate.
+			app = head.Appender(ctx)
+			_, _, err = scenario.appendFunc(app, lbls, 240_000, 8)
+			require.NoError(t, err)
+			_, _, err = scenario.appendFunc(app, lbls, 240_000, 8)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			require.Equal(t, 4.0, dupsDropped())
+			requireStats(t, app, 1, 0)
+
+			// First out-of-order sample is accepted.
+			app = head.Appender(ctx)
+			_, _, err = scenario.appendFunc(app, lbls, 30_000, 4)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			require.Equal(t, 4.0, dupsDropped())
+			requireStats(t, app, 0, 0)
+
+			// Exact duplicate of the out-of-order sample.
+			app = head.Appender(ctx)
+			_, _, err = scenario.appendFunc(app, lbls, 30_000, 4)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			require.Equal(t, 5.0, dupsDropped())
+			requireStats(t, app, 1, 0)
+
+			// OOO timestamp clash is dropped even when the value differs.
+			app = head.Appender(ctx)
+			_, _, err = scenario.appendFunc(app, lbls, 30_000, 5)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			require.Equal(t, 6.0, dupsDropped())
+			requireStats(t, app, 0, 1)
+
+			// Dropped duplicates must not inflate the appended count (5 stored samples).
+			require.Equal(t, 5.0, prom_testutil.ToFloat64(head.metrics.samplesAppended.WithLabelValues(scenario.sampleType)))
+		})
+	}
+
+	t.Run("stats aggregate per series with counts", func(t *testing.T) {
+		head, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
+		lblsA := labels.FromStrings("foo", "bar")
+		lblsB := labels.FromStrings("foo", "baz")
+
+		app := head.Appender(ctx)
+		_, err := app.Append(0, lblsA, 100, 1)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		app = head.Appender(ctx)
+		for range 3 {
+			_, err = app.Append(0, lblsA, 100, 1)
+			require.NoError(t, err)
+		}
+		_, err = app.Append(0, lblsB, 100, 10)
+		require.NoError(t, err)
+		_, err = app.Append(0, lblsB, 100, 11)
+		require.NoError(t, err)
+		_, err = app.Append(0, lblsB, 100, 12)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		stats := statsOf(t, app)
+		require.Equal(t, []DiscardedSeriesSamples{{Labels: lblsA, Count: 3}}, stats.SameTimestampSameValue)
+		require.Equal(t, []DiscardedSeriesSamples{{Labels: lblsB, Count: 2}}, stats.SameTimestampDifferentValue)
+	})
+
+	t.Run("rollback reports no stats", func(t *testing.T) {
+		head, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
+
+		app := head.Appender(ctx)
+		_, err := app.Append(0, lbls, 100, 1)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		app = head.Appender(ctx)
+		_, err = app.Append(0, lbls, 100, 1)
+		require.NoError(t, err)
+		require.NoError(t, app.Rollback())
+		requireStats(t, app, 0, 0)
+	})
+
+	t.Run("stats reachable through the DB appender chain on first push", func(t *testing.T) {
+		db := newTestDB(t)
+
+		// First push routes dbAppender -> initAppender -> headAppender.
+		app := db.Appender(ctx)
+		_, err := app.Append(0, lbls, 100, 1)
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, 100, 1)
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		requireStats(t, app, 1, 0)
+	})
+}
