@@ -6,7 +6,7 @@ permissions:
 
 jobs:
   Fuzzing:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64-large
     steps:
       - name: Build Fuzzers
         id: build
