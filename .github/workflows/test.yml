@@ -15,7 +15,7 @@ jobs:
           - slicelabels # there's no such tag when this is being written, but it makes the CI job name more obvious.
           - stringlabels
           - dedupelabels
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-x64-large
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
@@ -58,7 +58,7 @@ jobs:
             fuzz: FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions
           - package: ./model/labels
             fuzz: FuzzFastRegexMatcher_WithFuzzyRegularExpressions
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-x64-large
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
