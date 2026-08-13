@@ -310,7 +310,6 @@ func (cr *HeadAndOOOChunkReader) collectOrGetHeadChunks(s *memSeries) []*memChun
 	// (OOOCompactionHead.Chunks), which only requests OOO chunks, so this
 	// branch is not reached. It is kept for correctness if callers change.
 	cr.headChunksBuf = collectHeadChunks(s.headChunks, cr.headChunksBuf[:0])
-	clear(cr.headChunksBuf[len(cr.headChunksBuf):cap(cr.headChunksBuf)])
 	hc := cr.headChunksBuf
 	if cap(cr.headChunksBuf) > headChunksBufMaxCap {
 		cr.headChunksBuf = nil
@@ -318,23 +317,26 @@ func (cr *HeadAndOOOChunkReader) collectOrGetHeadChunks(s *memSeries) []*memChun
 	return hc
 }
 
-// EnableChunkCache enables the head-chunk cache on the underlying headChunkReader.
-// This should only be called for range queries where the cache provides O(1) lookups
-// across multiple chunk accesses for the same series.
+// EnableChunkCache enables the head-chunk cache on the underlying
+// headChunkReader; see its documentation for the caching semantics.
 func (cr *HeadAndOOOChunkReader) EnableChunkCache() {
 	if cr.cr != nil {
-		cr.cr.enableCache = true
+		cr.cr.EnableChunkCache()
 	}
 }
 
 func (cr *HeadAndOOOChunkReader) Close() error {
-	if cr.cr != nil && cr.cr.isoState != nil {
-		cr.cr.isoState.Close()
+	var err error
+	if cr.cr != nil {
+		err = cr.cr.Close()
 	}
 	if cr.oooIsoState != nil {
 		cr.oooIsoState.Close()
 	}
-	return nil
+	// Release the fallback collection buffer so a closed reader retains no
+	// chunk data.
+	cr.headChunksBuf = nil
+	return err
 }
 
 type OOOCompactionHead struct {
@@ -614,11 +616,11 @@ func (q *HeadAndOOOQuerier) LabelNames(ctx context.Context, hints *storage.Label
 }
 
 func (q *HeadAndOOOQuerier) Close() error {
-	q.chunkr.Close()
+	err := q.chunkr.Close()
 	if q.querier == nil {
-		return nil
+		return err
 	}
-	return q.querier.Close()
+	return errors.Join(err, q.querier.Close())
 }
 
 func (q *HeadAndOOOQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.SeriesSet {
@@ -666,11 +668,11 @@ func (q *HeadAndOOOChunkQuerier) LabelNames(ctx context.Context, hints *storage.
 }
 
 func (q *HeadAndOOOChunkQuerier) Close() error {
-	q.chunkr.Close()
+	err := q.chunkr.Close()
 	if q.querier == nil {
-		return nil
+		return err
 	}
-	return q.querier.Close()
+	return errors.Join(err, q.querier.Close())
 }
 
 func (q *HeadAndOOOChunkQuerier) Select(ctx context.Context, sortSeries bool, hints *storage.SelectHints, matchers ...*labels.Matcher) storage.ChunkSeriesSet {
