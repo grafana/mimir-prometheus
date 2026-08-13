@@ -11,7 +11,7 @@ permissions:
 jobs:
   test_go:
     name: Go tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64-large
     container:
       # Whenever the Go version is updated here, .promu.yml
       # should also be updated.
@@ -30,7 +30,7 @@ jobs:
 
   test_go_more:
     name: More Go tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64-large
     container:
       image: quay.io/prometheus/golang-builder:1.26-base
     steps:
@@ -62,7 +62,7 @@ jobs:
 
   test_go_oldest:
     name: Go tests with previous Go version
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64-large
     if: false # We don't care about this in mimir-prometheus.
     env:
       # Enforce the Go version.
@@ -397,7 +397,7 @@ jobs:
             fuzz: FuzzFastRegexMatcher_WithStaticallyDefinedRegularExpressions
           - package: ./model/labels
             fuzz: FuzzFastRegexMatcher_WithFuzzyRegularExpressions
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-x64-large
     steps:
       - name: Checkout Repo
         uses: actions/checkout@v4
