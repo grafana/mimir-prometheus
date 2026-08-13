@@ -2402,6 +2402,7 @@ func (mc *memChunk) len() (count int) {
 
 // collectHeadChunks walks the headChunks linked list once and returns a slice
 // in oldest-first order (matching mmappedChunks ordering).
+// For example, given head{t4} -> t3 -> t2 -> t1 -> t0, it returns [t0, t1, t2, t3, t4].
 // buf must have length 0 but may have non-zero capacity for reuse; the
 // returned slice's tail beyond its length is zeroed, so a reused, shrinking
 // buffer does not pin chunks from a previous, longer collection.
@@ -2428,30 +2429,6 @@ func (mc *memChunk) oldest() (elem *memChunk) {
 	elem = mc
 	for elem.prev != nil {
 		elem = elem.prev
-	}
-	return elem
-}
-
-// atOffset returns a memChunk that's Nth element on the linked list.
-func (mc *memChunk) atOffset(offset int) (elem *memChunk) {
-	if offset == 0 {
-		return mc
-	}
-	if offset == 1 {
-		return mc.prev
-	}
-	if offset < 0 {
-		return nil
-	}
-
-	var i int
-	elem = mc
-	for i < offset {
-		i++
-		elem = elem.prev
-		if elem == nil {
-			break
-		}
 	}
 	return elem
 }
