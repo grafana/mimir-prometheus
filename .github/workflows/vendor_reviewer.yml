@@ -34,7 +34,10 @@ jobs:
         with:
           app-id: ${{ env.APP_ID }}
           private-key: ${{ env.PRIVATE_KEY }}
-          owner: ${{ github.repository_owner }}
+          # Scope to this repository only; omitting owner defaults to the current repo.
+          repositories: mimir-prometheus
+          permission-contents: write
+          permission-pull-requests: write
 
       # Approve the PR and enable auto-merge using the GitHub App Token
       - name: Approve and enable auto-merge
