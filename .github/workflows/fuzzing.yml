@@ -7,7 +7,7 @@ permissions:
 jobs:
   fuzzing:
     name: Run Go Fuzz Tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64-large
     strategy:
       matrix:
         fuzz_test: [[FuzzParseMetricText, FuzzParseOpenMetric], [FuzzParseMetricSelector, FuzzParseExpr], [FuzzXORChunk, FuzzXOR2Chunk], [FuzzParseProtobuf]]
