@@ -1011,8 +1011,8 @@ The following meta labels are available on targets during [relabeling](#relabel_
 * `__meta_msk_cluster_version`: the current version of the MSK cluster
 * `__meta_msk_cluster_kafka_version`: the Kafka version running on the cluster
 * `__meta_msk_cluster_jmx_exporter_enabled`: whether JMX exporter is enabled on the cluster; this label is absent (not `false`) when Open Monitoring is not enabled on the cluster
-* `__meta_msk_cluster_configuration_arn`: the ARN of the MSK configuration
-* `__meta_msk_cluster_configuration_revision`: the revision of the MSK configuration
+* `__meta_msk_cluster_configuration_arn`: the ARN of the MSK configuration; this label is absent when the cluster is not using custom config
+* `__meta_msk_cluster_configuration_revision`: the revision of the MSK configuration; this label is absent when the cluster is not using custom config
 * `__meta_msk_cluster_tag_<tagkey>`: each cluster tag value, keyed by tag name
 * `__meta_msk_node_type`: the type of the node (BROKER or CONTROLLER)
 * `__meta_msk_node_arn`: the ARN of the node
@@ -2484,6 +2484,7 @@ Available meta labels:
 The `pod` role discovers all pods and exposes their containers as targets. For each declared
 port of a container, a single target is generated. If a container has no specified ports,
 a port-free target per container is created for manually adding a port via relabeling.
+In that case `__address__` is set to the pod IP only, without a port.
 
 Available meta labels:
 
@@ -3563,6 +3564,9 @@ You can also use special labels like `__address__`, `__scheme__`, `__metrics_pat
 override the respective settings in the scrape configuration.
 
 The `__address__` label is set to the `<host>:<port>` address of the target.
+Some service discovery implementations omit the port when none is known, so
+that it can be added via relabeling. Kubernetes pod discovery does this for
+containers that declare no ports; `__address__` is then the pod IP only.
 After relabeling, the `instance` label is set to the value of `__address__` by default if
 it was not set during relabeling.
 

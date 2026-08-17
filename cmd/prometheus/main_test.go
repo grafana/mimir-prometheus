@@ -178,14 +178,7 @@ storage:
 	)
 	require.NoError(t, prom.Start())
 
-	require.Eventually(t, func() bool {
-		r, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", port))
-		if err != nil {
-			return false
-		}
-		defer r.Body.Close()
-		return r.StatusCode == http.StatusOK
-	}, startupTime, 100*time.Millisecond)
+	waitForPrometheusReady(t, port)
 	require.DirExists(t, storagePath)
 }
 
@@ -704,9 +697,6 @@ func TestModeSpecificFlags(t *testing.T) {
 }
 
 func TestDocumentation(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.SkipNow()
-	}
 	t.Parallel()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -719,12 +709,17 @@ func TestDocumentation(t *testing.T) {
 
 	require.NoError(t, cmd.Run(), "failed to generate CLI documentation via --write-documentation")
 
-	generatedContent := strings.ReplaceAll(stdout.String(), filepath.Base(promPath), strings.TrimSuffix(filepath.Base(promPath), ".test"))
+	appTitle := strings.TrimSuffix(filepath.Base(promPath), ".test")
+	if runtime.GOOS == "windows" {
+		appTitle = strings.TrimSuffix(appTitle, ".test.exe")
+	}
+
+	generatedContent := strings.ReplaceAll(stdout.String(), filepath.Base(promPath), appTitle)
 
 	expectedContent, err := os.ReadFile(filepath.Join("..", "..", "docs", "command-line", "prometheus.md"))
 	require.NoError(t, err)
 
-	require.Equal(t, string(expectedContent), generatedContent, "Generated content does not match documentation. Hint: run `make cli-documentation`.")
+	require.Equal(t, strings.ReplaceAll(string(expectedContent), "\r\n", "\n"), generatedContent, "Generated content does not match documentation. Hint: run `make cli-documentation`.")
 }
 
 func TestRwProtoMsgFlagParser(t *testing.T) {
@@ -902,26 +897,24 @@ global:
 				fmt.Sprintf("--storage.tsdb.path=%s", tmpDir),
 				"--web.enable-lifecycle",
 			)
-			// Inject GOGC when set.
-			prom.Env = os.Environ()
+			// Inject GOGC when set, and drop any inherited one otherwise, so
+			// that the environment the test runs in cannot influence the cases
+			// expecting the default or the configured value.
+			prom.Env = slices.DeleteFunc(os.Environ(), func(kv string) bool {
+				return strings.HasPrefix(kv, "GOGC=")
+			})
 			if tc.gogcEnvVar != "" {
 				prom.Env = append(prom.Env, fmt.Sprintf("GOGC=%s", tc.gogcEnvVar))
 			}
 			require.NoError(t, prom.Start())
 
+			// Wait for the initial configuration to be applied: /metrics is
+			// already served before that happens.
+			waitForPrometheusReady(t, port)
+
 			ensureGOGCValue := func(val float64) {
-				var (
-					r   *http.Response
-					err error
-				)
-				// Wait for the /metrics endpoint to be ready.
-				require.Eventually(t, func() bool {
-					r, err = http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", port))
-					if err != nil {
-						return false
-					}
-					return r.StatusCode == http.StatusOK
-				}, 5*time.Second, 50*time.Millisecond)
+				r, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/metrics", port))
+				require.NoError(t, err)
 				defer r.Body.Close()
 
 				// Check the final GOGC that's set, consider go_gc_gogc_percent from /metrics as source of truth.
@@ -1216,9 +1209,6 @@ remote_write:
 // TestFeatureFlagsDocumented ensures the --enable-feature help text in main.go
 // and the documented flags in docs/feature_flags.md list the same set of flags.
 func TestFeatureFlagsDocumented(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.SkipNow()
-	}
 	h, err := os.ReadFile(filepath.Join("..", "..", "cmd", "prometheus", "main.go"))
 	require.NoError(t, err)
 	m := regexp.MustCompile(`a\.Flag\("enable-feature", "Comma separated feature names to enable. Valid options: (.+?)\.`).FindSubmatch(h)
@@ -1230,6 +1220,10 @@ func TestFeatureFlagsDocumented(t *testing.T) {
 	require.NotEmpty(t, helpFlags)
 
 	d, err := os.ReadFile(filepath.Join("..", "..", "docs", "feature_flags.md"))
+	if runtime.GOOS == "windows" {
+		d = bytes.ReplaceAll(d, []byte("\r\n"), []byte("\n"))
+	}
+
 	require.NoError(t, err)
 	var docFlags []string
 	for _, dm := range regexp.MustCompile("(?m)^`--enable-feature=(.+)`$").FindAllSubmatch(d, -1) {
