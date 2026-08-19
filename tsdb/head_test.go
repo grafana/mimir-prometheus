@@ -1942,7 +1942,7 @@ func TestOOOTruncateChunksBefore_Wrap(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, chunkDiskMapper.Close()) })
 
-			series := newMemSeries(labels.EmptyLabels(), 1, 0, true, false)
+			series := newMemSeries(labels.EmptyLabels(), 1, 0, 0, 0, true, false)
 			series.ooo = &memSeriesOOOFields{firstOOOChunkID: tc.firstOOOChunkID}
 
 			refs := make([]chunks.ChunkDiskMapperRef, tc.numOOOChunks)
