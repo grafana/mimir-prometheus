@@ -285,8 +285,8 @@ const oooChunkIDMask = 1 << 23
 // so that IDs never overflow into the OOO flag at bit 23. Callers wrap in both
 // directions: pos + firstChunkID when a chunk ID is assigned, and id - firstChunkID
 // when its position is looked up.
-// This is effectively a modulo operation, but correctly wraps negative ids (such as
-// when firstChunkID > chunkID), which a signed % would not.
+// HeadChunkID is uint64, so id - firstChunkID wraps modulo 2^64 when firstChunkID > id;
+// masking with oooChunkIDMask-1 recovers the 23-bit position.
 func wrapChunkID(id chunks.HeadChunkID) chunks.HeadChunkID {
 	return id & (oooChunkIDMask - 1)
 }
@@ -297,8 +297,8 @@ func wrapChunkID(id chunks.HeadChunkID) chunks.HeadChunkID {
 //
 // The position is wrapped modulo oooChunkIDMask so that firstChunkID can grow
 // indefinitely without overflowing the 23-bit ID space. Correctness requires the
-// number of chunks a series holds to stay below oooChunkIDMask,
-// which cutNewHeadChunk enforces.
+// number of chunks a series holds to stay below 2^23,
+// which pushHeadChunk enforces.
 func (s *memSeries) headChunkID(pos int) chunks.HeadChunkID {
 	return wrapChunkID(chunks.HeadChunkID(pos) + s.firstChunkID)
 }
@@ -311,8 +311,8 @@ func (s *memSeries) headChunkID(pos int) chunks.HeadChunkID {
 //
 // The position is wrapped modulo oooChunkIDMask so that firstOOOChunkID can
 // grow indefinitely without overflowing the 23-bit ID space. Correctness
-// requires len(oooMmappedChunks) << oooChunkIDMask, which is enforced by the
-// guard in mmapCurrentOOOHeadChunk.
+// requires len(oooMmappedChunks) to stay below 2^23, which is
+// enforced by the guard in mmapCurrentOOOHeadChunk.
 func (s *memSeries) oooHeadChunkID(pos int) chunks.HeadChunkID {
 	return wrapChunkID(chunks.HeadChunkID(pos)+s.ooo.firstOOOChunkID) | oooChunkIDMask
 }
