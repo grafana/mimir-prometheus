@@ -100,28 +100,6 @@ jobs:
           cache_key_suffix: upgrade
       - run: go test -v --race ./cmd/prometheus/ --test.version-upgrade=true --test.lts-version=${{ matrix.lts_version }} -run TestVersionUpgrade
 
-  test_go_oldest:
-    name: Go tests with previous Go version
-    runs-on: ubuntu-latest
-    if: false # We don't care about this in mimir-prometheus.
-    env:
-      # Enforce the Go version.
-      GOTOOLCHAIN: local
-    container:
-      # The go version in this image should be N-1 wrt test_go.
-      image: quay.io/prometheus/golang-builder:1.25-base
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - uses: prometheus/promci-setup@3e5cd31b34b8ae19efa8f071c5e3cdb44884a7f8 # v0.2.1
-        with:
-          enable_npm: false
-          cache_key_suffix: oldest
-      - run: make build
-      # Don't run NPM build; don't run race-detector.
-      - run: make test GO_ONLY=1 test-flags=""
-
   test_ui:
     name: UI tests
     runs-on: ubuntu-latest
@@ -378,7 +356,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       packages: write
-    needs: [test_ui, test_go, test_go_more, test_go_oldest, test_windows, golangci, codeql, build_all]
+    needs: [test_ui, test_go, test_go_more, test_windows, golangci, codeql, build_all]
     if: github.event_name == 'push' && github.event.ref == 'refs/heads/main' && github.repository == 'prometheus/prometheus'
     steps:
       - uses: prometheus/promci/publish_main@13941414d409d227afd67544e5d306827db5a1a2 # v0.8.5
@@ -394,7 +372,7 @@ jobs:
     permissions:
       contents: write
       packages: write
-    needs: [test_ui, test_go, test_go_more, test_go_oldest, test_windows, golangci, codeql, build_all]
+    needs: [test_ui, test_go, test_go_more, test_windows, golangci, codeql, build_all]
     if: |
       (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v2.') && github.repository == 'prometheus/prometheus')
       ||
