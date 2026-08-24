@@ -642,7 +642,7 @@ func createChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSer
 func writeUnsupportedChunk(t *testing.T, idx int, hrw *ChunkDiskMapper) (seriesRef HeadSeriesRef, chunkRef ChunkDiskMapperRef, mint, maxt int64, chunk chunkenc.Chunk) {
 	var err error
 	seriesRef = HeadSeriesRef(rand.Int63())
-	mint = int64((idx)*1000 + 1)
+	mint = int64(idx*1000 + 1)
 	maxt = int64((idx + 1) * 1000)
 	chunk = randomUnsupportedChunk(t)
 	awaitCb := make(chan struct{})
