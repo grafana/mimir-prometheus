@@ -135,7 +135,6 @@ linters:
         - importShadow
         - ptrToRefParam
         - rangeValCopy
-        - redundantSprint
         - regexpSimplify
         - returnAfterHttpError
         - sloppyReassign
