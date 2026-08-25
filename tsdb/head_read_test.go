@@ -517,7 +517,7 @@ func TestMemSeries_chunk_ResolveAfterWrap(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, chunkDiskMapper.Close()) })
 	memChunkPool := &sync.Pool{New: func() any { return &memChunk{} }}
 
-	series := newMemSeries(labels.EmptyLabels(), 1, 0, true, false)
+	series := newMemSeries(labels.EmptyLabels(), 1, 0, 0, 0, true, false)
 	series.firstChunkID = chunks.HeadChunkID(oooChunkIDMask - 10)
 
 	for ts := int64(0); ts < chunkRange*numChunks; ts += chunkStep {

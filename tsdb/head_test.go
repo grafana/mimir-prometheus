@@ -1942,7 +1942,7 @@ func TestOOOTruncateChunksBefore_Wrap(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, chunkDiskMapper.Close()) })
 
-			series := newMemSeries(labels.EmptyLabels(), 1, 0, true, false)
+			series := newMemSeries(labels.EmptyLabels(), 1, 0, 0, 0, true, false)
 			series.ooo = &memSeriesOOOFields{firstOOOChunkID: tc.firstOOOChunkID}
 
 			refs := make([]chunks.ChunkDiskMapperRef, tc.numOOOChunks)
@@ -1977,7 +1977,7 @@ func TestOOOTruncateChunksBefore_Wrap(t *testing.T) {
 }
 
 func TestPushHeadChunk_PanicsAtIDSpaceBound(t *testing.T) {
-	s := newMemSeries(labels.FromStrings("a", "b"), 1, 0, true, false)
+	s := newMemSeries(labels.FromStrings("a", "b"), 1, 0, 0, 0, true, false)
 	s.headChunkCount.Store(oooChunkIDMask - 1)
 
 	require.Panics(t, func() {
