@@ -84,8 +84,9 @@ const (
 	globLabelNameLengthLimit  = 200
 	globLabelValueLengthLimit = 200
 	globalGoGC                = 42
-	globScrapeFailureLogFile  = "testdata/fail.log"
 )
+
+var globScrapeFailureLogFile = filepath.FromSlash("testdata/fail.log")
 
 var expectedConf = &Config{
 	loaded: true,
@@ -93,7 +94,7 @@ var expectedConf = &Config{
 		ScrapeInterval:       model.Duration(15 * time.Second),
 		ScrapeTimeout:        DefaultGlobalConfig.ScrapeTimeout,
 		EvaluationInterval:   model.Duration(30 * time.Second),
-		QueryLogFile:         "testdata/query.log",
+		QueryLogFile:         filepath.FromSlash("testdata/query.log"),
 		ScrapeFailureLogFile: globScrapeFailureLogFile,
 
 		ExternalLabels: labels.FromStrings("foo", "bar", "monitor", "codelab"),
@@ -112,7 +113,8 @@ var expectedConf = &Config{
 	},
 
 	Runtime: RuntimeConfig{
-		GoGC: globalGoGC,
+		GoGC:     globalGoGC,
+		LogLevel: LogLevel("info"),
 	},
 
 	RuleFiles: []string{
@@ -229,7 +231,7 @@ var expectedConf = &Config{
 			LabelValueLengthLimit:          globLabelValueLengthLimit,
 			ScrapeProtocols:                DefaultScrapeProtocols,
 			ScrapeFallbackProtocol:         PrometheusText0_0_4,
-			ScrapeFailureLogFile:           "testdata/fail_prom.log",
+			ScrapeFailureLogFile:           filepath.FromSlash("testdata/fail_prom.log"),
 			MetricNameValidationScheme:     DefaultGlobalConfig.MetricNameValidationScheme,
 			MetricNameEscapingScheme:       DefaultGlobalConfig.MetricNameEscapingScheme,
 			ScrapeNativeHistograms:         boolPtr(false),
@@ -263,11 +265,15 @@ var expectedConf = &Config{
 
 			ServiceDiscoveryConfigs: discovery.Configs{
 				&file.SDConfig{
-					Files:           []string{"testdata/foo/*.slow.json", "testdata/foo/*.slow.yml", "testdata/single/file.yml"},
+					Files: []string{
+						filepath.FromSlash("testdata/foo/*.slow.json"),
+						filepath.FromSlash("testdata/foo/*.slow.yml"),
+						filepath.FromSlash("testdata/single/file.yml"),
+					},
 					RefreshInterval: model.Duration(10 * time.Minute),
 				},
 				&file.SDConfig{
-					Files:           []string{"testdata/bar/*.yaml"},
+					Files:           []string{filepath.FromSlash("testdata/bar/*.yaml")},
 					RefreshInterval: model.Duration(5 * time.Minute),
 				},
 				discovery.StaticConfig{
@@ -1110,8 +1116,8 @@ var expectedConf = &Config{
 					RefreshInterval: model.Duration(60 * time.Second),
 					Version:         1,
 					TLSConfig: config.TLSConfig{
-						CertFile: "testdata/valid_cert_file",
-						KeyFile:  "testdata/valid_key_file",
+						CertFile: filepath.FromSlash("testdata/valid_cert_file"),
+						KeyFile:  filepath.FromSlash("testdata/valid_key_file"),
 					},
 				},
 			},
@@ -1266,7 +1272,7 @@ var expectedConf = &Config{
 					Tenancy:          "ocid1.tenancy.oc1..tenancy001",
 					User:             "ocid1.user.oc1..user001",
 					Fingerprint:      "aa:bb:cc:dd:ee:ff",
-					KeyFile:          "testdata/valid_key_file",
+					KeyFile:          filepath.FromSlash("testdata/valid_key_file"),
 					KeyPassphrase:    "mysecret",
 					Compartments:     []string{"ocid1.compartment.oc1..comp001"},
 					Port:             9100,
@@ -1309,9 +1315,9 @@ var expectedConf = &Config{
 					Availability:    "public",
 					RefreshInterval: model.Duration(60 * time.Second),
 					TLSConfig: config.TLSConfig{
-						CAFile:   "testdata/valid_ca_file",
-						CertFile: "testdata/valid_cert_file",
-						KeyFile:  "testdata/valid_key_file",
+						CAFile:   filepath.FromSlash("testdata/valid_ca_file"),
+						CertFile: filepath.FromSlash("testdata/valid_cert_file"),
+						KeyFile:  filepath.FromSlash("testdata/valid_key_file"),
 					},
 				},
 			},
@@ -1353,9 +1359,9 @@ var expectedConf = &Config{
 						FollowRedirects: true,
 						EnableHTTP2:     true,
 						TLSConfig: config.TLSConfig{
-							CAFile:   "testdata/valid_ca_file",
-							CertFile: "testdata/valid_cert_file",
-							KeyFile:  "testdata/valid_key_file",
+							CAFile:   filepath.FromSlash("testdata/valid_ca_file"),
+							CertFile: filepath.FromSlash("testdata/valid_cert_file"),
+							KeyFile:  filepath.FromSlash("testdata/valid_key_file"),
 						},
 					},
 				},
@@ -1837,8 +1843,8 @@ var expectedConf = &Config{
 		Timeout:     model.Duration(5 * time.Second),
 		Headers:     map[string]string{"foo": "bar"},
 		TLSConfig: config.TLSConfig{
-			CertFile:           "testdata/valid_cert_file",
-			KeyFile:            "testdata/valid_key_file",
+			CertFile:           filepath.FromSlash("testdata/valid_cert_file"),
+			KeyFile:            filepath.FromSlash("testdata/valid_key_file"),
 			InsecureSkipVerify: true,
 		},
 	},
@@ -2853,6 +2859,67 @@ func TestEmptyConfig(t *testing.T) {
 	exp.StorageConfig.TSDBConfig = &TSDBConfig{Retention: &retention}
 	require.Equal(t, exp, *c)
 	require.Equal(t, 75, c.Runtime.GoGC)
+	require.Equal(t, LogLevel("info"), c.Runtime.LogLevel)
+}
+
+func TestRuntimeLogLevelConfig(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		config    string
+		expected  LogLevel
+		errString string
+	}{
+		{
+			name:     "default",
+			expected: LogLevel("info"),
+		},
+		{
+			name: "configured",
+			config: `runtime:
+  log_level: warn
+`,
+			expected: LogLevel("warn"),
+		},
+		{
+			name: "normalized",
+			config: `runtime:
+  log_level: DEBUG
+`,
+			expected: LogLevel("debug"),
+		},
+		{
+			name: "invalid",
+			config: `runtime:
+  log_level: verbose
+`,
+			errString: "unrecognized log level verbose",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := Load(tc.config, promslog.NewNopLogger())
+			if tc.errString != "" {
+				require.ErrorContains(t, err, tc.errString)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expected, cfg.Runtime.LogLevel)
+		})
+	}
+
+	t.Run("configured process default", func(t *testing.T) {
+		previousRuntimeDefault := DefaultRuntimeConfig
+		previousConfigRuntime := DefaultConfig.Runtime
+		t.Cleanup(func() {
+			DefaultRuntimeConfig = previousRuntimeDefault
+			DefaultConfig.Runtime = previousConfigRuntime
+		})
+
+		DefaultRuntimeConfig.LogLevel = LogLevel("debug")
+		DefaultConfig.Runtime = DefaultRuntimeConfig
+		cfg, err := Load("runtime:\n  gogc: 77\n", promslog.NewNopLogger())
+		require.NoError(t, err)
+		require.Equal(t, LogLevel("debug"), cfg.Runtime.LogLevel)
+	})
 }
 
 func TestExpandExternalLabels(t *testing.T) {

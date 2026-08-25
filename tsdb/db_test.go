@@ -1821,39 +1821,25 @@ func TestDBApplyConfigChunkEncoding(t *testing.T) {
 		}}
 	}
 
-	t.Run("xor2_without_option_returns_error", func(t *testing.T) {
+	t.Run("xor_default_accepts_config_xor2", func(t *testing.T) {
 		opts := DefaultOptions()
 		opts.FloatChunkEncoding = chunkenc.EncXOR
 		db := newTestDB(t, withOpts(opts))
-		require.ErrorContains(t, db.ApplyConfig(xorCfg(config.FloatChunkEncodingXOR2)),
-			"'storage.tsdb.chunk_encoding.floats: xor2' requires the xor2-encoding feature flag")
-	})
-
-	t.Run("xor2_allowed_with_xor_default_accepts_config_xor2", func(t *testing.T) {
-		opts := DefaultOptions()
-		opts.XOR2EncodingAllowed = true
-		opts.FloatChunkEncoding = chunkenc.EncXOR
-		db := newTestDB(t, withOpts(opts))
-		// With XOR2 allowed but the default kept at XOR, an explicit xor2 in the
-		// config must be accepted because the feature is enabled. This is the
-		// multi-tenant case where the encoding is opted in per reload.
 		require.NoError(t, db.ApplyConfig(xorCfg(config.FloatChunkEncodingXOR2)))
 		require.True(t, db.head.opts.UseXOR2FloatEncoding())
 	})
 
-	t.Run("explicit_xor_overrides_xor2_option", func(t *testing.T) {
+	t.Run("explicit_xor_overrides_xor2_default", func(t *testing.T) {
 		opts := DefaultOptions()
-		opts.XOR2EncodingAllowed = true
 		opts.FloatChunkEncoding = chunkenc.EncXOR2
 		db := newTestDB(t, withOpts(opts))
 		require.NoError(t, db.ApplyConfig(xorCfg(config.FloatChunkEncodingXOR)))
 		require.False(t, db.head.opts.UseXOR2FloatEncoding())
-		require.Equal(t, chunkenc.EncXOR2, db.opts.FloatChunkEncoding, "startup option must not be mutated")
+		require.Equal(t, chunkenc.EncXOR2, db.opts.FloatChunkEncoding, "startup default must not be mutated")
 	})
 
-	t.Run("xor2_with_option_succeeds", func(t *testing.T) {
+	t.Run("xor2_default_succeeds", func(t *testing.T) {
 		opts := DefaultOptions()
-		opts.XOR2EncodingAllowed = true
 		opts.FloatChunkEncoding = chunkenc.EncXOR2
 		db := newTestDB(t, withOpts(opts))
 		require.NoError(t, db.ApplyConfig(xorCfg(config.FloatChunkEncodingXOR2)))
@@ -1864,7 +1850,6 @@ func TestDBApplyConfigChunkEncoding(t *testing.T) {
 		for _, enc := range []chunkenc.Encoding{chunkenc.EncXOR2, chunkenc.EncXOR} {
 			t.Run(enc.String(), func(t *testing.T) {
 				opts := DefaultOptions()
-				opts.XOR2EncodingAllowed = true
 				opts.FloatChunkEncoding = enc
 				db := newTestDB(t, withOpts(opts))
 				require.NoError(t, db.ApplyConfig(xorCfg("")))
@@ -1875,7 +1860,6 @@ func TestDBApplyConfigChunkEncoding(t *testing.T) {
 
 	t.Run("sequential_reload_reverts_to_startup_option", func(t *testing.T) {
 		opts := DefaultOptions()
-		opts.XOR2EncodingAllowed = true
 		opts.FloatChunkEncoding = chunkenc.EncXOR2
 		db := newTestDB(t, withOpts(opts))
 
@@ -1888,7 +1872,6 @@ func TestDBApplyConfigChunkEncoding(t *testing.T) {
 
 	t.Run("nil_TSDBConfig_resets_to_startup_option", func(t *testing.T) {
 		opts := DefaultOptions()
-		opts.XOR2EncodingAllowed = true
 		opts.FloatChunkEncoding = chunkenc.EncXOR2
 		db := newTestDB(t, withOpts(opts))
 
@@ -1901,12 +1884,35 @@ func TestDBApplyConfigChunkEncoding(t *testing.T) {
 
 	t.Run("xor_with_st_storage_returns_error", func(t *testing.T) {
 		opts := DefaultOptions()
-		opts.XOR2EncodingAllowed = true
 		opts.FloatChunkEncoding = chunkenc.EncXOR2
 		opts.EnableSTStorage = true
 		db := newTestDB(t, withOpts(opts))
 		require.ErrorContains(t, db.ApplyConfig(xorCfg(config.FloatChunkEncodingXOR)),
-			"incompatible with st-storage")
+			"is incompatible with start-timestamp storage")
+	})
+
+	t.Run("empty_encoding_with_st_storage_keeps_startup_option", func(t *testing.T) {
+		opts := DefaultOptions()
+		opts.FloatChunkEncoding = chunkenc.EncXOR2
+		opts.EnableSTStorage = true
+		db := newTestDB(t, withOpts(opts))
+
+		// Removing the field must fall back to the startup option, not to the
+		// XOR default; otherwise st-storage would silently lose XOR2.
+		require.NoError(t, db.ApplyConfig(xorCfg("")))
+		require.True(t, db.head.opts.UseXOR2FloatEncoding())
+		require.NoError(t, db.ApplyConfig(&config.Config{}))
+		require.True(t, db.head.opts.UseXOR2FloatEncoding())
+	})
+
+	t.Run("rejected_reload_keeps_active_encoding", func(t *testing.T) {
+		opts := DefaultOptions()
+		opts.FloatChunkEncoding = chunkenc.EncXOR2
+		opts.EnableSTStorage = true
+		db := newTestDB(t, withOpts(opts))
+
+		require.ErrorContains(t, db.ApplyConfig(xorCfg(config.FloatChunkEncodingXOR)), "is incompatible with start-timestamp storage")
+		require.True(t, db.head.opts.UseXOR2FloatEncoding(), "active encoding must not change on a rejected reload")
 	})
 }
 
@@ -1961,7 +1967,6 @@ func TestVerticalCompactionFloatChunkEncoding(t *testing.T) {
 		createOverlappingBlocks(t, dir, 0)
 
 		opts := DefaultOptions()
-		opts.XOR2EncodingAllowed = true
 		opts.FloatChunkEncoding = chunkenc.EncXOR2
 		db := newTestDB(t, withDir(dir), withOpts(opts))
 		db.DisableCompactions()
@@ -1977,7 +1982,6 @@ func TestVerticalCompactionFloatChunkEncoding(t *testing.T) {
 		createOverlappingBlocks(t, dir, 0)
 
 		opts := DefaultOptions()
-		opts.XOR2EncodingAllowed = true
 		db := newTestDB(t, withDir(dir), withOpts(opts))
 		db.DisableCompactions()
 
@@ -2020,7 +2024,6 @@ func TestChunkQuerierFloatChunkEncoding(t *testing.T) {
 
 			opts := DefaultOptions()
 			if tc.xor2 {
-				opts.XOR2EncodingAllowed = true
 				opts.FloatChunkEncoding = chunkenc.EncXOR2
 			}
 			db := newTestDB(t, withDir(dir), withOpts(opts))
@@ -2079,22 +2082,8 @@ func TestValidateOptsSTStorageRequiresXOR2(t *testing.T) {
 	_, _, err := validateOpts(opts, nil)
 	require.ErrorContains(t, err, "is incompatible with start-timestamp storage")
 
-	// EncXOR2 + st-storage must be accepted when XOR2 is allowed.
-	opts.XOR2EncodingAllowed = true
+	// EncXOR2 + st-storage must be accepted.
 	opts.FloatChunkEncoding = chunkenc.EncXOR2
-	_, _, err = validateOpts(opts, nil)
-	require.NoError(t, err)
-}
-
-func TestValidateOptsXOR2RequiresAllowed(t *testing.T) {
-	t.Parallel()
-	opts := DefaultOptions()
-	opts.FloatChunkEncoding = chunkenc.EncXOR2
-	// XOR2 as the default encoding requires the feature to be enabled.
-	_, _, err := validateOpts(opts, nil)
-	require.ErrorContains(t, err, "is not enabled")
-
-	opts.XOR2EncodingAllowed = true
 	_, _, err = validateOpts(opts, nil)
 	require.NoError(t, err)
 }
@@ -11705,4 +11694,146 @@ func TestBeyondSizeRetentionWithPercentage(t *testing.T) {
 	deletable = BeyondSizeRetention(db, blocks)
 	require.Len(t, deletable, 1)
 	require.Contains(t, deletable, ulid)
+}
+
+func TestOOOCompactionAcrossChunkIDWrap(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testOOOCompactionAcrossChunkIDWrap(t, scenario)
+		})
+	}
+}
+
+func testOOOCompactionAcrossChunkIDWrap(t *testing.T, scenario sampleTypeScenario) {
+	opts := DefaultOptions()
+	opts.OutOfOrderCapMax = 5
+	opts.OutOfOrderTimeWindow = 4 * time.Hour.Milliseconds()
+
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+
+	l := labels.FromStrings("l", "v1")
+	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
+
+	app := db.Appender(context.Background())
+
+	// In-order sample.
+	ref, _, err := scenario.appendFunc(app, l, minutes(200), 200)
+	require.NoError(t, err)
+	var expSamples []chunks.Sample
+	expSamples = append(expSamples, scenario.sampleFunc(minutes(200), 200))
+
+	// 15 OOO samples to create 3 mmapped chunks (cap=5).
+	for i := int64(1); i <= 15; i++ {
+		_, _, err = scenario.appendFunc(app, l, minutes(i), i)
+		require.NoError(t, err)
+		expSamples = append(expSamples, scenario.sampleFunc(minutes(i), i))
+	}
+	require.NoError(t, app.Commit())
+
+	// Seed firstOOOChunkID near the wrap boundary.
+	ms := db.head.series.getByID(chunks.HeadSeriesRef(ref))
+	require.NotNil(t, ms)
+	ms.Lock()
+	require.NotNil(t, ms.ooo)
+	ms.ooo.firstOOOChunkID = chunks.HeadChunkID(oooChunkIDMask - 1)
+	ms.Unlock()
+
+	// More OOO data whose chunk IDs cross the boundary.
+	app = db.Appender(context.Background())
+	for i := int64(16); i <= 30; i++ {
+		_, _, err = scenario.appendFunc(app, l, minutes(i), i)
+		require.NoError(t, err)
+		expSamples = append(expSamples, scenario.sampleFunc(minutes(i), i))
+	}
+	require.NoError(t, app.Commit())
+
+	// Compact.
+	require.NoError(t, db.Compact(context.Background()))
+
+	// Query and verify all data is present.
+	querier, err := db.Querier(0, minutes(300))
+	require.NoError(t, err)
+
+	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "l", "v1"))
+
+	sort.Slice(expSamples, func(i, j int) bool { return expSamples[i].T() < expSamples[j].T() })
+	requireEqualSeries(t, map[string][]chunks.Sample{l.String(): expSamples}, seriesSet, true)
+}
+
+// TestInOrderCompactionAcrossChunkIDWrap verifies that queries and head
+// compaction work on a series whose in-order chunk IDs wrap past the 23-bit
+// boundary.
+func TestInOrderCompactionAcrossChunkIDWrap(t *testing.T) {
+	for name, scenario := range sampleTypeScenarios {
+		t.Run(name, func(t *testing.T) {
+			testInOrderCompactionAcrossChunkIDWrap(t, scenario)
+		})
+	}
+}
+
+func testInOrderCompactionAcrossChunkIDWrap(t *testing.T, scenario sampleTypeScenario) {
+	const chunkRange = 100
+	const maxT = 500
+
+	db := newTestDB(t, withRngs(chunkRange))
+	db.DisableCompactions()
+
+	l := labels.FromStrings("l", "v1")
+
+	// Create the series, then seed firstChunkID at the top of the 23-bit ID
+	// space to emulate a long-lived series that has already truncated ~8M
+	// chunks. Every chunk appended afterwards is created with an ID at or past
+	// the boundary, so their stored HeadChunkRef IDs must wrap.
+	app := db.Appender(context.Background())
+	ref, _, err := scenario.appendFunc(app, l, 0, 0)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	firstChunkIDSeed := chunks.HeadChunkID(oooChunkIDMask - 1)
+	ms := db.head.series.getByID(chunks.HeadSeriesRef(ref))
+	require.NotNil(t, ms)
+	ms.Lock()
+	ms.firstChunkID = firstChunkIDSeed
+	ms.Unlock()
+
+	newestChunkID := func() chunks.HeadChunkID {
+		ms.Lock()
+		defer ms.Unlock()
+		return ms.headChunkID(len(ms.mmappedChunks) + int(ms.headChunkCount.Load()) - 1)
+	}
+	newestBeforeAppends := newestChunkID()
+
+	expSamples := []chunks.Sample{scenario.sampleFunc(0, 0)}
+	app = db.Appender(context.Background())
+	for ts := int64(10); ts < maxT; ts += 10 {
+		_, _, err = scenario.appendFunc(app, l, ts, ts)
+		require.NoError(t, err)
+		expSamples = append(expSamples, scenario.sampleFunc(ts, ts))
+	}
+	require.NoError(t, app.Commit())
+	sort.Slice(expSamples, func(i, j int) bool { return expSamples[i].T() < expSamples[j].T() })
+
+	require.Less(t, newestChunkID(), newestBeforeAppends, "chunk IDs should have wrapped past the boundary")
+
+	matcher := labels.MustNewMatcher(labels.MatchEqual, "l", "v1")
+
+	// Queries must resolve the wrapped chunk IDs while the data is in the head.
+	querier, err := db.Querier(0, maxT)
+	require.NoError(t, err)
+	requireEqualSeries(t, map[string][]chunks.Sample{l.String(): expSamples}, query(t, querier, matcher), true)
+
+	// Head compaction reads every chunk through the same wrapped IDs, then drops
+	// the compacted ones via truncateChunksBefore, wrapping firstChunkID too.
+	require.NoError(t, db.Compact(context.Background()))
+
+	ms.Lock()
+	firstChunkIDAfter := ms.firstChunkID
+	ms.Unlock()
+	require.Less(t, firstChunkIDAfter, firstChunkIDSeed, "firstChunkID should have wrapped past 0")
+
+	// The compacted block must contain every sample.
+	querier, err = db.Querier(0, maxT)
+	require.NoError(t, err)
+	requireEqualSeries(t, map[string][]chunks.Sample{l.String(): expSamples}, query(t, querier, matcher), true)
 }
