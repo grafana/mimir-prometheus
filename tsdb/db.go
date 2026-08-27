@@ -1989,9 +1989,14 @@ type headViewFactory func(head *Head, mint, maxt int64) BlockReader
 // after compaction began and may not be present in any block.
 //
 // When isolation is disabled, appendIDWatermark is always 0 and the
-// append-ID check becomes a no-op. In that mode, the caller must ensure
-// that no concurrent writes target the selected series.
-type headSeriesEvictor func(maxt int64, appendIDWatermark uint64) error
+// append-ID check becomes a no-op.
+//
+// appendSeqWatermark is the head's appendSeq counter, captured under
+// commitBarrier before the blocks were written. A series whose
+// lastAppendSeq is above it (or with a commit pending) received samples
+// from a commit that started after the capture and must not be evicted.
+// Unlike the append-ID check, this works with isolation disabled.
+type headSeriesEvictor func(maxt int64, appendIDWatermark, appendSeqWatermark uint64) error
 
 // compactHeadViewLocked writes a block (or sequence of blocks, one per chunk range) for the
 // restricted head view produced by viewFactory, then runs evictor to remove those series from the
@@ -2017,6 +2022,15 @@ func (db *DB) compactHeadViewLocked(viewFactory headViewFactory, evict headSerie
 	// could evict a series whose newest sample is present in neither the block nor
 	// the head, causing that sample to be lost on WAL replay.
 	appendIDWatermark := db.head.iso.committedAppendID()
+	// Capture the appendSeq watermark under the commit barrier: taking the write lock
+	// drains in-flight commits, so every commit either fully applied its samples before
+	// this point (they will be in the generated blocks; the series is stamped <= the
+	// watermark) or starts after it (stamped above the watermark, skipped by eviction).
+	// Unlike the appendID watermark above, this also protects appends made while
+	// isolation is disabled.
+	db.head.commitBarrier.Lock()
+	appendSeqWatermark := db.head.appendSeq.Load()
+	db.head.commitBarrier.Unlock()
 	// The bound is inclusive so that a sample sitting exactly on a chunk-range boundary
 	// (mint == maxt) still gets a block written before its series is evicted.
 	for ; mint <= maxt; mint += db.head.chunkRange.Load() {
@@ -2056,7 +2070,7 @@ func (db *DB) compactHeadViewLocked(viewFactory headViewFactory, evict headSerie
 		compactHeadViewBeforeEvictTestingCallback = nil
 	}
 
-	if err := evict(maxt, appendIDWatermark); err != nil {
+	if err := evict(maxt, appendIDWatermark, appendSeqWatermark); err != nil {
 		return fmt.Errorf("head truncate: %w", err)
 	}
 	db.head.RebuildSymbolTable(db.logger)
@@ -2088,8 +2102,8 @@ func (db *DB) CompactStaleHead() (err error) {
 		func(h *Head, mint, maxt int64) BlockReader {
 			return NewSelectedSeriesHead(h, mint, maxt, staleSeriesRefs)
 		},
-		func(maxt int64, appendIDWatermark uint64) error {
-			return db.head.truncateStaleSeries(staleSeriesRefs.sortedByRef, maxt, appendIDWatermark)
+		func(maxt int64, appendIDWatermark, appendSeqWatermark uint64) error {
+			return db.head.truncateStaleSeries(staleSeriesRefs.sortedByRef, maxt, appendIDWatermark, appendSeqWatermark)
 		},
 		func(meta *BlockMeta) { meta.Compaction.SetStaleSeries() },
 	); err != nil {
@@ -2171,8 +2185,8 @@ func (db *DB) CompactSelectedSeries(seriesRefs []storage.SeriesRef) (err error) 
 		func(h *Head, mint, maxt int64) BlockReader {
 			return NewSelectedSeriesHead(h, mint, maxt, selectedSeriesRefs)
 		},
-		func(maxt int64, appendIDWatermark uint64) error {
-			return db.head.truncateSelectedSeries(selectedSeriesRefs.sortedByRef, maxt, appendIDWatermark)
+		func(maxt int64, appendIDWatermark, appendSeqWatermark uint64) error {
+			return db.head.truncateSelectedSeries(selectedSeriesRefs.sortedByRef, maxt, appendIDWatermark, appendSeqWatermark)
 		},
 		func(meta *BlockMeta) { meta.Compaction.SetSelectedSeries() },
 	); err != nil {

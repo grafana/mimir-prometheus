@@ -10749,6 +10749,301 @@ func TestCompactSelectedSeries(t *testing.T) {
 	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.metrics.selectedSeriesCompactionsFailed))
 }
 
+// TestCompactSelectedSeries_ConcurrentAppendNotLost verifies that a sample committed to a
+// selected series after its block has been written but before the series is evicted from the
+// head is not lost. Such a sample is present in neither the generated block nor (without the
+// guard) the head, and the eviction tombstone would even suppress it on WAL replay.
+//
+// The regression this guards against: with isolation disabled (as Mimir runs), the
+// appendID-based eviction watermark is always 0 and the only remaining guard was the series
+// maxTime. A concurrent append whose sample timestamp is in order for its series but below the
+// head's MaxTime (e.g. a producer that writes timestamps lagging wall clock) slipped past both
+// guards and was silently destroyed together with the evicted series.
+func TestCompactSelectedSeries_ConcurrentAppendNotLost(t *testing.T) {
+	for _, isolationDisabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("isolation disabled=%t", isolationDisabled), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.MinBlockDuration = 1000
+			opts.MaxBlockDuration = 1000
+			opts.IsolationDisabled = isolationDisabled
+			db := newTestDB(t, withOpts(opts))
+			db.DisableCompactions()
+			t.Cleanup(func() {
+				compactHeadViewBeforeEvictTestingCallback = nil
+				require.NoError(t, db.Close())
+			})
+
+			selected1 := labels.FromStrings("name", "selected1")
+			selected2 := labels.FromStrings("name", "selected2")
+
+			app := db.Appender(context.Background())
+			s1, err := app.Append(0, selected1, 100, 1.0)
+			require.NoError(t, err)
+			s2, err := app.Append(0, selected2, 200, 2.0)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+
+			// After the blocks for the selected series have been written, but before the
+			// series are evicted from the head, commit another sample to selected1. The
+			// timestamp is in order for the series (150 > 100) but below the head's MaxTime
+			// (200), so it dodges the series-maxTime eviction guard, and with isolation
+			// disabled the appendID watermark guard is a no-op.
+			compactHeadViewBeforeEvictTestingCallback = func() {
+				app := db.Appender(context.Background())
+				_, err := app.Append(0, selected1, 150, 1.5)
+				require.NoError(t, err)
+				require.NoError(t, app.Commit())
+			}
+
+			require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{s1, s2}))
+
+			// selected1 received a sample after the block write: it must have been skipped by
+			// the eviction and still live in the head. selected2 must have been evicted.
+			require.Equal(t, uint64(1), db.Head().NumSeries(), "series appended to during the compaction must be skipped by the eviction")
+
+			// No sample may be lost: selected1 has both samples (the pre-compaction one via
+			// the block and/or head, the concurrent one via the head), selected2 has its
+			// sample via the block.
+			q, err := db.Querier(math.MinInt64, math.MaxInt64)
+			require.NoError(t, err)
+			res := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "name", "selected.*"))
+
+			s1Samples := res[selected1.String()]
+			timestamps := make([]int64, 0, len(s1Samples))
+			for _, s := range s1Samples {
+				timestamps = append(timestamps, s.T())
+			}
+			require.Equal(t, []int64{100, 150}, timestamps, "the concurrently appended sample must not be lost")
+
+			s2Samples := res[selected2.String()]
+			require.Len(t, s2Samples, 1)
+			require.Equal(t, int64(200), s2Samples[0].T())
+		})
+	}
+}
+
+// TestCompactSelectedSeries_OpenAppenderSamplesNotLost verifies that a series with a sample
+// buffered in a still-open appender is not evicted, even when ANOTHER appender committed to
+// the same series in the meantime. With a boolean pending-commit marker, the second
+// appender's commit would clear the pending state of the first appender's still-buffered
+// sample; the series would be evicted and the first appender would then commit into the
+// removed memSeries, silently losing the sample (the eviction tombstone even suppresses it
+// on WAL replay). This must hold in both isolation modes: the buffered sample has no
+// append-ID recorded in the series until it commits, so isolation does not cover it either.
+func TestCompactSelectedSeries_OpenAppenderSamplesNotLost(t *testing.T) {
+	for _, isolationDisabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("isolation disabled=%t", isolationDisabled), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.MinBlockDuration = 1000
+			opts.MaxBlockDuration = 1000
+			opts.IsolationDisabled = isolationDisabled
+			db := newTestDB(t, withOpts(opts))
+			db.DisableCompactions()
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+			// The filler keeps head.MaxTime at 700 so all timestamps used below stay
+			// in order for their series yet below the head max time, dodging the
+			// series-maxTime eviction guard.
+			filler := labels.FromStrings("name", "filler")
+			sel := labels.FromStrings("name", "selected")
+
+			app := db.Appender(context.Background())
+			_, err := app.Append(0, filler, 700, 0.7)
+			require.NoError(t, err)
+			selRef, err := app.Append(0, sel, 300, 1.0)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+
+			// Appender A buffers a sample for sel and stays open across the compaction.
+			appA := db.Appender(context.Background())
+			_, err = appA.Append(selRef, sel, 450, 4.5)
+			require.NoError(t, err)
+
+			// Appender B commits a lower (still in-order) sample to the same series.
+			appB := db.Appender(context.Background())
+			_, err = appB.Append(selRef, sel, 350, 3.5)
+			require.NoError(t, err)
+			require.NoError(t, appB.Commit())
+
+			require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{selRef}))
+
+			// sel still has a buffered sample in appender A, so it must have been
+			// skipped by the eviction; A's commit must land in the live series.
+			require.Equal(t, uint64(2), db.Head().NumSeries(),
+				"a series with samples buffered in an open appender must be skipped by the eviction")
+			require.NoError(t, appA.Commit())
+
+			q, err := db.Querier(math.MinInt64, math.MaxInt64)
+			require.NoError(t, err)
+			res := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "name", "selected"))
+			samples := res[sel.String()]
+			timestamps := make([]int64, 0, len(samples))
+			for _, s := range samples {
+				timestamps = append(timestamps, s.T())
+			}
+			require.Equal(t, []int64{300, 350, 450}, timestamps,
+				"the sample buffered in the open appender must not be lost")
+		})
+	}
+}
+
+// TestCompactStaleHead_OpenAppenderSamplesNotLost is the CompactStaleHead counterpart of
+// TestCompactSelectedSeries_OpenAppenderSamplesNotLost: a series whose last committed sample
+// is a staleness marker but which still has a live sample buffered in an open appender must
+// not be evicted by the stale-series compaction.
+func TestCompactStaleHead_OpenAppenderSamplesNotLost(t *testing.T) {
+	for _, isolationDisabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("isolation disabled=%t", isolationDisabled), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.MinBlockDuration = 1000
+			opts.MaxBlockDuration = 1000
+			opts.IsolationDisabled = isolationDisabled
+			db := newTestDB(t, withOpts(opts))
+			db.DisableCompactions()
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+			filler := labels.FromStrings("name", "filler")
+			stale := labels.FromStrings("name", "stale")
+
+			app := db.Appender(context.Background())
+			_, err := app.Append(0, filler, 700, 0.7)
+			require.NoError(t, err)
+			staleRef, err := app.Append(0, stale, 300, 1.0)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+
+			// Appender A buffers a live sample and stays open across the compaction.
+			appA := db.Appender(context.Background())
+			_, err = appA.Append(staleRef, stale, 450, 4.5)
+			require.NoError(t, err)
+
+			// Appender B commits a staleness marker, making the series eligible for
+			// stale-series compaction (and, with a boolean marker, clobbering A's
+			// pending state).
+			appB := db.Appender(context.Background())
+			_, err = appB.Append(staleRef, stale, 350, math.Float64frombits(value.StaleNaN))
+			require.NoError(t, err)
+			require.NoError(t, appB.Commit())
+			require.Equal(t, uint64(1), db.Head().NumStaleSeries())
+
+			require.NoError(t, db.CompactStaleHead())
+
+			require.Equal(t, uint64(2), db.Head().NumSeries(),
+				"a stale series with samples buffered in an open appender must be skipped by the eviction")
+			require.NoError(t, appA.Commit())
+
+			q, err := db.Querier(math.MinInt64, math.MaxInt64)
+			require.NoError(t, err)
+			res := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "name", "stale"))
+			samples := res[stale.String()]
+			timestamps := make([]int64, 0, len(samples))
+			for _, s := range samples {
+				timestamps = append(timestamps, s.T())
+			}
+			require.Equal(t, []int64{300, 350, 450}, timestamps,
+				"the sample buffered in the open appender must not be lost to the stale-series eviction")
+		})
+	}
+}
+
+// TestCompactSelectedSeries_CommitsRacingCompactionNotLost runs appends+commits against a
+// selected series concurrently with the whole compaction, so commits race the commit-barrier
+// watermark capture itself as well as the block-write and eviction phases. The testing
+// callback additionally holds the write-to-evict window open until several commits have
+// landed inside it. Every commit that reported success must remain queryable afterwards,
+// whether its samples ended up in the block, in the surviving head series, or in a
+// re-created series (if the eviction won the race).
+func TestCompactSelectedSeries_CommitsRacingCompactionNotLost(t *testing.T) {
+	for _, isolationDisabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("isolation disabled=%t", isolationDisabled), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.MinBlockDuration = 1000
+			opts.MaxBlockDuration = 1000
+			opts.IsolationDisabled = isolationDisabled
+			db := newTestDB(t, withOpts(opts))
+			db.DisableCompactions()
+			t.Cleanup(func() {
+				compactHeadViewBeforeEvictTestingCallback = nil
+				require.NoError(t, db.Close())
+			})
+
+			filler := labels.FromStrings("name", "filler")
+			sel := labels.FromStrings("name", "selected")
+
+			app := db.Appender(context.Background())
+			_, err := app.Append(0, filler, 700, 0.7)
+			require.NoError(t, err)
+			selRef, err := app.Append(0, sel, 200, 2.0)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+
+			// The writer commits one in-order sample per iteration, racing the
+			// compaction. Timestamps stay below the head max time (700) so the
+			// series-maxTime guard never protects them.
+			const maxTS = 690
+			var (
+				committed atomic.Int64 // highest successfully committed timestamp
+				writerErr error
+				stop      = make(chan struct{})
+				done      = make(chan struct{})
+			)
+			committed.Store(200)
+			go func() {
+				defer close(done)
+				for ts := int64(201); ts <= maxTS; ts++ {
+					select {
+					case <-stop:
+						return
+					default:
+					}
+					app := db.Appender(context.Background())
+					if _, err := app.Append(0, sel, ts, float64(ts)); err != nil {
+						writerErr = fmt.Errorf("append ts=%d: %w", ts, err)
+						_ = app.Rollback()
+						return
+					}
+					if err := app.Commit(); err != nil {
+						writerErr = fmt.Errorf("commit ts=%d: %w", ts, err)
+						return
+					}
+					committed.Store(ts)
+				}
+			}()
+
+			// Hold the window between block write and eviction open until several
+			// commits have landed inside it (bounded so the test cannot hang if the
+			// writer finishes early).
+			compactHeadViewBeforeEvictTestingCallback = func() {
+				target := committed.Load() + 5
+				for committed.Load() < target && committed.Load() < maxTS {
+					select {
+					case <-done:
+						return
+					default:
+						runtime.Gosched()
+					}
+				}
+			}
+
+			require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{selRef}))
+			close(stop)
+			<-done
+			require.NoError(t, writerErr)
+
+			q, err := db.Querier(math.MinInt64, math.MaxInt64)
+			require.NoError(t, err)
+			res := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "name", "selected"))
+			present := map[int64]bool{}
+			for _, s := range res[sel.String()] {
+				present[s.T()] = true
+			}
+			for ts := int64(200); ts <= committed.Load(); ts++ {
+				require.True(t, present[ts], "committed sample ts=%d must not be lost", ts)
+			}
+		})
+	}
+}
+
 // TestCompactSelectedSeries_UnsortedDuplicateRefs verifies that CompactSelectedSeries
 // tolerates an input slice that is unsorted and contains duplicate refs:
 //   - The postings list backing the selected-series view must observe sorted, unique refs,
@@ -11070,35 +11365,19 @@ func TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart(t *test
 
 	require.Len(t, db.Blocks(), 1)
 
-	// The watermark guard only fires when isolation is enabled, because it
-	// relies on per-sample append-IDs that s.txs only tracks in that mode.
-	//   - isolation enabled: hasAppendIDAbove catches the post-watermark
-	//     commit, sel survives eviction, and all three samples are queryable.
-	//   - isolation disabled: per-sample append-IDs aren't tracked, the guard
-	//     is a no-op, sel gets evicted along with the late sample, and the
-	//     WAL tombstone drops the late sample permanently on replay. Only the
-	//     two samples the block captured remain queryable.
-	var (
-		expectedHeadSeries uint64
-		expectedSamples    []chunks.Sample
-	)
-	if defaultIsolationDisabled {
-		expectedHeadSeries = 1 // only filler remains; sel was evicted
-		expectedSamples = []chunks.Sample{
-			sample{t: 100, f: 10.0},
-			sample{t: 200, f: 20.0},
-		}
-	} else {
-		expectedHeadSeries = 2 // filler + sel
-		expectedSamples = []chunks.Sample{
-			sample{t: 100, f: 10.0},
-			sample{t: 200, f: 20.0},
-			sample{t: lateT, f: lateV},
-		}
+	// The late commit lands after the watermark capture, so the eviction skips sel in
+	// both isolation modes: with isolation enabled hasAppendIDAbove catches it, and with
+	// isolation disabled the appendSeq stamp does. Sel survives eviction and all three
+	// samples stay queryable.
+	expectedHeadSeries := uint64(2) // filler + sel
+	expectedSamples := []chunks.Sample{
+		sample{t: 100, f: 10.0},
+		sample{t: 200, f: 20.0},
+		sample{t: lateT, f: lateV},
 	}
 
 	require.Equal(t, expectedHeadSeries, db.Head().NumSeries(),
-		"head series count must match the expected watermark-guard outcome for this isolation mode")
+		"a series appended to during the compaction must be skipped by the eviction")
 
 	querySelected := func(d *DB) []chunks.Sample {
 		q, err := d.Querier(0, chunkRange)
@@ -11133,10 +11412,6 @@ func TestCompactSelectedSeries_LateAppendDuringCompactionSurvivesRestart(t *test
 // The test verifies that the sample remains queryable both immediately after
 // compaction and after a restart.
 func TestCompactSelectedSeries_OpenAppenderCommittingDuringCompaction(t *testing.T) {
-	if defaultIsolationDisabled {
-		t.Skip("watermark guard relies on per-sample append-IDs that s.txs only tracks when isolation is enabled")
-	}
-
 	const chunkRange = 1000
 	opts := DefaultOptions()
 	opts.MinBlockDuration = chunkRange

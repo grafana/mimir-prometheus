@@ -132,6 +132,17 @@ type Head struct {
 
 	iso *isolation
 
+	// appendSeq is a monotonic sequence assigned to each Commit under commitBarrier.
+	// Unlike isolation appendIDs, it is maintained even when isolation is disabled, so
+	// selected-series eviction can detect series appended to after its watermark capture.
+	appendSeq atomic.Uint64
+	// commitBarrier is held for reading by Commit while it assigns appendSeq and applies
+	// samples, and taken for writing by compactHeadViewLocked to capture an appendSeq
+	// watermark with no commit in flight: every commit is then either fully applied before
+	// the watermark (its series stamps are <= watermark) or starts after it (stamps above
+	// the watermark, so eviction skips those series).
+	commitBarrier sync.RWMutex
+
 	oooIso *oooIsolation
 
 	cardinalityMutex      sync.Mutex
@@ -1377,9 +1388,11 @@ func isStaleSeries(s *memSeries) bool {
 // appendIDWatermark is the lastAppendID captured before the upstream block write. Series that
 // have received samples with greater appendIDs are skipped, because those samples may not be
 // present in the generated block.
-func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64, appendIDWatermark uint64) error {
+// appendSeqWatermark is the Head.appendSeq captured under commitBarrier before eviction; it
+// provides the same protection when isolation is disabled (see appendedSinceWatermark).
+func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64, appendIDWatermark, appendSeqWatermark uint64) error {
 	_, err := h.truncateSeries(seriesRefs, maxt, func(s *memSeries) bool {
-		return isSeriesWithoutOOO(s) && isStaleSeries(s) && !hasAppendIDAbove(s, appendIDWatermark)
+		return isSeriesWithoutOOO(s) && isStaleSeries(s) && !hasAppendIDAbove(s, appendIDWatermark) && !appendedSinceWatermark(s, appendSeqWatermark)
 	})
 	return err
 }
@@ -1390,18 +1403,20 @@ func (h *Head) truncateStaleSeries(seriesRefs []storage.SeriesRef, maxt int64, a
 // appendIDWatermark is the lastAppendID captured before the upstream block write. Series that
 // have received samples with greater appendIDs are skipped, because those samples may not be
 // present in the generated block.
-func (h *Head) truncateSelectedSeries(seriesRefs []storage.SeriesRef, maxt int64, appendIDWatermark uint64) error {
+// appendSeqWatermark is the Head.appendSeq captured under commitBarrier before eviction; it
+// provides the same protection when isolation is disabled (see appendedSinceWatermark).
+func (h *Head) truncateSelectedSeries(seriesRefs []storage.SeriesRef, maxt int64, appendIDWatermark, appendSeqWatermark uint64) error {
 	_, err := h.truncateSeries(seriesRefs, maxt, func(s *memSeries) bool {
-		return isSeriesWithoutOOO(s) && !hasAppendIDAbove(s, appendIDWatermark)
+		return isSeriesWithoutOOO(s) && !hasAppendIDAbove(s, appendIDWatermark) && !appendedSinceWatermark(s, appendSeqWatermark)
 	})
 	return err
 }
 
 // hasAppendIDAbove reports whether s contains any in-memory sample with an appendID
 // greater than watermark.
-// When isolation is disabled (s.txs == nil), it always returns false;  in that mode,
-// CompactSelectedSeries and CompactStaleHead rely on their existing requirement that
-// no concurrent writes target the affected series.
+// When isolation is disabled (s.txs == nil), it always returns false; in that mode,
+// CompactSelectedSeries and CompactStaleHead rely on appendedSinceWatermark instead,
+// which does not depend on isolation.
 // Must be called with s.Lock held.
 func hasAppendIDAbove(s *memSeries, watermark uint64) bool {
 	if s.txs == nil {
@@ -1415,6 +1430,15 @@ func hasAppendIDAbove(s *memSeries, watermark uint64) bool {
 		it.Next()
 	}
 	return false
+}
+
+// appendedSinceWatermark reports whether s was appended to by a commit that started after
+// the given Head.appendSeq watermark was captured, or has an append pending commit. Such
+// samples may not be present in the blocks written before the capture, so the series must
+// not be evicted. Unlike hasAppendIDAbove, this works with isolation disabled.
+// Must be called with s.Lock held.
+func appendedSinceWatermark(s *memSeries, watermark uint64) bool {
+	return s.pendingCommits > 0 || s.lastAppendSeq > watermark
 }
 
 // truncateSeries removes the provided series from the head, taking the chunk-snapshot lock,
@@ -2433,7 +2457,7 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 				minOOOTime = series.ooo.oooHeadChunk.minTime
 			}
 		}
-		if len(series.mmappedChunks) > 0 || series.headChunks != nil || series.pendingCommit ||
+		if len(series.mmappedChunks) > 0 || series.headChunks != nil || series.pendingCommits > 0 ||
 			(series.ooo != nil && (len(series.ooo.oooMmappedChunks) > 0 || series.ooo.oooHeadChunk != nil)) {
 			seriesMint := series.minTime()
 			if seriesMint < actualMint {
@@ -2863,9 +2887,19 @@ type memSeries struct {
 	// to spread chunks writing across time. Doesn't apply to the last chunk of the chunk range. 0 to disable variance.
 	chunkEndTimeVariance float64
 
-	nextAt                           int64 // Timestamp at which to cut the next chunk.
-	histogramChunkHasComputedEndTime bool  // True if nextAt has been predicted for the current histograms chunk; false otherwise.
-	pendingCommit                    bool  // Whether there are samples waiting to be committed to this series.
+	nextAt int64 // Timestamp at which to cut the next chunk.
+	// lastAppendSeq is Head.appendSeq of the last commit that applied samples to this
+	// series. Guarded by the series lock. Used by selected-series eviction, which skips
+	// series stamped above its captured watermark; works with isolation disabled.
+	lastAppendSeq uint64
+	// pendingCommits is the number of samples buffered for this series in open appenders,
+	// awaiting Commit or Rollback, plus one while the appender that created the series is
+	// open. A counter rather than a bool because multiple appenders can hold buffered
+	// samples for the same series concurrently, and one appender's commit must not clear
+	// the pending state of another appender's still-buffered samples. Guarded by the
+	// series lock.
+	pendingCommits                   uint32
+	histogramChunkHasComputedEndTime bool // True if nextAt has been predicted for the current histograms chunk; false otherwise.
 	// Whether garbage collection has removed this series from the head index. Such a
 	// series is unreachable, so appending to it would silently lose the samples;
 	// appenders that looked it up before it was collected have to get a fresh one
@@ -2874,8 +2908,8 @@ type memSeries struct {
 	// headChunkCount tracks the number of head chunks. All mutations of the
 	// headChunks/headChunkCount pair go through pushHeadChunk and setHeadChunks.
 	// Chunk counts are bounded by the 3-byte field in HeadChunkRef, so cannot overflow uint32.
-	// Explicitly uses sync/atomic.Uint32 (4 bytes) to fit in the existing padding
-	// between two bools and a float64.
+	// Explicitly uses sync/atomic.Uint32 (4 bytes) for compact packing among the
+	// surrounding small fields.
 	headChunkCount stdatomic.Uint32
 
 	// We keep the last value here (in addition to appending it to the chunk) so we can check for duplicates.
@@ -2924,7 +2958,9 @@ func newMemSeries(lset labels.Labels, id chunks.HeadSeriesRef, shardHash uint64,
 		chunkEndTimeVariance: chunkEndTimeVariance,
 		shardHash:            shardHash,
 		secondaryHash:        secondaryHash,
-		pendingCommit:        pendingCommit,
+	}
+	if pendingCommit {
+		s.pendingCommits = 1
 	}
 	if !isolationDisabled {
 		s.txs = newTxRing(0)
