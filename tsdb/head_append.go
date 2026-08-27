@@ -497,7 +497,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 			a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
 			return 0, storage.ErrOutOfOrderSample
 		}
-		s.pendingCommit = true
+		s.pendingCommits++
 	}
 	if delta > 0 {
 		a.head.metrics.oooHistogram.Observe(float64(delta) / 1000)
@@ -547,8 +547,8 @@ func (a *headAppender) AppendSTZeroSample(ref storage.SeriesRef, lset labels.Lab
 		return 0, err
 	}
 	isOOO, _, err := s.appendable(st, 0, a.headMaxt, a.minValidTime, a.oooTimeWindow)
-	if err == nil {
-		s.pendingCommit = true
+	if err == nil && !isOOO {
+		s.pendingCommits++
 	}
 	s.Unlock()
 	if err != nil {
@@ -902,7 +902,7 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 		// to skip that sample from the WAL and write only in the WBL.
 		_, delta, err := s.appendableHistogram(t, h, a.headMaxt, a.minValidTime, a.oooTimeWindow)
 		if err == nil {
-			s.pendingCommit = true
+			s.pendingCommits++
 		}
 		s.Unlock()
 		if delta > 0 {
@@ -937,7 +937,7 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 		// to skip that sample from the WAL and write only in the WBL.
 		_, delta, err := s.appendableFloatHistogram(t, fh, a.headMaxt, a.minValidTime, a.oooTimeWindow)
 		if err == nil {
-			s.pendingCommit = true
+			s.pendingCommits++
 		}
 		s.Unlock()
 		if delta > 0 {
@@ -1015,7 +1015,7 @@ func (a *headAppender) AppendHistogramSTZeroSample(ref storage.SeriesRef, lset l
 			return 0, storage.ErrOutOfOrderST
 		}
 
-		s.pendingCommit = true
+		s.pendingCommits++
 		s.Unlock()
 		sTyp := stHistogram
 		if h.UsesCustomBuckets() {
@@ -1059,7 +1059,7 @@ func (a *headAppender) AppendHistogramSTZeroSample(ref storage.SeriesRef, lset l
 			return 0, storage.ErrOutOfOrderST
 		}
 
-		s.pendingCommit = true
+		s.pendingCommits++
 		s.Unlock()
 		sTyp := stFloatHistogram
 		if fh.UsesCustomBuckets() {
@@ -1534,7 +1534,7 @@ func (a *headAppenderBase) commitFloats(b *appendBatch, acc *appenderCommitConte
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
 		series.lastAppendSeq = a.appendSeq
-		series.pendingCommit = false
+		series.pendingCommits--
 		series.Unlock()
 	}
 }
@@ -1637,7 +1637,7 @@ func (a *headAppenderBase) commitHistograms(b *appendBatch, acc *appenderCommitC
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
 		series.lastAppendSeq = a.appendSeq
-		series.pendingCommit = false
+		series.pendingCommits--
 		series.Unlock()
 	}
 }
@@ -1740,7 +1740,7 @@ func (a *headAppenderBase) commitFloatHistograms(b *appendBatch, acc *appenderCo
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
 		series.lastAppendSeq = a.appendSeq
-		series.pendingCommit = false
+		series.pendingCommits--
 		series.Unlock()
 	}
 }
@@ -1762,7 +1762,7 @@ func commitMetadata(b *appendBatch) {
 func (a *headAppenderBase) unmarkCreatedSeriesAsPendingCommit() {
 	for _, s := range a.series {
 		s.Lock()
-		s.pendingCommit = false
+		s.pendingCommits--
 		s.Unlock()
 	}
 }
@@ -2359,21 +2359,21 @@ func (a *headAppenderBase) Rollback() (err error) {
 			series = b.floatSeries[i]
 			series.Lock()
 			series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
-			series.pendingCommit = false
+			series.pendingCommits--
 			series.Unlock()
 		}
 		for i := range b.histograms {
 			series = b.histogramSeries[i]
 			series.Lock()
 			series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
-			series.pendingCommit = false
+			series.pendingCommits--
 			series.Unlock()
 		}
 		for i := range b.floatHistograms {
 			series = b.floatHistogramSeries[i]
 			series.Lock()
 			series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
-			series.pendingCommit = false
+			series.pendingCommits--
 			series.Unlock()
 		}
 		b.close(h)

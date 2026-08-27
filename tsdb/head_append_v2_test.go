@@ -1190,7 +1190,7 @@ func TestHeadAppenderV2_HistogramErrorDoesNotSetPendingCommit(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, ms)
 			ms.Lock()
-			pc := ms.pendingCommit
+			pc := ms.pendingCommits > 0
 			ms.Unlock()
 			require.False(t, pc, "pendingCommit should be cleared after a successful commit")
 
@@ -1201,7 +1201,7 @@ func TestHeadAppenderV2_HistogramErrorDoesNotSetPendingCommit(t *testing.T) {
 			require.NoError(t, app.Rollback())
 
 			ms.Lock()
-			pc = ms.pendingCommit
+			pc = ms.pendingCommits > 0
 			ms.Unlock()
 			require.False(t, pc, "pendingCommit should remain false after a failed AppenderV2.Append")
 		})
