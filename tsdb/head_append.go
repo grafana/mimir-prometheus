@@ -426,10 +426,14 @@ type headAppenderBase struct {
 	typesInBatch map[chunks.HeadSeriesRef]sampleType // Which (one) sample type each series holds in the most recent batch.
 
 	appendID, cleanupAppendIDsBelow uint64
-	closed                          bool
-	storeST                         bool // Whether start-timestamp storage is enabled for this append.
-	useXOR2                         bool // Whether XOR2 encoding is used for float chunks in this append.
-	useHistogramST                  bool // Whether ST-capable histogram chunk encoding is used in this append.
+	// appendSeq is Head.appendSeq assigned to this commit under Head.commitBarrier; each
+	// committed series is stamped with it so eviction can skip series appended to after
+	// its watermark capture. Maintained even when isolation is disabled.
+	appendSeq      uint64
+	closed         bool
+	storeST        bool // Whether start-timestamp storage is enabled for this append.
+	useXOR2        bool // Whether XOR2 encoding is used for float chunks in this append.
+	useHistogramST bool // Whether ST-capable histogram chunk encoding is used in this append.
 }
 type headAppender struct {
 	headAppenderBase
@@ -1529,6 +1533,7 @@ func (a *headAppenderBase) commitFloats(b *appendBatch, acc *appenderCommitConte
 		}
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.lastAppendSeq = a.appendSeq
 		series.pendingCommit = false
 		series.Unlock()
 	}
@@ -1631,6 +1636,7 @@ func (a *headAppenderBase) commitHistograms(b *appendBatch, acc *appenderCommitC
 		}
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.lastAppendSeq = a.appendSeq
 		series.pendingCommit = false
 		series.Unlock()
 	}
@@ -1733,6 +1739,7 @@ func (a *headAppenderBase) commitFloatHistograms(b *appendBatch, acc *appenderCo
 		}
 
 		series.cleanupAppendIDsBelow(a.cleanupAppendIDsBelow)
+		series.lastAppendSeq = a.appendSeq
 		series.pendingCommit = false
 		series.Unlock()
 	}
@@ -1822,6 +1829,11 @@ func (a *headAppenderBase) Commit() (err error) {
 		}
 	}()
 
+	// Apply samples under the commit barrier: the appendSeq assigned here is stamped on
+	// every committed series, and eviction captures its watermark under the write lock,
+	// so no commit spans a capture — its stamps are either all <= or all > the watermark.
+	h.commitBarrier.RLock()
+	a.appendSeq = h.appendSeq.Add(1)
 	for _, b := range a.batches {
 		// Do not change the order of these calls. We depend on it for
 		// correct commit order of samples and for the staleness marker
@@ -1833,6 +1845,7 @@ func (a *headAppenderBase) Commit() (err error) {
 	}
 	// Unmark all series as pending commit after all samples have been committed.
 	a.unmarkCreatedSeriesAsPendingCommit()
+	h.commitBarrier.RUnlock()
 
 	h.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat).Add(float64(acc.floatOOORejected))
 	h.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeHistogram).Add(float64(acc.histoOOORejected))
