@@ -10749,6 +10749,79 @@ func TestCompactSelectedSeries(t *testing.T) {
 	require.Equal(t, float64(0), prom_testutil.ToFloat64(db.metrics.selectedSeriesCompactionsFailed))
 }
 
+// TestCompactSelectedSeries_ConcurrentAppendNotLost verifies that a sample committed to a
+// selected series after its block has been written but before the series is evicted from the
+// head is not lost. Such a sample is present in neither the generated block nor (without the
+// guard) the head, and the eviction tombstone would even suppress it on WAL replay.
+//
+// The regression this guards against: with isolation disabled (as Mimir runs), the
+// appendID-based eviction watermark is always 0 and the only remaining guard was the series
+// maxTime. A concurrent append whose sample timestamp is in order for its series but below the
+// head's MaxTime (e.g. a producer that writes timestamps lagging wall clock) slipped past both
+// guards and was silently destroyed together with the evicted series.
+func TestCompactSelectedSeries_ConcurrentAppendNotLost(t *testing.T) {
+	for _, isolationDisabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("isolation disabled=%t", isolationDisabled), func(t *testing.T) {
+			opts := DefaultOptions()
+			opts.MinBlockDuration = 1000
+			opts.MaxBlockDuration = 1000
+			opts.IsolationDisabled = isolationDisabled
+			db := newTestDB(t, withOpts(opts))
+			db.DisableCompactions()
+			t.Cleanup(func() {
+				compactHeadViewBeforeEvictTestingCallback = nil
+				require.NoError(t, db.Close())
+			})
+
+			selected1 := labels.FromStrings("name", "selected1")
+			selected2 := labels.FromStrings("name", "selected2")
+
+			app := db.Appender(context.Background())
+			s1, err := app.Append(0, selected1, 100, 1.0)
+			require.NoError(t, err)
+			s2, err := app.Append(0, selected2, 200, 2.0)
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+
+			// After the blocks for the selected series have been written, but before the
+			// series are evicted from the head, commit another sample to selected1. The
+			// timestamp is in order for the series (150 > 100) but below the head's MaxTime
+			// (200), so it dodges the series-maxTime eviction guard, and with isolation
+			// disabled the appendID watermark guard is a no-op.
+			compactHeadViewBeforeEvictTestingCallback = func() {
+				app := db.Appender(context.Background())
+				_, err := app.Append(0, selected1, 150, 1.5)
+				require.NoError(t, err)
+				require.NoError(t, app.Commit())
+			}
+
+			require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{s1, s2}))
+
+			// selected1 received a sample after the block write: it must have been skipped by
+			// the eviction and still live in the head. selected2 must have been evicted.
+			require.Equal(t, uint64(1), db.Head().NumSeries(), "series appended to during the compaction must be skipped by the eviction")
+
+			// No sample may be lost: selected1 has both samples (the pre-compaction one via
+			// the block and/or head, the concurrent one via the head), selected2 has its
+			// sample via the block.
+			q, err := db.Querier(math.MinInt64, math.MaxInt64)
+			require.NoError(t, err)
+			res := query(t, q, labels.MustNewMatcher(labels.MatchRegexp, "name", "selected.*"))
+
+			s1Samples := res[selected1.String()]
+			timestamps := make([]int64, 0, len(s1Samples))
+			for _, s := range s1Samples {
+				timestamps = append(timestamps, s.T())
+			}
+			require.Equal(t, []int64{100, 150}, timestamps, "the concurrently appended sample must not be lost")
+
+			s2Samples := res[selected2.String()]
+			require.Len(t, s2Samples, 1)
+			require.Equal(t, int64(200), s2Samples[0].T())
+		})
+	}
+}
+
 // TestCompactSelectedSeries_UnsortedDuplicateRefs verifies that CompactSelectedSeries
 // tolerates an input slice that is unsorted and contains duplicate refs:
 //   - The postings list backing the selected-series view must observe sorted, unique refs,
