@@ -337,6 +337,9 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 				c.scrape.EnableTypeAndUnitLabels = true
 				c.web.EnableTypeAndUnitLabels = true
 				logger.Info("Experimental type and unit labels enabled")
+			case "zstd-scrape":
+				c.scrape.EnableZstdScrape = true
+				logger.Info("Experimental zstd scrape compression enabled")
 			case "use-uncached-io":
 				if !fileutil.UncachedIOSupported() {
 					return errors.New("experimental Uncached IO is not supported")
@@ -649,7 +652,7 @@ func main() {
 	a.Flag("scrape.discovery-reload-interval", "Interval used by scrape manager to throttle target groups updates.").
 		Hidden().Default("5s").SetValue(&cfg.scrape.DiscoveryReloadInterval)
 
-	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: concurrent-rule-eval, created-timestamp-zero-ingestion, delayed-compaction, exemplar-storage, extra-scrape-metrics, histograms-st-encoding, memory-snapshot-on-shutdown, metadata-wal-records, old-ui, openmetrics2, otlp-deltatocumulative, otlp-native-delta-ingestion, promql-binop-fill-modifiers, promql-delayed-name-removal, promql-experimental-functions, promql-extended-range-selectors, promql-per-step-stats, search-api, st-storage, st-synthesis, type-and-unit-labels, use-start-timestamps, use-uncached-io, xor2-encoding. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
+	a.Flag("enable-feature", "Comma separated feature names to enable. Valid options: concurrent-rule-eval, created-timestamp-zero-ingestion, delayed-compaction, exemplar-storage, extra-scrape-metrics, histograms-st-encoding, memory-snapshot-on-shutdown, metadata-wal-records, old-ui, openmetrics2, otlp-deltatocumulative, otlp-native-delta-ingestion, promql-binop-fill-modifiers, promql-delayed-name-removal, promql-experimental-functions, promql-extended-range-selectors, promql-per-step-stats, search-api, st-storage, st-synthesis, type-and-unit-labels, use-start-timestamps, use-uncached-io, xor2-encoding, zstd-scrape. See https://prometheus.io/docs/prometheus/latest/feature_flags/ for more details.").
 		StringsVar(&cfg.featureList)
 
 	a.Flag("agent", "Run Prometheus in 'Agent mode'.").BoolVar(&agentMode)
@@ -792,9 +795,11 @@ func main() {
 		}
 		cfg.tsdb.MaxExemplars = cfgFile.StorageConfig.ExemplarsConfig.MaxExemplars
 	}
-	if cfg.tsdb.BlockReloadInterval < model.Duration(1*time.Second) {
-		logger.Warn("The option --storage.tsdb.block-reload-interval is set to a value less than 1s. Setting it to 1s to avoid overload.")
-		cfg.tsdb.BlockReloadInterval = model.Duration(1 * time.Second)
+	minBlockReloadInterval := model.Duration(tsdb.MinBlockReloadInterval)
+	if cfg.tsdb.BlockReloadInterval < minBlockReloadInterval {
+		minBlockReloadIntervalString := minBlockReloadInterval.String()
+		logger.Warn("The option --storage.tsdb.block-reload-interval is set to a value less than " + minBlockReloadIntervalString + ". Setting it to " + minBlockReloadIntervalString + " to avoid overload.")
+		cfg.tsdb.BlockReloadInterval = minBlockReloadInterval
 	}
 	// The configuration file takes precedence over the flag-derived default. An
 	// absent field keeps that default; other values are rejected when the
