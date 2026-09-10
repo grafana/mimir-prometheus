@@ -9679,8 +9679,9 @@ func testOOOCompactionAcrossChunkIDWrap(t *testing.T, scenario sampleTypeScenari
 	opts := DefaultOptions()
 	opts.OutOfOrderCapMax = 5
 	opts.OutOfOrderTimeWindow = 4 * time.Hour.Milliseconds()
+	opts.EnableNativeHistograms = true
 
-	db := newTestDB(t, withOpts(opts))
+	db := newTestDBWithOpts(t, opts)
 	db.DisableCompactions()
 
 	l := labels.FromStrings("l", "v1")
@@ -9747,7 +9748,10 @@ func testInOrderCompactionAcrossChunkIDWrap(t *testing.T, scenario sampleTypeSce
 	const chunkRange = 100
 	const maxT = 500
 
-	db := newTestDB(t, withRngs(chunkRange))
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.EnableNativeHistograms = true
+	db := newTestDBWithOpts(t, opts)
 	db.DisableCompactions()
 
 	l := labels.FromStrings("l", "v1")

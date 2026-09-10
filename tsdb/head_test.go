@@ -1540,7 +1540,7 @@ func TestOOOTruncateChunksBefore_Wrap(t *testing.T) {
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, chunkDiskMapper.Close()) })
 
-			series := newMemSeries(labels.EmptyLabels(), 1, 0, true, false)
+			series := newMemSeries(labels.EmptyLabels(), 1, 0, 0, 0, true, false)
 			series.ooo = &memSeriesOOOFields{firstOOOChunkID: tc.firstOOOChunkID}
 
 			refs := make([]chunks.ChunkDiskMapperRef, tc.numOOOChunks)
@@ -1575,7 +1575,7 @@ func TestOOOTruncateChunksBefore_Wrap(t *testing.T) {
 }
 
 func TestPushHeadChunk_PanicsAtIDSpaceBound(t *testing.T) {
-	s := newMemSeries(labels.FromStrings("a", "b"), 1, 0, true, false)
+	s := newMemSeries(labels.FromStrings("a", "b"), 1, 0, 0, 0, true, false)
 	s.headChunkCount.Store(oooChunkIDMask - 1)
 
 	require.Panics(t, func() {
@@ -1588,7 +1588,10 @@ func TestPushHeadChunk_PanicsAtIDSpaceBound(t *testing.T) {
 }
 
 func TestAppendHistogramLayoutChange_PanicsAtIDSpaceBound(t *testing.T) {
-	head, _ := newTestHead(t, 1000, compression.None, false)
+	head, wal := newTestHead(t, 1000, compression.None, false)
+	// Close the WAL only: Head.Close() would mmapHeadChunks under the series
+	// lock, which is still held after the expected panic in pushHeadChunk.
+	t.Cleanup(func() { _ = wal.Close() })
 	l := labels.FromStrings("l", "v1")
 
 	app := head.Appender(context.Background())
@@ -7573,7 +7576,7 @@ func TestQueryOOOHeadDuringTruncateAcrossWrap(t *testing.T) {
 	opts.OutOfOrderTimeWindow = maxT
 	opts.MinBlockDuration = maxT / 2
 
-	db := newTestDB(t, withOpts(opts))
+	db := newTestDBWithOpts(t, opts)
 	db.DisableCompactions()
 
 	l := labels.FromStrings("a", "b")
@@ -7653,6 +7656,7 @@ func testOOORestartResetsFirstOOOChunkID(t *testing.T, scenario sampleTypeScenar
 	opts.ChunkDirRoot = dir
 	opts.OutOfOrderCapMax.Store(30)
 	opts.OutOfOrderTimeWindow.Store(1000 * time.Minute.Milliseconds())
+	opts.EnableNativeHistograms.Store(true)
 
 	h, err := NewHead(nil, nil, wal, oooWlog, opts, nil)
 	require.NoError(t, err)

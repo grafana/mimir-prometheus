@@ -1147,7 +1147,8 @@ func testOOOQueryAcrossChunkIDWrap(t *testing.T, scenario sampleTypeScenario) {
 	opts.OutOfOrderCapMax = 5
 	opts.OutOfOrderTimeWindow = 120 * time.Minute.Milliseconds()
 
-	db := newTestDB(t, withOpts(opts))
+	opts.EnableNativeHistograms = true
+	db := newTestDBWithOpts(t, opts)
 
 	s1 := labels.FromStrings("l", "v1")
 	minutes := func(m int64) int64 { return m * time.Minute.Milliseconds() }
