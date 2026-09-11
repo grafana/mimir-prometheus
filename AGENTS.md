@@ -153,3 +153,4 @@ Fixes #18243
   Missing permissions (e.g. `statuses: write`) cause silent 403 failures.
 
 ---
+- Security issues should be reported via [Grafana's security issue reporting page](https://grafana.com/legal/report-a-security-issue/) and not directly in this repository.
