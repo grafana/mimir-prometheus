@@ -4973,7 +4973,7 @@ func TestDBPanicOnMmappingHeadChunk(t *testing.T) {
 		require.NoError(t, app.Commit())
 	}
 
-	// Ingest samples upto 2h50m to make the head "about to compact".
+	// Ingest samples up to 2h50m to make the head "about to compact".
 	numSamples := int(170*time.Minute/time.Millisecond) / int(itvl)
 	addSamples(numSamples)
 
@@ -4987,7 +4987,7 @@ func TestDBPanicOnMmappingHeadChunk(t *testing.T) {
 	db = newTestDB(t, withDir(db.Dir()))
 	db.DisableCompactions()
 
-	// Ingest samples upto 20m more to make the head compact.
+	// Ingest samples up to 20m more to make the head compact.
 	numSamples = int(20*time.Minute/time.Millisecond) / int(itvl)
 	addSamples(numSamples)
 
@@ -7344,7 +7344,7 @@ func testWBLAndMmapReplay(t *testing.T, scenario sampleTypeScenario) {
 	})
 
 	t.Run("Restart DB with WBL+Mmap while having no m-map markers in WBL", func(t *testing.T) {
-		resetMmapToOriginal() // We neet to reset because new duplicate chunks can be written above.
+		resetMmapToOriginal() // We need to reset because new duplicate chunks can be written above.
 
 		// Removing m-map markers in WBL by rewriting it.
 		newWbl, err := wlog.New(promslog.NewNopLogger(), nil, filepath.Join(t.TempDir(), "new_wbl"), compression.None)
@@ -8325,7 +8325,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		// In-order.
 		allSamples = addSamples(t, db, 300, 310, true, allSamples)
 
-		// OOO upto 30m old is success.
+		// OOO up to 30m old is success.
 		allSamples = addSamples(t, db, 281, 290, true, allSamples)
 
 		// OOO of 59m old fails.
@@ -8355,7 +8355,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		// In-order.
 		allSamples = addSamples(t, db, 300, 310, true, allSamples)
 
-		// OOO upto 59m old is success.
+		// OOO up to 59m old is success.
 		allSamples = addSamples(t, db, 251, 260, true, allSamples)
 
 		oldWblPtr := fmt.Sprintf("%p", db.head.wbl)
@@ -8423,7 +8423,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		// In-order.
 		allSamples = addSamples(t, db, 300, 310, true, allSamples)
 
-		// OOO upto 59m old is success.
+		// OOO up to 59m old is success.
 		allSamples = addSamples(t, db, 251, 260, true, allSamples)
 
 		oldWblPtr := fmt.Sprintf("%p", db.head.wbl)
