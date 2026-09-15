@@ -501,7 +501,7 @@ func (a *headAppender) Append(ref storage.SeriesRef, lset labels.Labels, t int64
 			a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
 		case errors.Is(err, storage.ErrTooOldSample):
 			a.head.metrics.tooOldSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
-		case errors.Is(err, storage.ErrDuplicateSampleForTimestamp):
+		case errors.Is(err, errConflictingSample):
 			a.head.metrics.duplicateSamples.WithLabelValues(sampleMetricTypeFloat).Inc()
 		}
 		return 0, err
@@ -879,7 +879,7 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 				a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeHistogram).Inc()
 			case errors.Is(err, storage.ErrTooOldSample):
 				a.head.metrics.tooOldSamples.WithLabelValues(sampleMetricTypeHistogram).Inc()
-			case errors.Is(err, storage.ErrDuplicateSampleForTimestamp):
+			case errors.Is(err, errConflictingSample):
 				a.head.metrics.duplicateSamples.WithLabelValues(sampleMetricTypeHistogram).Inc()
 			}
 			return 0, err
@@ -913,7 +913,7 @@ func (a *headAppender) AppendHistogram(ref storage.SeriesRef, lset labels.Labels
 				a.head.metrics.outOfOrderSamples.WithLabelValues(sampleMetricTypeHistogram).Inc()
 			case errors.Is(err, storage.ErrTooOldSample):
 				a.head.metrics.tooOldSamples.WithLabelValues(sampleMetricTypeHistogram).Inc()
-			case errors.Is(err, storage.ErrDuplicateSampleForTimestamp):
+			case errors.Is(err, errConflictingSample):
 				a.head.metrics.duplicateSamples.WithLabelValues(sampleMetricTypeHistogram).Inc()
 			}
 			return 0, err
@@ -1303,6 +1303,11 @@ func (acc *appenderCommitContext) collectOOORecords(a *headAppenderBase) {
 	acc.oooMmapMarkers = nil
 }
 
+// errConflictingSample is storage.ErrDuplicateSampleForTimestamp boxed once into an error
+// interface. That sentinel is a value-typed struct, so passing it directly to errors.Is in the
+// per-sample commit path would box it onto the heap on every call; the pre-boxed copy avoids that.
+var errConflictingSample error = storage.ErrDuplicateSampleForTimestamp
+
 // handleAppendableError processes errors encountered during sample appending and updates
 // the provided counters accordingly.
 //
@@ -1419,7 +1424,7 @@ func (a *headAppenderBase) commitFloats(b *appendBatch, acc *appenderCommitConte
 		}
 		oooSample, _, err := series.appendable(s.T, s.V, a.headMaxt, a.minValidTime, a.oooTimeWindow)
 		if err != nil {
-			if errors.Is(err, storage.ErrDuplicateSampleForTimestamp) {
+			if errors.Is(err, errConflictingSample) {
 				acc.recordDroppedConflict(series, &acc.floatDuplicatesDropped)
 			}
 			handleAppendableError(err, &acc.floatsAppended, &acc.floatOOORejected, &acc.floatOOBRejected, &acc.floatTooOldRejected)
@@ -1529,7 +1534,7 @@ func (a *headAppenderBase) commitHistograms(b *appendBatch, acc *appenderCommitC
 
 		oooSample, _, err := series.appendableHistogram(s.T, s.H, a.headMaxt, a.minValidTime, a.oooTimeWindow)
 		if err != nil {
-			if errors.Is(err, storage.ErrDuplicateSampleForTimestamp) {
+			if errors.Is(err, errConflictingSample) {
 				acc.recordDroppedConflict(series, &acc.histoDuplicatesDropped)
 			}
 			handleAppendableError(err, &acc.histogramsAppended, &acc.histoOOORejected, &acc.histoOOBRejected, &acc.histoTooOldRejected)
@@ -1633,7 +1638,7 @@ func (a *headAppenderBase) commitFloatHistograms(b *appendBatch, acc *appenderCo
 
 		oooSample, _, err := series.appendableFloatHistogram(s.T, s.FH, a.headMaxt, a.minValidTime, a.oooTimeWindow)
 		if err != nil {
-			if errors.Is(err, storage.ErrDuplicateSampleForTimestamp) {
+			if errors.Is(err, errConflictingSample) {
 				acc.recordDroppedConflict(series, &acc.histoDuplicatesDropped)
 			}
 			handleAppendableError(err, &acc.histogramsAppended, &acc.histoOOORejected, &acc.histoOOBRejected, &acc.histoTooOldRejected)
