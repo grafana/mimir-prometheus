@@ -1226,7 +1226,11 @@ func (c *LeveledCompactor) mergeAndWriteSeriesMetadata(tmp string, blocks []Bloc
 	}
 
 	// Open the new block's index to build labelsHash → seriesRef mapping.
-	ir, err := index.NewFileReader(filepath.Join(tmp, indexFilename), index.DecodePostingsRaw)
+	decoder := index.DecodePostingsRaw
+	if c.postingsDecoderFactory != nil {
+		decoder = c.postingsDecoderFactory(meta)
+	}
+	ir, err := index.NewFileReader(filepath.Join(tmp, indexFilename), decoder)
 	if err != nil {
 		return fmt.Errorf("open new block index for ref resolver: %w", err)
 	}
