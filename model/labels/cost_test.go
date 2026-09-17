@@ -367,7 +367,7 @@ func BenchmarkMatcherCostVsRuntime(b *testing.B) {
 			matcherStr = matcherStr[:50]
 		}
 
-		matcherWithRuntime := &(matchers[len(matchers)-1])
+		matcherWithRuntime := &matchers[len(matchers)-1]
 		b.Run(matcherStr, func(b *testing.B) {
 			b.ResetTimer()
 			start := time.Now()
