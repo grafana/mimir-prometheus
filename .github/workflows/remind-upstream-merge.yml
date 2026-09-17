@@ -61,7 +61,7 @@ jobs:
 
       - name: Send Slack reminder
         if: steps.find-prs.outputs.payload != ''
-        uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 #v1.0.0
+        uses: grafana/shared-workflows/actions/send-slack-message@7b628e7352c2dea057c565cc4fcd5564d5f396c0 # send-slack-message-v1.0.0
         with:
           channel-id: C04AF91LPFX #mimir-ci-notifications
           payload: ${{ steps.find-prs.outputs.payload }}
