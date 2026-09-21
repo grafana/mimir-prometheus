@@ -576,7 +576,7 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 		}, []string{"type"}),
 		duplicateSamples: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_duplicate_samples_total",
-			Help: "Total number of samples dropped because the series already had a sample at the same timestamp, either silently at commit time or with an error at append time. Rejections of synthetic start-timestamp zero samples are not counted.",
+			Help: "Total number of samples dropped because the series already had a sample at the same timestamp."
 		}, []string{"type"}),
 		outOfOrderSamplesAppended: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "prometheus_tsdb_head_out_of_order_samples_appended_total",
