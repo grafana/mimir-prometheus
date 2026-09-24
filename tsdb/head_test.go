@@ -946,7 +946,7 @@ func TestHead_LoadWALSeriesMissingAcrossSegments(t *testing.T) {
 	sr, err := wlog.NewSegmentsReader(w.Dir())
 	require.NoError(t, err)
 
-	err = head.loadWAL(wlog.NewReader(sr), syms, multiRef, unknownSeriesRefs, mmappedChunks, oooMmappedChunks)
+	err = head.loadWAL(wlog.NewReader(sr), syms, multiRef, unknownSeriesRefs, mmappedChunks, oooMmappedChunks, 0)
 	require.NoError(t, err)
 
 	require.Equal(t, 1, unknownSeriesRefs.count())
@@ -7691,7 +7691,7 @@ func TestStripeSeries_getOrSet(t *testing.T) {
 func TestStripeSeries_gc(t *testing.T) {
 	t.Run("retains the oldest referenced file regardless of timestamp order", func(t *testing.T) {
 		lset := labels.FromStrings("a", "1")
-		series := newMemSeries(lset, 1, 0, defaultIsolationDisabled, false)
+		series := newMemSeries(lset, 1, 0, 0, 0, defaultIsolationDisabled, false)
 		// File numbers occupy the upper 32 bits of the disk reference.
 		series.mmappedChunks = []*mmappedChunk{
 			{ref: chunks.ChunkDiskMapperRef(3 << 32), minTime: 0, maxTime: 50},
