@@ -147,6 +147,17 @@ func (g gitRepo) normalize(ctx context.Context, out string) error {
 	if err := runCommands(ctx, g.dir, generators, filepath.Join(out, "normalization.log")); err != nil {
 		fmt.Fprintln(os.Stderr, "Normalization incomplete; final generated validation must succeed:", err)
 	}
+	// Include newly created generated files in the patch, respecting .gitignore.
+	untracked, err := g.git(ctx, append([]string{"ls-files", "--others", "--exclude-standard", "-z", "--"}, generatedPaths...)...)
+	if err != nil {
+		return err
+	}
+	if untracked != "" {
+		paths := strings.Split(strings.TrimSuffix(untracked, "\x00"), "\x00")
+		if _, err = g.git(ctx, append([]string{"add", "--intent-to-add", "--"}, paths...)...); err != nil {
+			return err
+		}
+	}
 	patch, err := g.command(ctx, nil, nil, "diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD")
 	if err != nil {
 		return err
@@ -213,13 +224,14 @@ func (g gitRepo) validate(ctx context.Context, m manifest, check, diagnostics st
 	if err := runCommands(ctx, g.dir, commands, diagnostics); err != nil {
 		return err
 	}
-	// Build output may be ignored, but tracked candidate files must remain exact.
-	status, err := g.git(ctx, "status", "--porcelain", "--untracked-files=no")
+	// Ignore build output according to .gitignore.
+	// Tracked changes and new, non-ignored files must not escape the signed candidate.
+	status, err := g.git(ctx, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return err
 	}
 	if status != "" {
-		return errors.New("validation changed tracked files")
+		return errors.New("validation changed candidate files")
 	}
 	return nil
 }
