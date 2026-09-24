@@ -161,7 +161,8 @@ func (g gitRepo) delta(ctx context.Context, oid string) (string, error) {
 }
 
 func (g gitRepo) changed(ctx context.Context, a, b string) ([]string, error) {
-	data, err := g.command(ctx, nil, nil, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", a, b)
+	// Include both sides of renames so deletions cannot bypass path checks.
+	data, err := g.command(ctx, nil, nil, "diff", "--no-ext-diff", "--no-textconv", "--no-renames", "--name-only", "-z", a, b)
 	if err != nil {
 		return nil, err
 	}

@@ -358,6 +358,82 @@ func TestRejectProtectedHistoryAndNormalization(t *testing.T) {
 	}
 }
 
+func TestRejectRenamedProtectedHistory(t *testing.T) {
+	g, m := fixture(t)
+	git(t, g, "mv", ".github/workflows/ci.yml", "renamed.yml")
+	must(t, g.integrate(t.Context(), &m, "rename protected workflow"))
+	if g.checkPolicy(t.Context(), m.Main, m.Candidate) == nil {
+		t.Error("renaming a protected workflow outside .github bypassed policy")
+	}
+	signing(t, &g)
+	if _, err := g.signCandidate(t.Context(), &m); err == nil {
+		t.Error("signed a candidate missing a protected workflow")
+	}
+}
+
+func TestRejectNormalizationRename(t *testing.T) {
+	for _, source := range []string{"a.txt", ".github/workflows/ci.yml"} {
+		t.Run(source, func(t *testing.T) {
+			g, m := fixture(t)
+			git(t, g, "mv", source, "go.sum")
+			patch, err := g.command(t.Context(), nil, nil, "diff", "--cached", "--binary", "--find-renames")
+			must(t, err)
+			git(t, g, "reset", "--hard", m.Candidate)
+			file := filepath.Join(t.TempDir(), "normalization.patch")
+			must(t, os.WriteFile(file, patch, 0o600))
+			if g.applyNormalization(t.Context(), &m, file) == nil {
+				t.Fatal("normalization deleted a non-generated file by renaming it to an allowed path")
+			}
+		})
+	}
+}
+
+func TestNewGeneratedFiles(t *testing.T) {
+	for _, mode := range []string{"missing", "normalized"} {
+		t.Run(mode, func(t *testing.T) {
+			g, m := fixture(t)
+			next := commit(t, g, m.Candidate, "ignore build output", map[string]string{".gitignore": "/build-output\n/go.work.sum\n"})
+			m.Overlays = append(m.Overlays, next)
+			m.Candidate = next
+			bin := t.TempDir()
+			for _, name := range []string{"go", "make"} {
+				write(t, bin, name, `#!/bin/sh
+mkdir -p docs/command-line
+printf 'generated\n' > docs/command-line/prometheus.md
+printf 'build output\n' > build-output
+printf 'workspace sums\n' > go.work.sum
+`)
+				must(t, os.Chmod(filepath.Join(bin, name), 0o755))
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			if mode == "normalized" {
+				out := t.TempDir()
+				must(t, g.normalize(t.Context(), out))
+				git(t, g, "reset", "--hard", m.Candidate)
+				git(t, g, "clean", "-fd")
+				must(t, g.applyNormalization(t.Context(), &m, filepath.Join(out, "normalization.patch")))
+				if got := git(t, g, "show", m.Candidate+":docs/command-line/prometheus.md"); got != "generated" {
+					t.Fatalf("normalization omitted the generated document: %q", got)
+				}
+				for _, ignored := range []string{"build-output", "go.work.sum"} {
+					if git(t, g, "ls-tree", "--name-only", m.Candidate, "--", ignored) != "" {
+						t.Fatalf("normalization included ignored output %s", ignored)
+					}
+				}
+			}
+			signing(t, &g)
+			_, err := g.signCandidate(t.Context(), &m)
+			must(t, err)
+			err = g.validate(t.Context(), m, "generated", filepath.Join(t.TempDir(), "generated.log"))
+			if mode == "normalized" {
+				must(t, err)
+			} else if err == nil {
+				t.Fatal("generated validation accepted a candidate missing the generated document")
+			}
+		})
+	}
+}
+
 func TestEditsAreAtomicAndBounded(t *testing.T) {
 	for _, mode := range []string{"stale hash", "traversal", "duplicate edit", "ambiguous text", "overlap", "test removal", "skip test", "symlink", "protected path"} {
 		t.Run(mode, func(t *testing.T) {
