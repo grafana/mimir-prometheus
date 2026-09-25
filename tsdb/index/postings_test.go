@@ -1579,8 +1579,6 @@ func TestMemPostings_LabelValuesLimitSmallest(t *testing.T) {
 }
 
 func TestMemPostings_LabelValuesBytes(t *testing.T) {
-	// Values must exceed LabelValueBytesMinLength to be counted, so build them from a distinct
-	// prefix padded to a known length.
 	value := func(prefix string, length int) string {
 		return prefix + strings.Repeat("x", length-len(prefix))
 	}

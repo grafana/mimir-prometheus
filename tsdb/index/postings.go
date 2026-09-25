@@ -53,7 +53,7 @@ var ensureOrderBatchPool = sync.Pool{
 	},
 }
 
-// MemPostings holds postings list for series ID per label pair. They may be written
+// MemPostings holds postingsxlist for series ID per label pair. They may be written
 // to out of order.
 // EnsureOrder() must be called once before any reads are done. This allows for quick
 // unordered batch fills on startup.
@@ -77,8 +77,6 @@ type MemPostings struct {
 
 	// labelValueBytes holds, per label name, the sum of the lengths of its distinct label
 	// values. Each distinct value is counted once, regardless of how many series carry it,
-	// mirroring how values are stored in the index symbol table and postings offset table.
-	// mtx must be held when interacting with labelValueBytes.
 	labelValueBytes map[string]uint64
 
 	ordered bool
@@ -115,16 +113,14 @@ func NewUnorderedMemPostings() *MemPostings {
 	}
 }
 
-// countsTowardsLabelValueBytes must stay a pure function of the label, so that a value is
-// counted and uncounted symmetrically and the totals cannot drift. The empty name is
-// allPostingsKey, which is not a real label.
+// countsTowardsLabelValueBytes returns true if the length of a label value exceeds
+// LabelValueBytesMinLength.
 func countsTowardsLabelValueBytes(l labels.Label) bool {
 	return l.Name != "" && len(l.Value) > LabelValueBytesMinLength
 }
 
 // LabelValuesBytes returns, per label name, the sum of the lengths of its distinct label
-// values. Each distinct value counts once, no matter how many series carry it, which is how
-// the index stores them: once in the symbol table, and once more in the postings offset table.
+// values. Each distinct value counts once, no matter how many series carry it.
 func (p *MemPostings) LabelValuesBytes() map[string]uint64 {
 	p.mtx.RLock()
 	defer p.mtx.RUnlock()

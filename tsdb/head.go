@@ -2083,7 +2083,7 @@ func (h *Head) NumSeries() uint64 {
 }
 
 // LabelValuesBytes returns, per label name, the sum of the lengths of its distinct label
-// values currently held in the head. See index.MemPostings.LabelValuesBytes.
+// values currently held in the head.
 func (h *Head) LabelValuesBytes() map[string]uint64 {
 	return h.postings.LabelValuesBytes()
 }
