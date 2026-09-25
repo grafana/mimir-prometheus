@@ -85,11 +85,7 @@ type MemPostings struct {
 const defaultLabelNamesMapSize = 512
 
 // LabelValueBytesMinLength is the length a label value must exceed to count towards the
-// per-label-name byte accounting. The accounting exists to find label names holding
-// log-shaped data, and short values are what ordinary high-cardinality labels (pod names,
-// instance IDs, UUIDs) are made of, so counting them would only add noise. Measured against
-// the tenant that motivated the accounting, 128 retains all of the offending bytes, whereas
-// 256 would already discard three quarters of its offending values.
+// per-label-name byte accounting.
 const LabelValueBytesMinLength = 128
 
 // NewMemPostings returns a memPostings that's ready for reads and writes.
