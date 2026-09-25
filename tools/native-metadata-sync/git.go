@@ -160,8 +160,9 @@ func (g gitRepo) delta(ctx context.Context, oid string) (string, error) {
 	return digest(b), err
 }
 
-func (g gitRepo) changed(ctx context.Context, a, b string) ([]string, error) {
-	data, err := g.command(ctx, nil, nil, "diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", a, b)
+func (g gitRepo) changed(ctx context.Context, a, b string, options ...string) ([]string, error) {
+	args := append([]string{"diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z"}, options...)
+	data, err := g.command(ctx, nil, nil, append(args, a, b)...)
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +172,13 @@ func (g gitRepo) changed(ctx context.Context, a, b string) ([]string, error) {
 	return strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00"), nil
 }
 
+func (g gitRepo) policyChanges(ctx context.Context, a, b string) ([]string, error) {
+	// Include both rename endpoints when enforcing path restrictions.
+	return g.changed(ctx, a, b, "--no-renames")
+}
+
 func (g gitRepo) checkPolicy(ctx context.Context, main, candidate string) error {
-	paths, err := g.changed(ctx, main, candidate)
+	paths, err := g.policyChanges(ctx, main, candidate)
 	if err != nil {
 		return err
 	}

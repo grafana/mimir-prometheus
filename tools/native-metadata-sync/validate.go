@@ -65,7 +65,7 @@ var validations = map[string][][]string{
 	},
 	"ui": {
 		{"make", "ui-install"},
-		{"make", "assets-tarball"},
+		{"make", "assets"},
 		{"make", "ui-lint"},
 		{"make", "ui-test"},
 	},
@@ -147,6 +147,17 @@ func (g gitRepo) normalize(ctx context.Context, out string) error {
 	if err := runCommands(ctx, g.dir, generators, filepath.Join(out, "normalization.log")); err != nil {
 		fmt.Fprintln(os.Stderr, "Normalization incomplete; final generated validation must succeed:", err)
 	}
+	// Include newly created generated files in the patch, respecting .gitignore.
+	untracked, err := g.git(ctx, append([]string{"ls-files", "--others", "--exclude-standard", "-z", "--"}, generatedPaths...)...)
+	if err != nil {
+		return err
+	}
+	if untracked != "" {
+		paths := strings.Split(strings.TrimSuffix(untracked, "\x00"), "\x00")
+		if _, err = g.git(ctx, append([]string{"add", "--intent-to-add", "--"}, paths...)...); err != nil {
+			return err
+		}
+	}
 	patch, err := g.command(ctx, nil, nil, "diff", "--binary", "--no-ext-diff", "--no-textconv", "HEAD")
 	if err != nil {
 		return err
@@ -175,7 +186,7 @@ func (g gitRepo) applyNormalization(ctx context.Context, m *manifest, patchFile 
 	if err != nil {
 		return err
 	}
-	names, err := g.changed(ctx, m.Candidate, tree)
+	names, err := g.policyChanges(ctx, m.Candidate, tree)
 	if err != nil {
 		return err
 	}
@@ -213,13 +224,26 @@ func (g gitRepo) validate(ctx context.Context, m manifest, check, diagnostics st
 	if err := runCommands(ctx, g.dir, commands, diagnostics); err != nil {
 		return err
 	}
-	// Build output may be ignored, but tracked candidate files must remain exact.
-	status, err := g.git(ctx, "status", "--porcelain", "--untracked-files=no")
+	// Tracked changes and new, non-ignored files must not escape the signed candidate.
+	status, err := g.git(ctx, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {
 		return err
 	}
 	if status != "" {
-		return errors.New("validation changed tracked files")
+		err = fmt.Errorf("validation changed candidate files:\n%s", status)
+		if diagnostics != "" {
+			previous, e := os.ReadFile(diagnostics)
+			if e != nil {
+				return errors.Join(err, e)
+			}
+			tail := &tailWriter{b: previous}
+			// Keep the failure summary even when command output or status is large.
+			fmt.Fprintf(tail, "\n%s\nvalidation changed candidate files\n", status)
+			if e = os.WriteFile(diagnostics, tail.b, 0o600); e != nil {
+				return errors.Join(err, e)
+			}
+		}
+		return err
 	}
 	return nil
 }

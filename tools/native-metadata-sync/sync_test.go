@@ -343,18 +343,256 @@ func TestSignedPayloadAndNormalization(t *testing.T) {
 }
 
 func TestRejectProtectedHistoryAndNormalization(t *testing.T) {
-	g, m := fixture(t)
-	bad := commit(t, g, m.Candidate, "upstream automation", map[string]string{".github/workflows/evil.yml": "run: exfiltrate\n"})
-	if g.checkPolicy(t.Context(), m.Main, bad) == nil {
-		t.Fatal("untrusted workflow accepted")
+	for _, mode := range []string{"add", "rename"} {
+		t.Run(mode, func(t *testing.T) {
+			g, m := fixture(t)
+			candidate := m
+			candidate.Overlays = slices.Clone(m.Overlays)
+			if mode == "rename" {
+				git(t, g, "mv", ".github/workflows/ci.yml", "renamed.yml")
+				must(t, g.integrate(t.Context(), &candidate, "rename protected workflow"))
+			} else {
+				candidate.Candidate = commit(t, g, m.Candidate, "upstream automation", map[string]string{".github/workflows/evil.yml": "run: exfiltrate\n"})
+				candidate.Overlays = append(candidate.Overlays, candidate.Candidate)
+			}
+			if g.checkPolicy(t.Context(), m.Main, candidate.Candidate) == nil {
+				t.Error("untrusted workflow change accepted")
+			}
+			signing(t, &g)
+			if _, err := g.signCandidate(t.Context(), &candidate); err == nil {
+				t.Error("signed a candidate with changed protected paths")
+			}
+			patch, err := g.command(t.Context(), nil, nil, "diff", "--binary", "--find-renames", m.Candidate, candidate.Candidate)
+			must(t, err)
+			git(t, g, "checkout", "--quiet", "--detach", m.Candidate)
+			file := filepath.Join(t.TempDir(), "patch")
+			must(t, os.WriteFile(file, patch, 0o600))
+			if g.applyNormalization(t.Context(), &m, file) == nil {
+				t.Fatal("normalizer changed trusted workflow")
+			}
+		})
 	}
-	patch, err := g.command(t.Context(), nil, nil, "diff", "--binary", m.Candidate, bad)
+}
+
+func TestRejectNormalizationRename(t *testing.T) {
+	for _, source := range []string{"a.txt", ".github/workflows/ci.yml"} {
+		t.Run(source, func(t *testing.T) {
+			g, m := fixture(t)
+			git(t, g, "mv", source, "go.sum")
+			patch, err := g.command(t.Context(), nil, nil, "diff", "--cached", "--binary", "--find-renames")
+			must(t, err)
+			git(t, g, "reset", "--hard", m.Candidate)
+			file := filepath.Join(t.TempDir(), "normalization.patch")
+			must(t, os.WriteFile(file, patch, 0o600))
+			candidate := m.Candidate
+			err = g.applyNormalization(t.Context(), &m, file)
+			if err == nil || err.Error() != fmt.Sprintf("normalization changed unexpected path %q", source) {
+				t.Fatalf("expected normalization policy rejection for %s, got %v", source, err)
+			}
+			if m.Candidate != candidate {
+				t.Fatal("normalization integrated a rejected patch")
+			}
+		})
+	}
+}
+
+func TestNewGeneratedFiles(t *testing.T) {
+	for _, mode := range []string{"missing", "normalized"} {
+		t.Run(mode, func(t *testing.T) {
+			g, m := fixture(t)
+			next := commit(t, g, m.Candidate, "ignore build output", map[string]string{".gitignore": "/build-output\n/go.work.sum\n"})
+			m.Overlays = append(m.Overlays, next)
+			m.Candidate = next
+			bin := t.TempDir()
+			for _, name := range []string{"go", "make"} {
+				write(t, bin, name, `#!/bin/sh
+mkdir -p docs/command-line
+printf 'generated\n' > docs/command-line/prometheus.md
+printf 'build output\n' > build-output
+printf 'workspace sums\n' > go.work.sum
+`)
+				must(t, os.Chmod(filepath.Join(bin, name), 0o755))
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			if mode == "normalized" {
+				out := t.TempDir()
+				must(t, g.normalize(t.Context(), out))
+				git(t, g, "reset", "--hard", m.Candidate)
+				git(t, g, "clean", "-fd")
+				must(t, g.applyNormalization(t.Context(), &m, filepath.Join(out, "normalization.patch")))
+				if got := git(t, g, "show", m.Candidate+":docs/command-line/prometheus.md"); got != "generated" {
+					t.Fatalf("normalization omitted the generated document: %q", got)
+				}
+				for _, ignored := range []string{"build-output", "go.work.sum"} {
+					if git(t, g, "ls-tree", "--name-only", m.Candidate, "--", ignored) != "" {
+						t.Fatalf("normalization included ignored output %s", ignored)
+					}
+				}
+			}
+			signing(t, &g)
+			_, err := g.signCandidate(t.Context(), &m)
+			must(t, err)
+			err = g.validate(t.Context(), m, "generated", filepath.Join(t.TempDir(), "generated.log"))
+			if mode == "normalized" {
+				must(t, err)
+			} else if err == nil {
+				t.Fatal("generated validation accepted a candidate missing the generated document")
+			}
+		})
+	}
+}
+
+func TestValidationOutputs(t *testing.T) {
+	for _, tc := range []struct{ name, check, mode string }{
+		{"go", "go", "clean"},
+		{"variants", "variants", "clean"},
+		{"lint", "lint", "clean"},
+		{"generated", "generated", "clean"},
+		{"ui", "ui", "clean"},
+		{"ignored output", "ui", "ignored"},
+		{"tracked output", "ui", "tracked"},
+		{"untracked output", "ui", "untracked"},
+		{"bounded diagnostics", "ui", "verbose"},
+		{"no diagnostics", "ui", "untracked"},
+		{"command failure", "ui", "failure"},
+		{"diagnostic write failure", "ui", "untracked"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			g, m := fixture(t)
+			next := commit(t, g, m.Candidate, "ignore build output", map[string]string{".gitignore": "/.build\n/web/ui/static\n/go.work.sum\n/a.txt\n"})
+			m.Overlays = append(m.Overlays, next)
+			m.Candidate = next
+			signing(t, &g)
+			_, err := g.signCandidate(t.Context(), &m)
+			must(t, err)
+			bin := t.TempDir()
+			for _, name := range []string{"go", "make"} {
+				write(t, bin, name, `#!/bin/sh
+case "$1" in
+assets|assets-tarball)
+  mkdir -p web/ui/static
+  printf 'built UI\n' > web/ui/static/index.html
+  if [ "$1" = assets-tarball ]; then
+    mkdir -p .tarballs
+    printf 'packaged UI\n' > .tarballs/prometheus-web-ui.tar.gz
+  fi
+  ;;
+esac
+case "$SYNC_TEST_VALIDATION_MODE" in
+clean) ;;
+ignored)
+  mkdir -p .build
+  printf 'build output\n' > .build/output
+  printf 'workspace sums\n' > go.work.sum
+  ;;
+tracked) printf 'changed\n' > a.txt ;;
+untracked|verbose)
+  printf 'unexpected\n' > 'unexpected output.txt'
+  if [ "$SYNC_TEST_VALIDATION_MODE" = verbose ] && [ "$1" = ui-test ]; then
+    head -c 270000 /dev/zero | tr '\000' x
+    printf '\ncommand output end\n'
+  fi
+  ;;
+failure) printf 'simulated command failure\n' >&2; exit 7 ;;
+*) exit 99 ;;
+esac
+`)
+				must(t, os.Chmod(filepath.Join(bin, name), 0o755))
+			}
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			t.Setenv("SYNC_TEST_VALIDATION_MODE", tc.mode)
+			diagnostics := filepath.Join(t.TempDir(), tc.check+".log")
+			switch tc.name {
+			case "no diagnostics":
+				diagnostics = ""
+			case "diagnostic write failure":
+				must(t, os.Mkdir(diagnostics, 0o700))
+			}
+			err = g.validate(t.Context(), m, tc.check, diagnostics)
+			if tc.name == "diagnostic write failure" {
+				if err == nil || !strings.Contains(err.Error(), diagnostics) {
+					t.Fatalf("expected diagnostic write failure, got %v", err)
+				}
+				return
+			}
+			if tc.mode == "clean" || tc.mode == "ignored" {
+				must(t, err)
+				if tc.check == "ui" {
+					built, e := os.ReadFile(filepath.Join(g.dir, "web/ui/static/index.html"))
+					must(t, e)
+					if string(built) != "built UI\n" {
+						t.Fatal("UI validation did not build assets")
+					}
+					if _, e = os.Stat(filepath.Join(g.dir, ".tarballs")); !errors.Is(e, os.ErrNotExist) {
+						t.Fatalf("UI validation left a packaging artifact: %v", e)
+					}
+				}
+				return
+			}
+			if tc.mode == "failure" {
+				if err == nil || !strings.Contains(err.Error(), "exit status 7") {
+					t.Fatalf("command failure was lost: %v", err)
+				}
+				log, e := os.ReadFile(diagnostics)
+				must(t, e)
+				if !strings.Contains(string(log), "simulated command failure") {
+					t.Fatal("missing command failure diagnostics")
+				}
+				return
+			}
+			path := "unexpected output.txt"
+			if tc.mode == "tracked" {
+				path = "a.txt"
+			}
+			if err == nil || !strings.Contains(err.Error(), "validation changed candidate files") || !strings.Contains(err.Error(), path) {
+				t.Fatalf("missing cleanliness failure for %s: %v", path, err)
+			}
+			if diagnostics != "" {
+				log, e := os.ReadFile(diagnostics)
+				must(t, e)
+				if len(log) > 256<<10 || !strings.Contains(string(log), path) || !strings.Contains(string(log), "validation changed candidate files") {
+					t.Fatal("cleanliness diagnostics lost the offending path or failure summary, or exceeded the size limit")
+				}
+				if tc.mode == "verbose" && !strings.Contains(string(log), "command output end") {
+					t.Fatal("cleanliness diagnostics lost the command output tail")
+				}
+			}
+		})
+	}
+}
+
+func TestFormatAndRepairRenamedPackage(t *testing.T) {
+	g, previous := fixture(t)
+	m := previous
+	m.Main = commit(t, g, m.Main, "existing package", map[string]string{"oldpkg/source.go": "package example\n\nvar value = 0\n"})
+	must(t, g.replay(t.Context(), previous, &m, nil))
+	git(t, g, "mv", "oldpkg", "newpkg")
+	must(t, g.integrate(t.Context(), &m, "move package"))
+	must(t, g.formatGo(t.Context(), &m))
+	if _, err := os.Stat(filepath.Join(g.dir, "oldpkg")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("expected removed package directory, got %v", err)
+	}
+	signing(t, &g)
+	_, err := g.signCandidate(t.Context(), &m)
 	must(t, err)
-	git(t, g, "checkout", "--quiet", "--detach", m.Candidate)
-	file := filepath.Join(t.TempDir(), "patch")
-	must(t, os.WriteFile(file, patch, 0o600))
-	if g.applyNormalization(t.Context(), &m, file) == nil {
-		t.Fatal("normalizer changed trusted workflow")
+	diagnostics := t.TempDir()
+	write(t, diagnostics, "go.log", "validation failed without a compiler location\n")
+	resolver := resolverFunc(func(_ context.Context, r resolveRequest, _ *ledger) (resolution, error) {
+		for _, f := range r.Files {
+			if strings.HasPrefix(f.Path, "oldpkg/") {
+				t.Fatal("repair included the removed package directory")
+			}
+		}
+		for _, f := range r.Files {
+			if f.Path == "newpkg/source.go" {
+				return resolution{Summary: "Repair moved package.", Edits: []fileEdit{{Path: f.Path, Before: f.SHA256, Replacements: []replacement{{Old: "value = 0", New: "value = 1"}}}}}, nil
+			}
+		}
+		return resolution{}, errors.New("renamed package missing from repair scope")
+	})
+	must(t, g.repair(t.Context(), &m, resolver, diagnostics))
+	if got := git(t, g, "show", m.Candidate+":newpkg/source.go"); !strings.Contains(got, "value = 1") {
+		t.Fatal("repair did not update the moved package")
 	}
 }
 
