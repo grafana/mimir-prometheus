@@ -1,0 +1,14 @@
+name: Build native metadata sync controller
+description: Build only the controller checked out from the trusted workflow revision.
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+      with:
+        go-version: 1.27.x
+        cache: false
+    - shell: bash
+      working-directory: tools/native-metadata-sync
+      env:
+        GOWORK: 'off'
+      run: go build -trimpath -o "$RUNNER_TEMP/native-metadata-sync" .
