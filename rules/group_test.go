@@ -365,11 +365,11 @@ func TestEvalDiscardedSamplesDoNotIncrementFailureMetrics(t *testing.T) {
 				Interval: time.Second,
 				Rules:    []Rule{rule},
 				Opts: &ManagerOptions{
-					Context:    context.Background(),
-					QueryFunc:  queryFunc,
-					Appendable: storage,
-					Queryable:  storage,
-					Logger:     promslog.NewNopLogger(),
+					Context:      context.Background(),
+					QueryFunc:    queryFunc,
+					AppendableV2: storage,
+					Queryable:    storage,
+					Logger:       promslog.NewNopLogger(),
 				},
 			})
 
