@@ -53,7 +53,7 @@ var ensureOrderBatchPool = sync.Pool{
 	},
 }
 
-// MemPostings holds postingsxlist for series ID per label pair. They may be written
+// MemPostings holds postings list for series ID per label pair. They may be written
 // to out of order.
 // EnsureOrder() must be called once before any reads are done. This allows for quick
 // unordered batch fills on startup.
