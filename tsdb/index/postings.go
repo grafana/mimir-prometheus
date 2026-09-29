@@ -112,7 +112,7 @@ func NewUnorderedMemPostings() *MemPostings {
 // countsTowardsLabelValueBytes returns true if the length of a label value exceeds
 // LabelValueBytesMinLength.
 func countsTowardsLabelValueBytes(l labels.Label) bool {
-	return l.Name != "" && len(l.Value) > LabelValueBytesMinLength
+	return len(l.Value) > LabelValueBytesMinLength
 }
 
 // LabelValuesBytes returns, per label name, the sum of the lengths of its distinct label
