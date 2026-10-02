@@ -1,0 +1,42 @@
+name: Native metadata sync controller
+on:
+  pull_request:
+    paths:
+      - tools/native-metadata-sync/**
+      - .github/actions/native-metadata-sync/**
+      - .github/workflows/*native-metadata*.yml
+  push:
+    branches: [main]
+    paths:
+      - tools/native-metadata-sync/**
+      - .github/actions/native-metadata-sync/**
+      - .github/workflows/*native-metadata*.yml
+permissions:
+  contents: read
+cache-mode: none
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - name: Test controller
+        working-directory: tools/native-metadata-sync
+        env:
+          GOWORK: 'off'
+        run: go test -race ./...
+      - name: Vet controller
+        working-directory: tools/native-metadata-sync
+        env:
+          GOWORK: 'off'
+        run: go vet ./...
+      - name: Install workflow linter
+        env:
+          GOWORK: 'off'
+          GOBIN: ${{ runner.temp }}/bin
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Check workflows
+        run: PATH="$RUNNER_TEMP/bin:$PATH" bash tools/native-metadata-sync/check-workflows.sh
