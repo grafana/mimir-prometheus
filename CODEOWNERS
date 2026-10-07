@@ -14,7 +14,7 @@
 /web/ui                         @prometheus/default-maintainers @grafana/mimir-maintainers @juliusv
 /web/ui/module                  @prometheus/default-maintainers @grafana/mimir-maintainers @juliusv @nexucis
 /promql                         @prometheus/default-maintainers @grafana/mimir-maintainers @roidelapluie @vpranckaitis
-/storage/remote                 @prometheus/default-maintainers @grafana/mimir-maintainers @cstyan @bwplotka @tomwilkie @alexgreenbank
+/storage/remote                 @prometheus/default-maintainers @grafana/mimir-maintainers @cstyan @bwplotka
 /storage/remote/otlptranslator  @prometheus/default-maintainers @grafana/mimir-maintainers @aknuds1 @jesusvazquez @ArthurSens
 /tsdb                           @prometheus/default-maintainers @grafana/mimir-maintainers @jesusvazquez @codesome @bwplotka @krajorama
 /tsdb/agent                     @prometheus/default-maintainers @grafana/mimir-maintainers @jesusvazquez @codesome @bwplotka @krajorama @kgeckhart
