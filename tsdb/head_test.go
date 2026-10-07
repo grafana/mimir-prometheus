@@ -7791,8 +7791,8 @@ func stripeSeriesWithCollidingSeries(t *testing.T) (*stripeSeries, *memSeries, *
 	t.Helper()
 
 	lbls1, lbls2 := labelsWithHashCollision()
-	ms1 := newMemSeries(lbls1, 1, 0, true, false)
-	ms2 := newMemSeries(lbls2, 2, 0, true, false)
+	ms1 := newMemSeries(lbls1, 1, 0, 0, 0, true, false)
+	ms2 := newMemSeries(lbls2, 2, 0, 0, 0, true, false)
 	hash := lbls1.Hash()
 	s := newStripeSeries(1, noopSeriesLifecycleCallback{})
 
