@@ -18,3 +18,5 @@ minimumReleaseAgeExclude:
   - '@mantine/hooks@9.5.0'
   - '@mantine/notifications@9.5.0'
   - '@mantine/store@9.5.0'
+  # Renovate security update: sanitize-html@2.18.0
+  - sanitize-html@2.18.0
