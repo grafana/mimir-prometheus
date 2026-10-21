@@ -59,6 +59,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           set-safe-directory: "*"
+          persist-credentials: false
 
       - name: Add prometheus/prometheus remote and fetch
         env:
@@ -133,6 +134,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           set-safe-directory: "*"
+          persist-credentials: false
 
       - name: Add prometheus/prometheus remote and fetch
         env:
@@ -187,7 +189,8 @@ jobs:
     outputs:
       pr_url: ${{ steps.create-conflict-pr.outputs.pull-request-url }}
     steps:
-      - name: Check out repository
+      # The "Close PR" step below pushes with the credentials persisted by this checkout.
+      - name: Check out repository # zizmor: ignore[artipacked]
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ needs.check-merge.outputs.local_branch }}
@@ -297,7 +300,7 @@ jobs:
           git push --force origin "${LOCAL_BRANCH}:${BOT_BRANCH}"
 
       - name: Send Slack notification for merge conflicts
-        uses: grafana/shared-workflows/actions/send-slack-message@551bc8d50017d3e95d5da3f8a4826e733a208dc0 # v3.0.2
+        uses: grafana/shared-workflows/actions/send-slack-message@551bc8d50017d3e95d5da3f8a4826e733a208dc0 # send-slack-message/v3.0.2
         with:
           method: chat.postMessage
           # channel C04AF91LPFX is #mimir-ci-notifications
@@ -315,7 +318,7 @@ jobs:
       id-token: write
     steps:
       - name: Send Slack notification for merge error
-        uses: grafana/shared-workflows/actions/send-slack-message@551bc8d50017d3e95d5da3f8a4826e733a208dc0 # v3.0.2
+        uses: grafana/shared-workflows/actions/send-slack-message@551bc8d50017d3e95d5da3f8a4826e733a208dc0 # send-slack-message/v3.0.2
         with:
           method: chat.postMessage
           # channel C04AF91LPFX is #mimir-ci-notifications
@@ -344,6 +347,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
           set-safe-directory: "*"
+          persist-credentials: false
 
       - name: Add prometheus/prometheus remote and perform merge
         env:
@@ -402,5 +406,7 @@ jobs:
       contents: read
     steps:
       - name: No merge needed
+        env:
+          UPSTREAM_BRANCH: ${{ needs.check-merge.outputs.upstream_branch }}
         run: |
-          echo "Repository is already up to date with upstream prometheus/${{ needs.check-merge.outputs.upstream_branch }}"
+          echo "Repository is already up to date with upstream prometheus/${UPSTREAM_BRANCH}"
