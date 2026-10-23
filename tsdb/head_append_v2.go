@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 
 	"github.com/prometheus/common/model"
 
@@ -173,7 +174,10 @@ func (a *headAppenderV2) Append(ref storage.SeriesRef, ls labels.Labels, st, t i
 		nativeMetadata  *metadata.Metadata
 		oversizedNative bool
 	)
-	if a.head.nativeMetricMetadata != nil && !opts.Metadata.IsEmpty() {
+	// Quiet zeros are synthetic zero samples, which carry no metadata. Out-of-order ones are also accepted at any
+	// timestamp and only dropped at commit, after native metadata has been committed.
+	quietZero := h == nil && fh == nil && math.Float64bits(v) == value.QuietZeroNaN
+	if a.head.nativeMetricMetadata != nil && !opts.Metadata.IsEmpty() && !quietZero {
 		m := opts.Metadata
 		if m.Type == "" {
 			m.Type = model.MetricTypeUnknown

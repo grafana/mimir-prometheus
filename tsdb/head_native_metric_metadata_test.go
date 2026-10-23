@@ -32,6 +32,7 @@ import (
 	"github.com/prometheus/prometheus/model/histogram"
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/model/metadata"
+	"github.com/prometheus/prometheus/model/value"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/util/compression"
@@ -1774,6 +1775,26 @@ func TestHeadNativeMetricMetadataSampleKinds(t *testing.T) {
 			require.Equal(t, []NativeMetricMetadataVersion{{EffectiveFrom: 100, Metadata: wantMetadata}}, versions, "synthetic ST samples must not carry metadata")
 		})
 	}
+}
+
+func TestHeadNativeMetricMetadataSkipsQuietZeros(t *testing.T) {
+	head := newNativeMetadataTestHead(t)
+	lset := labels.FromStrings(labels.MetricName, "a")
+	m1 := metadata.Metadata{Type: model.MetricTypeGauge, Help: "current"}
+	m2 := metadata.Metadata{Type: model.MetricTypeGauge, Help: "quiet"}
+	quietZero := math.Float64frombits(value.QuietZeroNaN)
+
+	app := head.AppenderV2(t.Context())
+	ref := mustAppendV2(t, app, 0, lset, 200, 1, storage.AOptions{Metadata: m1})
+	require.NoError(t, app.Commit())
+
+	// The out-of-order quiet zero is accepted, then dropped at commit; the in-order one is stored as 0.
+	app = head.AppenderV2(t.Context())
+	mustAppendV2(t, app, ref, lset, 100, quietZero, storage.AOptions{Metadata: m2})
+	mustAppendV2(t, app, ref, lset, 300, quietZero, storage.AOptions{Metadata: m2})
+	require.NoError(t, app.Commit())
+
+	requireNativeVersions(t, head.nativeMetricMetadata, chunks.HeadSeriesRef(ref), []NativeMetricMetadataVersion{{EffectiveFrom: 200, Metadata: m1}})
 }
 
 func TestNativeMetricMetadataCacheOwnership(t *testing.T) {
