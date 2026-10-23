@@ -76,6 +76,39 @@ func TestListSeriesIterator(t *testing.T) {
 	require.Equal(t, chunkenc.ValNone, it.Seek(2))
 }
 
+func TestNewListChunkSeriesFromSamples(t *testing.T) {
+	lbls := labels.FromStrings("__name__", "the_series")
+	series := NewListChunkSeriesFromSamples(
+		lbls,
+		samples{
+			fSample{0, 0, 0},
+			fSample{0, 1, 1},
+			fSample{0, 1, 1.5},
+			fSample{0, 2, 2},
+			fSample{0, 3, 3},
+		},
+		samples{
+			fSample{0, 4, 5},
+		},
+	)
+
+	require.Equal(t, lbls, series.Labels())
+
+	it := series.Iterator(nil)
+	chks := []chunks.Meta{}
+
+	for it.Next() {
+		chks = append(chks, it.At())
+	}
+
+	require.NoError(t, it.Err())
+	require.Len(t, chks, 2)
+
+	count, err := series.ChunkCount()
+	require.NoError(t, err)
+	require.Len(t, chks, count, "should have one chunk per group of samples")
+}
+
 // TestChunkSeriesSetToSeriesSet test the property of SeriesSet that says
 // returned series should be iterable even after Next is called.
 func TestChunkSeriesSetToSeriesSet(t *testing.T) {
@@ -607,6 +640,10 @@ func testHistogramsSeriesToChunks(t *testing.T, test histogramTest) {
 	chks, err := ExpandChunks(encoder.Iterator(nil))
 	require.NoError(t, err)
 	require.Len(t, chks, len(test.expectedCounterResetHeaders))
+
+	count, err := encoder.ChunkCount()
+	require.NoError(t, err)
+	require.Len(t, chks, count)
 
 	// Decode all encoded samples and assert they are equal to the original ones.
 	encodedSamples := chunks.ChunkMetasToSamples(chks)

@@ -126,6 +126,10 @@ func (h *headIndexReader) PostingsForAllLabelValues(ctx context.Context, name st
 	return h.head.postings.PostingsForAllLabelValues(ctx, name)
 }
 
+func (h *headIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return h.head.pfmc.PostingsForMatchers(ctx, h, concurrent, h.head.Meta().ULID, ms...)
+}
+
 func (h *headIndexReader) SortedPostings(p index.Postings) index.Postings {
 	series := make([]*memSeries, 0, 128)
 
@@ -190,6 +194,17 @@ func (h *headIndexReader) ShardedPostings(p index.Postings, shardIndex, shardCou
 	}
 
 	return index.NewListPostings(out)
+}
+
+// LabelValuesFor returns LabelValues for the given label name in the series referred to by postings.
+func (h *headIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
+	return h.head.postings.LabelValuesFor(postings, name)
+}
+
+// LabelValuesExcluding returns LabelValues for the given label name in all other series than those referred to by postings.
+// This is useful for obtaining label values for other postings than the ones you wish to exclude.
+func (h *headIndexReader) LabelValuesExcluding(postings index.Postings, name string) storage.LabelValues {
+	return h.head.postings.LabelValuesExcluding(postings, name)
 }
 
 // Series returns the series for the given reference.
@@ -479,6 +494,11 @@ func (h *headIndexReader) LabelNamesFor(ctx context.Context, series index.Postin
 	}
 	slices.Sort(names)
 	return names, nil
+}
+
+// IndexLookupPlanner returns the index lookup planner for this reader.
+func (h *headIndexReader) IndexLookupPlanner() index.LookupPlanner {
+	return h.head.opts.IndexLookupPlannerFunc(h.head.Meta(), h)
 }
 
 // Chunks returns a ChunkReader against the block.

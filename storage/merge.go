@@ -741,25 +741,45 @@ func NewCompactingChunkSeriesMergerWithFloatEncoding(mergeFunc VerticalSeriesMer
 		if len(series) == 0 {
 			return nil
 		}
+
+		chunkIteratorFn := func(chunks.Iterator) chunks.Iterator {
+			iterators := make([]chunks.Iterator, 0, len(series))
+			for _, s := range series {
+				iterators = append(iterators, s.Iterator(nil))
+			}
+			enc := chunkenc.EncXOR
+			if floatEncoding != nil {
+				enc = floatEncoding()
+			}
+			return &compactChunkIterator{
+				mergeFunc:     mergeFunc,
+				iterators:     iterators,
+				floatEncoding: enc,
+			}
+		}
+
 		return &ChunkSeriesEntry{
-			Lset: series[0].Labels(),
-			ChunkIteratorFn: func(chunks.Iterator) chunks.Iterator {
-				iterators := make([]chunks.Iterator, 0, len(series))
-				for _, s := range series {
-					iterators = append(iterators, s.Iterator(nil))
-				}
-				enc := chunkenc.EncXOR
-				if floatEncoding != nil {
-					enc = floatEncoding()
-				}
-				return &compactChunkIterator{
-					mergeFunc:     mergeFunc,
-					iterators:     iterators,
-					floatEncoding: enc,
-				}
+			Lset:            series[0].Labels(),
+			ChunkIteratorFn: chunkIteratorFn,
+			ChunkCountFn: func() (int, error) {
+				// This method is expensive, but we don't expect to ever actually use this on the ingester query path in Mimir -
+				// it's just here to ensure things don't break if this assumption ever changes.
+				// Ingesters return uncompacted chunks to queriers, so this method is never called.
+				return countChunks(chunkIteratorFn)
 			},
 		}
 	}
+}
+
+func countChunks(chunkIteratorFn func(chunks.Iterator) chunks.Iterator) (int, error) {
+	chunkCount := 0
+	it := chunkIteratorFn(nil)
+
+	for it.Next() {
+		chunkCount++
+	}
+
+	return chunkCount, it.Err()
 }
 
 // compactChunkIterator is responsible to compact chunks from different iterators of the same time series into single chainSeries.
@@ -892,6 +912,7 @@ func NewConcatenatingChunkSeriesMerger() VerticalChunkSeriesMergeFunc {
 		if len(series) == 0 {
 			return nil
 		}
+
 		return &ChunkSeriesEntry{
 			Lset: series[0].Labels(),
 			ChunkIteratorFn: func(chunks.Iterator) chunks.Iterator {
@@ -902,6 +923,20 @@ func NewConcatenatingChunkSeriesMerger() VerticalChunkSeriesMergeFunc {
 				return &concatenatingChunkIterator{
 					iterators: iterators,
 				}
+			},
+			ChunkCountFn: func() (int, error) {
+				chunkCount := 0
+
+				for _, series := range series {
+					c, err := series.ChunkCount()
+					if err != nil {
+						return 0, err
+					}
+
+					chunkCount += c
+				}
+
+				return chunkCount, nil
 			},
 		}
 	}

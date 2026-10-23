@@ -26,18 +26,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"go.uber.org/goleak"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/encoding"
+	"github.com/prometheus/prometheus/tsdb/hashcache"
 	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	testutil.TolerantVerifyLeak(m)
 }
 
 type series struct {
@@ -169,7 +169,7 @@ func TestIndexRW_Postings(t *testing.T) {
 			labels: labels.FromStrings("a", "1", "b", strconv.Itoa(i)),
 		})
 	}
-	ir, fn, _ := createFileReader(ctx, t, input)
+	ir, _, _ := createFileReader(ctx, t, input)
 
 	p, err := ir.Postings(ctx, "a", "1")
 	require.NoError(t, err)
@@ -186,77 +186,77 @@ func TestIndexRW_Postings(t *testing.T) {
 	}
 	require.NoError(t, p.Err())
 
-	t.Run("ShardedPostings()", func(t *testing.T) {
-		ir, err := NewFileReader(fn, DecodePostingsRaw)
-		require.NoError(t, err)
-		t.Cleanup(func() {
-			require.NoError(t, ir.Close())
-		})
+	// Test ShardedPostings() with and without series hash cache.
+	for _, cacheEnabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("ShardedPostings() cache enabled: %v", cacheEnabled), func(t *testing.T) {
+			ir, _, _ = createFileReaderWithOptions(ctx, t, input, cacheEnabled)
 
-		// List all postings for a given label value. This is what we expect to get
-		// in output from all shards.
-		p, err = ir.Postings(ctx, "a", "1")
-		require.NoError(t, err)
-
-		var expected []storage.SeriesRef
-		for p.Next() {
-			expected = append(expected, p.At())
-		}
-		require.NoError(t, p.Err())
-		require.NotEmpty(t, expected)
-
-		// Query the same postings for each shard.
-		const shardCount = uint64(4)
-		actualShards := make(map[uint64][]storage.SeriesRef)
-		actualPostings := make([]storage.SeriesRef, 0, len(expected))
-
-		for shardIndex := range shardCount {
-			p, err = ir.Postings(ctx, "a", "1")
+			// List all postings for a given label value. This is what we expect to get
+			// in output from all shards.
+			p, err := ir.Postings(ctx, "a", "1")
 			require.NoError(t, err)
 
-			p = ir.ShardedPostings(p, shardIndex, shardCount)
+			var expected []storage.SeriesRef
 			for p.Next() {
-				ref := p.At()
-
-				actualShards[shardIndex] = append(actualShards[shardIndex], ref)
-				actualPostings = append(actualPostings, ref)
+				expected = append(expected, p.At())
 			}
 			require.NoError(t, p.Err())
-		}
+			require.NotEmpty(t, expected)
 
-		// We expect the postings merged out of shards is the exact same of the non sharded ones.
-		require.ElementsMatch(t, expected, actualPostings)
+			// Query the same postings for each shard.
+			const shardCount = uint64(4)
+			actualShards := make(map[uint64][]storage.SeriesRef)
+			actualPostings := make([]storage.SeriesRef, 0, len(expected))
 
-		// We expect the series in each shard are the expected ones.
-		for shardIndex, ids := range actualShards {
-			for _, id := range ids {
-				var lbls labels.ScratchBuilder
+			for shardIndex := range shardCount {
+				p, err = ir.Postings(ctx, "a", "1")
+				require.NoError(t, err)
 
-				require.NoError(t, ir.Series(id, &lbls, nil))
-				require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount)
+				p = ir.ShardedPostings(p, shardIndex, shardCount)
+				for p.Next() {
+					ref := p.At()
+
+					actualShards[shardIndex] = append(actualShards[shardIndex], ref)
+					actualPostings = append(actualPostings, ref)
+				}
+				require.NoError(t, p.Err())
 			}
-		}
 
-		errExpected := errors.New("postings error")
-		for _, tc := range []struct {
-			name string
-			refs []storage.SeriesRef
-		}{
-			{name: "empty"},
-			{name: "non-empty", refs: expected},
-		} {
-			t.Run(tc.name, func(t *testing.T) {
-				p := Merge(ctx, NewListPostings(tc.refs), ErrPostings(errExpected))
-				p = ir.ShardedPostings(p, 0, shardCount)
-				require.False(t, p.Next())
-				require.ErrorIs(t, p.Err(), errExpected)
-			})
-		}
-	})
+			// We expect the postings merged out of shards is the exact same of the non sharded ones.
+			require.ElementsMatch(t, expected, actualPostings)
+
+			// We expect the series in each shard are the expected ones.
+			for shardIndex, ids := range actualShards {
+				for _, id := range ids {
+					var lbls labels.ScratchBuilder
+
+					require.NoError(t, ir.Series(id, &lbls, nil))
+					require.Equal(t, shardIndex, labels.StableHash(lbls.Labels())%shardCount)
+				}
+			}
+
+			errExpected := errors.New("postings error")
+			for _, tc := range []struct {
+				name string
+				refs []storage.SeriesRef
+			}{
+				{name: "empty"},
+				{name: "non-empty", refs: expected},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					p := Merge(ctx, NewListPostings(tc.refs), ErrPostings(errExpected))
+					p = ir.ShardedPostings(p, 0, shardCount)
+					require.False(t, p.Next())
+					require.ErrorIs(t, p.Err(), errExpected)
+				})
+			}
+		})
+	}
 }
 
 func TestPostingsMany(t *testing.T) {
 	ctx := context.Background()
+
 	// Create a label in the index which has 999 values.
 	var input indexWriterSeriesSlice
 	for i := 1; i < 1000; i++ {
@@ -533,13 +533,18 @@ func BenchmarkReader_ShardedPostings(b *testing.B) {
 			labels: labels.FromStrings("const", fmt.Sprintf("%10d", 1), "unique", fmt.Sprintf("%10d", i)),
 		})
 	}
-	ir, _, _ := createFileReader(ctx, b, input)
+	for _, cacheEnabled := range []bool{true, false} {
+		b.Run(fmt.Sprintf("cached enabled: %v", cacheEnabled), func(b *testing.B) {
+			ir, _, _ := createFileReaderWithOptions(ctx, b, input, cacheEnabled)
+			b.ResetTimer()
 
-	for n := 0; b.Loop(); n++ {
-		allPostings, err := ir.Postings(ctx, "const", fmt.Sprintf("%10d", 1))
-		require.NoError(b, err)
+			for n := 0; b.Loop(); n++ {
+				allPostings, err := ir.Postings(ctx, "const", fmt.Sprintf("%10d", 1))
+				require.NoError(b, err)
 
-		ir.ShardedPostings(allPostings, uint64(n%numShards), numShards)
+				ir.ShardedPostings(allPostings, uint64(n%numShards), numShards)
+			}
+		})
 	}
 }
 
@@ -693,6 +698,10 @@ func TestReader_LabelNamesForHonorsContextCancel(t *testing.T) {
 // createFileReader creates a temporary index file. It writes the provided input to this file.
 // It returns a Reader for this file, the file's name, and the symbol map.
 func createFileReader(ctx context.Context, tb testing.TB, input indexWriterSeriesSlice) (*Reader, string, map[string]struct{}) {
+	return createFileReaderWithOptions(ctx, tb, input, false)
+}
+
+func createFileReaderWithOptions(ctx context.Context, tb testing.TB, input indexWriterSeriesSlice, withCache bool) (*Reader, string, map[string]struct{}) {
 	tb.Helper()
 
 	fn := filepath.Join(tb.TempDir(), indexFilename)
@@ -721,7 +730,13 @@ func createFileReader(ctx context.Context, tb testing.TB, input indexWriterSerie
 	}
 	require.NoError(tb, iw.Close())
 
-	ir, err := NewFileReader(fn, DecodePostingsRaw)
+	var ir *Reader
+	if withCache {
+		ir, err = NewFileReaderWithOptions(fn, DecodePostingsRaw, defaultLookupPlannerFunc, hashcache.NewSeriesHashCache(1024*1024*1024).GetBlockCacheProvider("test"))
+	} else {
+		ir, err = NewFileReader(fn, DecodePostingsRaw)
+	}
+
 	require.NoError(tb, err)
 	tb.Cleanup(func() {
 		require.NoError(tb, ir.Close())

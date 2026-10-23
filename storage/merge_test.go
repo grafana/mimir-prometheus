@@ -453,6 +453,14 @@ func TestCompactingChunkSeriesMerger(t *testing.T) {
 			expected: NewListChunkSeriesFromSamples(labels.FromStrings("bar", "baz"), []chunks.Sample{fSample{0, 1, 1}, fSample{0, 2, 2}}, []chunks.Sample{fSample{0, 3, 3}, fSample{0, 5, 5}}, []chunks.Sample{fSample{0, 7, 7}, fSample{0, 9, 9}}, []chunks.Sample{fSample{0, 10, 10}}),
 		},
 		{
+			name: "two non overlapping in reverse order",
+			input: []ChunkSeries{
+				NewListChunkSeriesFromSamples(labels.FromStrings("bar", "baz"), []chunks.Sample{fSample{0, 7, 7}, fSample{0, 9, 9}}, []chunks.Sample{fSample{0, 10, 10}}),
+				NewListChunkSeriesFromSamples(labels.FromStrings("bar", "baz"), []chunks.Sample{fSample{0, 1, 1}, fSample{0, 2, 2}}, []chunks.Sample{fSample{0, 3, 3}, fSample{0, 5, 5}}),
+			},
+			expected: NewListChunkSeriesFromSamples(labels.FromStrings("bar", "baz"), []chunks.Sample{fSample{0, 1, 1}, fSample{0, 2, 2}}, []chunks.Sample{fSample{0, 3, 3}, fSample{0, 5, 5}}, []chunks.Sample{fSample{0, 7, 7}, fSample{0, 9, 9}}, []chunks.Sample{fSample{0, 10, 10}}),
+		},
+		{
 			name: "two overlapping",
 			input: []ChunkSeries{
 				NewListChunkSeriesFromSamples(labels.FromStrings("bar", "baz"), []chunks.Sample{fSample{0, 1, 1}, fSample{0, 2, 2}}, []chunks.Sample{fSample{0, 3, 3}, fSample{0, 8, 8}}),
@@ -595,6 +603,9 @@ func TestCompactingChunkSeriesMerger(t *testing.T) {
 			require.Equal(t, expErr, actErr)
 			require.Equal(t, expChks, actChks)
 
+			count, err := merged.ChunkCount()
+			require.NoError(t, err)
+			require.Len(t, actChks, count)
 			actSamples := chunks.ChunkMetasToSamples(actChks)
 			expSamples := chunks.ChunkMetasToSamples(expChks)
 			require.Equal(t, expSamples, actSamples)
@@ -929,6 +940,10 @@ func TestConcatenatingChunkSeriesMerger(t *testing.T) {
 
 			require.Equal(t, expErr, actErr)
 			require.Equal(t, expChks, actChks)
+
+			count, err := merged.ChunkCount()
+			require.NoError(t, err)
+			require.Len(t, expChks, count)
 		})
 	}
 }

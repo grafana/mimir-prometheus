@@ -399,6 +399,10 @@ type SearchResult struct {
 	// Score represents relevance, with 1.0 being a perfect match.
 	// Score range is [0.0, 1.0].
 	Score float64
+
+	// Optional metric metadata. This has been added specifically
+	// for use in Mimir.
+	Metadata *metadata.Metadata
 }
 
 // Searcher provides search capabilities with relevance scoring.
@@ -693,6 +697,13 @@ type ChunkSeriesSet interface {
 type ChunkSeries interface {
 	Labels
 	ChunkIterable
+	ChunkIterableFactory
+
+	// ChunkCount returns the number of chunks available from this ChunkSeries.
+	//
+	// This value is used by Mimir's ingesters to report the number of chunks expected to be returned by a query,
+	// which is used by queriers to enforce the 'max chunks per query' limit.
+	ChunkCount() (int, error)
 }
 
 // Labels represents an item that has labels e.g. time series.
@@ -713,4 +724,28 @@ type ChunkIterable interface {
 	// Iterator returns an iterator that iterates over potentially overlapping
 	// chunks of the series, sorted by min time.
 	Iterator(chunks.Iterator) chunks.Iterator
+}
+
+// ChunkIterableFactory provides the ability to create a ChunkIterable
+// retaining the minimum amount of data required to create the chunk iterator.
+type ChunkIterableFactory interface {
+	// IteratorFactory returns a ChunkIterable that can iterate over chunks,
+	// retaining the minimum amount of data required to create the chunk iterator.
+	IteratorFactory() ChunkIterable
+}
+
+// LabelValues is an iterator over label values in sorted order.
+type LabelValues interface {
+	// Next tries to advance the iterator and returns true if it could, false otherwise.
+	Next() bool
+	// At returns the current label value.
+	At() string
+	// Err is the error that iteration eventually failed with.
+	// When an error occurs, the iterator cannot continue.
+	Err() error
+	// Warnings is a collection of warnings that have occurred during iteration.
+	// Warnings could be non-empty even if iteration has not failed with an error.
+	Warnings() annotations.Annotations
+	// Close the iterator and release held resources. Can be called multiple times.
+	Close() error
 }

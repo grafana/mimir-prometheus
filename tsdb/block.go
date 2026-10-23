@@ -28,6 +28,7 @@ import (
 
 	"github.com/oklog/ulid/v2"
 	"github.com/prometheus/common/promslog"
+	"go.opentelemetry.io/otel/attribute"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/storage"
@@ -84,6 +85,12 @@ type IndexReader interface {
 	// If no postings are found with the label in question, an empty iterator is returned.
 	PostingsForAllLabelValues(ctx context.Context, name string) index.Postings
 
+	// PostingsForMatchers assembles a single postings iterator based on the given matchers.
+	// The resulting postings are not ordered by series.
+	// If concurrent hint is set to true, call will be optimized for a (most likely) concurrent call with same matchers,
+	// avoiding same calculations twice, however this implementation may lead to a worse performance when called once.
+	PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error)
+
 	// SortedPostings returns a postings list that is reordered to be sorted
 	// by the label set of the underlying series.
 	SortedPostings(index.Postings) index.Postings
@@ -104,6 +111,9 @@ type IndexReader interface {
 	// LabelNamesFor returns all the label names for the series referred to by the postings.
 	// The names returned are sorted.
 	LabelNamesFor(ctx context.Context, postings index.Postings) ([]string, error)
+
+	// IndexLookupPlanner returns the index lookup planner for this reader.
+	IndexLookupPlanner() index.LookupPlanner
 
 	// Close releases the underlying resources of the reader.
 	Close() error
@@ -178,6 +188,9 @@ type BlockMeta struct {
 
 	// Version of the index format.
 	Version int `json:"version"`
+
+	// OutOfOrder is true if the block was directly created from out-of-order samples.
+	OutOfOrder bool `json:"out_of_order"`
 }
 
 // BlockStats contains stats about contents of a block.
@@ -353,6 +366,11 @@ type Block struct {
 // OpenBlock opens the block in the directory. It can be passed a chunk pool, which is used
 // to instantiate chunk structs.
 func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory) (pb *Block, err error) {
+	return OpenBlockWithOptions(logger, dir, pool, postingsDecoderFactory, DefaultIndexLookupPlannerFunc, nil, DefaultPostingsForMatchersCacheFactory)
+}
+
+// OpenBlockWithOptions is like OpenBlock but allows to pass a cache provider and sharding function.
+func OpenBlockWithOptions(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDecoderFactory PostingsDecoderFactory, plannerFunc IndexLookupPlannerFunc, cache index.ReaderCacheProvider, postingsCacheFactory PostingsForMatchersCacheFactory) (pb *Block, err error) {
 	if logger == nil {
 		logger = promslog.NewNopLogger()
 	}
@@ -377,10 +395,15 @@ func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDeco
 	if postingsDecoderFactory != nil {
 		decoder = postingsDecoderFactory(meta)
 	}
-	ir, err := index.NewFileReader(filepath.Join(dir, indexFilename), decoder)
+	pfmc := postingsCacheFactory.NewPostingsForMatchersCache([]attribute.KeyValue{attribute.String("block", meta.ULID.String())})
+	readerPlannerFunc := func(b *index.Reader) index.LookupPlanner {
+		return plannerFunc(*meta, indexReaderWithPostingsForMatchers{meta.ULID, b, pfmc})
+	}
+	indexReader, err := index.NewFileReaderWithOptions(filepath.Join(dir, indexFilename), decoder, readerPlannerFunc, cache)
 	if err != nil {
 		return nil, err
 	}
+	ir := indexReaderWithPostingsForMatchers{meta.ULID, indexReader, pfmc}
 	closers = append(closers, ir)
 
 	tr, sizeTomb, err := tombstones.ReadTombstones(dir)
@@ -402,6 +425,7 @@ func OpenBlock(logger *slog.Logger, dir string, pool chunkenc.Pool, postingsDeco
 		numBytesTombstone: sizeTomb,
 		numBytesMeta:      sizeMeta,
 	}
+
 	return pb, nil
 }
 
@@ -538,7 +562,7 @@ func (r blockIndexReader) LabelValues(ctx context.Context, name string, hints *s
 		return st, nil
 	}
 
-	return labelValuesWithMatchers(ctx, r.ir, name, hints, matchers...)
+	return labelValuesWithMatchers(ctx, r, name, hints, matchers...)
 }
 
 func (r blockIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Matcher) ([]string, error) {
@@ -546,7 +570,7 @@ func (r blockIndexReader) LabelNames(ctx context.Context, matchers ...*labels.Ma
 		return r.b.LabelNames(ctx)
 	}
 
-	return labelNamesWithMatchers(ctx, r.ir, matchers...)
+	return labelNamesWithMatchers(ctx, r, matchers...)
 }
 
 func (r blockIndexReader) Postings(ctx context.Context, name string, values ...string) (index.Postings, error) {
@@ -563,6 +587,10 @@ func (r blockIndexReader) PostingsForLabelMatching(ctx context.Context, name str
 
 func (r blockIndexReader) PostingsForAllLabelValues(ctx context.Context, name string) index.Postings {
 	return r.ir.PostingsForAllLabelValues(ctx, name)
+}
+
+func (r blockIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return r.ir.PostingsForMatchers(ctx, concurrent, ms...)
 }
 
 func (r blockIndexReader) SortedPostings(p index.Postings) index.Postings {
@@ -589,6 +617,11 @@ func (r blockIndexReader) Close() error {
 // The names returned are sorted.
 func (r blockIndexReader) LabelNamesFor(ctx context.Context, postings index.Postings) ([]string, error) {
 	return r.ir.LabelNamesFor(ctx, postings)
+}
+
+// IndexLookupPlanner returns the index lookup planner for this reader.
+func (r blockIndexReader) IndexLookupPlanner() index.LookupPlanner {
+	return r.ir.IndexLookupPlanner()
 }
 
 type blockTombstoneReader struct {
@@ -620,7 +653,7 @@ func (pb *Block) Delete(ctx context.Context, mint, maxt int64, ms ...*labels.Mat
 		return ErrClosing
 	}
 
-	p, err := PostingsForMatchers(ctx, pb.indexr, ms...)
+	p, err := pb.indexr.PostingsForMatchers(ctx, false, ms...)
 	if err != nil {
 		return fmt.Errorf("select series: %w", err)
 	}

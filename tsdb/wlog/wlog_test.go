@@ -27,14 +27,14 @@ import (
 	client_testutil "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/goleak"
 
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/util/compression"
+	"github.com/prometheus/prometheus/util/testutil"
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	testutil.TolerantVerifyLeak(m)
 }
 
 // TestWALRepair_ReadingError ensures that a repair is run for an error
@@ -573,4 +573,36 @@ func TestUnregisterMetrics(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, wl.Close())
 	}
+}
+
+func TestSyncSegmentsUntilCurrent(t *testing.T) {
+	t.Run("sync succeeds with active segments", func(t *testing.T) {
+		dir := t.TempDir()
+		w, err := NewSize(nil, nil, dir, pageSize, compression.None)
+		require.NoError(t, err)
+		defer w.Close()
+
+		// Write large records to create multiple segments
+		record := make([]byte, pageSize/2)
+		for range 10 {
+			require.NoError(t, w.Log(record))
+		}
+
+		require.NoError(t, w.FsyncSegmentsUntilCurrent())
+	})
+
+	t.Run("sync fails when WAL is closed", func(t *testing.T) {
+		dir := t.TempDir()
+		w, err := NewSize(nil, nil, dir, pageSize, compression.None)
+		require.NoError(t, err)
+
+		record := make([]byte, pageSize/2)
+		for range 10 {
+			require.NoError(t, w.Log(record))
+		}
+
+		require.NoError(t, w.Close())
+		err = w.FsyncSegmentsUntilCurrent()
+		require.EqualError(t, err, "unable to fsync segments: write log is closed")
+	})
 }

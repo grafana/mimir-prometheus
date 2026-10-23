@@ -80,6 +80,10 @@ func TestMain(m *testing.M) {
 	goleak.VerifyTestMain(m,
 		goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func1"),
 		goleak.IgnoreTopFunction("github.com/prometheus/prometheus/tsdb.(*SegmentWAL).cut.func2"),
+		// Ignore "ristretto" and its dependency "glog".
+		goleak.IgnoreTopFunction("github.com/dgraph-io/ristretto.(*defaultPolicy).processItems"),
+		goleak.IgnoreTopFunction("github.com/dgraph-io/ristretto.(*Cache).processItems"),
+		goleak.IgnoreTopFunction("github.com/golang/glog.(*fileSink).flushDaemon"),
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"))
 }
 
@@ -131,6 +135,15 @@ func newTestDB(t testing.TB, opts ...testDBOpt) (db *DB) {
 		require.NoError(t, db.Close())
 	})
 	return db
+}
+
+// queryHead is a helper to query the head for a given time range and labelset.
+func queryHead(t testing.TB, head *Head, mint, maxt int64, label labels.Label) (map[string][]chunks.Sample, error) {
+	q, err := NewBlockQuerier(head, mint, maxt)
+	if err != nil {
+		return nil, err
+	}
+	return query(t, q, labels.MustNewMatcher(labels.MatchEqual, label.Name, label.Value)), nil
 }
 
 func TestDBClose_AfterClose(t *testing.T) {
@@ -3472,11 +3485,13 @@ func TestCompactHead(t *testing.T) {
 
 	// Open a DB and append data to the WAL.
 	opts := &Options{
-		RetentionDuration: int64(time.Hour * 24 * 15 / time.Millisecond),
-		NoLockfile:        true,
-		MinBlockDuration:  int64(time.Hour * 2 / time.Millisecond),
-		MaxBlockDuration:  int64(time.Hour * 2 / time.Millisecond),
-		WALCompression:    compression.Snappy,
+		RetentionDuration:                    int64(time.Hour * 24 * 15 / time.Millisecond),
+		NoLockfile:                           true,
+		MinBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
+		MaxBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
+		WALCompression:                       compression.Snappy,
+		HeadPostingsForMatchersCacheMetrics:  NewPostingsForMatchersCacheMetrics(nil),
+		BlockPostingsForMatchersCacheMetrics: NewPostingsForMatchersCacheMetrics(nil),
 	}
 	db := newTestDB(t, withOpts(opts))
 	ctx := context.Background()
@@ -4221,7 +4236,10 @@ func TestNoGoroutineLeakOnTSDBOpenError(t *testing.T) {
 	// Verify that no goroutines were leaked. Without proper cleanup,
 	// wlog.(*WL).run and chunks.(*chunkWriteQueue).start.func1 goroutines
 	// would remain running after the failed Open().
-	goleak.VerifyNone(t)
+	goleak.VerifyNone(t,
+		goleak.IgnoreTopFunction("github.com/dgraph-io/ristretto.(*defaultPolicy).processItems"),
+		goleak.IgnoreTopFunction("github.com/dgraph-io/ristretto.(*Cache).processItems"),
+	)
 }
 
 func TestLockfile(t *testing.T) {
@@ -8691,13 +8709,13 @@ func testOOOMmapCorruption(t *testing.T, scenario sampleTypeScenario) {
 	addSamples(120, 120, false)
 
 	// Second m-map file. We will corrupt this file. Sample 120 goes into this new file.
-	db.head.chunkDiskMapper.CutNewFile()
+	require.NoError(t, db.head.chunkDiskMapper.CutNewFile())
 
 	// More OOO samples.
 	addSamples(200, 230, false)
 	addSamples(240, 255, false)
 
-	db.head.chunkDiskMapper.CutNewFile()
+	require.NoError(t, db.head.chunkDiskMapper.CutNewFile())
 	addSamples(260, 290, false)
 
 	verifySamples := func(expSamples []chunks.Sample) {
@@ -8844,7 +8862,7 @@ func testOutOfOrderRuntimeConfig(t *testing.T, scenario sampleTypeScenario) {
 		require.Positive(t, size)
 
 		require.Empty(t, db.Blocks())
-		require.NoError(t, db.compactOOOHead(ctx))
+		require.NoError(t, db.CompactOOOHead(ctx))
 		require.NotEmpty(t, db.Blocks())
 
 		// WBL is empty.
@@ -9959,6 +9977,10 @@ func (c *mockCompactorFn) Compact(string, []string, []*Block) ([]ulid.ULID, erro
 	return c.compactFn()
 }
 
+func (*mockCompactorFn) CompactOOO(_ string, _ *OOOCompactionHead) (result []ulid.ULID, err error) {
+	panic("implement me")
+}
+
 func (c *mockCompactorFn) Write(string, BlockReader, int64, int64, *BlockMeta) ([]ulid.ULID, error) {
 	return c.writeFn()
 }
@@ -10032,6 +10054,59 @@ func TestNewCompactorFunc(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ulids, 1)
 	require.Equal(t, block2, ulids[0])
+}
+
+func TestCompactHeadWithoutTruncation(t *testing.T) {
+	setupDB := func() *DB {
+		db := newTestDB(t)
+		db.DisableCompactions()
+
+		// Add samples to the head.
+		lbls := labels.FromStrings("foo", "bar")
+		app := db.Appender(context.Background())
+		_, err := app.Append(0, lbls, 0, 0)
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, DefaultBlockDuration/2, float64(DefaultBlockDuration/2))
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, DefaultBlockDuration-1, float64(DefaultBlockDuration-1))
+		require.NoError(t, err)
+		_, err = app.Append(0, lbls, 2*DefaultBlockDuration, float64(2*DefaultBlockDuration))
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+
+		return db
+	}
+
+	testQuery := func(db *DB, expSamples []chunks.Sample) {
+		rh := NewRangeHead(db.Head(), math.MinInt64, math.MaxInt64)
+		q, err := NewBlockQuerier(rh, math.MinInt64, math.MaxInt64)
+		require.NoError(t, err)
+		ss := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
+		require.Equal(t, map[string][]chunks.Sample{`{foo="bar"}`: expSamples}, ss)
+	}
+
+	{ // Compact the head with truncation.
+		db := setupDB()
+		rh := NewRangeHead(db.Head(), 0, DefaultBlockDuration-1)
+		require.NoError(t, db.CompactHead(rh))
+		// Samples got truncated from the head.
+		testQuery(db, []chunks.Sample{
+			sample{t: 2 * DefaultBlockDuration, f: float64(2 * DefaultBlockDuration)},
+		})
+	}
+
+	{ // Compact the head without truncation.
+		db := setupDB()
+		rh := NewRangeHead(db.Head(), 0, DefaultBlockDuration-1)
+		require.NoError(t, db.CompactHeadWithoutTruncation(rh))
+		// All samples still exist in the head.
+		testQuery(db, []chunks.Sample{
+			sample{t: 0, f: 0},
+			sample{t: DefaultBlockDuration / 2, f: float64(DefaultBlockDuration / 2)},
+			sample{t: DefaultBlockDuration - 1, f: float64(DefaultBlockDuration - 1)},
+			sample{t: 2 * DefaultBlockDuration, f: float64(2 * DefaultBlockDuration)},
+		})
+	}
 }
 
 func TestBlockQuerierAndBlockChunkQuerier(t *testing.T) {
@@ -10309,6 +10384,74 @@ func TestBlockReloadInterval(t *testing.T) {
 			)
 		})
 	}
+}
+
+func TestBiggerBlocksForOldOOOData(t *testing.T) {
+	var (
+		ctx  = context.Background()
+		lbls = labels.FromStrings("foo", "bar")
+
+		day  = 24 * time.Hour.Milliseconds()
+		hour = time.Hour.Milliseconds()
+
+		currTs       = time.Now().UnixMilli()
+		currDayStart = day * (currTs / day)
+
+		expOOOSamples []chunks.Sample
+	)
+
+	opts := DefaultOptions()
+	opts.OutOfOrderTimeWindow = 10 * day
+	opts.EnableBiggerOOOBlockForOldSamples = true
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+
+	// 1 in-order sample.
+	app := db.Appender(ctx)
+	inOrderTs := currDayStart + (6 * hour)
+	ref, err := app.Append(0, lbls, inOrderTs, float64(inOrderTs))
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// OOO samples till 5 days ago.
+	for ts := currDayStart - (5 * day); ts < inOrderTs; ts += hour {
+		app = db.Appender(ctx)
+		_, err := app.Append(ref, lbls, ts, float64(ts))
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+		expOOOSamples = append(expOOOSamples, sample{t: ts, f: float64(ts)})
+	}
+
+	require.Empty(t, db.Blocks())
+	require.NoError(t, db.CompactOOOHead(ctx))
+	// 5 OOO blocks from the last 5 days + 3 OOO blocks for the 6h of curr day (2h blocks)
+	require.Len(t, db.Blocks(), 8)
+
+	// Check that blocks are alright.
+	// Move all the blocks to a new DB and check for all OOO samples
+	// getting into the new DB and the old DB only has the in-order sample.
+	newDB := newTestDB(t, withOpts(opts))
+	for _, b := range db.Blocks() {
+		err := os.Rename(b.Dir(), path.Join(newDB.Dir(), b.Meta().ULID.String()))
+		require.NoError(t, err)
+	}
+
+	require.NoError(t, db.reloadBlocks())
+	require.NoError(t, newDB.reloadBlocks())
+	require.Empty(t, db.Blocks())
+	require.Len(t, newDB.Blocks(), 8)
+
+	// Only in-order sample in the old DB.
+	querier, err := db.Querier(inOrderTs-6*day, inOrderTs+1)
+	require.NoError(t, err)
+	seriesSet := query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
+	require.Equal(t, map[string][]chunks.Sample{`{foo="bar"}`: {sample{t: inOrderTs, f: float64(inOrderTs)}}}, seriesSet)
+
+	// All OOO samples in the new DB.
+	querier, err = newDB.Querier(inOrderTs-6*day, inOrderTs+1)
+	require.NoError(t, err)
+	seriesSet = query(t, querier, labels.MustNewMatcher(labels.MatchEqual, "foo", "bar"))
+	require.Equal(t, map[string][]chunks.Sample{`{foo="bar"}`: expOOOSamples}, seriesSet)
 }
 
 func TestStaleSeriesCompaction(t *testing.T) {

@@ -175,6 +175,12 @@ func getOOOSeriesChunks(s *memSeries, useXOR2, useHistogramST bool, mint, maxt i
 	return headChunksBuf
 }
 
+// PostingsForMatchers needs to be overridden so that the right IndexReader
+// implementation gets passed down to the PostingsForMatchers call.
+func (oh *HeadAndOOOIndexReader) PostingsForMatchers(ctx context.Context, concurrent bool, ms ...*labels.Matcher) (index.Postings, error) {
+	return oh.head.pfmc.PostingsForMatchers(ctx, oh, concurrent, oh.head.Meta().ULID, ms...)
+}
+
 // Fake Chunk object to pass a set of Metas inside Meta.Chunk.
 type multiMeta struct {
 	chunkenc.Chunk // We don't expect any of the methods to be called.
@@ -193,6 +199,11 @@ func (oh *HeadAndOOOIndexReader) LabelValues(ctx context.Context, name string, h
 	}
 
 	return labelValuesWithMatchers(ctx, oh, name, hints, matchers...)
+}
+
+// IndexLookupPlanner returns the index lookup planner for this reader.
+func (oh *HeadAndOOOIndexReader) IndexLookupPlanner() index.LookupPlanner {
+	return oh.head.opts.IndexLookupPlannerFunc(oh.head.Meta(), oh)
 }
 
 func lessByMinTimeAndMinRef(a, b chunks.Meta) int {
@@ -523,6 +534,16 @@ func (ir *OOOCompactionHeadIndexReader) ShardedPostings(p index.Postings, shardI
 	return hr.ShardedPostings(p, shardIndex, shardCount)
 }
 
+func (ir *OOOCompactionHeadIndexReader) LabelValuesFor(postings index.Postings, name string) storage.LabelValues {
+	hr := headIndexReader{head: ir.ch.head, mint: ir.ch.mint, maxt: ir.ch.maxt}
+	return hr.LabelValuesFor(postings, name)
+}
+
+func (ir *OOOCompactionHeadIndexReader) LabelValuesExcluding(postings index.Postings, name string) storage.LabelValues {
+	hr := headIndexReader{head: ir.ch.head, mint: ir.ch.mint, maxt: ir.ch.maxt}
+	return hr.LabelValuesExcluding(postings, name)
+}
+
 func (ir *OOOCompactionHeadIndexReader) Series(ref storage.SeriesRef, builder *labels.ScratchBuilder, chks *[]chunks.Meta) error {
 	s := ir.ch.head.series.getByID(chunks.HeadSeriesRef(ref))
 
@@ -566,6 +587,11 @@ func (*OOOCompactionHeadIndexReader) LabelNamesFor(context.Context, index.Postin
 
 func (*OOOCompactionHeadIndexReader) Close() error {
 	return nil
+}
+
+// IndexLookupPlanner returns the index lookup planner for this reader.
+func (ir *OOOCompactionHeadIndexReader) IndexLookupPlanner() index.LookupPlanner {
+	return ir.ch.head.opts.IndexLookupPlannerFunc(ir.ch.Meta(), ir)
 }
 
 // HeadAndOOOQuerier queries both the head and the out-of-order head.

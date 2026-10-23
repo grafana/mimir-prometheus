@@ -278,6 +278,51 @@ func BenchmarkSampledReadEndpointWithoutExternalLabels(b *testing.B) {
 	}
 }
 
+func TestSampledReadEndpointWithoutExternalLabels(t *testing.T) {
+	store := promqltest.LoadedStorage(t, `
+		load 1m
+			test_metric{foo="bar"} 1
+	`)
+	defer store.Close()
+
+	h := NewReadHandler(nil, nil, store, func() config.Config {
+		return config.Config{}
+	}, 1e6, 1, 0)
+
+	matcher, err := labels.NewMatcher(labels.MatchEqual, "__name__", "test_metric")
+	require.NoError(t, err)
+	query, err := ToQuery(0, 1, []*labels.Matcher{matcher}, nil)
+	require.NoError(t, err)
+
+	data, err := proto.Marshal(&prompb.ReadRequest{Queries: []*prompb.Query{query}})
+	require.NoError(t, err)
+
+	request, err := http.NewRequest(http.MethodPost, "", bytes.NewBuffer(snappy.Encode(nil, data)))
+	require.NoError(t, err)
+	recorder := httptest.NewRecorder()
+	h.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Equal(t, "application/x-protobuf", recorder.Result().Header.Get("Content-Type"))
+	require.Equal(t, "snappy", recorder.Result().Header.Get("Content-Encoding"))
+
+	uncompressed, err := snappy.Decode(nil, recorder.Body.Bytes())
+	require.NoError(t, err)
+	var resp prompb.ReadResponse
+	require.NoError(t, proto.Unmarshal(uncompressed, &resp))
+	require.Equal(t, &prompb.ReadResponse{
+		Results: []*prompb.QueryResult{{
+			Timeseries: []*prompb.TimeSeries{{
+				Labels: []prompb.Label{
+					{Name: "__name__", Value: "test_metric"},
+					{Name: "foo", Value: "bar"},
+				},
+				Samples: []prompb.Sample{{Value: 1}},
+			}},
+		}},
+	}, &resp)
+}
+
 func BenchmarkStreamReadEndpoint(b *testing.B) {
 	store := promqltest.LoadedStorage(b, `
 	load 1m

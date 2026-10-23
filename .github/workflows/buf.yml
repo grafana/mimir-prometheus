@@ -1,8 +1,5 @@
 name: buf.build
-on:
-  push:
-    branches:
-      - main
+on: workflow_dispatch # Only allow manual triggering in mimir-prometheus
 permissions:
   contents: read
 

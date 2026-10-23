@@ -107,6 +107,20 @@ func NewManager(o *Options, nameValidationScheme model.ValidationScheme, logger 
 		}
 	}
 
+	for i, rc := range o.RelabelConfigs {
+		switch rc.NameValidationScheme {
+		case model.LegacyValidation, model.UTF8Validation:
+		default:
+			//nolint:staticcheck // model.NameValidationScheme is deprecated.
+			o.RelabelConfigs[i].NameValidationScheme = model.NameValidationScheme
+			logger.Warn(
+				"notifier.NewManager: using default metric/label name validation scheme",
+				"relabel_config", i,
+				"scheme", o.RelabelConfigs[i].NameValidationScheme,
+			)
+		}
+	}
+
 	n := &Manager{
 		stopRequested: make(chan struct{}),
 		stopOnce:      &sync.Once{},

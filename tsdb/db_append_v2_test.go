@@ -2301,11 +2301,13 @@ func TestCompactHead_AppendV2(t *testing.T) {
 
 	// Open a DB and append data to the WAL.
 	opts := &Options{
-		RetentionDuration: int64(time.Hour * 24 * 15 / time.Millisecond),
-		NoLockfile:        true,
-		MinBlockDuration:  int64(time.Hour * 2 / time.Millisecond),
-		MaxBlockDuration:  int64(time.Hour * 2 / time.Millisecond),
-		WALCompression:    compression.Snappy,
+		RetentionDuration:                    int64(time.Hour * 24 * 15 / time.Millisecond),
+		NoLockfile:                           true,
+		MinBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
+		MaxBlockDuration:                     int64(time.Hour * 2 / time.Millisecond),
+		WALCompression:                       compression.Snappy,
+		HeadPostingsForMatchersCacheMetrics:  NewPostingsForMatchersCacheMetrics(nil),
+		BlockPostingsForMatchersCacheMetrics: NewPostingsForMatchersCacheMetrics(nil),
 	}
 	db := newTestDB(t, withOpts(opts))
 	ctx := context.Background()

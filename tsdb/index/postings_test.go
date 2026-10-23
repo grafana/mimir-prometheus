@@ -1577,3 +1577,50 @@ func TestMemPostings_LabelValuesLimitSmallest(t *testing.T) {
 	})
 	require.Equal(t, []string{"a", "b", "d"}, p.LabelValues(ctx, "lbl", &storage.LabelHints{Limit: 3, LimitSmallest: true}))
 }
+
+func TestMemPostings_LabelValuesBytes(t *testing.T) {
+	value := func(prefix string, length int) string {
+		return prefix + strings.Repeat("x", length-len(prefix))
+	}
+	long1, long2 := value("a", 200), value("b", 300)
+
+	p := NewMemPostings()
+	require.Empty(t, p.LabelValuesBytes())
+
+	// Values at or below the minimum length are ignored entirely, however many there are.
+	for i := range 100 {
+		p.Add(storage.SeriesRef(i), labels.FromStrings("short", value(strconv.Itoa(i), LabelValueBytesMinLength)))
+	}
+	require.Empty(t, p.LabelValuesBytes())
+
+	p.Add(1000, labels.FromStrings("lbl1", long1, "lbl2", long2))
+	p.Add(1001, labels.FromStrings("lbl1", long2))
+	require.Equal(t, map[string]uint64{"lbl1": 500, "lbl2": 300}, p.LabelValuesBytes())
+
+	// Repeating a value on another series must not count it again.
+	p.Add(1002, labels.FromStrings("lbl1", long1))
+	require.Equal(t, map[string]uint64{"lbl1": 500, "lbl2": 300}, p.LabelValuesBytes())
+
+	// Deleting series 1001 empties lbl1=long2, releasing its bytes, while lbl1=long1 stays
+	// because series 1000 and 1002 still carry it.
+	p.Delete(map[storage.SeriesRef]struct{}{1001: {}}, map[labels.Label]struct{}{
+		{Name: "lbl1", Value: long2}: {},
+	})
+	require.Equal(t, map[string]uint64{"lbl1": 200, "lbl2": 300}, p.LabelValuesBytes())
+
+	// Deleting every series carrying lbl2 drops the label name entirely.
+	p.Delete(map[storage.SeriesRef]struct{}{1000: {}}, map[labels.Label]struct{}{
+		{Name: "lbl1", Value: long1}: {},
+		{Name: "lbl2", Value: long2}: {},
+	})
+	require.Equal(t, map[string]uint64{"lbl1": 200}, p.LabelValuesBytes())
+
+	// Re-adding a released value counts it again.
+	p.Add(1003, labels.FromStrings("lbl2", long2))
+	require.Equal(t, map[string]uint64{"lbl1": 200, "lbl2": 300}, p.LabelValuesBytes())
+
+	// The returned map is a copy: mutating it must not affect the tracker.
+	got := p.LabelValuesBytes()
+	got["lbl1"] = 999
+	require.Equal(t, uint64(200), p.LabelValuesBytes()["lbl1"])
+}

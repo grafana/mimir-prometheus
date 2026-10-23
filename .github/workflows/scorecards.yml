@@ -1,10 +1,7 @@
 # Copyright 2022 Google LLC
 
 name: Scorecards supply-chain security
-on:
-  pull_request:
-  push:
-    branches: [ "main" ]
+on: workflow_dispatch # Only allow manual triggering in mimir-prometheus
 
 # Declare default permissions as read only.
 permissions: read-all

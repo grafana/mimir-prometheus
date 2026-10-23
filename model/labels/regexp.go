@@ -16,9 +16,12 @@ package labels
 import (
 	"slices"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/DmitriyVTitov/size"
+	"github.com/dgraph-io/ristretto"
 	"github.com/grafana/regexp"
 	"github.com/grafana/regexp/syntax"
 	"golang.org/x/text/unicode/norm"
@@ -32,7 +35,23 @@ const (
 	// to match values instead of iterating over a list. This value has
 	// been computed running BenchmarkOptimizeEqualStringMatchers.
 	minEqualMultiStringMatcherMapThreshold = 16
+
+	fastRegexMatcherCacheMaxSizeBytes = 1024 * 1024 * 1024 // 1GB
+	fastRegexMatcherCacheTTL          = 5 * time.Minute
 )
+
+var fastRegexMatcherCache *ristretto.Cache
+
+func init() {
+	// Ignore error because it can only return error if config is invalid,
+	// but we're using an hardcoded static config here.
+	fastRegexMatcherCache, _ = ristretto.NewCache(&ristretto.Config{
+		NumCounters: 100_000, // 10x the max number of expected items (takes 3 bytes per counter),
+		MaxCost:     fastRegexMatcherCacheMaxSizeBytes,
+		BufferItems: 64, // Recommended default per the Config docs,
+		Metrics:     false,
+	})
+}
 
 type FastRegexMatcher struct {
 	// Under some conditions, re is nil because the expression is never parsed.
@@ -51,9 +70,28 @@ type FastRegexMatcher struct {
 
 	// matchString is the "compiled" function to run by MatchString().
 	matchString func(string) bool
+	parsedRe    *syntax.Regexp
 }
 
 func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
+	// Check the cache.
+	if matcher, ok := fastRegexMatcherCache.Get(v); ok {
+		return matcher.(*FastRegexMatcher), nil
+	}
+
+	// Create a new matcher.
+	matcher, err := newFastRegexMatcherWithoutCache(v)
+	if err != nil {
+		return nil, err
+	}
+
+	// Cache it.
+	fastRegexMatcherCache.SetWithTTL(v, matcher, int64(size.Of(matcher)), fastRegexMatcherCacheTTL)
+
+	return matcher, nil
+}
+
+func newFastRegexMatcherWithoutCache(v string) (*FastRegexMatcher, error) {
 	m := &FastRegexMatcher{
 		reString: v,
 	}
@@ -109,6 +147,7 @@ func NewFastRegexMatcher(v string) (*FastRegexMatcher, error) {
 				m.stringMatcher = stringMatcherFromRegexp(parsed)
 			}
 		}
+		m.parsedRe = parsed
 
 		m.matchString = m.compileMatchStringFunction()
 	}
@@ -291,6 +330,14 @@ func clearCapture(regs ...*syntax.Regexp) {
 			*r = *r.Sub[0]
 		}
 	}
+}
+
+// removeEmptyMatches returns the slice with syntax.OpEmptyMatch regexps removed.
+// Note: it modifies the input slice (the returned slice is a sub-slice of the input).
+func removeEmptyMatches(regs []*syntax.Regexp) []*syntax.Regexp {
+	return slices.DeleteFunc(regs, func(r *syntax.Regexp) bool {
+		return r.Op == syntax.OpEmptyMatch
+	})
 }
 
 // clearBeginEndText removes the begin and end text from the regexp. Prometheus regexp are anchored to the beginning and end of the string.
@@ -541,6 +588,7 @@ func stringMatcherFromRegexpInternal(re *syntax.Regexp) StringMatcher {
 		return orStringMatcher(or)
 	case syntax.OpConcat:
 		clearCapture(re.Sub...)
+		re.Sub = removeEmptyMatches(re.Sub)
 
 		if len(re.Sub) == 0 {
 			return emptyStringMatcher{}
@@ -648,8 +696,12 @@ func isSimpleConcatenationPattern(re *syntax.Regexp) bool {
 		return false
 	}
 
+	numLiterals := 0
 	for i, sub := range re.Sub {
 		if i%2 == 0 {
+			// Even positions must be wildcards, so that literals are always
+			// separated by a wildcard (eg. .*-.*-.*). This also guards against
+			// captures that clearCapture unwraps into adjacent literals.
 			if !isMatchAny(sub) {
 				return false
 			}
@@ -657,10 +709,15 @@ func isSimpleConcatenationPattern(re *syntax.Regexp) bool {
 			if !isCaseSensitiveLiteral(sub) {
 				return false
 			}
+			numLiterals++
 		}
 	}
 
-	return true
+	// The single case .*-.* is already handled in stringMatcherFromRegexp,
+	// by directly modifying re.Sub to remove subexpressions matching empty strings for concatenations.
+	// Removing such subexpressions can greatly decrease cost estimation,
+	// so we shouldn't skip doing so for an optimization.
+	return numLiterals > 1
 }
 
 func isMatchAny(re *syntax.Regexp) bool {
