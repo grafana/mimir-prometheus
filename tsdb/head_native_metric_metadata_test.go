@@ -946,6 +946,14 @@ func TestHeadAppenderV2MetadataSidecar(t *testing.T) {
 	t.Run("sidecar pointer and layout sizes", func(t *testing.T) {
 		require.Equal(t, 2*unsafe.Sizeof((*metadata.Metadata)(nil)), unsafe.Sizeof(memSeriesMetadata{}))
 	})
+	t.Run("memSeries size is unchanged", func(t *testing.T) {
+		if strconv.IntSize == 32 {
+			t.Skip("measured on 64-bit only")
+		}
+		// memSeries is 200 B without native metadata too: the sidecar pointer replaces the legacy metadata
+		// handle, so series cost nothing extra while native metadata is off.
+		require.Equal(t, uintptr(200), unsafe.Sizeof(memSeries{}))
+	})
 	t.Run("native state layout and allocation", func(t *testing.T) {
 		var native nativeSeriesMetadata
 		wantSize := uintptr(48)
