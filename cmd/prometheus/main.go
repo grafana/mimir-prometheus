@@ -257,6 +257,7 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 			case "native-metadata":
 				c.tsdb.EnableNativeMetadata = true
 				c.tsdb.EnableNativeResources = true
+				c.web.NativeOTLPResources = true
 				features.Enable(features.TSDB, "native_metadata")
 				logger.Info("Experimental native metadata persistence enabled")
 			case "promql-per-step-stats":

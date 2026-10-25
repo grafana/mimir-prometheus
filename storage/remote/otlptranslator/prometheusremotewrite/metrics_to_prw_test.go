@@ -2128,3 +2128,80 @@ func BenchmarkFromMetrics_LabelCaching_MultipleResources(b *testing.B) {
 		}
 	}
 }
+
+// resourceRecordingAppender records the resource each series is appended with.
+type resourceRecordingAppender struct {
+	storage.AppenderV2
+	resources map[string]*storage.ResourceContext
+}
+
+func (a *resourceRecordingAppender) Append(ref storage.SeriesRef, ls labels.Labels, st, t int64, v float64, h *histogram.Histogram, fh *histogram.FloatHistogram, opts storage.AOptions) (storage.SeriesRef, error) {
+	a.resources[ls.Get(labels.MetricName)] = opts.Resource
+	return a.AppenderV2.Append(ref, ls, st, t, v, h, fh, opts)
+}
+
+func TestFromMetricsNativeResources(t *testing.T) {
+	request := pmetricotlp.NewExportRequest()
+	rm := request.Metrics().ResourceMetrics().AppendEmpty()
+	attrs := rm.Resource().Attributes()
+	attrs.PutStr("service.name", "frontend")
+	attrs.PutStr("host.name", "node-1")
+	attrs.PutBool("debug", true)
+	attrs.PutInt("cores", 8)
+	attrs.PutDouble("ratio", 0.5)
+	attrs.PutEmptyBytes("id").FromRaw([]byte{1, 2})
+	attrs.PutEmptySlice("tags").AppendEmpty().SetStr("a")
+	attrs.PutEmpty("nothing")
+	metrics := rm.ScopeMetrics().AppendEmpty().Metrics()
+	for _, name := range []string{"first", "second"} {
+		m := metrics.AppendEmpty()
+		m.SetName(name)
+		m.SetEmptyGauge().DataPoints().AppendEmpty().SetTimestamp(pcommon.NewTimestampFromTime(time.Now()))
+	}
+
+	convert := func(settings Settings) map[string]*storage.ResourceContext {
+		app := &resourceRecordingAppender{AppenderV2: teststorage.NewAppendable().AppenderV2(t.Context()), resources: map[string]*storage.ResourceContext{}}
+		_, err := NewPrometheusConverter(app).FromMetrics(t.Context(), request.Metrics(), settings)
+		require.NoError(t, err)
+		return app.resources
+	}
+
+	t.Run("off", func(t *testing.T) {
+		resources := convert(Settings{})
+		require.Len(t, resources, 3, "both metrics and target_info")
+		for name, r := range resources {
+			require.Nil(t, r, name)
+		}
+	})
+
+	t.Run("on", func(t *testing.T) {
+		resources := convert(Settings{EnableNativeResources: true})
+		r := resources["first"]
+		require.NotNil(t, r)
+		require.Same(t, r, resources["second"], "one ResourceContext per resource")
+		require.Equal(t, map[string]string{"service.name": "frontend"}, r.Identifying)
+		require.Equal(t, "node-1", r.Descriptive["host.name"])
+		require.Equal(t, "true", r.Descriptive["debug"])
+		require.Nil(t, r.Attributes)
+		require.Nil(t, resources["target_info"])
+	})
+
+	t.Run("typed", func(t *testing.T) {
+		r := convert(Settings{EnableNativeResources: true, TypedResourceAttributes: true})["first"]
+		require.Equal(t, []storage.ResourceAttribute{
+			{Key: "service.name", String: "frontend"},
+			{Key: "host.name", String: "node-1"},
+			{Key: "debug", Type: storage.ResourceAttributeBool, Bool: true},
+			{Key: "cores", Type: storage.ResourceAttributeInt, Int: 8},
+			{Key: "ratio", Type: storage.ResourceAttributeDouble, Double: 0.5},
+			{Key: "id", Type: storage.ResourceAttributeBytes, Bytes: []byte{1, 2}},
+			{Key: "tags", String: `["a"]`},
+			{Key: "nothing"},
+		}, r.Attributes)
+
+		// The attributes don't share memory with the request.
+		id, _ := attrs.Get("id")
+		id.Bytes().SetAt(0, 9)
+		require.Equal(t, []byte{1, 2}, r.Attributes[5].Bytes)
+	})
+}

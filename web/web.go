@@ -314,6 +314,7 @@ type Options struct {
 	EnableOTLPWriteReceiver    bool
 	ConvertOTLPDelta           bool
 	NativeOTLPDeltaIngestion   bool
+	NativeOTLPResources        bool
 	IsAgent                    bool
 	EnableTypeAndUnitLabels    bool
 	AppendMetadata             bool
@@ -429,6 +430,7 @@ func New(logger *slog.Logger, o *Options) *Handler {
 		o.EnableOTLPWriteReceiver,
 		o.ConvertOTLPDelta,
 		o.NativeOTLPDeltaIngestion,
+		o.NativeOTLPResources,
 		o.LookbackDelta,
 		o.EnableTypeAndUnitLabels,
 		o.AppendMetadata,

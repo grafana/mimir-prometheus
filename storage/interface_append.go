@@ -42,6 +42,32 @@ type AOptions = AppendV2Options
 type ResourceContext struct {
 	Identifying map[string]string
 	Descriptive map[string]string
+	// Attributes (optional) are the same attributes, unsplit and with their OTLP types, for appenders that keep the
+	// types. The TSDB ignores them. They share no memory with the OTLP request.
+	Attributes []ResourceAttribute
+}
+
+// ResourceAttributeType is the type of a ResourceAttribute's value.
+type ResourceAttributeType uint8
+
+const (
+	ResourceAttributeString ResourceAttributeType = iota
+	ResourceAttributeBool
+	ResourceAttributeInt
+	ResourceAttributeDouble
+	ResourceAttributeBytes
+)
+
+// ResourceAttribute is a resource attribute with its typed value, in the field its Type names. Arrays and maps are
+// strings, in their OTLP string form (JSON), and an empty value is an empty string.
+type ResourceAttribute struct {
+	Key    string
+	Type   ResourceAttributeType
+	String string
+	Bool   bool
+	Int    int64
+	Double float64
+	Bytes  []byte
 }
 
 // AppendV2Options provides optional, auxiliary data and configuration for AppenderV2.Append.

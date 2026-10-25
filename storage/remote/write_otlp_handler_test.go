@@ -307,6 +307,40 @@ func TestOTLPWriteHandler(t *testing.T) {
 		}}, result[0].Versions)
 	})
 
+	t.Run("native resource store", func(t *testing.T) {
+		db := teststorage.New(t, func(opts *tsdb.Options) {
+			opts.EnableNativeResources = true
+		})
+		handler := NewOTLPWriteHandler(promslog.NewNopLogger(), prometheus.NewRegistry(), db, func() config.Config {
+			return config.Config{OTLPConfig: config.OTLPConfig{TranslationStrategy: otlptranslator.NoTranslation}}
+		}, OTLPOptions{NativeResources: true})
+		metrics := pmetric.NewMetrics()
+		resourceMetrics := metrics.ResourceMetrics().AppendEmpty()
+		resourceMetrics.Resource().Attributes().PutStr("service.name", "test-service")
+		resourceMetrics.Resource().Attributes().PutStr("host.name", "test-host")
+		metric := resourceMetrics.ScopeMetrics().AppendEmpty().Metrics().AppendEmpty()
+		metric.SetName("test.gauge")
+		dataPoint := metric.SetEmptyGauge().DataPoints().AppendEmpty()
+		dataPoint.SetTimestamp(pcommon.NewTimestampFromTime(ts))
+		dataPoint.SetDoubleValue(10)
+		payload, err := pmetricotlp.NewExportRequestFromMetrics(metrics).MarshalProto()
+		require.NoError(t, err)
+		req, err := http.NewRequest(http.MethodPost, "", bytes.NewReader(payload))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-protobuf")
+		recorder := httptest.NewRecorder()
+		handler.ServeHTTP(recorder, req)
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+
+		reader, err := db.Head().SeriesMetadata()
+		require.NoError(t, err)
+		defer reader.Close()
+		resource, ok := reader.GetResource(labels.StableHash(labels.FromStrings(labels.MetricName, "test.gauge", "job", "test-service")))
+		require.True(t, ok)
+		require.Equal(t, map[string]string{"service.name": "test-service"}, resource.Identifying)
+		require.Equal(t, map[string]string{"host.name": "test-host"}, resource.Descriptive)
+	})
+
 	t.Run("translation warnings metric", func(t *testing.T) {
 		newExporter := func() *rwExporter {
 			log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
