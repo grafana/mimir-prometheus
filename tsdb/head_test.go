@@ -11766,6 +11766,43 @@ func TestResourceRollback(t *testing.T) {
 	require.False(t, resOK, "resource must not be set after rollback")
 }
 
+// Quiet zeros record no resource, in or out of order, and leave the appender's one update per series to a real sample.
+func TestResourceSkipsQuietZeros(t *testing.T) {
+	opts := newTestHeadDefaultOptions(1000, false)
+	opts.EnableNativeResources = true
+	head, _ := newTestHeadWithOptions(t, compression.None, opts)
+	require.NoError(t, head.Init(0))
+
+	lset := labels.FromStrings("a", "b")
+	resource := func(name string) storage.AOptions {
+		return storage.AOptions{Resource: &storage.ResourceContext{Identifying: map[string]string{"service.name": name}}}
+	}
+	quietZero := math.Float64frombits(value.QuietZeroNaN)
+
+	app := head.AppenderV2(t.Context())
+	ref, err := app.Append(0, lset, 0, 200, 1, nil, nil, resource("current"))
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	// The out-of-order quiet zero is accepted, then dropped at commit; the in-order one is stored as 0.
+	app = head.AppenderV2(t.Context())
+	_, err = app.Append(ref, lset, 0, 100, quietZero, nil, nil, resource("quiet"))
+	require.NoError(t, err)
+	_, err = app.Append(ref, lset, 0, 300, quietZero, nil, nil, resource("quiet"))
+	require.NoError(t, err)
+	_, err = app.Append(ref, lset, 0, 400, 1, nil, nil, resource("next"))
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	vr, ok := head.seriesMeta.ResourceStore().GetVersioned(labels.StableHash(lset))
+	require.True(t, ok)
+	require.Len(t, vr.Versions, 2)
+	require.Equal(t, map[string]string{"service.name": "current"}, vr.Versions[0].Identifying)
+	require.Equal(t, [2]int64{200, 200}, [2]int64{vr.Versions[0].MinTime, vr.Versions[0].MaxTime})
+	require.Equal(t, map[string]string{"service.name": "next"}, vr.Versions[1].Identifying)
+	require.Equal(t, [2]int64{400, 400}, [2]int64{vr.Versions[1].MinTime, vr.Versions[1].MaxTime})
+}
+
 // The head maintains the resource attribute index from its first append, so lookups made while series are appended
 // lose none of them.
 func TestResourceAttrIndexConcurrentAppendsAndLookups(t *testing.T) {

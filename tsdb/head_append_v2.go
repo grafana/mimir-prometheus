@@ -180,8 +180,8 @@ func (a *headAppenderV2) Append(ref storage.SeriesRef, ls labels.Labels, st, t i
 		nativeMetadata  *metadata.Metadata
 		oversizedNative bool
 	)
-	// Quiet zeros are synthetic zero samples, which carry no metadata. Out-of-order ones are also accepted at any
-	// timestamp and only dropped at commit, after native metadata has been committed.
+	// Quiet zeros are synthetic zero samples, which carry no metadata or resource. Out-of-order ones are also accepted
+	// at any timestamp and only dropped at commit, after native metadata and resources have been committed.
 	quietZero := h == nil && fh == nil && math.Float64bits(v) == value.QuietZeroNaN
 	if a.head.nativeMetricMetadata != nil && !opts.Metadata.IsEmpty() && !quietZero {
 		m := opts.Metadata
@@ -274,10 +274,8 @@ func (a *headAppenderV2) Append(ref storage.SeriesRef, ls labels.Labels, st, t i
 			b.metadataSeries = append(b.metadataSeries, s)
 		}
 	}
-	if a.head.opts.EnableNativeResources {
-		if opts.Resource != nil {
-			a.updateResource(s, t, opts.Resource)
-		}
+	if a.head.opts.EnableNativeResources && opts.Resource != nil && !quietZero {
+		a.updateResource(s, t, opts.Resource)
 	}
 	return storage.SeriesRef(s.ref), partialErr
 }
