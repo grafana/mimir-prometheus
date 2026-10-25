@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/prometheus/model/metadata"
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
+	"github.com/prometheus/prometheus/tsdb/seriesmetadata"
 	"github.com/prometheus/prometheus/util/annotations"
 )
 
@@ -215,6 +216,22 @@ type ExemplarQuerier interface {
 	// Select all the exemplars that match the matchers.
 	// Within a single slice of matchers, it is an intersection. Between the slices, it is a union.
 	Select(start, end int64, matchers ...[]*labels.Matcher) ([]exemplar.QueryResult, error)
+}
+
+// ResourceQuerier provides access to OTel resource attributes for series.
+// This is an optional interface that queriers may implement to support
+// the info() PromQL function with resource attributes.
+type ResourceQuerier interface {
+	// GetResourceAt returns the resource version active at the given timestamp for the series.
+	// The labelsHash is the stable hash of the series labels (from labels.StableHash()).
+	// Returns nil, false if no resource is found for the series.
+	GetResourceAt(labelsHash uint64, timestamp int64) (*seriesmetadata.ResourceVersion, bool)
+
+	// IterUniqueAttributeNames iterates over all unique resource attribute names
+	// across all stored resources. The function is called once for each unique
+	// attribute name (both identifying and descriptive attributes).
+	// This is used to build reverse mappings from translated names to original names.
+	IterUniqueAttributeNames(fn func(name string)) error
 }
 
 // SelectHints specifies hints passed for data selections.
@@ -475,6 +492,7 @@ type Appender interface {
 	ExemplarAppender
 	HistogramAppender
 	MetadataUpdater
+	ResourceUpdater
 	StartTimestampAppender
 }
 
@@ -554,6 +572,25 @@ type MetadataUpdater interface {
 	// UpdateMetadata returns an error.
 	// If the reference is 0 it must not be used for caching.
 	UpdateMetadata(ref SeriesRef, l labels.Labels, m metadata.Metadata) (SeriesRef, error)
+}
+
+// ResourceUpdater provides an interface for associating OTel resources to stored series.
+type ResourceUpdater interface {
+	// UpdateResource updates the resource for the given series.
+	// The caller decides how attributes are split between the identifying and descriptive
+	// maps. OTLP ingestion puts service.name, service.namespace and service.instance.id,
+	// the attributes behind the job and instance labels, in identifying, and all other
+	// resource-level attributes in descriptive. The split is not OTel Resource identity.
+	// The timestamp t is used to track when this resource version was observed.
+	// If the resource differs from the current version, a new version is created.
+	// If it matches, the existing version's time range is extended.
+	// A series reference number is returned which can be used to modify the
+	// resource of the given series in the same or later transactions.
+	// Returned reference numbers are ephemeral and may be rejected in calls
+	// to UpdateResource() at any point. If the series does not exist,
+	// UpdateResource returns an error.
+	// If the reference is 0 it must not be used for caching.
+	UpdateResource(ref SeriesRef, l labels.Labels, identifying, descriptive map[string]string, t int64) (SeriesRef, error)
 }
 
 // StartTimestampAppender provides an interface for appending ST to storage.

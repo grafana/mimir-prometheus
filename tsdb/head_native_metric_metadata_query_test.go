@@ -296,7 +296,7 @@ func TestHeadNativeMetricMetadataMatchersAndLimit(t *testing.T) {
 		//
 		// TestHeadNativeMetricMetadataQueryConcurrentDeletion covers deletion
 		// after references have been selected, while consuming the postings.
-		deleted, _, _, _, _, _, _, _, _ := head.series.gc(500, 0)
+		deleted, _, _, _, _, _, _, _, _, _ := head.series.gc(500, 0)
 		require.Len(t, deleted, 1, "gc must expire exactly the trailing series")
 		for ref := range deleted {
 			zRef = ref

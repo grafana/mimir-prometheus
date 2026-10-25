@@ -10,6 +10,7 @@ require (
 	github.com/Code-Hex/go-generics-cache v1.5.1
 	github.com/DmitriyVTitov/size v1.5.0
 	github.com/KimMachineGun/automemlimit v1.0.0
+	github.com/RoaringBitmap/roaring v1.9.4
 	github.com/alecthomas/kingpin/v2 v2.4.0
 	github.com/alecthomas/units v0.0.0-20240927000941-0f3dac36c52b
 	github.com/aws/aws-sdk-go-v2 v1.47.3
@@ -63,6 +64,7 @@ require (
 	github.com/open-telemetry/opentelemetry-collector-contrib/processor/deltatocumulativeprocessor v0.163.0
 	github.com/outscale/osc-sdk-go/v2 v2.35.0
 	github.com/ovh/go-ovh v1.9.0
+	github.com/parquet-go/parquet-go v0.26.3
 	github.com/pb33f/go-yaml v0.1.1
 	github.com/pb33f/libopenapi v0.41.6
 	github.com/pb33f/libopenapi-validator v0.16.1
@@ -82,6 +84,7 @@ require (
 	go.opentelemetry.io/collector/component v1.69.0
 	go.opentelemetry.io/collector/consumer v1.69.0
 	go.opentelemetry.io/collector/pdata v1.69.0
+	go.opentelemetry.io/collector/pdata/xpdata v0.163.0
 	go.opentelemetry.io/collector/processor v1.69.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/httptrace/otelhttptrace v0.72.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0
@@ -113,16 +116,17 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/go-openapi/swag/pools v0.29.2 // indirect
 	github.com/gofrs/flock v0.13.1 // indirect
 	github.com/hashicorp/go-metrics v0.6.0 // indirect
 	github.com/maxatome/go-testdeep v1.14.0 // indirect
 	github.com/pb33f/jsonschema/v6 v6.0.3 // indirect
+	github.com/pierrec/lz4/v4 v4.1.26 // indirect
 	github.com/sony/gobreaker/v2 v2.4.0 // indirect
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78 // indirect
 	go.opentelemetry.io/collector/consumer/xconsumer v0.163.0 // indirect
 	go.opentelemetry.io/collector/pdata/pprofile v0.163.0 // indirect
-	go.opentelemetry.io/collector/pdata/xpdata v0.163.0 // indirect
 	go.opentelemetry.io/collector/processor/xprocessor v0.163.0 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
 )
@@ -133,6 +137,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/signin v1.10.4 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/basgys/goxml2json v1.1.1-0.20231018121955-e66ee54ceaad // indirect
+	github.com/bits-and-blooms/bitset v1.12.0 // indirect
 	github.com/buger/jsonparser v1.1.2 // indirect
 	github.com/go-openapi/swag/cmdutils v0.29.2 // indirect
 	github.com/go-openapi/swag/conv v0.29.2 // indirect
@@ -145,7 +150,10 @@ require (
 	github.com/go-openapi/swag/typeutils v0.29.2 // indirect
 	github.com/go-openapi/swag/yamlutils v0.29.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
+	github.com/mschoch/smat v0.2.0 // indirect
 	github.com/oracle/oci-go-sdk/v65 v65.127.0
+	github.com/parquet-go/bitpack v1.0.0 // indirect
+	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/pb33f/jsonpath v0.8.4 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect

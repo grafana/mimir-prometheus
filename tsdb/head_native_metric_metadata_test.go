@@ -950,9 +950,10 @@ func TestHeadAppenderV2MetadataSidecar(t *testing.T) {
 		if strconv.IntSize == 32 {
 			t.Skip("measured on 64-bit only")
 		}
-		// memSeries is 200 B without native metadata too: the sidecar pointer replaces the legacy metadata
-		// handle, so series cost nothing extra while native metadata is off.
-		require.Equal(t, uintptr(200), unsafe.Sizeof(memSeries{}))
+		// memSeries is 208 B: 200 B for #19563, whose sidecar pointer replaces the legacy metadata handle, and
+		// 8 B for #17740's stableHash. 208 B is also Go's size class for 200 B, so neither costs a series any heap
+		// while native metadata is off.
+		require.Equal(t, uintptr(208), unsafe.Sizeof(memSeries{}))
 	})
 	t.Run("native state layout and allocation", func(t *testing.T) {
 		var native nativeSeriesMetadata

@@ -26,6 +26,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/chunkenc"
 	"github.com/prometheus/prometheus/tsdb/chunks"
 	"github.com/prometheus/prometheus/tsdb/index"
+	"github.com/prometheus/prometheus/tsdb/seriesmetadata"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
 	"github.com/prometheus/prometheus/util/annotations"
 )
@@ -104,6 +105,10 @@ func (m *mockBlockReader) Meta() BlockMeta {
 
 func (*mockBlockReader) Size() int64 {
 	return 1024 // dummy size
+}
+
+func (*mockBlockReader) SeriesMetadata() (seriesmetadata.Reader, error) {
+	return seriesmetadata.NewMemSeriesMetadata(), nil
 }
 
 // seriesSetWithLabels is an interface that both storage.SeriesSet and storage.ChunkSeriesSet satisfy
