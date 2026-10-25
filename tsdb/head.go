@@ -70,25 +70,6 @@ var (
 	defaultWALReplayConcurrency = runtime.GOMAXPROCS(0)
 )
 
-func init() {
-	// Wire up WAL encode/decode functions for the seriesmetadata kind descriptors.
-	// These pluggable functions break the import cycle: seriesmetadata cannot
-	// import tsdb/record, so the tsdb package sets them here.
-	var dec record.Decoder
-	var enc record.Encoder
-
-	seriesmetadata.ResourceDecodeWAL = func(rec []byte, into any) (any, error) {
-		var buf []record.RefResource
-		if into != nil {
-			buf = into.([]record.RefResource)
-		}
-		return dec.Resources(rec, buf)
-	}
-	seriesmetadata.ResourceEncodeWAL = func(records any, buf []byte) []byte {
-		return enc.Resources(records.([]record.RefResource), buf)
-	}
-}
-
 // Head handles reads and writes of time series data within a time window.
 type Head struct {
 	chunkRange     atomic.Int64
@@ -139,7 +120,6 @@ type Head struct {
 	wlReplayFloatHistogramsPool zeropool.Pool[[]record.RefFloatHistogramSample]
 	wlReplayMetadataPool        zeropool.Pool[[]record.RefMetadata]
 	wlReplayMmapMarkersPool     zeropool.Pool[[]record.RefMmapMarker]
-	wlReplayResourcesPool       zeropool.Pool[[]record.RefResource]
 
 	// All series addressable by their ID or hash.
 	series *stripeSeries
@@ -514,7 +494,6 @@ func (h *Head) resetWLReplayResources() {
 	h.wlReplayFloatHistogramsPool = zeropool.Pool[[]record.RefFloatHistogramSample]{}
 	h.wlReplayMetadataPool = zeropool.Pool[[]record.RefMetadata]{}
 	h.wlReplayMmapMarkersPool = zeropool.Pool[[]record.RefMmapMarker]{}
-	h.wlReplayResourcesPool = zeropool.Pool[[]record.RefResource]{}
 }
 
 type headMetrics struct {
@@ -556,9 +535,8 @@ type headMetrics struct {
 	wblReplayUnknownRefsTotal  *prometheus.CounterVec
 	headChunksMaxMmapped       prometheus.Gauge
 
-	seriesmetadataContentChanges    *prometheus.CounterVec
-	seriesmetadataInserts           *prometheus.CounterVec
-	seriesmetadataWALReplayDuration prometheus.Gauge
+	seriesmetadataContentChanges *prometheus.CounterVec
+	seriesmetadataInserts        *prometheus.CounterVec
 }
 
 const (
@@ -745,10 +723,6 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			Name: "prometheus_tsdb_head_seriesmetadata_inserts_total",
 			Help: "Total number of first-time series metadata inserts.",
 		}, []string{"kind"}),
-		seriesmetadataWALReplayDuration: prometheus.NewGauge(prometheus.GaugeOpts{
-			Name: "prometheus_tsdb_head_seriesmetadata_wal_replay_duration_seconds",
-			Help: "Time spent replaying series metadata (resources) from the WAL.",
-		}),
 	}
 
 	if r != nil {
@@ -829,7 +803,6 @@ func newHeadMetrics(h *Head, r prometheus.Registerer) *headMetrics {
 			m.wblReplayUnknownRefsTotal,
 			m.seriesmetadataContentChanges,
 			m.seriesmetadataInserts,
-			m.seriesmetadataWALReplayDuration,
 		)
 		if store := h.nativeMetricMetadata; store != nil {
 			r.MustRegister(

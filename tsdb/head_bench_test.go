@@ -384,6 +384,12 @@ func BenchmarkMmapHeadChunks(b *testing.B) {
 	}
 }
 
+// benchResource is the one resource the benchmarks' series share, passed as one pointer as the OTLP converter does.
+var benchResource = &storage.ResourceContext{
+	Identifying: map[string]string{"service.name": "bench-svc"},
+	Descriptive: map[string]string{"host.name": "node-1"},
+}
+
 // BenchmarkMetadataMemoryPerSeries measures the per-series memory overhead
 // of native metadata. Run before/after to verify savings from eliminating
 // metaRefStripes/metaHashStripes.
@@ -396,16 +402,10 @@ func BenchmarkMetadataMemoryPerSeries(b *testing.B) {
 				h, _ := newTestHeadWithOptions(b, compression.None, opts)
 
 				ctx := b.Context()
-				app := h.Appender(ctx)
+				app := h.AppenderV2(ctx)
 				for i := range numSeries {
 					lset := labels.FromStrings("__name__", "bench", "i", strconv.Itoa(i))
-					ref, err := app.Append(0, lset, 100, float64(i))
-					require.NoError(b, err)
-					_, err = app.UpdateResource(ref, lset,
-						map[string]string{"service.name": "bench-svc"},
-						map[string]string{"host.name": "node-1"},
-						100,
-					)
+					_, err := app.Append(0, lset, 0, 100, float64(i), nil, nil, storage.AOptions{Resource: benchResource})
 					require.NoError(b, err)
 				}
 				require.NoError(b, app.Commit())
@@ -426,16 +426,10 @@ func BenchmarkHeadGCWithMetadata(b *testing.B) {
 				h, _ := newTestHeadWithOptions(b, compression.None, opts)
 
 				ctx := b.Context()
-				app := h.Appender(ctx)
+				app := h.AppenderV2(ctx)
 				for i := range numSeries {
 					lset := labels.FromStrings("__name__", "bench", "i", strconv.Itoa(i))
-					ref, err := app.Append(0, lset, 100, float64(i))
-					require.NoError(b, err)
-					_, err = app.UpdateResource(ref, lset,
-						map[string]string{"service.name": "bench-svc"},
-						map[string]string{"host.name": "node-1"},
-						100,
-					)
+					_, err := app.Append(0, lset, 0, 100, float64(i), nil, nil, storage.AOptions{Resource: benchResource})
 					require.NoError(b, err)
 				}
 				require.NoError(b, app.Commit())
@@ -458,16 +452,10 @@ func BenchmarkLabelsForHash(b *testing.B) {
 	numSeries := 100000
 	hashes := make([]uint64, numSeries)
 	ctx := b.Context()
-	app := h.Appender(ctx)
+	app := h.AppenderV2(ctx)
 	for i := range numSeries {
 		lset := labels.FromStrings("__name__", "bench", "i", strconv.Itoa(i))
-		ref, err := app.Append(0, lset, 100, float64(i))
-		require.NoError(b, err)
-		_, err = app.UpdateResource(ref, lset,
-			map[string]string{"service.name": "bench-svc"},
-			map[string]string{"host.name": "node-1"},
-			100,
-		)
+		_, err := app.Append(0, lset, 0, 100, float64(i), nil, nil, storage.AOptions{Resource: benchResource})
 		require.NoError(b, err)
 		hashes[i] = labels.StableHash(lset)
 	}

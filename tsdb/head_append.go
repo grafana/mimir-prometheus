@@ -106,15 +106,6 @@ func (a *initAppender) UpdateMetadata(ref storage.SeriesRef, l labels.Labels, m 
 	return a.app.UpdateMetadata(ref, l, m)
 }
 
-func (a *initAppender) UpdateResource(ref storage.SeriesRef, l labels.Labels, identifying, descriptive map[string]string, t int64) (storage.SeriesRef, error) {
-	if a.app != nil {
-		return a.app.UpdateResource(ref, l, identifying, descriptive, t)
-	}
-
-	a.app = a.head.appender()
-	return a.app.UpdateResource(ref, l, identifying, descriptive, t)
-}
-
 func (a *initAppender) AppendSTZeroSample(ref storage.SeriesRef, lset labels.Labels, t, st int64) (storage.SeriesRef, error) {
 	if a.app != nil {
 		return a.app.AppendSTZeroSample(ref, lset, t, st)
@@ -1186,46 +1177,6 @@ func (a *headAppender) UpdateMetadata(ref storage.SeriesRef, lset labels.Labels,
 	return ref, nil
 }
 
-// UpdateResource stores OTel resource attributes for the given series.
-// Supports versioning: if the resource changes, a new version is created.
-// If the resource is the same, the current version's time range is extended.
-// The update is buffered and applied during Commit().
-func (a *headAppender) UpdateResource(ref storage.SeriesRef, lset labels.Labels, identifying, descriptive map[string]string, t int64) (storage.SeriesRef, error) {
-	s := a.head.series.getByID(chunks.HeadSeriesRef(ref))
-	if s == nil {
-		s = a.head.series.getByHash(lset.Hash(), lset)
-		if s != nil {
-			ref = storage.SeriesRef(s.ref)
-		}
-	}
-	if s == nil {
-		return 0, fmt.Errorf("unknown series when trying to add resource with HeadSeriesRef: %d and labels: %s", ref, lset)
-	}
-
-	// Deduplicate: skip if this series already had a resource update in this batch.
-	if a.resourceRefs == nil {
-		a.resourceRefs = make(map[chunks.HeadSeriesRef]struct{})
-	}
-	if _, ok := a.resourceRefs[s.ref]; ok {
-		return ref, nil
-	}
-
-	// Buffer the resource update for commit-time application.
-	b := a.getCurrentBatch(stNone, s.ref)
-	b.resources = append(b.resources, record.RefResource{
-		Ref:         s.ref,
-		MinTime:     t,
-		MaxTime:     t,
-		Identifying: identifying,
-		Descriptive: descriptive,
-	})
-	b.resourceSeries = append(b.resourceSeries, s)
-
-	a.resourceRefs[s.ref] = struct{}{}
-
-	return ref, nil
-}
-
 var _ storage.GetRef = &headAppender{}
 
 func (a *headAppenderBase) GetRef(lset labels.Labels, hash uint64) (storage.SeriesRef, labels.Labels) {
@@ -1320,14 +1271,6 @@ func (a *headAppenderBase) log() error {
 
 			if err := a.head.wal.Log(rec); err != nil {
 				return fmt.Errorf("log exemplars: %w", err)
-			}
-		}
-		if len(b.resources) > 0 {
-			rec = enc.Resources(b.resources, buf)
-			buf = rec[:0]
-
-			if err := a.head.wal.Log(rec); err != nil {
-				return fmt.Errorf("log resources: %w", err)
 			}
 		}
 	}

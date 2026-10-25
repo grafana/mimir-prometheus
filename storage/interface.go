@@ -492,7 +492,6 @@ type Appender interface {
 	ExemplarAppender
 	HistogramAppender
 	MetadataUpdater
-	ResourceUpdater
 	StartTimestampAppender
 }
 
@@ -572,25 +571,6 @@ type MetadataUpdater interface {
 	// UpdateMetadata returns an error.
 	// If the reference is 0 it must not be used for caching.
 	UpdateMetadata(ref SeriesRef, l labels.Labels, m metadata.Metadata) (SeriesRef, error)
-}
-
-// ResourceUpdater provides an interface for associating OTel resources to stored series.
-type ResourceUpdater interface {
-	// UpdateResource updates the resource for the given series.
-	// The caller decides how attributes are split between the identifying and descriptive
-	// maps. OTLP ingestion puts service.name, service.namespace and service.instance.id,
-	// the attributes behind the job and instance labels, in identifying, and all other
-	// resource-level attributes in descriptive. The split is not OTel Resource identity.
-	// The timestamp t is used to track when this resource version was observed.
-	// If the resource differs from the current version, a new version is created.
-	// If it matches, the existing version's time range is extended.
-	// A series reference number is returned which can be used to modify the
-	// resource of the given series in the same or later transactions.
-	// Returned reference numbers are ephemeral and may be rejected in calls
-	// to UpdateResource() at any point. If the series does not exist,
-	// UpdateResource returns an error.
-	// If the reference is 0 it must not be used for caching.
-	UpdateResource(ref SeriesRef, l labels.Labels, identifying, descriptive map[string]string, t int64) (SeriesRef, error)
 }
 
 // StartTimestampAppender provides an interface for appending ST to storage.

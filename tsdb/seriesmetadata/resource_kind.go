@@ -26,15 +26,6 @@ const (
 	KindResource KindID = "resource"
 )
 
-// WALRecordType mirrors record.Type (uint8) to avoid an import cycle
-// between seriesmetadata and tsdb/record.
-type WALRecordType = uint8
-
-// WAL record type constants matching record.ResourceUpdate.
-const (
-	WALResourceUpdate WALRecordType = 14
-)
-
 // kindMetaAccessor is implemented by memSeries to provide kind-generic access
 // to per-series metadata. Defined here (in seriesmetadata) so that commit
 // implementations can use it without importing tsdb.
@@ -83,12 +74,6 @@ func hashResourceContentReusable(rv *ResourceVersion, keysBuf []string) (uint64,
 
 	return h.Sum64(), keysBuf
 }
-
-// ResourceDecodeWAL is set by the tsdb package to break the import cycle.
-var ResourceDecodeWAL func(rec []byte, into any) (any, error)
-
-// ResourceEncodeWAL is set by the tsdb package to break the import cycle.
-var ResourceEncodeWAL func(records any, buf []byte) []byte
 
 // ResourceCommitData carries resource WAL record data without importing tsdb/record.
 type ResourceCommitData struct {

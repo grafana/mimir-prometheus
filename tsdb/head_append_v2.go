@@ -266,12 +266,10 @@ func (a *headAppenderV2) Append(ref storage.SeriesRef, ls labels.Labels, st, t i
 		if metaChanged {
 			b := a.getCurrentBatch(stNone, s.ref)
 			b.metadata = append(b.metadata, record.RefMetadata{
-				Ref:     s.ref,
-				Type:    record.GetMetricType(opts.Metadata.Type),
-				Unit:    opts.Metadata.Unit,
-				Help:    opts.Metadata.Help,
-				MinTime: t,
-				MaxTime: t,
+				Ref:  s.ref,
+				Type: record.GetMetricType(opts.Metadata.Type),
+				Unit: opts.Metadata.Unit,
+				Help: opts.Metadata.Help,
 			})
 			b.metadataSeries = append(b.metadataSeries, s)
 		}
