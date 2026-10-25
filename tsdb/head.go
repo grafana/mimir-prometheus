@@ -478,10 +478,11 @@ func (h *Head) resetInMemoryState() error {
 	if h.opts.EnableNativeResources {
 		h.seriesMeta = seriesmetadata.NewMemSeriesMetadata()
 		h.seriesMeta.SetIndexedResourceAttrs(h.opts.IndexedResourceAttrs)
-		// Note: InitResourceAttrIndex is NOT called here. The attr index stays nil
-		// during WAL replay so that UpdateResourceAttrIndex early-returns (avoiding
-		// O(n) sortedInsert/sortedRemove churn per series). BuildResourceAttrIndex
-		// is called once after all replay completes — see Init().
+		// Resources aren't replayed from the WAL, so the index starts empty and every update maintains it, before any
+		// appender or reader can use the store.
+		if h.opts.EnableResourceAttrIndex {
+			h.seriesMeta.InitResourceAttrIndex()
+		}
 	}
 
 	return nil
@@ -1139,13 +1140,6 @@ func (h *Head) Init(minValidTime int64) error {
 	}
 
 	wblReplayDuration := time.Since(wblReplayStart)
-
-	// Enable lazy attr index build: the index will be built on first
-	// LookupResourceAttr call via sync.Once, deferring the expensive
-	// O(n) build until actually needed for query.
-	if h.seriesMeta != nil && h.opts.EnableResourceAttrIndex {
-		h.seriesMeta.SetAttrIndexEnabled(true)
-	}
 
 	totalReplayDuration := time.Since(start)
 	h.metrics.dataTotalReplayDuration.Set(totalReplayDuration.Seconds())

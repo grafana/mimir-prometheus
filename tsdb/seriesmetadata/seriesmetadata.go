@@ -321,9 +321,10 @@ type MemSeriesMetadata struct {
 	// zero-copy reads (readers holding old slices are safe).
 	// Covers identifying attributes (always) and descriptive attributes
 	// only when the key is in indexedResourceAttrs.
-	// Built lazily via BuildResourceAttrIndex() or incrementally via
-	// UpdateResourceAttrIndex(). nil until first build or incremental init.
-	resourceAttrIndex *shardedAttrIndex // nil until first build/init
+	// Built from the store by BuildResourceAttrIndex(), or started empty by
+	// InitResourceAttrIndex() and kept up to date by UpdateResourceAttrIndex().
+	// It's set before the store is shared, and nil when the index is disabled.
+	resourceAttrIndex *shardedAttrIndex
 
 	// indexedResourceAttrs specifies additional descriptive resource attribute
 	// names to include in the inverted index beyond identifying attributes
@@ -336,11 +337,6 @@ type MemSeriesMetadata struct {
 	// and BuildResourceAttrIndex. Cardinality is typically tiny (<100 names).
 	uniqueAttrNames   map[string]struct{}
 	uniqueAttrNamesMu sync.RWMutex
-
-	// Lazy attr index build: when attrIndexEnabled is true, the first call to
-	// LookupResourceAttr triggers BuildResourceAttrIndex via sync.Once.
-	buildAttrIndexOnce sync.Once
-	attrIndexEnabled   bool
 }
 
 // NewMemSeriesMetadata creates a new in-memory series metadata store.
@@ -506,26 +502,10 @@ func (m *MemSeriesMetadata) TotalResourceVersions() uint64 {
 	return m.ResourceStore().TotalVersions()
 }
 
-// SetAttrIndexEnabled marks that the attr index should be built on first query.
-// Call this instead of BuildResourceAttrIndex to defer the expensive build
-// until it's actually needed.
-func (m *MemSeriesMetadata) SetAttrIndexEnabled(enabled bool) {
-	m.attrIndexEnabled = enabled
-}
-
-// ensureResourceAttrIndex builds the attr index on first call if enabled.
-func (m *MemSeriesMetadata) ensureResourceAttrIndex() {
-	if !m.attrIndexEnabled {
-		return
-	}
-	m.buildAttrIndexOnce.Do(m.BuildResourceAttrIndex)
-}
-
-// BuildResourceAttrIndex builds the inverted index from all resource versions.
-// Called once after merge in mergeBlockMetadata. After this, LookupResourceAttr
+// BuildResourceAttrIndex builds the inverted index from all resource versions,
+// for a store filled before it's shared. After this, LookupResourceAttr
 // returns results in O(1) instead of requiring a full scan.
-// Skips rebuilding if the index is already populated (e.g. from Parquet or
-// incremental updates).
+// Skips rebuilding if the index is already built or initialized.
 // Uses bulk append + sort instead of per-entry sortedInsert to avoid O(n²)
 // cost when building from scratch.
 func (m *MemSeriesMetadata) BuildResourceAttrIndex() {
@@ -786,10 +766,9 @@ func (m *MemSeriesMetadata) AttrIndexKeyCount() int {
 
 // LookupResourceAttr returns sorted labelsHashes that have a resource version
 // with the given key:value in Identifying or Descriptive attributes.
-// Returns nil if the index has not been built and lazy build is not enabled.
+// Returns nil if the index has not been built or initialized.
 // The returned slice is a copy, safe for use after the call returns.
 func (m *MemSeriesMetadata) LookupResourceAttr(key, value string) []uint64 {
-	m.ensureResourceAttrIndex()
 	if m.resourceAttrIndex == nil {
 		return nil
 	}

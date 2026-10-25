@@ -11765,3 +11765,38 @@ func TestResourceRollback(t *testing.T) {
 	_, resOK := head.seriesMeta.ResourceStore().GetVersioned(hash)
 	require.False(t, resOK, "resource must not be set after rollback")
 }
+
+// The head maintains the resource attribute index from its first append, so lookups made while series are appended
+// lose none of them.
+func TestResourceAttrIndexConcurrentAppendsAndLookups(t *testing.T) {
+	opts := newTestHeadDefaultOptions(1000, false)
+	opts.EnableNativeResources = true
+	opts.EnableResourceAttrIndex = true
+	head, _ := newTestHeadWithOptions(t, compression.None, opts)
+	require.NoError(t, head.Init(0))
+
+	const series = 2000
+	resource := &storage.ResourceContext{Identifying: map[string]string{"service.name": "frontend"}}
+	done := make(chan struct{})
+	var lookups sync.WaitGroup
+	lookups.Go(func() {
+		for {
+			select {
+			case <-done:
+				return
+			default:
+				head.seriesMeta.LookupResourceAttr("service.name", "frontend")
+			}
+		}
+	})
+	for i := range series {
+		app := head.AppenderV2(context.Background())
+		_, err := app.Append(0, labels.FromStrings("a", strconv.Itoa(i)), 0, 100, 1, nil, nil, storage.AOptions{Resource: resource})
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+	}
+	close(done)
+	lookups.Wait()
+
+	require.Len(t, head.seriesMeta.LookupResourceAttr("service.name", "frontend"), series)
+}
