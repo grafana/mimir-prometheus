@@ -2753,6 +2753,11 @@ func (db *DB) ResourceHasContentHash(labelsHash, contentHash uint64) bool {
 	return db.head.ResourceHasContentHash(labelsHash, contentHash)
 }
 
+// ResourceHasContentHashByRef is a pass-through to Head.ResourceHasContentHashByRef.
+func (db *DB) ResourceHasContentHashByRef(ref storage.SeriesRef, contentHash uint64) bool {
+	return db.head.ResourceHasContentHashByRef(ref, contentHash)
+}
+
 // Close the partition.
 func (db *DB) Close() error {
 	// Allow close-after-close operation for simpler use (e.g. tests).

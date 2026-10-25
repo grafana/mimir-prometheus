@@ -2395,6 +2395,24 @@ func (h *Head) ResourceHasContentHash(labelsHash, contentHash uint64) bool {
 	return h.seriesMeta.ResourceHasContentHash(labelsHash, contentHash)
 }
 
+// ResourceHasContentHashByRef reports whether the series has a resource version with the given content hash (see
+// seriesmetadata.ResourceContentHash), for a caller that has the series' ref but not its labels.StableHash. It's false
+// for a series that has no resource yet or that's unknown, and when native resources aren't enabled.
+func (h *Head) ResourceHasContentHashByRef(ref storage.SeriesRef, contentHash uint64) bool {
+	if h.seriesMeta == nil {
+		return false
+	}
+	s := h.series.getByID(chunks.HeadSeriesRef(ref))
+	if s == nil {
+		return false
+	}
+	s.Lock()
+	labelsHash := s.stableHash
+	s.Unlock()
+	// stableHash is set on the series' first resource commit.
+	return labelsHash != 0 && h.seriesMeta.ResourceHasContentHash(labelsHash, contentHash)
+}
+
 // GetIndexedResourceAttrs returns the current set of additional descriptive
 // resource attribute names included in the inverted index. Returns nil if
 // native metadata is not enabled.

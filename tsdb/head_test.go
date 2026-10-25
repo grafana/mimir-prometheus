@@ -56,6 +56,7 @@ import (
 	"github.com/prometheus/prometheus/tsdb/fileutil"
 	"github.com/prometheus/prometheus/tsdb/index"
 	"github.com/prometheus/prometheus/tsdb/record"
+	"github.com/prometheus/prometheus/tsdb/seriesmetadata"
 	"github.com/prometheus/prometheus/tsdb/tombstones"
 	"github.com/prometheus/prometheus/tsdb/tsdbutil"
 	"github.com/prometheus/prometheus/tsdb/wlog"
@@ -11801,6 +11802,39 @@ func TestResourceSkipsQuietZeros(t *testing.T) {
 	require.Equal(t, [2]int64{200, 200}, [2]int64{vr.Versions[0].MinTime, vr.Versions[0].MaxTime})
 	require.Equal(t, map[string]string{"service.name": "next"}, vr.Versions[1].Identifying)
 	require.Equal(t, [2]int64{400, 400}, [2]int64{vr.Versions[1].MinTime, vr.Versions[1].MaxTime})
+}
+
+// A caller with a series' ref can check its resource's content hash, as Mimir's ingester does to skip unchanged
+// resources.
+func TestResourceHasContentHashByRef(t *testing.T) {
+	identifying := map[string]string{"service.name": "frontend"}
+	descriptive := map[string]string{"host.name": "node-1"}
+	hash, _ := seriesmetadata.ResourceContentHash(identifying, descriptive, nil)
+	other, _ := seriesmetadata.ResourceContentHash(identifying, map[string]string{"host.name": "node-2"}, nil)
+
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%t", enabled), func(t *testing.T) {
+			opts := newTestHeadDefaultOptions(1000, false)
+			opts.EnableNativeResources = enabled
+			head, _ := newTestHeadWithOptions(t, compression.None, opts)
+			require.NoError(t, head.Init(0))
+
+			lset := labels.FromStrings("a", "b")
+			app := head.AppenderV2(t.Context())
+			ref, err := app.Append(0, lset, 0, 100, 1, nil, nil, storage.AOptions{})
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			require.False(t, head.ResourceHasContentHashByRef(ref, hash), "no resource yet")
+
+			app = head.AppenderV2(t.Context())
+			_, err = app.Append(ref, lset, 0, 200, 1, nil, nil, storage.AOptions{Resource: &storage.ResourceContext{Identifying: identifying, Descriptive: descriptive}})
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+			require.Equal(t, enabled, head.ResourceHasContentHashByRef(ref, hash))
+			require.False(t, head.ResourceHasContentHashByRef(ref, other))
+			require.False(t, head.ResourceHasContentHashByRef(ref+1, hash), "unknown series")
+		})
+	}
 }
 
 // The head maintains the resource attribute index from its first append, so lookups made while series are appended

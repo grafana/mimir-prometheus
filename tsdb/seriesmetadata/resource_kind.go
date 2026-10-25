@@ -66,11 +66,18 @@ func hashResourceContent(rv *ResourceVersion) uint64 {
 }
 
 func hashResourceContentReusable(rv *ResourceVersion, keysBuf []string) (uint64, []string) {
+	return ResourceContentHash(rv.Identifying, rv.Descriptive, keysBuf)
+}
+
+// ResourceContentHash is the content hash that the store records for a resource with these attributes, as
+// ResourceHasContentHash checks it. keysBuf is a buffer it reuses and returns; with one of enough capacity, it doesn't
+// allocate.
+func ResourceContentHash(identifying, descriptive map[string]string, keysBuf []string) (uint64, []string) {
 	var h xxhash.Digest
 
-	keysBuf = hashAttrs(&h, rv.Identifying, keysBuf)
+	keysBuf = hashAttrs(&h, identifying, keysBuf)
 	_, _ = h.Write([]byte{1}) // section separator
-	keysBuf = hashAttrs(&h, rv.Descriptive, keysBuf)
+	keysBuf = hashAttrs(&h, descriptive, keysBuf)
 
 	return h.Sum64(), keysBuf
 }
@@ -109,13 +116,7 @@ func CommitResourceDirect(accessor kindMetaAccessor, rcd ResourceCommitData) {
 }
 
 func hashResourceCommitDataReusable(rcd ResourceCommitData, keysBuf []string) (uint64, []string) {
-	var h xxhash.Digest
-
-	keysBuf = hashAttrs(&h, rcd.Identifying, keysBuf)
-	_, _ = h.Write([]byte{1})
-	keysBuf = hashAttrs(&h, rcd.Descriptive, keysBuf)
-
-	return h.Sum64(), keysBuf
+	return ResourceContentHash(rcd.Identifying, rcd.Descriptive, keysBuf)
 }
 
 // CommitResourceToStoreReusableWithRef builds a ResourceVersion from ResourceCommitData and

@@ -1278,3 +1278,25 @@ func TestPostingList(t *testing.T) {
 		require.Len(t, result, postingListInlineThreshold+1)
 	})
 }
+
+// ResourceContentHash is the hash the store records, so that a caller can check a resource against it without building
+// a ResourceVersion, and it doesn't allocate with a buffer of enough capacity.
+func TestResourceContentHash(t *testing.T) {
+	identifying := map[string]string{"service.name": "frontend", "service.namespace": "shop"}
+	descriptive := map[string]string{"host.name": "node-1", "os.type": "linux"}
+	rv := &ResourceVersion{Identifying: identifying, Descriptive: descriptive, MinTime: 1, MaxTime: 2}
+
+	hash, keysBuf := ResourceContentHash(identifying, descriptive, nil)
+	require.Equal(t, resourceOps{}.ContentHash(rv), hash)
+	reusable, _ := hashResourceContentReusable(rv, nil)
+	require.Equal(t, reusable, hash)
+	commitData, _ := hashResourceCommitDataReusable(ResourceCommitData{Identifying: identifying, Descriptive: descriptive}, nil)
+	require.Equal(t, commitData, hash)
+
+	moved, _ := ResourceContentHash(map[string]string{"service.name": "frontend"}, map[string]string{"service.namespace": "shop", "host.name": "node-1", "os.type": "linux"}, nil)
+	require.NotEqual(t, hash, moved, "an attribute's section is part of the content")
+
+	require.Zero(t, testing.AllocsPerRun(100, func() {
+		hash, keysBuf = ResourceContentHash(identifying, descriptive, keysBuf)
+	}))
+}
