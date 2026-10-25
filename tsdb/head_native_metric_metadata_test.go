@@ -1881,3 +1881,44 @@ func testNativeMetricMetadataCacheOwnership(t *testing.T, mode string, helpBytes
 		require.False(t, stringWithinForTest(buf, published.Help), "published strings must not retain caller buffers")
 	}
 }
+
+// Native metric metadata and native resources are enabled separately, and each stores only its own.
+func TestNativeMetadataAndResourcesGateSeparately(t *testing.T) {
+	ctx := context.Background()
+	matcher := labels.MustNewMatcher(labels.MatchRegexp, labels.MetricName, ".+")
+	for _, c := range []struct {
+		name                string
+		metadata, resources bool
+	}{{"metadata only", true, false}, {"resources only", false, true}} {
+		t.Run(c.name, func(t *testing.T) {
+			opts := newTestHeadDefaultOptions(1000, false)
+			opts.EnableNativeMetadata = c.metadata
+			opts.EnableNativeResources = c.resources
+			head, _ := newTestHeadWithOptions(t, compression.None, opts)
+			require.NoError(t, head.Init(0))
+
+			lset := labels.FromStrings(labels.MetricName, "metric")
+			app := head.AppenderV2(ctx)
+			_, err := app.Append(0, lset, 0, 100, 1, nil, nil, storage.AOptions{
+				Metadata: metadata.Metadata{Type: model.MetricTypeGauge},
+				Resource: &storage.ResourceContext{Identifying: map[string]string{"service.name": "frontend"}},
+			})
+			require.NoError(t, err)
+			require.NoError(t, app.Commit())
+
+			result, _, err := head.nativeMetricMetadataForMatchers(ctx, [][]*labels.Matcher{{matcher}}, 0)
+			if c.metadata {
+				require.NoError(t, err)
+				require.Len(t, result, 1)
+			} else {
+				require.ErrorIs(t, err, ErrNativeMetadataDisabled)
+			}
+			if c.resources {
+				_, ok := head.seriesMeta.ResourceStore().GetVersioned(labels.StableHash(lset))
+				require.True(t, ok)
+			} else {
+				require.Nil(t, head.seriesMeta)
+			}
+		})
+	}
+}

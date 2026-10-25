@@ -11738,7 +11738,7 @@ func testOOORestartResetsFirstOOOChunkID(t *testing.T, scenario sampleTypeScenar
 
 func TestResourceRollback(t *testing.T) {
 	opts := newTestHeadDefaultOptions(1000, false)
-	opts.EnableNativeMetadata = true
+	opts.EnableNativeResources = true
 	head, _ := newTestHeadWithOptions(t, compression.None, opts)
 	require.NoError(t, head.Init(0))
 

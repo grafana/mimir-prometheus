@@ -398,7 +398,7 @@ func BenchmarkMetadataMemoryPerSeries(b *testing.B) {
 		b.Run(fmt.Sprintf("series=%d", numSeries), func(b *testing.B) {
 			for b.Loop() {
 				opts := newTestHeadDefaultOptions(10000, false)
-				opts.EnableNativeMetadata = true
+				opts.EnableNativeResources = true
 				h, _ := newTestHeadWithOptions(b, compression.None, opts)
 
 				ctx := b.Context()
@@ -422,7 +422,7 @@ func BenchmarkHeadGCWithMetadata(b *testing.B) {
 		b.Run(fmt.Sprintf("series=%d", numSeries), func(b *testing.B) {
 			for b.Loop() {
 				opts := newTestHeadDefaultOptions(1000, false)
-				opts.EnableNativeMetadata = true
+				opts.EnableNativeResources = true
 				h, _ := newTestHeadWithOptions(b, compression.None, opts)
 
 				ctx := b.Context()
@@ -446,7 +446,7 @@ func BenchmarkHeadGCWithMetadata(b *testing.B) {
 // that resolves labels hash → labels via MemStore's seriesRef.
 func BenchmarkLabelsForHash(b *testing.B) {
 	opts := newTestHeadDefaultOptions(10000, false)
-	opts.EnableNativeMetadata = true
+	opts.EnableNativeResources = true
 	h, _ := newTestHeadWithOptions(b, compression.None, opts)
 
 	numSeries := 100000

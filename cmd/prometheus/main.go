@@ -256,6 +256,7 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 				logger.Info("Experimental metadata records in WAL enabled")
 			case "native-metadata":
 				c.tsdb.EnableNativeMetadata = true
+				c.tsdb.EnableNativeResources = true
 				features.Enable(features.TSDB, "native_metadata")
 				logger.Info("Experimental native metadata persistence enabled")
 			case "promql-per-step-stats":
@@ -1050,7 +1051,7 @@ func main() {
 			EnableTypeAndUnitLabels:  cfg.scrape.EnableTypeAndUnitLabels,
 			UseStartTimestamps:       cfg.useStartTimestamps,
 			EnableQueryCost:          cfg.enableQueryCost,
-			EnableNativeMetadata:     cfg.tsdb.EnableNativeMetadata,
+			EnableNativeMetadata:     cfg.tsdb.EnableNativeResources,
 			InfoResourceStrategy:     promql.InfoResourceStrategy(cfg.infoResourceStrategy),
 			FeatureRegistry:          features.DefaultRegistry,
 			Parser:                   promqlParser,
@@ -1441,7 +1442,7 @@ func main() {
 				for {
 					select {
 					case <-hup:
-						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, cfg.tsdb.EnableNativeMetadata, logger, noStepSubqueryInterval, cfg.promslogConfig.Level, callback, reloaders...); err != nil {
+						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, cfg.tsdb.EnableNativeResources, logger, noStepSubqueryInterval, cfg.promslogConfig.Level, callback, reloaders...); err != nil {
 							logger.Error("Error reloading config", "err", err)
 						} else if cfg.enableAutoReload {
 							checksum, err = config.GenerateChecksum(cfg.configFile)
@@ -1450,7 +1451,7 @@ func main() {
 							}
 						}
 					case rc := <-webHandler.Reload():
-						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, cfg.tsdb.EnableNativeMetadata, logger, noStepSubqueryInterval, cfg.promslogConfig.Level, callback, reloaders...); err != nil {
+						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, cfg.tsdb.EnableNativeResources, logger, noStepSubqueryInterval, cfg.promslogConfig.Level, callback, reloaders...); err != nil {
 							logger.Error("Error reloading config", "err", err)
 							rc <- err
 						} else {
@@ -1475,7 +1476,7 @@ func main() {
 						}
 						logger.Info("Configuration file change detected, reloading the configuration.")
 
-						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, cfg.tsdb.EnableNativeMetadata, logger, noStepSubqueryInterval, cfg.promslogConfig.Level, callback, reloaders...); err != nil {
+						if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, cfg.tsdb.EnableNativeResources, logger, noStepSubqueryInterval, cfg.promslogConfig.Level, callback, reloaders...); err != nil {
 							logger.Error("Error reloading config", "err", err)
 						} else {
 							checksum = currentChecksum
@@ -1507,7 +1508,7 @@ func main() {
 					return nil
 				}
 
-				if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, cfg.tsdb.EnableNativeMetadata, logger, noStepSubqueryInterval, cfg.promslogConfig.Level, func(bool) {}, reloaders...); err != nil {
+				if err := reloadConfig(cfg.configFile, cfg.tsdb.EnableExemplarStorage, cfg.tsdb.EnableNativeResources, logger, noStepSubqueryInterval, cfg.promslogConfig.Level, func(bool) {}, reloaders...); err != nil {
 					return fmt.Errorf("error loading config from %q: %w", cfg.configFile, err)
 				}
 
@@ -1750,7 +1751,7 @@ type reloader struct {
 	reloader func(*config.Config) error
 }
 
-func reloadConfig(filename string, enableExemplarStorage, enableNativeMetadata bool, logger *slog.Logger, noStepSubqueryInterval *safePromQLNoStepSubqueryInterval, logLevel *promslog.Level, callback func(bool), rls ...reloader) (err error) {
+func reloadConfig(filename string, enableExemplarStorage, enableNativeResources bool, logger *slog.Logger, noStepSubqueryInterval *safePromQLNoStepSubqueryInterval, logLevel *promslog.Level, callback func(bool), rls ...reloader) (err error) {
 	start := time.Now()
 	timingsLogger := logger
 	logger.Info("Loading configuration file", "filename", filename)
@@ -1777,7 +1778,7 @@ func reloadConfig(filename string, enableExemplarStorage, enableNativeMetadata b
 		}
 	}
 
-	if conf.OTLPConfig.DisableTargetInfo && !enableNativeMetadata {
+	if conf.OTLPConfig.DisableTargetInfo && !enableNativeResources {
 		logger.Warn("otlp.disable_target_info is true but native-metadata feature is not enabled; " +
 			"target_info metric will not be generated and no resource attributes will be persisted")
 	}
@@ -2227,6 +2228,7 @@ type tsdbOptions struct {
 	EnableSTStorage                bool
 	EnableHistogramSTEncoding      bool
 	EnableNativeMetadata           bool
+	EnableNativeResources          bool
 	StaleSeriesCompactionThreshold float64
 	EnableFastStartup              bool
 	FloatChunkEncoding             chunkenc.Encoding
@@ -2262,6 +2264,7 @@ func (opts tsdbOptions) ToTSDBOptions() tsdb.Options {
 		EnableSTStorage:                      opts.EnableSTStorage,
 		EnableHistogramSTEncoding:            opts.EnableHistogramSTEncoding,
 		EnableNativeMetadata:                 opts.EnableNativeMetadata,
+		EnableNativeResources:                opts.EnableNativeResources,
 		EnableResourceAttrIndex:              true,
 		StaleSeriesCompactionThreshold:       opts.StaleSeriesCompactionThreshold,
 		EnableFastStartup:                    opts.EnableFastStartup,

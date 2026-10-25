@@ -274,9 +274,11 @@ type HeadOptions struct {
 	// is implemented.
 	EnableMetadataWALRecords bool
 
-	// EnableNativeMetadata enables experimental in-memory native metadata: per-series metric metadata, and OTel
-	// resource attributes.
+	// EnableNativeMetadata enables experimental in-memory native metric metadata, per series.
 	EnableNativeMetadata bool
+
+	// EnableNativeResources enables the experimental in-memory store of OTel resource attributes, per series.
+	EnableNativeResources bool
 
 	// EnableFastStartup enables scraping in parallel with WAL replay but with queries still disabled.
 	EnableFastStartup bool
@@ -473,7 +475,7 @@ func (h *Head) resetInMemoryState() error {
 	h.lastWALTruncationTime.Store(math.MinInt64)
 	h.lastMemoryTruncationTime.Store(math.MinInt64)
 
-	if h.opts.EnableNativeMetadata {
+	if h.opts.EnableNativeResources {
 		h.seriesMeta = seriesmetadata.NewMemSeriesMetadata()
 		h.seriesMeta.SetIndexedResourceAttrs(h.opts.IndexedResourceAttrs)
 		// Note: InitResourceAttrIndex is NOT called here. The attr index stays nil

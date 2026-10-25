@@ -274,7 +274,7 @@ func (a *headAppenderV2) Append(ref storage.SeriesRef, ls labels.Labels, st, t i
 			b.metadataSeries = append(b.metadataSeries, s)
 		}
 	}
-	if a.head.opts.EnableNativeMetadata {
+	if a.head.opts.EnableNativeResources {
 		if opts.Resource != nil {
 			a.updateResource(s, t, opts.Resource)
 		}

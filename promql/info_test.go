@@ -30,11 +30,11 @@ import (
 	"github.com/prometheus/prometheus/util/teststorage"
 )
 
-// newNativeMetadataStorage creates a TestStorage with native metadata enabled.
+// newNativeMetadataStorage creates a TestStorage with native resources enabled.
 func newNativeMetadataStorage(t *testing.T) *teststorage.TestStorage {
 	t.Helper()
 	return teststorage.New(t, func(opts *tsdb.Options) {
-		opts.EnableNativeMetadata = true
+		opts.EnableNativeResources = true
 	})
 }
 

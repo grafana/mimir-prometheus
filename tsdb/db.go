@@ -368,9 +368,11 @@ type Options struct {
 	// is implemented.
 	EnableMetadataWALRecords bool
 
-	// EnableNativeMetadata enables experimental in-memory native metadata: per-series metric metadata, and OTel
-	// resource attributes.
+	// EnableNativeMetadata enables experimental in-memory native metric metadata, per series.
 	EnableNativeMetadata bool
+
+	// EnableNativeResources enables the experimental in-memory store of OTel resource attributes, per series.
+	EnableNativeResources bool
 
 	// IndexedResourceAttrs specifies additional descriptive resource attribute
 	// names to include in the inverted index beyond identifying attributes
@@ -1353,6 +1355,7 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 	headOpts.EnableHistogramSTEncoding.Store(opts.EnableHistogramSTEncoding)
 	headOpts.EnableMetadataWALRecords = opts.EnableMetadataWALRecords
 	headOpts.EnableNativeMetadata = opts.EnableNativeMetadata
+	headOpts.EnableNativeResources = opts.EnableNativeResources
 	headOpts.IndexedResourceAttrs = opts.IndexedResourceAttrs
 	headOpts.EnableResourceAttrIndex = opts.EnableResourceAttrIndex
 	headOpts.EnableFastStartup = opts.EnableFastStartup
