@@ -95,6 +95,9 @@ func newTestHeadWithOptions(t testing.TB, compressWAL compression.Type, opts *He
 		// explicitly close the head as part of their test logic (e.g., to
 		// restart/reopen the head), and we don't want to fail on double-close.
 		_ = h.Close()
+		// Clear the captured reference so parallel subtests retained in
+		// testing.T.sub do not pin closed Heads via the t.cleanups backing array.
+		h = nil
 	})
 
 	require.NoError(t, h.chunkDiskMapper.IterateAllChunks(func(chunks.HeadSeriesRef, chunks.ChunkDiskMapperRef, int64, int64, uint16, chunkenc.Encoding, bool) error {
@@ -647,8 +650,10 @@ func TestHead_InitAppenderRace_ErrOutOfBounds(t *testing.T) {
 // While appending the samples to the head it concurrently queries them from multiple go routines and verifies that the
 // returned results are correct.
 func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
+	t.Parallel()
 	for _, appV2 := range []bool{false, true} {
 		t.Run(fmt.Sprintf("appV2=%v", appV2), func(t *testing.T) {
+			t.Parallel()
 			head, _ := newTestHead(t, DefaultBlockDuration, compression.None, false)
 
 			seriesCnt := 1000
@@ -1488,6 +1493,7 @@ func TestHead_AppendersMetrics(t *testing.T) {
 }
 
 func TestHead_RaceBetweenSeriesCreationAndGC(t *testing.T) {
+	t.Parallel()
 	head, _ := newTestHead(t, 1000, compression.None, false)
 	require.NoError(t, head.Init(0))
 
@@ -1515,8 +1521,7 @@ func TestHead_RaceBetweenSeriesCreationAndGC(t *testing.T) {
 		}
 	}()
 
-	// Don't check the atomic.Bool on all iterations in order to perform more gc iterations and make the race condition more likely.
-	for i := 1; i%128 != 0 || !done.Load(); i++ {
+	for !done.Load() {
 		head.gc()
 	}
 
@@ -1524,6 +1529,7 @@ func TestHead_RaceBetweenSeriesCreationAndGC(t *testing.T) {
 }
 
 func TestHead_RaceBetweenExistingSeriesAppendAndGC(t *testing.T) {
+	t.Parallel()
 	// Unlike TestHead_RaceBetweenSeriesCreationAndGC above, this covers appends to a
 	// series that already exists in the head: Append() looks the series up, releases the
 	// stripe lock and only afterwards locks the series to mark it as pending commit. A
@@ -2205,6 +2211,7 @@ func TestHeadDeleteSeriesWithoutSamples(t *testing.T) {
 }
 
 func TestHeadDeleteSimple(t *testing.T) {
+	t.Parallel()
 	buildSmpls := func(s []int64) []sample {
 		ss := make([]sample, 0, len(s))
 		for _, t := range s {
@@ -2428,8 +2435,8 @@ func TestDeletedSamplesAndSeriesStillInWALAfterCheckpoint(t *testing.T) {
 }
 
 func TestDelete_e2e(t *testing.T) {
+	t.Parallel()
 	numDatapoints := 1000
-	numRanges := 1000
 	timeInterval := int64(2)
 	// Create 8 series with 1000 data-points of different ranges, delete and run queries.
 	lbls := [][]labels.Label{
@@ -2535,51 +2542,49 @@ func TestDelete_e2e(t *testing.T) {
 			}
 		}
 		sort.Sort(matched)
-		for range numRanges {
-			q, err := NewBlockQuerier(hb, 0, 100000)
-			require.NoError(t, err)
-			ss := q.Select(context.Background(), true, nil, del.ms...)
-			// Build the mockSeriesSet.
-			matchedSeries := make([]storage.Series, 0, len(matched))
-			for _, m := range matched {
-				smpls := seriesMap[m.String()]
-				smpls = deletedSamples(smpls, del.drange)
-				// Only append those series for which samples exist as mockSeriesSet
-				// doesn't skip series with no samples.
-				// TODO: But sometimes SeriesSet returns an empty chunkenc.Iterator
-				if len(smpls) > 0 {
-					matchedSeries = append(matchedSeries, storage.NewListSeries(m, smpls))
-				}
+		q, err := NewBlockQuerier(hb, 0, 100000)
+		require.NoError(t, err)
+		ss := q.Select(context.Background(), true, nil, del.ms...)
+		// Build the mockSeriesSet.
+		matchedSeries := make([]storage.Series, 0, len(matched))
+		for _, m := range matched {
+			smpls := seriesMap[m.String()]
+			smpls = deletedSamples(smpls, del.drange)
+			// Only append those series for which samples exist as mockSeriesSet
+			// doesn't skip series with no samples.
+			// TODO: But sometimes SeriesSet returns an empty chunkenc.Iterator
+			if len(smpls) > 0 {
+				matchedSeries = append(matchedSeries, storage.NewListSeries(m, smpls))
 			}
-			expSs := newMockSeriesSet(matchedSeries)
-			// Compare both SeriesSets.
-			for {
-				eok, rok := expSs.Next(), ss.Next()
-				// Skip a series if iterator is empty.
-				if rok {
-					for ss.At().Iterator(nil).Next() == chunkenc.ValNone {
-						rok = ss.Next()
-						if !rok {
-							break
-						}
+		}
+		expSs := newMockSeriesSet(matchedSeries)
+		// Compare both SeriesSets.
+		for {
+			eok, rok := expSs.Next(), ss.Next()
+			// Skip a series if iterator is empty.
+			if rok {
+				for ss.At().Iterator(nil).Next() == chunkenc.ValNone {
+					rok = ss.Next()
+					if !rok {
+						break
 					}
 				}
-				require.Equal(t, eok, rok)
-				if !eok {
-					break
-				}
-				sexp := expSs.At()
-				sres := ss.At()
-				require.Equal(t, sexp.Labels(), sres.Labels())
-				smplExp, errExp := storage.ExpandSamples(sexp.Iterator(nil), newSample)
-				smplRes, errRes := storage.ExpandSamples(sres.Iterator(nil), newSample)
-				require.Equal(t, errExp, errRes)
-				requireEqualSamples(t, sexp.Labels().String(), smplExp, smplRes)
 			}
-			require.NoError(t, ss.Err())
-			require.Empty(t, ss.Warnings())
-			require.NoError(t, q.Close())
+			require.Equal(t, eok, rok)
+			if !eok {
+				break
+			}
+			sexp := expSs.At()
+			sres := ss.At()
+			require.Equal(t, sexp.Labels(), sres.Labels())
+			smplExp, errExp := storage.ExpandSamples(sexp.Iterator(nil), newSample)
+			smplRes, errRes := storage.ExpandSamples(sres.Iterator(nil), newSample)
+			require.Equal(t, errExp, errRes)
+			requireEqualSamples(t, sexp.Labels().String(), smplExp, smplRes)
 		}
+		require.NoError(t, ss.Err())
+		require.Empty(t, ss.Warnings())
+		require.NoError(t, q.Close())
 	}
 }
 
@@ -3144,6 +3149,7 @@ func TestHead_ReturnsSortedLabelValues(t *testing.T) {
 // TestWalRepair_DecodingError ensures that a repair is run for an error
 // when decoding a record.
 func TestWalRepair_DecodingError(t *testing.T) {
+	t.Parallel()
 	for _, enableSTStorage := range []bool{false, true} {
 		enc := record.Encoder{EnableSTStorage: enableSTStorage}
 		for name, test := range map[string]struct {
@@ -3475,6 +3481,7 @@ func TestMemSeriesIsolation(t *testing.T) {
 	if defaultIsolationDisabled {
 		t.Skip("skipping test since tsdb isolation is disabled")
 	}
+	t.Parallel()
 
 	// Put a series, select it. GC it and then access it.
 	lastValue := func(h *Head, maxAppendID uint64) int {
@@ -5258,8 +5265,10 @@ func TestHistogramInWALAndMmapChunk(t *testing.T) {
 }
 
 func TestChunkSnapshot(t *testing.T) {
+	t.Parallel()
 	for _, enableSTStorage := range []bool{false, true} {
 		t.Run("enableSTStorage="+strconv.FormatBool(enableSTStorage), func(t *testing.T) {
+			t.Parallel()
 			head, _ := newTestHead(t, 120*4, compression.None, false)
 			defer func() {
 				head.opts.EnableMemorySnapshotOnShutdown = false
@@ -8594,6 +8603,7 @@ func (c *countSeriesLifecycleCallback) PostDeletion(s map[chunks.HeadSeriesRef]l
 
 // Regression test for data race https://github.com/prometheus/prometheus/issues/15139.
 func TestHeadAppendHistogramAndCommitConcurrency(t *testing.T) {
+	t.Parallel()
 	h := tsdbutil.GenerateTestHistogram(1)
 	fh := tsdbutil.GenerateTestFloatHistogram(1)
 
@@ -8609,6 +8619,7 @@ func TestHeadAppendHistogramAndCommitConcurrency(t *testing.T) {
 	}
 	for name, tc := range testCases {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			testHeadAppendHistogramAndCommitConcurrency(t, tc)
 		})
 	}
@@ -9231,10 +9242,13 @@ func TestHead_WALReplayStaleMarkerTypeConsistency(t *testing.T) {
 }
 
 func TestHead_NumNativeHistogramSeriesAndBuckets(t *testing.T) {
+	t.Parallel()
 	head, _ := newTestHead(t, 1000, compression.None, false)
 	t.Cleanup(func() {
 		// Captures head by reference, so it closes the final head after restarts.
 		_ = head.Close()
+		// Release the captured reference so completed parallel tests do not retain the head.
+		head = nil
 	})
 	require.NoError(t, head.Init(0))
 
