@@ -15,9 +15,11 @@ package index
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"hash/crc32"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -159,6 +161,77 @@ func TestIndexRW_Create_Open(t *testing.T) {
 
 	_, err = NewFileReader(dir, DecodePostingsRaw)
 	require.Error(t, err)
+}
+
+func TestIndexRW_WithMaxIndexTableSize(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		maxSize int64
+	}{
+		{name: "default"},
+		{name: "oversized", maxSize: math.MaxUint32 + 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			fn := filepath.Join(t.TempDir(), indexFilename)
+			w, err := NewWriterWithOptions(ctx, fn, WithMaxIndexTableSize(tc.maxSize))
+			require.NoError(t, err)
+
+			var values []string
+			for i := range 2 * symbolFactor {
+				values = append(values, fmt.Sprintf("value_%03d", i))
+			}
+			require.NoError(t, w.AddSymbol("label"))
+			for _, value := range values {
+				require.NoError(t, w.AddSymbol(value))
+			}
+			for i, value := range values {
+				require.NoError(t, w.AddSeries(storage.SeriesRef(i), labels.FromStrings("label", value)))
+			}
+			require.NoError(t, w.Close())
+
+			data, err := os.ReadFile(fn)
+			require.NoError(t, err)
+			toc, err := NewTOCFromByteSlice(realByteSlice(data))
+			require.NoError(t, err)
+			for _, offset := range []uint64{toc.Symbols, toc.PostingsTable} {
+				length := binary.BigEndian.Uint32(data[offset:])
+				if tc.maxSize > math.MaxUint32 {
+					require.Equal(t, uint32(encoding.OversizedLenMarker), length)
+					require.Greater(t, binary.BigEndian.Uint64(data[offset+encoding.LenHeaderSize:]), uint64(4))
+				} else {
+					require.Greater(t, length, uint32(4))
+				}
+			}
+
+			r, err := NewFileReader(fn, DecodePostingsRaw)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, r.Close()) })
+
+			var symbols []string
+			it := r.Symbols()
+			for it.Next() {
+				symbols = append(symbols, it.At())
+			}
+			require.NoError(t, it.Err())
+			require.Equal(t, append([]string{"label"}, values...), symbols)
+
+			gotValues, err := r.LabelValues(ctx, "label", nil)
+			require.NoError(t, err)
+			require.Equal(t, values, gotValues)
+			for _, value := range values {
+				p, err := r.Postings(ctx, "label", value)
+				require.NoError(t, err)
+				require.True(t, p.Next())
+				var builder labels.ScratchBuilder
+				var metas []chunks.Meta
+				require.NoError(t, r.Series(p.At(), &builder, &metas))
+				testutil.RequireEqual(t, labels.FromStrings("label", value), builder.Labels())
+				require.False(t, p.Next())
+				require.NoError(t, p.Err())
+			}
+		})
+	}
 }
 
 func TestIndexRW_Postings(t *testing.T) {
