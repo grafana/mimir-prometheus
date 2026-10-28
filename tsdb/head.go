@@ -2379,7 +2379,7 @@ func (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {
 
 	// Drop old chunks and remember series IDs and hashes if they can be
 	// deleted entirely.
-	deleted, affected, chunksRemoved, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted, actualInOrderMint, minOOOTime, minMmapFile, deletedMetaHashes := h.series.gc(mint, minOOOMmapRef)
+	deleted, affected, chunksRemoved, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted, actualInOrderMint, minOOOTime, minMmapFile, deletedMetaHashes, nativeVersions := h.series.gc(mint, minOOOMmapRef)
 	seriesRemoved := len(deleted)
 
 	h.metrics.seriesRemoved.Add(float64(seriesRemoved))
@@ -2393,7 +2393,7 @@ func (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {
 	// Remove deleted series IDs from the postings lists.
 	h.postings.Delete(deleted, affected)
 	if h.nativeMetricMetadata != nil {
-		h.nativeMetricMetadata.delete(deleted)
+		h.nativeMetricMetadata.delete(deleted, nativeVersions)
 	}
 
 	// Remove tombstones referring to the deleted series.
@@ -3066,7 +3066,8 @@ func newStripeSeries(stripeSize int, seriesCallback SeriesLifecycleCallback) *st
 // but the returned map goes into postings.Delete() which expects a map[storage.SeriesRef]struct
 // and there's no easy way to cast maps.
 // minMmapFile is the min mmap file number seen in the series (in-order and out-of-order) after gc'ing the series.
-func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _, _, _, _ int, _, _ int64, minMmapFile int, deletedMetaHashes map[uint64]struct{}) {
+// nativeVersions counts the committed native metadata versions removed.
+func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _, _, _, _ int, _, _ int64, minMmapFile int, deletedMetaHashes map[uint64]struct{}, nativeVersions int64) {
 	var (
 		deleted                       = map[storage.SeriesRef]struct{}{}
 		affected                      = map[labels.Label]struct{}{}
@@ -3155,6 +3156,9 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 		if series.stableHash != 0 {
 			deletedMetaHashes[series.stableHash] = struct{}{}
 		}
+		if native := series.nativeMetadataLocked(); native != nil {
+			nativeVersions += int64(len(native.older) + 1)
+		}
 		series.lset.Range(func(l labels.Label) { affected[l] = struct{}{} })
 		s.hashes[hashShard].del(hash, series.ref)
 		delete(s.series[stripe], series.ref)
@@ -3167,7 +3171,7 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 		actualMint = mint
 	}
 
-	return deleted, affected, rmChunks, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted, actualMint, minOOOTime, minMmapFile, deletedMetaHashes
+	return deleted, affected, rmChunks, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted, actualMint, minOOOTime, minMmapFile, deletedMetaHashes, nativeVersions
 }
 
 // gcSeries removes eligible series from the head index and updates head metrics,
@@ -3186,7 +3190,7 @@ func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict 
 		h.series.pendingTombstones.reserve(len(seriesRefs))
 		defer h.series.pendingTombstones.releaseAll()
 	}
-	deleted, affected, chunksRemoved, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted, deletedMetaHashes := h.series.gcSeries(seriesRefs, maxt, shouldEvict)
+	deleted, affected, chunksRemoved, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted, deletedMetaHashes, nativeVersions := h.series.gcSeries(seriesRefs, maxt, shouldEvict)
 
 	// Record the deleted series refs in the WAL so that we can ignore them during replay. This is done as soon as
 	// the series are unlinked, before deleting them from the postings, which takes long: the creation of series
@@ -3221,7 +3225,7 @@ func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict 
 	// Remove deleted series IDs from the postings lists.
 	h.postings.Delete(deleted, affected)
 	if h.nativeMetricMetadata != nil {
-		h.nativeMetricMetadata.delete(deleted)
+		h.nativeMetricMetadata.delete(deleted, nativeVersions)
 	}
 
 	// Remove tombstones referring to the deleted series.
@@ -3255,6 +3259,7 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 		histogramSeriesDeleted  = 0
 		histogramBucketsDeleted = 0
 		chunksRemoved           = 0
+		nativeVersions          int64
 	)
 
 	for _, ref := range refs {
@@ -3276,6 +3281,14 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 		h.series.locks[hashStripe].Lock()
 		h.series.hashes[hashStripe].del(hash, series.ref)
 		h.series.locks[hashStripe].Unlock()
+
+		if h.nativeMetricMetadata != nil {
+			series.Lock()
+			if native := series.nativeMetadataLocked(); native != nil {
+				nativeVersions += int64(len(native.older) + 1)
+			}
+			series.Unlock()
+		}
 
 		// Keep the series record in checkpoints until its last sample time; while the
 		// WAL may still hold samples for this ref, they can't outlive maxt.
@@ -3321,7 +3334,7 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 	// Remove deleted series IDs from the postings lists.
 	h.postings.Delete(deleted, affected)
 	if h.nativeMetricMetadata != nil {
-		h.nativeMetricMetadata.delete(deleted)
+		h.nativeMetricMetadata.delete(deleted, nativeVersions)
 	}
 
 	// Remove tombstones referring to the deleted series.
@@ -3334,9 +3347,9 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 
 // gcSeries walks all series and removes those whose ref is in seriesRefs, whose maxTime is
 // <= maxt, and for which shouldEvict returns true. Returns the set of deleted refs, the set
-// of label-name/value pairs whose postings are affected, the count of removed chunks, and
-// the number of deleted series that carried a stale-NaN last value.
-func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _, _, _, _ int, deletedMetaHashes map[uint64]struct{}) {
+// of label-name/value pairs whose postings are affected, chunk and sample-state counts,
+// and the number of native metadata versions removed.
+func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _, _, _, _ int, deletedMetaHashes map[uint64]struct{}, nativeVersions int64) {
 	var (
 		deleted                 = map[storage.SeriesRef]struct{}{}
 		affected                = map[labels.Label]struct{}{}
@@ -3390,6 +3403,9 @@ func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shou
 		deleted[storage.SeriesRef(series.ref)] = struct{}{}
 		// Keep head chunks intact for readers that still reference the series.
 		series.setGCed()
+		if native := series.nativeMetadataLocked(); native != nil {
+			nativeVersions += int64(len(native.older) + 1)
+		}
 		stale, isHist, buckets := series.sampleState()
 		if stale {
 			staleSeriesDeleted++
@@ -3411,7 +3427,7 @@ func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shou
 
 	s.iterForDeletion(check)
 
-	return deleted, affected, rmChunks, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted, deletedMetaHashes
+	return deleted, affected, rmChunks, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted, deletedMetaHashes, nativeVersions
 }
 
 // The iterForDeletion function iterates through all series, invoking the checkDeletedFunc for each.
