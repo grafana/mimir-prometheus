@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"maps"
 	"math"
+	"math/rand/v2"
 	"runtime"
 	"slices"
 	"sort"
@@ -550,6 +551,32 @@ func (p *MemPostings) Postings(ctx context.Context, name string, values ...strin
 	}
 	p.mtx.RUnlock()
 	return Merge(ctx, res...)
+}
+
+// PostingsLength returns the number of series references in the postings list for the label pair name=value.
+func (p *MemPostings) PostingsLength(name, value string) int {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+
+	return len(p.m[name][value])
+}
+
+// AppendRandomPostingsRefs appends count series references from random positions in the postings list
+// for the label pair name=value to buffer, and returns the extended buffer.
+// Each position is chosen independently, so the same reference can occur more than once.
+// It appends nothing if the label pair does not exist.
+func (p *MemPostings) AppendRandomPostingsRefs(name, value string, count int, buffer []storage.SeriesRef) []storage.SeriesRef {
+	p.mtx.RLock()
+	defer p.mtx.RUnlock()
+
+	list := p.m[name][value]
+	if len(list) == 0 {
+		return buffer
+	}
+	for range count {
+		buffer = append(buffer, list[rand.IntN(len(list))])
+	}
+	return buffer
 }
 
 func (p *MemPostings) PostingsForAllLabelValues(ctx context.Context, name string) Postings {

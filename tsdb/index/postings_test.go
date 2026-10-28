@@ -1519,6 +1519,44 @@ func TestMemPostings_PostingsForAllLabelValues(t *testing.T) {
 	require.Equal(t, []storage.SeriesRef{1, 2, 3, 4}, refs)
 }
 
+func TestMemPostings_PostingsListAccessors(t *testing.T) {
+	mp := NewMemPostings()
+	mp.Add(5, labels.FromStrings("pod", "a", "job", "z"))
+	mp.Add(1, labels.FromStrings("pod", "a", "job", "x"))
+	mp.Add(2, labels.FromStrings("pod", "a", "job", "y"))
+	mp.Add(3, labels.FromStrings("pod", "b", "job", "y"))
+
+	for _, tc := range []struct {
+		name, value string
+		allRefs     []storage.SeriesRef
+	}{
+		{name: "pod", value: "a", allRefs: []storage.SeriesRef{1, 2, 5}},
+		{name: "pod", value: "b", allRefs: []storage.SeriesRef{3}},
+		{name: "job", value: "y", allRefs: []storage.SeriesRef{2, 3}},
+		{name: "pod", value: "missing"},
+		{name: "missing", value: "a"},
+	} {
+		t.Run(tc.name+"="+tc.value, func(t *testing.T) {
+			require.Equal(t, len(tc.allRefs), mp.PostingsLength(tc.name, tc.value))
+
+			randomRefs := mp.AppendRandomPostingsRefs(tc.name, tc.value, 10, nil)
+			if len(tc.allRefs) == 0 {
+				require.Empty(t, randomRefs)
+				return
+			}
+			require.Len(t, randomRefs, 10)
+			for _, ref := range randomRefs {
+				require.Contains(t, tc.allRefs, ref)
+			}
+		})
+	}
+
+	t.Run("AppendRandomPostingsRefs appends to the buffer", func(t *testing.T) {
+		randomRefs := mp.AppendRandomPostingsRefs("pod", "b", 2, []storage.SeriesRef{42})
+		require.Equal(t, []storage.SeriesRef{42, 3, 3}, randomRefs)
+	})
+}
+
 func TestMemPostings_PostingsForLabelMatchingHonorsContextCancel(t *testing.T) {
 	memP := NewMemPostings()
 	seriesCount := 10 * checkContextEveryNIterations
