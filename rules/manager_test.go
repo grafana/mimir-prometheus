@@ -1332,9 +1332,13 @@ func TestMetricsUpdate(t *testing.T) {
 			"prometheus_rule_evaluations_total",
 			"prometheus_rule_evaluation_failures_total",
 			"prometheus_rule_group_interval_seconds",
+			"prometheus_rule_group_iterations_missed_total",
+			"prometheus_rule_group_iterations_total",
 			"prometheus_rule_group_last_duration_seconds",
 			"prometheus_rule_group_last_rule_duration_sum_seconds",
+			"prometheus_rule_group_last_evaluation_samples",
 			"prometheus_rule_group_last_evaluation_timestamp_seconds",
+			"prometheus_rule_group_last_restore_duration_seconds",
 			"prometheus_rule_group_rules",
 		}
 
@@ -1378,19 +1382,22 @@ func TestMetricsUpdate(t *testing.T) {
 		}{
 			{
 				files:   files,
-				metrics: 16,
+				metrics: 24,
 			},
 			{
 				files:   files[:1],
-				metrics: 8,
+				metrics: 12,
 			},
 			{
 				files:   files[:0],
 				metrics: 0,
 			},
 			{
+				// The test does not set RestoreNewRuleGroups.
+				// So only a group that the first Update loads restores its alert state and has a restore duration series.
+				// A group that a later Update loads has one series less.
 				files:   files[1:],
-				metrics: 8,
+				metrics: 11,
 			},
 		}
 
