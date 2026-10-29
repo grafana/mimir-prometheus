@@ -22,6 +22,13 @@ import (
 // into a new 000001 and compare less than or equal to minOOOMmapRef, so
 // truncateChunksBefore drops them with no log or metric.
 //
+// The post-restart compaction sequence (forced CompactHead over whatever is left
+// in the head, then an unconditional CompactOOOHead) mirrors Mimir's
+// userTSDB.compactHead, which runs on both the idle and forced compaction paths
+// and is the only caller that reaches CompactOOOHead regardless of whether the
+// in-order compaction did anything. Prometheus's own db.Compact only reaches
+// CompactOOOHead if that same call also compacted an in-order range.
+//
 // restart=false keeps the original file sequence and returns all 33 samples.
 // restart=true returns 0. The final assertion is the bug, not the expected fix.
 func TestOOOMmapRefRegressionAfterRestart(t *testing.T) {
@@ -77,6 +84,16 @@ func runOOOMmapRefRegression(t *testing.T, restart bool) {
 		// head chunk file, and the WBL is empty.
 		db = newTestDB(t, withDir(dir), withOpts(opts))
 		db.DisableCompactions()
+
+		// Mimir's forced/idle compaction path (userTSDB.compactHead) always runs an
+		// in-order range compaction over whatever is left in the head, then
+		// unconditionally runs CompactOOOHead, regardless of whether that in-order
+		// compaction did anything. Reproduce that exact sequence instead of calling
+		// CompactOOOHead on its own, which Mimir never does.
+		h := db.Head()
+		if h.NumSeries() > 0 {
+			require.NoError(t, db.CompactHead(NewRangeHead(h, h.MinTime(), h.MaxTime())))
+		}
 	}
 	require.NoError(t, db.CompactOOOHead(ctx))
 	minRef := chunks.ChunkDiskMapperRef(db.head.minOOOMmapRef.Load())
