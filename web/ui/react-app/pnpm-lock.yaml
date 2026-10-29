@@ -124,55 +124,55 @@ importers:
         version: 5.19.3(jquery@3.7.1)(moment-timezone@0.6.5)(moment@2.31.0)
     devDependencies:
       '@babel/plugin-proposal-private-property-in-object':
-        specifier: ^7.21.11
+        specifier: 7.21.11
         version: 7.21.11(@babel/core@7.29.7)
       '@eslint/compat':
-        specifier: ^2.1.1
+        specifier: 2.1.1
         version: 2.1.1(eslint@10.13.0(jiti@1.21.7))
       '@testing-library/dom':
-        specifier: ^10.4.2
+        specifier: 10.4.2
         version: 10.4.2
       '@testing-library/react':
-        specifier: ^16.3.3
+        specifier: 16.3.3
         version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@types/flot':
         specifier: 0.0.36
         version: 0.0.36
       '@types/jest':
-        specifier: ^30.0.0
+        specifier: 30.0.0
         version: 30.0.0
       '@types/jquery':
-        specifier: ^3.5.34
+        specifier: 3.5.34
         version: 3.5.34
       '@types/node':
-        specifier: ^24.19.2
+        specifier: 24.19.2
         version: 24.19.2
       '@types/react':
         specifier: ^18.3.31
         version: 18.3.31
       '@types/react-copy-to-clipboard':
-        specifier: ^5.0.7
+        specifier: 5.0.7
         version: 5.0.7
       '@types/react-dom':
         specifier: ^18.3.7
         version: 18.3.7(@types/react@18.3.31)
       '@types/sanitize-html':
-        specifier: ^2.16.2
+        specifier: 2.16.2
         version: 2.16.2
       '@typescript-eslint/eslint-plugin':
-        specifier: ^8.71.2
+        specifier: 8.71.2
         version: 8.71.2(@typescript-eslint/parser@8.71.2(eslint@10.13.0(jiti@1.21.7))(typescript@4.9.5))(eslint@10.13.0(jiti@1.21.7))(typescript@4.9.5)
       '@typescript-eslint/parser':
-        specifier: ^8.71.2
+        specifier: 8.71.2
         version: 8.71.2(eslint@10.13.0(jiti@1.21.7))(typescript@4.9.5)
       confusing-browser-globals:
-        specifier: ^1.0.11
+        specifier: 1.0.11
         version: 1.0.11
       eslint:
-        specifier: ^10.13.0
+        specifier: 10.13.0
         version: 10.13.0(jiti@1.21.7)
       eslint-config-prettier:
-        specifier: ^10.1.8
+        specifier: 10.1.8
         version: 10.1.8(eslint@10.13.0(jiti@1.21.7))
       eslint-plugin-import:
         specifier: 2.32.0
@@ -181,46 +181,46 @@ importers:
         specifier: 6.10.2
         version: 6.10.2(eslint@10.13.0(jiti@1.21.7))
       eslint-plugin-prettier:
-        specifier: ^5.5.7
+        specifier: 5.5.7
         version: 5.5.7(@types/eslint@9.6.1)(eslint-config-prettier@10.1.8(eslint@10.13.0(jiti@1.21.7)))(eslint@10.13.0(jiti@1.21.7))(prettier@3.9.10)
       eslint-plugin-react:
         specifier: 7.37.5
         version: 7.37.5(eslint@10.13.0(jiti@1.21.7))
       eslint-plugin-react-hooks:
-        specifier: ^7.1.1
+        specifier: 7.1.1
         version: 7.1.1(eslint@10.13.0(jiti@1.21.7))
       eslint-webpack-plugin:
-        specifier: ^6.0.0
+        specifier: 6.0.0
         version: 6.0.0(eslint@10.13.0(jiti@1.21.7))(webpack@5.107.1(postcss@8.5.30))
       globals:
-        specifier: ^17.13.0
+        specifier: 17.13.0
         version: 17.13.0
       identity-obj-proxy:
-        specifier: ^3.0.0
+        specifier: 3.0.0
         version: 3.0.0
       jest-canvas-mock:
-        specifier: ^2.5.8
+        specifier: 2.5.8
         version: 2.5.8
       jest-fetch-mock:
-        specifier: ^4.2.0
+        specifier: 4.2.0
         version: 4.2.0
       mutationobserver-shim:
-        specifier: ^0.3.7
+        specifier: 0.3.7
         version: 0.3.7
       prettier:
-        specifier: ^3.9.10
+        specifier: 3.9.10
         version: 3.9.10
       react-app-rewired:
-        specifier: ^2.2.1
+        specifier: 2.2.1
         version: 2.2.1(react-scripts@5.0.1(@babel/plugin-syntax-flow@7.29.7(@babel/core@7.29.7))(@babel/plugin-transform-react-jsx@7.29.7(@babel/core@7.29.7))(@types/babel__core@7.20.5)(eslint@10.13.0(jiti@1.21.7))(react@18.3.1)(sass@1.105.2)(type-fest@4.41.0)(typescript@4.9.5))
       react-router:
-        specifier: ^7.18.4
+        specifier: 7.18.4
         version: 7.18.4(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       react-scripts:
-        specifier: ^5.0.1
+        specifier: 5.0.1
         version: 5.0.1(@babel/plugin-syntax-flow@7.29.7(@babel/core@7.29.7))(@babel/plugin-transform-react-jsx@7.29.7(@babel/core@7.29.7))(@types/babel__core@7.20.5)(eslint@10.13.0(jiti@1.21.7))(react@18.3.1)(sass@1.105.2)(type-fest@4.41.0)(typescript@4.9.5)
       typescript:
-        specifier: ^4.9.5
+        specifier: 4.9.5
         version: 4.9.5
     optionalDependencies:
       fsevents:
