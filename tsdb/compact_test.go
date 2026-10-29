@@ -1531,9 +1531,9 @@ func BenchmarkCompactionFromHead(b *testing.B) {
 			h, err := NewHead(nil, nil, nil, nil, opts, nil)
 			require.NoError(b, err)
 			for ln := 0; ln < labelNames; ln++ {
-				app := h.Appender(context.Background())
+				app := h.AppenderV2(context.Background())
 				for lv := range labelValues {
-					app.Append(0, labels.FromStrings(strconv.Itoa(ln), fmt.Sprintf("%d%s%d", lv, postingsBenchSuffix, ln)), 0, 0)
+					app.Append(0, labels.FromStrings(strconv.Itoa(ln), fmt.Sprintf("%d%s%d", lv, postingsBenchSuffix, ln)), 0, 0, 0, nil, nil, storage.AOptions{})
 				}
 				require.NoError(b, app.Commit())
 			}
@@ -1567,13 +1567,13 @@ func BenchmarkCompactionFromHead(b *testing.B) {
 			h, err := NewHead(nil, nil, nil, nil, opts, nil)
 			require.NoError(b, err)
 
-			app := h.Appender(b.Context())
+			app := h.AppenderV2(b.Context())
 			for i := range nSeries {
 				lbls := labels.FromStrings("__name__", "bench", "series", strconv.Itoa(i))
 				for j := range nChunks {
 					// Counter reset on every histogram forces a new head chunk per sample.
 					hist := tsdbutil.GenerateTestHistogramWithHint(j, histogram.CounterReset)
-					_, err := app.AppendHistogram(0, lbls, int64(j)*1000, hist, nil)
+					_, err := app.Append(0, lbls, 0, int64(j)*1000, 0, hist, nil, storage.AOptions{})
 					require.NoError(b, err)
 				}
 			}
@@ -1615,9 +1615,9 @@ func TestCompactionFromHead(t *testing.T) {
 		// ~20 samples (range/step = 100/5). 200 samples → ~10 head chunks.
 		lbls := labels.FromStrings("__name__", "test")
 		var expSamples []sample
-		app := h.Appender(t.Context())
+		app := h.AppenderV2(t.Context())
 		for i := int64(0); i < 1000; i += 5 {
-			_, err := app.Append(0, lbls, i, float64(i))
+			_, err := app.Append(0, lbls, 0, i, float64(i), nil, nil, storage.AOptions{})
 			require.NoError(t, err)
 			expSamples = append(expSamples, sample{t: i, f: float64(i)})
 		}
@@ -1675,13 +1675,13 @@ func BenchmarkCompactionFromOOOHead(b *testing.B) {
 			h, err := NewHead(nil, nil, nil, nil, opts, nil)
 			require.NoError(b, err)
 			for ln := 0; ln < labelNames; ln++ {
-				app := h.Appender(context.Background())
+				app := h.AppenderV2(context.Background())
 				for lv := range labelValues {
 					lbls := labels.FromStrings(strconv.Itoa(ln), fmt.Sprintf("%d%s%d", lv, postingsBenchSuffix, ln))
-					_, err = app.Append(0, lbls, int64(totalSamples), 0)
+					_, err = app.Append(0, lbls, 0, int64(totalSamples), 0, nil, nil, storage.AOptions{})
 					require.NoError(b, err)
 					for ts := range totalSamples {
-						_, err = app.Append(0, lbls, int64(ts), float64(ts))
+						_, err = app.Append(0, lbls, 0, int64(ts), float64(ts), nil, nil, storage.AOptions{})
 						require.NoError(b, err)
 					}
 				}
@@ -1724,18 +1724,18 @@ func setupDBForSelectedSeriesBenchmark(tb testing.TB, totalSeries, samplesPerSer
 
 	const appendBatch = 10_000
 	refs := make([]storage.SeriesRef, 0, totalSeries)
-	app := db.Appender(context.Background())
+	app := db.AppenderV2(context.Background())
 	for i := range totalSeries {
 		lbls := labels.FromStrings("__name__", "metric", "instance", strconv.Itoa(i))
 		var ref storage.SeriesRef
 		for ts := int64(0); ts < int64(samplesPerSeries); ts++ {
-			ref, err = app.Append(ref, lbls, ts, float64(ts))
+			ref, err = app.Append(ref, lbls, 0, ts, float64(ts), nil, nil, storage.AOptions{})
 			require.NoError(tb, err)
 		}
 		refs = append(refs, ref)
 		if (i+1)%appendBatch == 0 {
 			require.NoError(tb, app.Commit())
-			app = db.Appender(context.Background())
+			app = db.AppenderV2(context.Background())
 		}
 	}
 	require.NoError(tb, app.Commit())
@@ -1857,11 +1857,11 @@ func TestDisableAutoCompactions(t *testing.T) {
 	// Trigger a compaction to check that it was skipped and
 	// no new blocks were created when compaction is disabled.
 	db.DisableCompactions()
-	app := db.Appender(context.Background())
+	app := db.AppenderV2(context.Background())
 	for i := range int64(3) {
-		_, err := app.Append(0, label, i*blockRange, 0)
+		_, err := app.Append(0, label, 0, i*blockRange, 0, nil, nil, storage.AOptions{})
 		require.NoError(t, err)
-		_, err = app.Append(0, label, i*blockRange+1000, 0)
+		_, err = app.Append(0, label, 0, i*blockRange+1000, 0, nil, nil, storage.AOptions{})
 		require.NoError(t, err)
 	}
 	require.NoError(t, app.Commit())
@@ -1982,12 +1982,12 @@ func TestDeleteCompactionBlockAfterFailedReload(t *testing.T) {
 			defaultLabel := labels.FromStrings("foo", "bar")
 
 			// Add some data to the head that is enough to trigger a compaction.
-			app := db.Appender(context.Background())
-			_, err := app.Append(0, defaultLabel, 1, 0)
+			app := db.AppenderV2(context.Background())
+			_, err := app.Append(0, defaultLabel, 0, 1, 0, nil, nil, storage.AOptions{})
 			require.NoError(t, err)
-			_, err = app.Append(0, defaultLabel, 2, 0)
+			_, err = app.Append(0, defaultLabel, 0, 2, 0, nil, nil, storage.AOptions{})
 			require.NoError(t, err)
-			_, err = app.Append(0, defaultLabel, 3+rangeToTriggerCompaction, 0)
+			_, err = app.Append(0, defaultLabel, 0, 3+rangeToTriggerCompaction, 0, nil, nil, storage.AOptions{})
 			require.NoError(t, err)
 			require.NoError(t, app.Commit())
 
@@ -2175,11 +2175,11 @@ func TestHeadCompactionWithHistograms(t *testing.T) {
 				lbls labels.Labels, from, to int, h *histogram.Histogram, exp *[]chunks.Sample,
 			) {
 				t.Helper()
-				app := head.Appender(ctx)
+				app := head.AppenderV2(ctx)
 				for tsMinute := from; tsMinute <= to; tsMinute++ {
 					var err error
 					if floatTest {
-						_, err = app.AppendHistogram(0, lbls, minute(tsMinute), nil, h.ToFloat(nil))
+						_, err = app.Append(0, lbls, 0, minute(tsMinute), 0, nil, h.ToFloat(nil), storage.AOptions{})
 						efh := h.ToFloat(nil)
 						if tsMinute == from {
 							efh.CounterResetHint = histogram.UnknownCounterReset
@@ -2188,7 +2188,7 @@ func TestHeadCompactionWithHistograms(t *testing.T) {
 						}
 						*exp = append(*exp, sample{t: minute(tsMinute), fh: efh})
 					} else {
-						_, err = app.AppendHistogram(0, lbls, minute(tsMinute), h, nil)
+						_, err = app.Append(0, lbls, 0, minute(tsMinute), 0, h, nil, storage.AOptions{})
 						eh := h.Copy()
 						if tsMinute == from {
 							eh.CounterResetHint = histogram.UnknownCounterReset
@@ -2203,9 +2203,9 @@ func TestHeadCompactionWithHistograms(t *testing.T) {
 			}
 			appendFloat := func(lbls labels.Labels, from, to int, exp *[]chunks.Sample) {
 				t.Helper()
-				app := head.Appender(ctx)
+				app := head.AppenderV2(ctx)
 				for tsMinute := from; tsMinute <= to; tsMinute++ {
-					_, err := app.Append(0, lbls, minute(tsMinute), float64(tsMinute))
+					_, err := app.Append(0, lbls, 0, minute(tsMinute), float64(tsMinute), nil, nil, storage.AOptions{})
 					require.NoError(t, err)
 					*exp = append(*exp, sample{t: minute(tsMinute), f: float64(tsMinute)})
 				}
@@ -2365,8 +2365,8 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 					}
 				}
 
-				oldApp := oldHead.Appender(context.Background())
-				sparseApp := sparseHead.Appender(context.Background())
+				oldApp := oldHead.AppenderV2(context.Background())
+				sparseApp := sparseHead.AppenderV2(context.Background())
 				numOldSeriesPerHistogram := 0
 
 				var oldULIDs []ulid.ULID
@@ -2383,7 +2383,7 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 						)
 						for i := range numHistograms {
 							ts := int64(i) * timeStep
-							ref, err = sparseApp.AppendHistogram(ref, ah.baseLabels, ts, ah.hists[i], nil)
+							ref, err = sparseApp.Append(ref, ah.baseLabels, 0, ts, 0, ah.hists[i], nil, storage.AOptions{})
 							require.NoError(t, err)
 						}
 					}
@@ -2419,20 +2419,20 @@ func TestSparseHistogramSpaceSavings(t *testing.T) {
 								numOldSeriesPerHistogram++
 								b := it.At()
 								lbls := labels.NewBuilder(ah.baseLabels).Set("le", fmt.Sprintf("%.16f", b.Upper)).Labels()
-								refs[itIdx], err = oldApp.Append(refs[itIdx], lbls, ts, float64(b.Count))
+								refs[itIdx], err = oldApp.Append(refs[itIdx], lbls, 0, ts, float64(b.Count), nil, nil, storage.AOptions{})
 								require.NoError(t, err)
 								itIdx++
 							}
 							baseName := ah.baseLabels.Get(labels.MetricName)
 							// _count metric.
 							countLbls := labels.NewBuilder(ah.baseLabels).Set(labels.MetricName, baseName+"_count").Labels()
-							_, err = oldApp.Append(0, countLbls, ts, float64(h.Count))
+							_, err = oldApp.Append(0, countLbls, 0, ts, float64(h.Count), nil, nil, storage.AOptions{})
 							require.NoError(t, err)
 							numOldSeriesPerHistogram++
 
 							// _sum metric.
 							sumLbls := labels.NewBuilder(ah.baseLabels).Set(labels.MetricName, baseName+"_sum").Labels()
-							_, err = oldApp.Append(0, sumLbls, ts, h.Sum)
+							_, err = oldApp.Append(0, sumLbls, 0, ts, h.Sum, nil, nil, storage.AOptions{})
 							require.NoError(t, err)
 							numOldSeriesPerHistogram++
 						}
@@ -3037,9 +3037,9 @@ func TestDelayedCompaction(t *testing.T) {
 	label := labels.FromStrings("foo", "bar")
 
 	appendSamples := func(t *testing.T, db *DB, timestamps ...int64) {
-		app := db.Appender(context.Background())
+		app := db.AppenderV2(context.Background())
 		for _, ts := range timestamps {
-			_, err := app.Append(0, label, ts, 0)
+			_, err := app.Append(0, label, 0, ts, 0, nil, nil, storage.AOptions{})
 			require.NoError(t, err)
 		}
 		require.NoError(t, app.Commit())
@@ -3198,10 +3198,10 @@ func TestDelayedCompactionDoesNotBlockUnrelatedOps(t *testing.T) {
 
 			if c.whenCompactable {
 				label := labels.FromStrings("foo", "bar")
-				app := db.Appender(context.Background())
-				_, err := app.Append(0, label, 301, 0)
+				app := db.AppenderV2(context.Background())
+				_, err := app.Append(0, label, 0, 301, 0, nil, nil, storage.AOptions{})
 				require.NoError(t, err)
-				_, err = app.Append(0, label, 317, 0)
+				_, err = app.Append(0, label, 0, 317, 0, nil, nil, storage.AOptions{})
 				require.NoError(t, err)
 				require.NoError(t, app.Commit())
 				// The Head is compactable and will still be at the end.
