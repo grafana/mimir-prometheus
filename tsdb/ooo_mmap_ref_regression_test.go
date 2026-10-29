@@ -85,11 +85,17 @@ func runOOOMmapRefRegression(t *testing.T, restart bool) {
 		db = newTestDB(t, withDir(dir), withOpts(opts))
 		db.DisableCompactions()
 
-		// Mimir's forced/idle compaction path (userTSDB.compactHead) always runs an
-		// in-order range compaction over whatever is left in the head, then
-		// unconditionally runs CompactOOOHead, regardless of whether that in-order
-		// compaction did anything. Reproduce that exact sequence instead of calling
-		// CompactOOOHead on its own, which Mimir never does.
+		// Mimir runs db.Compact once right after WAL replay (ingester_tsdb.go,
+		// "Running compaction after WAL replay"). In the incident this was a no-op:
+		// nothing was compactable yet, so db.Compact never reached CompactOOOHead
+		// and minOOOMmapRef stayed at 0.
+		require.NoError(t, db.Compact(ctx))
+		t.Logf("after post-replay db.Compact minOOOMmapRef=%v", chunks.ChunkDiskMapperRef(db.head.minOOOMmapRef.Load()))
+
+		// Then the idle check fires and calls userTSDB.compactHead, which runs a
+		// forced in-order range compaction over whatever is left in the head and
+		// then unconditionally runs CompactOOOHead, regardless of whether that
+		// in-order compaction did anything. Mimir never calls CompactOOOHead alone.
 		h := db.Head()
 		if h.NumSeries() > 0 {
 			require.NoError(t, db.CompactHead(NewRangeHead(h, h.MinTime(), h.MaxTime())))
