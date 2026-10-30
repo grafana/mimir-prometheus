@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/prometheus/prometheus/model/labels"
 	"github.com/prometheus/prometheus/tsdb/chunks"
@@ -431,4 +432,187 @@ func listCheckpoints(dir string) (refs []checkpointRef, err error) {
 	})
 
 	return refs, nil
+}
+
+// DebugCheckpoint:
+// 1. Runs the checkpoint as normal
+// 2. Creates a backup of the new WAL directory, including the new checkpoint
+// 3. Parses the records in the checkpoint, looking for any that are missing the series record
+// 4. If no missing series found, deletes the backup
+// 5. If missing series found, keeps backups and logs an error
+func DebugCheckpoint(logger *slog.Logger, w *WL, from, to int, keep func(id chunks.HeadSeriesRef, last int) bool, mint int64) (*CheckpointStats, error) {
+	backupDir := filepath.Join(w.Dir()+"_cp_backups", strings.Join([]string{time.Now().Format("20060102150405"), strconv.Itoa(from), strconv.Itoa(to), strconv.FormatInt(mint, 10)}, "_"))
+
+	// Run normal checkpoint
+	cpStats, cpErr := Checkpoint(logger, w, from, to, keep, mint)
+
+	// At this point WAL dir contains both the original WAL and the new checkpoint, since we haven't run Truncate yet.
+
+	logger = logger.With("token", "patryk_debug", "backup_dir", backupDir)
+
+	// Create backup of post-checkpoint WAL directory
+	logger.Info("backing up wal after checkpoint")
+
+	if err := os.CopyFS(backupDir, os.DirFS(w.Dir())); err != nil {
+		logger.Error("failed to backup wal after checkpoint", "err", err)
+		if err := os.RemoveAll(backupDir); err != nil {
+			logger.Error("failed to clean up wal backup", "err", err)
+		}
+		// Just return result of Checkpoint()
+		return cpStats, cpErr
+	}
+
+	logger.Info("backed up wal after checkpoint")
+
+	checkpointDir, _, err := LastCheckpoint(backupDir)
+	if err != nil && !errors.Is(err, record.ErrNotFound) {
+		logger.Error("no checkpoint found in backup", "err", err)
+		// Just return result of Checkpoint()
+		return cpStats, cpErr
+	}
+	logger = logger.With("checkpoint", checkpointDir)
+
+	logger.Info("testing latest checkpoint")
+
+	sr, err := NewSegmentsReader(checkpointDir)
+	if err != nil {
+		logger.Error("failed to open checkpoint", "err", err)
+		// Just return result of Checkpoint()
+		return cpStats, cpErr
+	}
+
+	defer func() {
+		if err := sr.Close(); err != nil {
+			logger.Error("failed to close wal segments reader after processing checkpoint", "err", err)
+		}
+	}()
+
+	var dec record.Decoder
+	seriesMap := make(map[chunks.HeadSeriesRef]struct{})
+	missingSeries := make(map[chunks.HeadSeriesRef]struct{})
+
+	r := NewReader(sr)
+	for r.Next() {
+		seg, off := r.Segment(), r.Offset()
+		// logger.Info("processing record", "seg", seg, "off", off)
+		rec := r.Record()
+		switch dec.Type(rec) {
+		case record.Series:
+			series, err := dec.Series(rec, nil)
+			if err != nil {
+				logger.Error("failed to decode series", "seg", seg, "off", off, "err", err)
+				break
+			}
+
+			for _, s := range series {
+				seriesMap[s.Ref] = struct{}{}
+			}
+		case record.Samples:
+			samples, err := dec.Samples(rec, nil)
+			if err != nil {
+				logger.Error("failed to decode samples", "seg", seg, "off", off, "err", err)
+				break
+			}
+
+			for _, s := range samples {
+				_, exists := seriesMap[s.Ref]
+				if !exists {
+					logger.Error("missing series for sample", "seg", seg, "off", off, "series", s.Ref)
+					missingSeries[s.Ref] = struct{}{}
+				}
+			}
+		case record.Tombstones:
+			tstones, err := dec.Tombstones(rec, nil)
+			if err != nil {
+				logger.Error("failed to decode tombstones", "seg", seg, "off", off, "err", err)
+				break
+			}
+
+			for _, s := range tstones {
+				_, exists := seriesMap[chunks.HeadSeriesRef(s.Ref)]
+				if !exists {
+					logger.Error("missing series for tombstone", "seg", seg, "off", off, "series", s.Ref)
+					missingSeries[chunks.HeadSeriesRef(s.Ref)] = struct{}{}
+				}
+			}
+		case record.Exemplars:
+			exemplars, err := dec.Exemplars(rec, nil)
+			if err != nil {
+				logger.Error("failed to decode exemplars", "seg", seg, "off", off, "err", err)
+				break
+			}
+
+			for _, s := range exemplars {
+				_, exists := seriesMap[s.Ref]
+				if !exists {
+					logger.Error("missing series for exemplar", "seg", seg, "off", off, "series", s.Ref)
+					missingSeries[s.Ref] = struct{}{}
+				}
+			}
+		case record.HistogramSamples:
+			hists, err := dec.HistogramSamples(rec, nil)
+			if err != nil {
+				logger.Error("failed to decode histograms", "seg", seg, "off", off, "err", err)
+				break
+			}
+
+			for _, s := range hists {
+				_, exists := seriesMap[s.Ref]
+				if !exists {
+					logger.Error("missing series for histogram", "seg", seg, "off", off, "series", s.Ref)
+					missingSeries[s.Ref] = struct{}{}
+				}
+			}
+		case record.FloatHistogramSamples:
+			hists, err := dec.FloatHistogramSamples(rec, nil)
+			if err != nil {
+				logger.Error("failed to decode float histograms", "seg", seg, "off", off, "err", err)
+				break
+			}
+
+			for _, s := range hists {
+				_, exists := seriesMap[s.Ref]
+				if !exists {
+					logger.Error("missing series for float histogram", "seg", seg, "off", off, "series", s.Ref)
+					missingSeries[s.Ref] = struct{}{}
+				}
+			}
+		case record.Metadata:
+			meta, err := dec.Metadata(rec, nil)
+			if err != nil {
+				logger.Error("failed to decode metadata", "seg", seg, "off", off, "err", err)
+				break
+			}
+
+			for _, s := range meta {
+				_, exists := seriesMap[s.Ref]
+				if !exists {
+					logger.Error("missing series for metadata", "seg", seg, "off", off, "series", s.Ref)
+					missingSeries[s.Ref] = struct{}{}
+				}
+			}
+		default:
+			logger.Info("unknown record type", "seg", seg, "off", off, "type", dec.Type(rec))
+		}
+	}
+
+	// check if missing series were found later in the checkpoint
+	for s := range missingSeries {
+		if _, exists := seriesMap[s]; exists {
+			delete(missingSeries, s)
+			logger.Info("missing series found later in checkpoint", "series", s)
+		}
+	}
+
+	if len(missingSeries) == 0 {
+		logger.Info("no missing series found in checkpoint, cleaning up backups")
+		if err := os.RemoveAll(backupDir); err != nil {
+			logger.Error("failed to clean up wal backup", "err", err)
+		}
+	} else {
+		logger.Info("missing series found in checkpoint, keeping backups", "series", missingSeries)
+	}
+
+	// Return result of Checkpoint()
+	return cpStats, cpErr
 }

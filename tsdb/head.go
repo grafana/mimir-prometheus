@@ -1331,8 +1331,17 @@ func (h *Head) keepSeriesInWALCheckpoint(id chunks.HeadSeriesRef, last int) bool
 		return true
 	}
 
+	l := h.logger.With("token", "patryk_debug_series", "id", id)
+
 	// Keep the record if the series has an expiry set.
 	keepUntil, ok := h.getWALExpiry(id)
+
+	if !ok {
+		l.Info("dropping series; no wal expiry set")
+	} else if keepUntil <= last {
+		l.Info("dropping series; wal expiry <= last", "keepUntil", keepUntil, "last", last)
+	}
+
 	return ok && keepUntil > last
 }
 
@@ -1370,7 +1379,8 @@ func (h *Head) truncateWAL(mint int64) error {
 	}
 
 	h.metrics.checkpointCreationTotal.Inc()
-	if _, err = wlog.Checkpoint(h.logger, h.wal, first, last, h.keepSeriesInWALCheckpoint, mint); err != nil {
+	var stats *wlog.CheckpointStats
+	if stats, err = wlog.DebugCheckpoint(h.logger, h.wal, first, last, h.keepSeriesInWALCheckpoint, mint); err != nil {
 		h.metrics.checkpointCreationFail.Inc()
 		var cerr *chunks.CorruptionErr
 		if errors.As(err, &cerr) {
@@ -1378,6 +1388,21 @@ func (h *Head) truncateWAL(mint int64) error {
 		}
 		return fmt.Errorf("create checkpoint: %w", err)
 	}
+
+	h.logger.Info("checkpoint created",
+		"token", "patryk_debug",
+		"dropped_series", stats.DroppedSeries,
+		"dropped_samples", stats.DroppedSamples,
+		"dropped_tombstones", stats.DroppedTombstones,
+		"dropped_exemplars", stats.DroppedExemplars,
+		"dropped_metadata", stats.DroppedMetadata,
+		"total_series", stats.TotalSeries,
+		"total_samples", stats.TotalSamples,
+		"total_tombstones", stats.TotalTombstones,
+		"total_exemplars", stats.TotalExemplars,
+		"total_metadata", stats.TotalMetadata,
+	)
+
 	if err := h.wal.Truncate(last + 1); err != nil {
 		// If truncating fails, we'll just try again at the next checkpoint.
 		// Leftover segments will just be ignored in the future if there's a checkpoint
@@ -1390,6 +1415,8 @@ func (h *Head) truncateWAL(mint int64) error {
 	h.walExpiriesMtx.Lock()
 	for ref, segment := range h.walExpiries {
 		if segment <= last {
+			l := h.logger.With("token", "patryk_debug_series", "id", ref)
+			l.Info("deleting wal expiry after checkpoint; keepUntil <= last", "keepUntil", segment, "last", last)
 			delete(h.walExpiries, ref)
 		}
 	}
@@ -1668,6 +1695,8 @@ func (h *Head) gc() (actualInOrderMint, minOOOTime int64, minMmapFile int) {
 		// that reads the WAL, wouldn't be able to use those
 		// samples since we would have no labels for that ref ID.
 		for ref := range deleted {
+			l := h.logger.With("token", "patryk_debug_series", "id", ref)
+			l.Info("setting wal expiry for deleted series after gc", "keepUntil", last)
 			h.walExpiries[chunks.HeadSeriesRef(ref)] = last
 		}
 		h.walExpiriesMtx.Unlock()

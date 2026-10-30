@@ -266,6 +266,10 @@ Outer:
 				}
 				if !created {
 					multiRef[walSeries.Ref] = mSeries.ref
+
+					l := h.logger.With("token", "patryk_debug_series", "id", walSeries.Ref)
+					l.Info("setting wal expiry for duplicate series", "keepUntil", lastSegment)
+
 					// Set the WAL expiry for the duplicate series, so it is kept in subsequent WAL checkpoints.
 					h.setWALExpiry(walSeries.Ref, lastSegment)
 				}

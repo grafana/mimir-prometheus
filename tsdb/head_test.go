@@ -690,6 +690,84 @@ func TestHead_HighConcurrencyReadAndWrite(t *testing.T) {
 	require.NoError(t, g.Wait())
 }
 
+func TestHead_SeriesRefsDroppedEarly(t *testing.T) {
+	head, w := newTestHead(t, 1000, compression.None, false)
+	defer func() {
+
+	}()
+
+	// Series with 2 refs and samples for both
+	entries := []interface{}{
+		[]record.RefSeries{
+			{Ref: 1, Labels: labels.FromStrings("a", "1")},
+			{Ref: 2, Labels: labels.FromStrings("a", "1")},
+		},
+		[]record.RefSample{
+			{Ref: 2, T: 100, V: 1},
+			{Ref: 2, T: 500, V: 2},
+			{Ref: 1, T: 900, V: 3},
+		},
+	}
+
+	populateTestWL(t, w, entries, nil)
+	first, last, err := wlog.Segments(w.Dir())
+	require.NoError(t, err)
+
+	// Init head at 200
+	require.NoError(t, head.Init(200))
+
+	// Duplicate series ref should be added to head.walExpiries
+	keepUntil, ok := head.getWALExpiry(2)
+	require.True(t, ok)
+	require.Equal(t, last, keepUntil)
+
+	expandChunk := func(c chunkenc.Iterator) (x []sample) {
+		for c.Next() == chunkenc.ValFloat {
+			t, v := c.At()
+			x = append(x, sample{t: t, f: v})
+		}
+		require.NoError(t, c.Err())
+		return x
+	}
+
+	// Samples at 500 and 900 should be in the head with the original series id
+	s1 := head.series.getByID(1)
+	require.NotNil(t, s1)
+	c, _, _, err := s1.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+	require.NoError(t, err)
+	require.Equal(t, []sample{{500, 2, nil, nil}, {900, 3, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
+
+	// Truncate the WAL at 300
+	// Each truncation creates a new segment, so attempt truncations until a checkpoint is created
+	for {
+		head.lastWALTruncationTime.Store(0) // Reset so that it's always time to truncate the WAL
+		err := head.truncateWAL(300)
+		require.NoError(t, err)
+		f, _, err := wlog.Segments(w.Dir())
+		require.NoError(t, err)
+		if f > first {
+			break
+		}
+	}
+
+	require.NoError(t, head.Close())
+
+	// TODO: create a new head instead of re-using the old one
+
+	// Init head at 300
+	require.NoError(t, head.Init(300))
+	defer func() {
+		require.NoError(t, head.Close())
+	}()
+
+	// Samples at 500 and 900 should still be in the head with the original series id
+	s1 = head.series.getByID(1)
+	require.NotNil(t, s1)
+	c, _, _, err = s1.chunk(0, head.chunkDiskMapper, &head.memChunkPool)
+	require.NoError(t, err)
+	require.Equal(t, []sample{{500, 2, nil, nil}, {900, 3, nil, nil}}, expandChunk(c.chunk.Iterator(nil)))
+}
+
 func TestHead_ReadWAL(t *testing.T) {
 	for _, compress := range []compression.Type{compression.None, compression.Snappy, compression.Zstd} {
 		t.Run(fmt.Sprintf("compress=%s", compress), func(t *testing.T) {
