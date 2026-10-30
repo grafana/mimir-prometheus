@@ -4789,6 +4789,226 @@ func TestCompactSelectedSeries_AppenderEvictionRaces(t *testing.T) {
 	})
 }
 
+// TestHead_UnknownRefsDiagnosticsCapture verifies the one-shot diagnostic capture: once a restart
+// reports an unknown series reference, UnknownRefsDiagnosticsDir should receive a copy of the
+// checkpoint (if any) and every live-tail segment read, plus a diagnostics dump, and the whole
+// thing should never capture a second time once the marker file exists.
+func TestHead_UnknownRefsDiagnosticsCapture(t *testing.T) {
+	const chunkRange = 1000
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.MaxBlockDuration = chunkRange
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+	ctx := context.Background()
+
+	lbls := labels.FromStrings("name", "recreated")
+	app := db.Appender(ctx)
+	oldRef, err := app.Append(0, lbls, 100, 1)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	var hookErr error
+	db.head.testAfterGCSeriesBeforeTombstoneWrite = func() {
+		raceApp := db.Appender(ctx)
+		_, hookErr = raceApp.Append(0, lbls, 200, 2)
+		if hookErr != nil {
+			return
+		}
+		hookErr = raceApp.Commit()
+	}
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{oldRef}))
+	require.NoError(t, hookErr)
+
+	// The sample after the tombstone: this is what actually gets reported unknown on replay.
+	laterApp := db.Appender(ctx)
+	_, err = laterApp.Append(0, lbls, 300, 3)
+	require.NoError(t, err)
+	require.NoError(t, laterApp.Commit())
+
+	require.NoError(t, db.Close())
+
+	diagDir := t.TempDir()
+	opts.UnknownRefsDiagnosticsDir = diagDir
+	reopened, err := Open(db.Dir(), nil, nil, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+
+	unknownSamples := prom_testutil.ToFloat64(reopened.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("samples"))
+	require.Equal(t, float64(1), unknownSamples, "precondition: this restart must actually report an unknown ref")
+
+	// The marker file and exactly one timestamped capture directory must exist.
+	_, err = os.Stat(filepath.Join(diagDir, unknownRefsCaptureMarkerFile))
+	require.NoError(t, err, "marker file must have been written")
+
+	entries, err := os.ReadDir(diagDir)
+	require.NoError(t, err)
+	var captureDirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			captureDirs = append(captureDirs, e.Name())
+		}
+	}
+	require.Len(t, captureDirs, 1, "exactly one timestamped capture directory must have been created")
+	captureDir := filepath.Join(diagDir, captureDirs[0])
+
+	// The diagnostics dump must exist and mention the multiRef alias we expect.
+	diagContent, err := os.ReadFile(filepath.Join(captureDir, "diagnostics.txt"))
+	require.NoError(t, err)
+	t.Logf("diagnostics.txt:\n%s", diagContent)
+	require.Contains(t, string(diagContent), "multiRef")
+	require.Contains(t, string(diagContent), "walExpiries")
+
+	// At least one copied WAL segment must exist and contain our records.
+	walEntries, err := os.ReadDir(filepath.Join(captureDir, "wal"))
+	require.NoError(t, err)
+	require.NotEmpty(t, walEntries, "at least one segment must have been copied")
+
+	// A second restart must NOT capture again, even though it will ALSO report the same
+	// unknown ref (nothing new was written in between).
+	require.NoError(t, reopened.Close())
+	thirdOpen, err := Open(db.Dir(), nil, nil, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, thirdOpen.Close()) })
+
+	entriesAfterThird, err := os.ReadDir(diagDir)
+	require.NoError(t, err)
+	var captureDirsAfterThird []string
+	for _, e := range entriesAfterThird {
+		if e.IsDir() {
+			captureDirsAfterThird = append(captureDirsAfterThird, e.Name())
+		}
+	}
+	require.Len(t, captureDirsAfterThird, 1, "no second capture directory must have been created on a later restart")
+}
+
+// TestCompactSelectedSeries_RaceWithRecreationBeforeTombstoneWrite tests a hypothesis raised
+// during the unknown-series-refs investigation: truncateSeries (head.go) unlinks an evicted
+// series from the head's index via gcSeries, and only afterward builds and writes its full-range
+// WAL tombstone. A commit for the exact same labels that lands in that gap resolves to a
+// brand-new series (the old one is already unlinked) and writes its own fresh declaration to the
+// WAL -- strictly before the old series' tombstone, since that hasn't been written yet. On
+// replay, the new declaration (same labels) is found to already be registered -- from the old
+// declaration, replayed moments earlier -- and gets aliased onto the OLD ref via multiRef. The
+// old series' tombstone, replayed next, then deletes that merged identity outright: not just the
+// recreated series' own data, but the original series' already-blocked data too, and none of it
+// is counted as an unknown series reference, because every record resolved successfully right up
+// until the tombstone ran.
+func TestCompactSelectedSeries_RaceWithRecreationBeforeTombstoneWrite(t *testing.T) {
+	const chunkRange = 1000
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.MaxBlockDuration = chunkRange
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+	ctx := context.Background()
+
+	lbls := labels.FromStrings("name", "recreated")
+	app := db.Appender(ctx)
+	oldRef, err := app.Append(0, lbls, 100, 1)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	const (
+		newT = 200
+		newV = 2.0
+	)
+	var (
+		hookErr  error
+		newRef   storage.SeriesRef
+		raceFunc = func() {
+			raceApp := db.Appender(ctx)
+			newRef, hookErr = raceApp.Append(0, lbls, newT, newV)
+			if hookErr != nil {
+				return
+			}
+			hookErr = raceApp.Commit()
+		}
+	)
+	db.head.testAfterGCSeriesBeforeTombstoneWrite = raceFunc
+
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{oldRef}))
+	require.NoError(t, hookErr, "the racing append/commit inside the hook must itself succeed")
+	require.NotEqual(t, oldRef, newRef, "the racing commit must resolve to a brand-new ref, not the evicted one")
+
+	// A third, ordinary commit for the same labels, arriving after the tombstone was already
+	// written. Live, this resolves normally to the recreated series (newRef) -- no eviction
+	// touches it again here.
+	const (
+		laterT = 300
+		laterV = 3.0
+	)
+	laterApp := db.Appender(ctx)
+	laterRef, err := laterApp.Append(0, lbls, laterT, laterV)
+	require.NoError(t, err)
+	require.Equal(t, newRef, laterRef, "the later commit must resolve to the already-recreated series, not create yet another one")
+	require.NoError(t, laterApp.Commit())
+
+	t.Logf("NumSeries immediately after CompactSelectedSeries: %d", db.Head().NumSeries())
+	for _, rec := range readTestWAL(t, db.head.wal.Dir()) {
+		t.Logf("WAL record: %#v", rec)
+	}
+
+	require.NoError(t, db.Close())
+	reopened, err := Open(db.Dir(), nil, nil, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+
+	unknownSamples := prom_testutil.ToFloat64(reopened.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("samples"))
+	unknownSeries := prom_testutil.ToFloat64(reopened.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("series"))
+	t.Logf("after replay: NumSeries=%d unknown samples=%v series=%v", reopened.Head().NumSeries(), unknownSamples, unknownSeries)
+
+	q, err := reopened.Querier(math.MinInt64, math.MaxInt64)
+	require.NoError(t, err)
+	seriesSet := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "name", "recreated"))
+	t.Logf("samples visible after replay: %v", seriesSet[lbls.String()])
+
+	ms2 := reopened.head.series.getByID(2)
+	keepUntil2, ok2 := reopened.head.getWALExpiry(2)
+	t.Logf("DIAGNOSTIC before forcing checkpoint: getByID(2)=%v (nil=%v), getWALExpiry(2)=%v ok=%v", ms2, ms2 == nil, keepUntil2, ok2)
+	ms1 := reopened.head.series.getByID(1)
+	keepUntil1, ok1 := reopened.head.getWALExpiry(1)
+	t.Logf("DIAGNOSTIC before forcing checkpoint: getByID(1)=%v (nil=%v), getWALExpiry(1)=%v ok=%v", ms1, ms1 == nil, keepUntil1, ok1)
+
+	// Does this recur on a later restart? Force a checkpoint on the reopened instance (mint=0,
+	// low enough that the surviving ref's walExpiry -- armed from the merged series' maxTime at
+	// deletion time -- is still honored), consolidating the raw segments above into a fresh
+	// checkpoint, then restart again. Roll forward first: the 2/3 rule needs enough segments to
+	// exist before it will produce a checkpoint at all.
+	for range 10 {
+		_, err := reopened.head.wal.NextSegment()
+		require.NoError(t, err)
+	}
+	for range 10 {
+		reopened.head.lastWALTruncationTime.Store(-1)
+		require.NoError(t, reopened.head.truncateWAL(0))
+		if _, _, err := wlog.LastCheckpoint(reopened.head.wal.Dir()); err == nil {
+			break
+		}
+	}
+	_, checkpointIdx, err := wlog.LastCheckpoint(reopened.head.wal.Dir())
+	require.NoError(t, err, "a checkpoint must have been created")
+	t.Logf("checkpoint created at index %d; its records:", checkpointIdx)
+	for _, rec := range readTestWAL(t, wlog.CheckpointDir(reopened.head.wal.Dir(), checkpointIdx)) {
+		t.Logf("  checkpoint record: %#v", rec)
+	}
+	require.NoError(t, reopened.Close())
+
+	thirdOpen, err := Open(db.Dir(), nil, nil, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, thirdOpen.Close()) })
+
+	thirdUnknownSamples := prom_testutil.ToFloat64(thirdOpen.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("samples"))
+	thirdUnknownSeries := prom_testutil.ToFloat64(thirdOpen.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("series"))
+	t.Logf("after THIRD open (post-checkpoint restart): NumSeries=%d unknown samples=%v series=%v",
+		thirdOpen.Head().NumSeries(), thirdUnknownSamples, thirdUnknownSeries)
+
+	q3, err := thirdOpen.Querier(math.MinInt64, math.MaxInt64)
+	require.NoError(t, err)
+	thirdSeriesSet := query(t, q3, labels.MustNewMatcher(labels.MatchEqual, "name", "recreated"))
+	t.Logf("samples visible after THIRD open: %v", thirdSeriesSet[lbls.String()])
+}
+
 // TestSelectedBlockNotMergedWithNonSelectedBlock reproduces the data-loss path
 // that occurs when a from-selected-series block is merged with a non-selected
 // block by ordinary leveled compaction.
