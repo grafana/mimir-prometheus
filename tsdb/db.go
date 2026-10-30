@@ -333,6 +333,9 @@ type Options struct {
 	// By default, DefaultPostingsDecoderFactory will be used to create raw posting decoder.
 	PostingsDecoderFactory PostingsDecoderFactory
 
+	// IndexFormatVersion selects the format written during compaction. Zero writes V2.
+	IndexFormatVersion int
+
 	// UseUncachedIO allows bypassing the page cache when appropriate.
 	UseUncachedIO bool
 
@@ -1041,6 +1044,7 @@ func Open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, st
 		opts.FeatureRegistry.Set(features.TSDB, "delayed_compaction", opts.EnableDelayedCompaction)
 		opts.FeatureRegistry.Set(features.TSDB, "isolation", !opts.IsolationDisabled)
 		opts.FeatureRegistry.Set(features.TSDB, "use_uncached_io", opts.UseUncachedIO)
+		opts.FeatureRegistry.Set(features.TSDB, "index_v4", opts.IndexFormatVersion == index.FormatV4)
 		opts.FeatureRegistry.Enable(features.TSDB, "native_histograms")
 		opts.FeatureRegistry.Set(features.TSDB, "st_storage", opts.EnableSTStorage)
 		opts.FeatureRegistry.Enable(features.TSDB, "xor2_encoding")
@@ -1230,6 +1234,7 @@ func open(dir string, l *slog.Logger, r prometheus.Registerer, opts *Options, rn
 			EnableOverlappingCompaction: opts.EnableOverlappingCompaction,
 			PD:                          opts.PostingsDecoderFactory,
 			UseUncachedIO:               opts.UseUncachedIO,
+			IndexFormatVersion:          opts.IndexFormatVersion,
 			BlockExcludeFilter:          opts.BlockCompactionExcludeFunc,
 			FloatChunkEncoding:          db.floatChunkEncoding,
 		})
