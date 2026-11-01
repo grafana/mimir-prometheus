@@ -4882,6 +4882,80 @@ func TestHead_UnknownRefsDiagnosticsCapture(t *testing.T) {
 	require.Len(t, captureDirsAfterThird, 1, "no second capture directory must have been created on a later restart")
 }
 
+// TestHead_UnknownRefsDiagnosticsCapture_ClearsStaleLeftovers simulates a prior capture attempt
+// that crashed partway through copying: a leftover timestamped directory with partial content,
+// but no marker file (which is only written once a capture attempt completes). On the next
+// restart that hits the same unknown ref, the leftover must be cleared before the fresh capture
+// is written, so a crash-looping restart never accumulates more than one attempt's worth of data
+// on disk.
+func TestHead_UnknownRefsDiagnosticsCapture_ClearsStaleLeftovers(t *testing.T) {
+	const chunkRange = 1000
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.MaxBlockDuration = chunkRange
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+	ctx := context.Background()
+
+	lbls := labels.FromStrings("name", "recreated")
+	app := db.Appender(ctx)
+	oldRef, err := app.Append(0, lbls, 100, 1)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	var hookErr error
+	db.head.testAfterGCSeriesBeforeTombstoneWrite = func() {
+		raceApp := db.Appender(ctx)
+		_, hookErr = raceApp.Append(0, lbls, 200, 2)
+		if hookErr != nil {
+			return
+		}
+		hookErr = raceApp.Commit()
+	}
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{oldRef}))
+	require.NoError(t, hookErr)
+
+	laterApp := db.Appender(ctx)
+	_, err = laterApp.Append(0, lbls, 300, 3)
+	require.NoError(t, err)
+	require.NoError(t, laterApp.Commit())
+
+	require.NoError(t, db.Close())
+
+	diagDir := t.TempDir()
+	staleDir := filepath.Join(diagDir, "20200101T000000Z")
+	require.NoError(t, os.MkdirAll(filepath.Join(staleDir, "wal"), 0o777))
+	require.NoError(t, os.WriteFile(filepath.Join(staleDir, "wal", "00000000"), []byte("partial garbage from a crashed attempt"), 0o666))
+	// No marker file: this leftover must look exactly like an incomplete, crashed attempt.
+	_, err = os.Stat(filepath.Join(diagDir, unknownRefsCaptureMarkerFile))
+	require.True(t, os.IsNotExist(err), "precondition: no marker file must exist yet")
+
+	opts.UnknownRefsDiagnosticsDir = diagDir
+	reopened, err := Open(db.Dir(), nil, nil, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+
+	unknownSamples := prom_testutil.ToFloat64(reopened.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("samples"))
+	require.Equal(t, float64(1), unknownSamples, "precondition: this restart must actually report an unknown ref")
+
+	_, err = os.Stat(staleDir)
+	require.True(t, os.IsNotExist(err), "the stale leftover directory must have been cleared")
+
+	_, err = os.Stat(filepath.Join(diagDir, unknownRefsCaptureMarkerFile))
+	require.NoError(t, err, "marker file must have been written for the fresh capture")
+
+	entries, err := os.ReadDir(diagDir)
+	require.NoError(t, err)
+	var captureDirs []string
+	for _, e := range entries {
+		if e.IsDir() {
+			captureDirs = append(captureDirs, e.Name())
+		}
+	}
+	require.Len(t, captureDirs, 1, "exactly one (fresh) timestamped capture directory must exist")
+	require.NotEqual(t, "20200101T000000Z", captureDirs[0], "the capture directory must be the fresh one, not the stale leftover")
+}
+
 // TestCompactSelectedSeries_RaceWithRecreationBeforeTombstoneWrite tests a hypothesis raised
 // during the unknown-series-refs investigation: truncateSeries (head.go) unlinks an evicted
 // series from the head's index via gcSeries, and only afterward builds and writes its full-range
