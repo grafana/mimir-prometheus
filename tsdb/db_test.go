@@ -4809,7 +4809,7 @@ func TestHead_UnknownRefsDiagnosticsCapture(t *testing.T) {
 	require.NoError(t, app.Commit())
 
 	var hookErr error
-	db.head.testAfterGCSeriesBeforeTombstoneWrite = func() {
+	db.head.testAfterGCSeriesBeforeTombstonesWritten = func() {
 		raceApp := db.Appender(ctx)
 		_, hookErr = raceApp.Append(0, lbls, 200, 2)
 		if hookErr != nil {
@@ -4904,7 +4904,7 @@ func TestHead_UnknownRefsDiagnosticsCapture_ClearsStaleLeftovers(t *testing.T) {
 	require.NoError(t, app.Commit())
 
 	var hookErr error
-	db.head.testAfterGCSeriesBeforeTombstoneWrite = func() {
+	db.head.testAfterGCSeriesBeforeTombstonesWritten = func() {
 		raceApp := db.Appender(ctx)
 		_, hookErr = raceApp.Append(0, lbls, 200, 2)
 		if hookErr != nil {
@@ -4999,7 +4999,7 @@ func TestCompactSelectedSeries_RaceWithRecreationBeforeTombstoneWrite(t *testing
 			hookErr = raceApp.Commit()
 		}
 	)
-	db.head.testAfterGCSeriesBeforeTombstoneWrite = raceFunc
+	db.head.testAfterGCSeriesBeforeTombstonesWritten = raceFunc
 
 	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{oldRef}))
 	require.NoError(t, hookErr, "the racing append/commit inside the hook must itself succeed")

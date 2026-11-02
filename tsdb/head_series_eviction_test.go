@@ -602,6 +602,92 @@ func TestSeriesEviction_SeriesAreOnlyPublishedWhileTheyAreEvicted(t *testing.T) 
 	}
 }
 
+// TestSeriesEviction_RaceWithRecreationBeforeTombstoneWrite verifies what happens to a sample for
+// a series being evicted that arrives between gcSeries unlinking it and its tombstone being
+// written to the WAL. Such a commit resolves to a brand-new series and writes its own
+// declaration to the WAL before the old series' tombstone.
+//
+// Without the fix below, that new declaration would, on replay, be found already registered
+// under the same labels and get aliased onto the OLD ref via multiRef. A sample for the new ref
+// ordered, in the WAL, BEFORE the tombstone would resolve through that alias and be merged into
+// the old series' identity; the tombstone, replayed next, would then delete that merged identity
+// outright, silently dropping it. A sample for the new ref ordered AFTER the tombstone would find
+// the alias target already gone, and be counted as an "Unknown series references" sample.
+//
+// truncateSeries closes this: once gcSeries returns, it checks whether the evicted labels now
+// resolve to a different, live ref (the collision this race causes) and, if so, skips that ref's
+// tombstone. Replay still aliases the new ref onto the old one via multiRef, same as before, but
+// with no tombstone to wipe the merged identity afterward, every sample survives under it.
+func TestSeriesEviction_RaceWithRecreationBeforeTombstoneWrite(t *testing.T) {
+	const chunkRange = 1000
+	opts := DefaultOptions()
+	opts.MinBlockDuration = chunkRange
+	opts.MaxBlockDuration = chunkRange
+	db := newTestDB(t, withOpts(opts))
+	db.DisableCompactions()
+	ctx := context.Background()
+
+	lbls := labels.FromStrings("name", "recreated")
+	app := db.Appender(ctx)
+	oldRef, err := app.Append(0, lbls, 100, 1)
+	require.NoError(t, err)
+	require.NoError(t, app.Commit())
+
+	const (
+		raceT = 200
+		raceV = 2.0
+	)
+	var (
+		hookErr  error
+		newRef   storage.SeriesRef
+		raceFunc = func() {
+			raceApp := db.Appender(ctx)
+			newRef, hookErr = raceApp.Append(0, lbls, raceT, raceV)
+			if hookErr != nil {
+				return
+			}
+			hookErr = raceApp.Commit()
+		}
+	)
+	db.head.testAfterGCSeriesBeforeTombstonesWritten = raceFunc
+
+	require.NoError(t, db.CompactSelectedSeries([]storage.SeriesRef{oldRef}))
+	require.NoError(t, hookErr, "the racing append/commit inside the hook must itself succeed")
+	require.NotEqual(t, oldRef, newRef, "the racing commit must resolve to a brand-new ref, not the evicted one")
+
+	// An ordinary commit for the same labels, arriving after the tombstone was already written.
+	// Live, this resolves normally to the recreated series (newRef): no eviction touches it again
+	// here. On replay, this is the sample that finds the alias target already gone.
+	const (
+		laterT = 300
+		laterV = 3.0
+	)
+	laterApp := db.Appender(ctx)
+	laterRef, err := laterApp.Append(0, lbls, laterT, laterV)
+	require.NoError(t, err)
+	require.Equal(t, newRef, laterRef, "the later commit must resolve to the already-recreated series, not create yet another one")
+	require.NoError(t, laterApp.Commit())
+
+	require.NoError(t, db.Close())
+	reopened, err := Open(db.Dir(), nil, nil, opts, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, reopened.Close()) })
+
+	// All three samples survive: the original (t=100, already persisted into a block before any
+	// of this ran), and the racing and later samples (raceT/raceV, laterT/laterV), both merged by
+	// multiRef aliasing onto the evicted series' identity, with no tombstone left to wipe them.
+	q, err := reopened.Querier(math.MinInt64, math.MaxInt64)
+	require.NoError(t, err)
+	series := query(t, q, labels.MustNewMatcher(labels.MatchEqual, "name", "recreated"))
+	require.Equal(t,
+		[]chunks.Sample{sample{t: 100, f: 1}, sample{t: raceT, f: raceV}, sample{t: laterT, f: laterV}},
+		series[lbls.String()],
+		"the original, racing and later samples must all survive: the colliding ref's tombstone must have been skipped")
+
+	unknownSamples := prom_testutil.ToFloat64(reopened.head.metrics.walReplayUnknownRefsTotal.WithLabelValues("samples"))
+	require.Equal(t, float64(0), unknownSamples, "no sample should be reported as an unknown series reference: the colliding ref's tombstone must have been skipped")
+}
+
 func TestEvictedSeries_Contains(t *testing.T) {
 	refs := []storage.SeriesRef{3, 5, 6, 100, 1 << 40}
 

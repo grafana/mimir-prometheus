@@ -181,11 +181,12 @@ type Head struct {
 	// where a reader would otherwise not be waited for.
 	testAfterWaitingForReadersToEvictSeries func()
 	// TODO: find a better solution than this test hook in production code.
-	// testAfterGCSeriesBeforeTombstoneWrite is invoked by truncateSeries after gcSeries has
-	// unlinked the deleted series from the head's index, but before the corresponding WAL
-	// tombstones are built and written. Tests use it to race a commit for the same labels into
-	// that gap.
-	testAfterGCSeriesBeforeTombstoneWrite func()
+	// testAfterGCSeriesBeforeTombstonesWritten is invoked by truncateSeries after gcSeries has
+	// unlinked the evicted series from the head's indexes, and before their tombstones are
+	// written to the WAL. Tests use it to simulate a commit for the exact same labels landing in
+	// that gap: it resolves to a brand-new series (the old one is already unlinked), and its own
+	// declaration reaches the WAL before the evicted series' tombstone does.
+	testAfterGCSeriesBeforeTombstonesWritten func()
 
 	// evictingSeries is the set of series that truncateSeries is removing, or nil if it is not running.
 	// The readers of queries opened while it is set skip the chunks of those series that are removed
@@ -1620,17 +1621,30 @@ func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, should
 		h.testAfterWaitingForReadersToEvictSeries = nil
 	}
 
-	deleted := h.gcSeries(seriesRefs, maxt, shouldEvict)
+	deleted, deletedLabels := h.gcSeries(seriesRefs, maxt, shouldEvict)
 
-	if h.testAfterGCSeriesBeforeTombstoneWrite != nil {
-		h.testAfterGCSeriesBeforeTombstoneWrite()
-		h.testAfterGCSeriesBeforeTombstoneWrite = nil
+	if h.testAfterGCSeriesBeforeTombstonesWritten != nil {
+		h.testAfterGCSeriesBeforeTombstonesWritten()
+		h.testAfterGCSeriesBeforeTombstonesWritten = nil
 	}
 
 	// Record the deleted series refs in the WAL so that we can ignore them during replay.
 	if h.wal != nil {
 		stones := make([]tombstones.Stone, 0, len(seriesRefs))
 		for ref := range deleted {
+			// A commit landing between gcSeries unlinking this ref and the tombstone being
+			// written below can resolve to the same labels and get a brand-new ref inserted
+			// into the index. If that happened, this ref's tombstone must not be written:
+			// on replay, the new ref's declaration would be found already registered (from
+			// this ref's own declaration, replayed moments earlier) and get aliased onto this
+			// old ref via multiRef, so the tombstone would wipe the new series' data outright
+			// instead of just this old, already-persisted one. Skip it and let this ref's WAL
+			// records expire the normal way, through the walExpiries cutoff set in gcSeries.
+			if lset, ok := deletedLabels[chunks.HeadSeriesRef(ref)]; ok {
+				if live := h.series.getByHash(lset.Hash(), lset); live != nil && live.ref != chunks.HeadSeriesRef(ref) {
+					continue
+				}
+			}
 			stones = append(stones, tombstones.Stone{
 				Ref:       ref,
 				Intervals: tombstones.Intervals{{Mint: math.MinInt64, Maxt: math.MaxInt64}},
@@ -2824,12 +2838,14 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 // Series whose exemplars still need replay retain their identity, but their persisted
 // sample chunks are released if shouldEvict returns true.
 //
-// The returned references are the series that got deleted.
-func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) map[storage.SeriesRef]struct{} {
+// The returned references are the series that got deleted, alongside the labels each of
+// them had, so the caller can tell whether a given ref's labels were already reused by a
+// new series by the time it decides whether to write that ref's WAL tombstone.
+func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (map[storage.SeriesRef]struct{}, map[chunks.HeadSeriesRef]labels.Labels) {
 	minValidTime := h.minValidTime.Load()
 	evicting := h.evictingSeries.Load()
 	var protectedChunksRemoved int
-	deleted, affected, chunksRemoved, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted := h.series.gcSeries(seriesRefs, maxt, func(s *memSeries) bool {
+	deleted, deletedLabels, affected, chunksRemoved, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted := h.series.gcSeries(seriesRefs, maxt, func(s *memSeries) bool {
 		// Keep unpersisted samples before considering chunk removal or series eviction.
 		if !shouldEvict(s) {
 			return false
@@ -2888,7 +2904,7 @@ func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict 
 		h.walExpiriesMtx.Unlock()
 	}
 
-	return deleted
+	return deleted, deletedLabels
 }
 
 // deleteSeriesByID deletes the series with the given reference.
@@ -2977,12 +2993,14 @@ func (h *Head) deleteSeriesByID(refs []chunks.HeadSeriesRef) {
 }
 
 // gcSeries walks all series and removes those whose ref is in seriesRefs, whose maxTime is
-// <= maxt, and for which shouldEvict returns true. Returns the set of deleted refs, the set
-// of label-name/value pairs whose postings are affected, the count of removed chunks, and
-// the number of deleted series that carried a stale-NaN last value.
-func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (_ map[storage.SeriesRef]struct{}, _ map[labels.Label]struct{}, _, _, _, _ int) {
+// <= maxt, and for which shouldEvict returns true. Returns the set of deleted refs, the
+// labels of each deleted series (so the caller can detect a ref reused for the same labels
+// right after deletion), the set of label-name/value pairs whose postings are affected, the
+// count of removed chunks, and the number of deleted series that carried a stale-NaN last value.
+func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (_ map[storage.SeriesRef]struct{}, _ map[chunks.HeadSeriesRef]labels.Labels, _ map[labels.Label]struct{}, _, _, _, _ int) {
 	var (
 		deleted                 = map[storage.SeriesRef]struct{}{}
+		deletedLabels           = map[chunks.HeadSeriesRef]labels.Labels{}
 		affected                = map[labels.Label]struct{}{}
 		rmChunks                = 0
 		staleSeriesDeleted      = 0
@@ -3031,6 +3049,7 @@ func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shou
 		}
 
 		deleted[storage.SeriesRef(series.ref)] = struct{}{}
+		deletedLabels[series.ref] = series.lset // OK to access lset; series is locked at the top of this function.
 		// Keep head chunks intact for readers that still reference the series.
 		series.setGCed()
 		stale, isHist, buckets := series.sampleState()
@@ -3049,7 +3068,7 @@ func (s *stripeSeries) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shou
 
 	s.iterForDeletion(check)
 
-	return deleted, affected, rmChunks, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted
+	return deleted, deletedLabels, affected, rmChunks, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted
 }
 
 // The iterForDeletion function iterates through all series, invoking the checkDeletedFunc for each.
