@@ -2221,23 +2221,6 @@ func (h *Head) LabelValuesBytes() map[string]uint64 {
 	return h.postings.LabelValuesBytes()
 }
 
-// LastSeriesRef returns the highest series reference that the head allocated.
-// The head allocates a higher reference for each new series.
-func (h *Head) LastSeriesRef() storage.SeriesRef {
-	return storage.SeriesRef(h.lastSeriesID.Load())
-}
-
-// PostingsLength returns the number of series for the label pair name=value.
-func (h *Head) PostingsLength(name, value string) int {
-	return h.postings.PostingsLength(name, value)
-}
-
-// AppendRandomPostingsRefs appends count random series references for the label pair name=value to buffer.
-// See index.MemPostings.AppendRandomPostingsRefs.
-func (h *Head) AppendRandomPostingsRefs(name, value string, count int, buffer []storage.SeriesRef) []storage.SeriesRef {
-	return h.postings.AppendRandomPostingsRefs(name, value, count, buffer)
-}
-
 // NumStaleSeries returns the number of stale series in the head.
 func (h *Head) NumStaleSeries() uint64 {
 	return h.numStaleSeries.Load()
