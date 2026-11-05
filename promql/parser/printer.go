@@ -102,21 +102,21 @@ func (node *AggregateExpr) writeAggOpStr(b *bytes.Buffer) {
 	switch {
 	case node.Without:
 		b.WriteString(" without (")
-		writeLabels(b, node.Grouping)
+		writeLabels(b, node.Grouping, node.unquotedUTF8Names)
 		b.WriteString(") ")
 	case len(node.Grouping) > 0:
 		b.WriteString(" by (")
-		writeLabels(b, node.Grouping)
+		writeLabels(b, node.Grouping, node.unquotedUTF8Names)
 		b.WriteString(") ")
 	}
 }
 
-func writeLabels(b *bytes.Buffer, ss []string) {
+func writeLabels(b *bytes.Buffer, ss []string, unquotedUTF8Names bool) {
 	for i, s := range ss {
 		if i > 0 {
 			b.WriteString(", ")
 		}
-		if labelNameRequiresQuoting(s) {
+		if labelNameRequiresQuoting(s, unquotedUTF8Names) {
 			b.Write(strconv.AppendQuote(b.AvailableBuffer(), s))
 		} else {
 			b.WriteString(s)
@@ -124,12 +124,16 @@ func writeLabels(b *bytes.Buffer, ss []string) {
 	}
 }
 
-func labelNameRequiresQuoting(s string) bool {
+func labelNameRequiresQuoting(s string, unquotedUTF8Names bool) bool {
+	if !unquotedUTF8Names {
+		return !model.LegacyValidation.IsValidLabelName(s)
+	}
 	if s == "" {
 		return true
 	}
+	l := Lexer{unquotedUTF8Names: true}
 	for i, r := range s {
-		if (i == 0 && !isNameStart(r)) || (i > 0 && !isNameContinue(r)) {
+		if (i == 0 && !l.isNameStart(r)) || (i > 0 && !l.isNameContinue(r)) {
 			return true
 		}
 	}
@@ -200,7 +204,7 @@ func (node *BinaryExpr) getMatchingStr() string {
 				vmTag = "on"
 			}
 			b.WriteString(" " + vmTag + " (")
-			writeLabels(&b, vm.MatchingLabels)
+			writeLabels(&b, vm.MatchingLabels, node.unquotedUTF8Names)
 			b.WriteString(")")
 			matching = b.String()
 		}
@@ -212,7 +216,7 @@ func (node *BinaryExpr) getMatchingStr() string {
 			}
 			b.Reset()
 			b.WriteString(" group_" + vmCard + " (")
-			writeLabels(&b, vm.Include)
+			writeLabels(&b, vm.Include, node.unquotedUTF8Names)
 			b.WriteString(")")
 			matching += b.String()
 		}
@@ -461,7 +465,7 @@ func (node *VectorSelector) String() string {
 		if matcher.Name == labels.MetricName && matcher.Type == labels.MatchEqual && matcher.Value == node.Name && matcher.Value != "" {
 			continue
 		}
-		if !labelNameRequiresQuoting(matcher.Name) {
+		if !labelNameRequiresQuoting(matcher.Name, node.unquotedUTF8Names) {
 			labelStrings = append(labelStrings, matcher.Name+matcher.Type.String()+strconv.Quote(matcher.Value))
 		} else {
 			labelStrings = append(labelStrings, matcher.String())
