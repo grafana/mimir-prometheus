@@ -95,6 +95,8 @@ type AggregateExpr struct {
 	Grouping []string // The labels by which to group the Vector.
 	Without  bool     // Whether to drop the given labels rather than keep them.
 
+	unquotedUTF8Names bool // Whether the printer can emit unquoted Unicode letters and dots in names.
+
 	PosRange posrange.PositionRange
 }
 
@@ -109,6 +111,8 @@ type BinaryExpr struct {
 
 	// If a comparison operator, return 0/1 rather than filtering.
 	ReturnBool bool
+
+	unquotedUTF8Names bool // Whether the printer can emit unquoted Unicode letters and dots in names.
 }
 
 // DurationExpr represents a binary expression between two duration expressions.
@@ -231,6 +235,8 @@ type VectorSelector struct {
 	Anchored bool
 	// Smoothed is true when the VectorSelector is smoothed.
 	Smoothed bool
+
+	unquotedUTF8Names bool // Whether the printer can emit unquoted Unicode letters and dots in names.
 
 	PosRange posrange.PositionRange
 }
