@@ -96,6 +96,7 @@ type LeveledCompactor struct {
 	mergeFunc                   storage.VerticalChunkSeriesMergeFunc
 	blockExcludeFunc            BlockExcludeFilterFunc
 	postingsEncoder             index.PostingsEncoder
+	indexFormatVersion          int
 	postingsDecoderFactory      PostingsDecoderFactory
 	enableOverlappingCompaction bool
 	concurrencyOpts             LeveledCompactorConcurrencyOptions
@@ -166,6 +167,9 @@ func NewCompactorMetrics(r prometheus.Registerer) *CompactorMetrics {
 }
 
 type LeveledCompactorOptions struct {
+	// IndexFormatVersion selects the output index format. Zero writes V2.
+	IndexFormatVersion int
+
 	// PE specifies the postings encoder. It is called when compactor is writing out the postings for a label name/value pair during compaction.
 	// If it is nil then the default encoder is used. At the moment that is the "raw" encoder. See index.EncodePostingsRaw for more.
 	PE index.PostingsEncoder
@@ -232,6 +236,9 @@ func NewLeveledCompactorWithOptions(ctx context.Context, r prometheus.Registerer
 	if maxBlockChunkSegmentSize == 0 {
 		maxBlockChunkSegmentSize = chunks.DefaultChunkSegmentSize
 	}
+	if opts.IndexFormatVersion != 0 && opts.IndexFormatVersion != index.FormatV2 && opts.IndexFormatVersion != index.FormatV4 {
+		return nil, fmt.Errorf("unsupported index write version %d", opts.IndexFormatVersion)
+	}
 	pe := opts.PE
 	if pe == nil {
 		pe = index.EncodePostingsRaw
@@ -249,6 +256,7 @@ func NewLeveledCompactorWithOptions(ctx context.Context, r prometheus.Registerer
 		useUncachedIO:               opts.UseUncachedIO,
 		mergeFunc:                   mergeFunc,
 		postingsEncoder:             pe,
+		indexFormatVersion:          opts.IndexFormatVersion,
 		postingsDecoderFactory:      opts.PD,
 		enableOverlappingCompaction: opts.EnableOverlappingCompaction,
 		concurrencyOpts:             DefaultLeveledCompactorConcurrencyOptions(),
@@ -1004,7 +1012,7 @@ func (c *LeveledCompactor) write(dest string, outBlocks []shardedBlock, blockPop
 		outBlocks[ix].chunkw = chunkw
 
 		var indexw IndexWriter
-		indexw, err = index.NewWriterWithEncoder(c.ctx, filepath.Join(tmp, indexFilename), c.postingsEncoder)
+		indexw, err = index.NewWriterWithOptions(c.ctx, filepath.Join(tmp, indexFilename), index.WriterOptions{FormatVersion: c.indexFormatVersion, PostingsEncoder: c.postingsEncoder})
 		if err != nil {
 			return fmt.Errorf("open index writer: %w", err)
 		}
