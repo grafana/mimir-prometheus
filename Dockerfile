@@ -1,6 +1,6 @@
 ARG ARCH="amd64"
 ARG OS="linux"
-FROM quay.io/prometheus/busybox-${OS}-${ARCH}:latest
+FROM quay.io/prometheus/busybox-${OS}-${ARCH}:latest@sha256:ea38411e568ddef8ddf8ee0765697b9d33182c0ff07e6a84a80180bd35fc4f22
 LABEL maintainer="The Prometheus Authors <prometheus-developers@googlegroups.com>"
 LABEL org.opencontainers.image.authors="The Prometheus Authors" \
       org.opencontainers.image.vendor="Prometheus" \
