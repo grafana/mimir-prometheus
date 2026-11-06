@@ -1,0 +1,23 @@
+version: "2"
+# The controller deliberately has no third-party runtime dependencies.
+linters:
+  enable:
+    - depguard
+    - gocritic
+    - godot
+    - modernize
+    - usestdlibvars
+  settings:
+    depguard:
+      rules:
+        main:
+          allow:
+            - $gostd
+  exclusions:
+    rules:
+      - linters: [errcheck]
+        text: Error return value of .((os\.)?std(out|err)\..*|.*close|.*Close|.*Flush|os\.Remove(All)?|.*print(f|ln)?|os\.(Un)?Setenv). is not checked
+      - linters: [errcheck]
+        path: _test.go
+formatters:
+  enable: [gofumpt, goimports]
