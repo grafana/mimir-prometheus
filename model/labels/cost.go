@@ -84,12 +84,13 @@ func (m *Matcher) EstimateSelectivity(totalLabelValues uint64) float64 {
 		}
 
 	case MatchRegexp, MatchNotRegexp:
+		_, isEmptyStringMatcher := m.re.stringMatcher.(emptyStringMatcher)
 		// If we have optimized set matches, we know exactly how many values we'll match.
 		// We assume that all of them will be present in the corpus we're testing against.
 		switch setMatchesSize := len(m.re.setMatches); {
 		case setMatchesSize > 0:
 			selectivity = float64(setMatchesSize) / float64(totalLabelValues)
-		case m.Value == "":
+		case m.Value == "" || isEmptyStringMatcher:
 			selectivity = 0
 		case m.re.prefix != "":
 			// For prefix matches, estimate we'll match ~10% of values.
