@@ -1621,7 +1621,7 @@ func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, should
 		h.testAfterWaitingForReadersToEvictSeries = nil
 	}
 
-	deleted, deletedLabels := h.gcSeries(seriesRefs, maxt, shouldEvict)
+	deleted, deletedLabels, outcome := h.gcSeries(seriesRefs, maxt, shouldEvict)
 
 	if h.testAfterGCSeriesBeforeTombstonesWritten != nil {
 		h.testAfterGCSeriesBeforeTombstonesWritten()
@@ -1629,6 +1629,9 @@ func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, should
 	}
 
 	// Record the deleted series refs in the WAL so that we can ignore them during replay.
+	tombstonesWritten := 0
+	var recreatedSkipped int
+	var recreatedSkippedSample []chunks.HeadSeriesRef
 	if h.wal != nil {
 		stones := make([]tombstones.Stone, 0, len(seriesRefs))
 		for ref := range deleted {
@@ -1642,6 +1645,10 @@ func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, should
 			// records expire the normal way, through the walExpiries cutoff set in gcSeries.
 			if lset, ok := deletedLabels[chunks.HeadSeriesRef(ref)]; ok {
 				if live := h.series.getByHash(lset.Hash(), lset); live != nil && live.ref != chunks.HeadSeriesRef(ref) {
+					recreatedSkipped++
+					if len(recreatedSkippedSample) < evictionOutcomeSampleCap {
+						recreatedSkippedSample = append(recreatedSkippedSample, chunks.HeadSeriesRef(ref))
+					}
 					continue
 				}
 			}
@@ -1650,10 +1657,29 @@ func (h *Head) truncateSeries(seriesRefs []storage.SeriesRef, maxt int64, should
 				Intervals: tombstones.Intervals{{Mint: math.MinInt64, Maxt: math.MaxInt64}},
 			})
 		}
+		tombstonesWritten = len(stones)
 		var enc record.Encoder
 		if err := h.wal.Log(enc.Tombstones(stones, nil)); err != nil {
 			return 0, err
 		}
+	}
+
+	// Diagnostic: break down how many of the requested refs ended up in each outcome bucket, so
+	// a partial "requested != tombstoned" gap (e.g. the "no series were evicted" case) can be
+	// attributed to a specific cause instead of guessed at. Only logs when the requested batch
+	// didn't fully turn into written tombstones, to stay silent on the common, fully-successful
+	// path.
+	if requested := len(seriesRefs); requested != tombstonesWritten {
+		h.logger.Info("selected series eviction: requested vs tombstoned breakdown",
+			"requested", requested,
+			"tombstoned", tombstonesWritten,
+			"should_evict_declined", outcome.shouldEvictDeclined,
+			"should_evict_declined_sample", outcome.shouldEvictDeclinedSample,
+			"exemplar_retained", outcome.exemplarRetained,
+			"exemplar_retained_sample", outcome.exemplarRetainedSample,
+			"tombstone_skipped_labels_recreated", recreatedSkipped,
+			"tombstone_skipped_labels_recreated_sample", recreatedSkippedSample,
+		)
 	}
 	return len(deleted), nil
 }
@@ -2841,13 +2867,45 @@ func (s *stripeSeries) gc(mint int64, minOOOMmapRef chunks.ChunkDiskMapperRef) (
 // The returned references are the series that got deleted, alongside the labels each of
 // them had, so the caller can tell whether a given ref's labels were already reused by a
 // new series by the time it decides whether to write that ref's WAL tombstone.
-func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (map[storage.SeriesRef]struct{}, map[chunks.HeadSeriesRef]labels.Labels) {
+// evictionOutcome breaks down, for one gcSeries call, how many of the candidate refs ended up
+// in each outcome bucket, plus a bounded sample of ref numbers per non-"deleted" bucket -- enough
+// to cross-reference against a WAL capture without risking unbounded log lines when a batch is
+// huge. See the "requested vs tombstoned" diagnostic logged by truncateSeries/CompactSelectedSeries.
+type evictionOutcome struct {
+	shouldEvictDeclined       int
+	shouldEvictDeclinedSample []chunks.HeadSeriesRef
+	exemplarRetained          int
+	exemplarRetainedSample    []chunks.HeadSeriesRef
+}
+
+const evictionOutcomeSampleCap = 20
+
+func (o *evictionOutcome) recordShouldEvictDeclined(ref chunks.HeadSeriesRef) {
+	o.shouldEvictDeclined++
+	if len(o.shouldEvictDeclinedSample) < evictionOutcomeSampleCap {
+		o.shouldEvictDeclinedSample = append(o.shouldEvictDeclinedSample, ref)
+	}
+}
+
+func (o *evictionOutcome) recordExemplarRetained(ref chunks.HeadSeriesRef) {
+	o.exemplarRetained++
+	if len(o.exemplarRetainedSample) < evictionOutcomeSampleCap {
+		o.exemplarRetainedSample = append(o.exemplarRetainedSample, ref)
+	}
+}
+
+func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict func(*memSeries) bool) (map[storage.SeriesRef]struct{}, map[chunks.HeadSeriesRef]labels.Labels, evictionOutcome) {
 	minValidTime := h.minValidTime.Load()
 	evicting := h.evictingSeries.Load()
 	var protectedChunksRemoved int
+	var outcome evictionOutcome
 	deleted, deletedLabels, affected, chunksRemoved, staleSeriesDeleted, histogramSeriesDeleted, histogramBucketsDeleted := h.series.gcSeries(seriesRefs, maxt, func(s *memSeries) bool {
 		// Keep unpersisted samples before considering chunk removal or series eviction.
 		if !shouldEvict(s) {
+			// s.ref is read without s.Lock here; shouldEvict's own implementations (e.g.
+			// isSeriesWithoutOOO/hasMutatedSinceSnapshot callers) already run under the series
+			// lock from stripeSeries.gcSeries, and s.ref itself is immutable after creation.
+			outcome.recordShouldEvictDeclined(s.ref)
 			return false
 		}
 		// Delete the series if it has no exemplar at or after the WAL replay cutoff.
@@ -2871,6 +2929,7 @@ func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict 
 			h.series.decMmapReady(s.ref)
 		}
 		// Prevent deletion of the series identity while its exemplar can still be replayed.
+		outcome.recordExemplarRetained(s.ref)
 		return false
 	})
 	seriesRemoved := len(deleted)
@@ -2904,7 +2963,7 @@ func (h *Head) gcSeries(seriesRefs []storage.SeriesRef, maxt int64, shouldEvict 
 		h.walExpiriesMtx.Unlock()
 	}
 
-	return deleted, deletedLabels
+	return deleted, deletedLabels, outcome
 }
 
 // deleteSeriesByID deletes the series with the given reference.
