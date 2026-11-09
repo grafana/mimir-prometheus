@@ -16,7 +16,9 @@ package tsdb
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -98,6 +100,40 @@ func TestHeadAppender_Commit_LogsWhenNewSeriesDeclarationFailsOnBothCommitAndRol
 		err = app.Commit()
 		require.Error(t, err, "commit must still fail: the WAL is closed")
 
+		require.NotContains(t, logs.String(), newSeriesWALLogFailureWarnMsg)
+	})
+
+	t.Run("does not log: the series record was written and only a later record failed", func(t *testing.T) {
+		dir := t.TempDir()
+		walDir := filepath.Join(dir, "wal")
+		// A 2-page segment: the series record (about 40KB) fits once but not twice, and the
+		// samples record doesn't fit in what's left.
+		wal, err := wlog.NewSize(nil, nil, walDir, 2*32*1024, compression.None)
+		require.NoError(t, err)
+
+		var logs bytes.Buffer
+		opts := newTestHeadDefaultOptions(1000, false)
+		opts.ChunkDirRoot = dir
+		h, err := NewHead(nil, slog.New(slog.NewTextHandler(&logs, nil)), wal, nil, opts, nil)
+		require.NoError(t, err)
+		defer func() { _ = h.Close() }()
+		h.initTime(0)
+
+		app := h.Appender(context.Background())
+		for i := range 1500 {
+			lbls := labels.FromStrings("name", fmt.Sprintf("series_%d", i))
+			for ts := range int64(5) {
+				_, err = app.Append(0, lbls, ts, float64(ts))
+				require.NoError(t, err)
+			}
+		}
+		// Creating a new segment now fails: the samples record fails on the commit, and the
+		// series record fails on the rollback retry.
+		require.NoError(t, os.RemoveAll(walDir))
+
+		err = app.Commit()
+		require.Error(t, err)
+		require.ErrorContains(t, err, "log samples")
 		require.NotContains(t, logs.String(), newSeriesWALLogFailureWarnMsg)
 	})
 }

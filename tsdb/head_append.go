@@ -1121,6 +1121,16 @@ func (a *headAppenderBase) GetRef(lset labels.Labels, hash uint64) (storage.Seri
 }
 
 // log writes all headAppender's data to the WAL.
+// logSeriesError is returned by headAppenderBase.log() when the series record
+// could not be written to the WAL. It lets callers tell this failure apart from
+// failures of the records written after it, which imply the series record was
+// already handed to the WAL.
+type logSeriesError struct{ err error }
+
+func (e logSeriesError) Error() string { return "log series: " + e.err.Error() }
+
+func (e logSeriesError) Unwrap() error { return e.err }
+
 func (a *headAppenderBase) log() error {
 	if a.head.wal == nil {
 		return nil
@@ -1137,7 +1147,7 @@ func (a *headAppenderBase) log() error {
 		buf = rec[:0]
 
 		if err := a.head.wal.Log(rec); err != nil {
-			return fmt.Errorf("log series: %w", err)
+			return logSeriesError{err: err}
 		}
 	}
 	for _, b := range a.batches {
@@ -1806,7 +1816,10 @@ func (a *headAppenderBase) Commit() (err error) {
 		}
 
 		rollbackErr := a.Rollback() // Most likely the same error will happen again.
-		if rollbackErr != nil && len(newSeriesRefs) > 0 {
+		// Only a failure of the series record itself on the original attempt counts: if a later
+		// record failed, the series record was already handed to the WAL.
+		var seriesLogErr logSeriesError
+		if errors.As(err, &seriesLogErr) && rollbackErr != nil && len(newSeriesRefs) > 0 {
 			// Rollback() itself retries a.log() to persist exactly these series' declarations
 			// (series are created in head memory regardless of rollback), so a failure here
 			// means neither attempt got through: these series refs now exist permanently in
