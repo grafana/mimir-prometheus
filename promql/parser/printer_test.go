@@ -268,7 +268,8 @@ func TestExprString(t *testing.T) {
 			in: `{__name__="",a="x"}`,
 		},
 		{
-			in: `{"a.b"="c"}`,
+			in:  `{"a.b"="c"}`,
+			out: `{"a.b"="c"}`,
 		},
 		{
 			in: `{"0"="1"}`,

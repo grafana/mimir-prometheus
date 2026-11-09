@@ -131,9 +131,8 @@ func labelNameRequiresQuoting(s string, unquotedUTF8Names bool) bool {
 	if s == "" {
 		return true
 	}
-	l := Lexer{unquotedUTF8Names: true}
 	for i, r := range s {
-		if (i == 0 && !l.isNameStart(r)) || (i > 0 && !l.isNameContinue(r)) {
+		if (i == 0 && !isNameStart(r)) || (i > 0 && !isNameContinue(r)) {
 			return true
 		}
 	}
@@ -472,7 +471,12 @@ func (node *VectorSelector) String() string {
 		}
 	}
 	b := bytes.NewBuffer(make([]byte, 0, 1024))
-	b.WriteString(node.Name)
+	name := node.Name
+	if name != "" && !node.unquotedUTF8Names && !model.LegacyValidation.IsValidMetricName(name) {
+		labelStrings = append(labelStrings, labels.MetricName+"="+strconv.Quote(name))
+		name = ""
+	}
+	b.WriteString(name)
 	if len(labelStrings) != 0 {
 		b.WriteByte('{')
 		sort.Strings(labelStrings)

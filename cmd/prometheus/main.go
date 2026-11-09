@@ -266,7 +266,7 @@ func (c *flagConfig) setFeatureListOptions(logger *slog.Logger) error {
 				logger.Info("Experimental concurrent rule evaluation enabled.")
 			case "promql-unquoted-utf8-names":
 				c.parserOpts.EnableUnquotedUTF8Names = true
-				logger.Info("Experimental unquoted UTF-8 names enabled.")
+				logger.Info("Unquoted UTF-8 name printing enabled.")
 			case "promql-experimental-functions":
 				c.parserOpts.EnableExperimentalFunctions = true
 				logger.Info("Experimental PromQL functions enabled.")
@@ -1096,8 +1096,10 @@ func main() {
 			DefaultRuleQueryOffset: func() time.Duration {
 				return time.Duration(cfgFile.GlobalConfig.RuleQueryOffset)
 			},
-			FeatureRegistry: features.DefaultRegistry,
-			Parser:          promqlParser,
+			FeatureRegistry:         features.DefaultRegistry,
+			Parser:                  promqlParser,
+			AppendMetadata:          cfg.scrape.AppendMetadata,
+			EnableTypeAndUnitLabels: cfg.scrape.EnableTypeAndUnitLabels,
 		})
 	}
 
