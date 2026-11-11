@@ -224,6 +224,10 @@ The following functions can be used inside duration expressions:
 For example, `max_of(step(), 5s)` ensures the duration is never shorter than
 `5s`, while `min_of(range(), 1h)` caps the duration at `1h`.
 
+Like the scalar functions, `min_of` and `max_of` ignore a `NaN` argument if the
+other argument is not `NaN`. If both arguments are `NaN`, the result is `NaN`.
+A duration expression whose final result is `NaN` or infinite is rejected.
+
 **Note**: Duration expressions are not supported in the [`@` modifier](#modifier).
 
 Examples of equivalent durations:
@@ -373,8 +377,10 @@ When this feature is enabled, unquoted names follow these rules:
 Unicode letters are the characters recognized by Go's `unicode.IsLetter`
 (Unicode category L), using the Unicode version bundled with the Go compiler.
 These rules also apply to grouping labels, vector matching, and labels in
-`group_left` and `group_right` modifiers. Existing keyword restrictions still
-apply, and string arguments containing label names remain strings.
+`group_left` and `group_right` modifiers, except that these may also contain `:`
+where metric names may, as in `sum by (a:b) (foo)`, for compatibility with
+earlier versions. Existing keyword restrictions still apply, and string
+arguments containing label names remain strings.
 
 Dots are ordinary name characters: `resource.k8s.namespace`, `target.info`, and
 `histogram.count` have no metadata lookup, namespace, or histogram field access
