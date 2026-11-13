@@ -557,6 +557,10 @@ triton_sd_configs:
 uyuni_sd_configs:
   [ - <uyuni_sd_config> ... ]
 
+# List of Vultr service discovery configurations.
+vultr_sd_configs:
+  [ - <vultr_sd_config> ... ]
+
 # List of labeled statically configured targets for this job.
 static_configs:
   [ - <static_config> ... ]
@@ -2994,7 +2998,7 @@ The following meta labels are available on targets during [relabeling](#relabel_
 ### `<marathon_sd_config>`
 
 Marathon SD configurations allow retrieving scrape targets using the
-[Marathon](https://mesosphere.github.io/marathon/) REST API. Prometheus
+[Marathon](https://github.com/d2iq-archive/marathon) REST API. Prometheus
 will periodically check the REST endpoint for currently running tasks and
 create a target group for every app that has at least one healthy task.
 
@@ -3020,12 +3024,12 @@ servers:
 [ refresh_interval: <duration> | default = 30s ]
 
 # Optional authentication information for token-based authentication
-# https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
+# https://web.archive.org/web/20190718110036/https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
 # It is mutually exclusive with `auth_token_file` and other authentication mechanisms.
 [ auth_token: <secret> ]
 
 # Optional authentication information for token-based authentication
-# https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
+# https://web.archive.org/web/20190718110036/https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
 # It is mutually exclusive with `auth_token` and other authentication mechanisms.
 [ auth_token_file: <filename> ]
 
@@ -3334,7 +3338,7 @@ From a given Service Account json
 properties can be mapped as:
 
 ```yaml
-stackit_sd_config:
+stackit_sd_configs:
 - oauth2:
     client_id: <credentials.sub>
     client_certificate_key: <credentials.privateKey>
