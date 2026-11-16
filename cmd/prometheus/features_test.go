@@ -143,6 +143,13 @@ func TestSetFeatureListOptions_UnquotedUTF8Names(t *testing.T) {
 	}
 }
 
+func TestSetFeatureListOptions_AutoRecordingMetadata(t *testing.T) {
+	c := &flagConfig{featureList: []string{"auto-recording-metadata"}}
+	require.NoError(t, c.setFeatureListOptions(promslog.NewNopLogger()))
+
+	require.True(t, c.enableAutoRecordingMetadata)
+}
+
 func TestSetFeatureListOptions_OTLPDeltaToCumulativeDeprecated(t *testing.T) {
 	var output bytes.Buffer
 	logger := promslog.New(&promslog.Config{Writer: &output})
