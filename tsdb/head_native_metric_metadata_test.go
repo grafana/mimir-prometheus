@@ -1745,6 +1745,12 @@ func TestHeadNativeMetricMetadataDeletion(t *testing.T) {
 			require.Equal(t, int64(maxNativeMetricMetadataVersions+5), head.nativeMetricMetadata.versions.Load())
 			require.Equal(t, uint64(1), head.nativeMetricMetadata.evictions.Load())
 			head.minValidTime.Store(300)
+			// mimir-prometheus' gcSeries leaves exemplars to the caller's predicate, so eviction also removes the
+			// series that only its exemplar would keep.
+			remaining := 3
+			if mode == "evict" {
+				remaining = 2
+			}
 			for range 2 {
 				switch mode {
 				case "gc":
@@ -1770,16 +1776,19 @@ func TestHeadNativeMetricMetadataDeletion(t *testing.T) {
 					require.Nil(t, head.series.getByID(chunks.HeadSeriesRef(refs[name])))
 					require.False(t, head.nativeMetricMetadata.has(chunks.HeadSeriesRef(refs[name])))
 				}
-				require.Equal(t, uint64(3), head.NumSeries())
-				require.Equal(t, int64(3), head.nativeMetricMetadata.series.Load())
-				require.Equal(t, int64(3), head.nativeMetricMetadata.versions.Load())
+				if mode == "evict" {
+					require.Nil(t, head.series.getByID(chunks.HeadSeriesRef(refs["exemplar"])))
+				}
+				require.Equal(t, uint64(remaining), head.NumSeries())
+				require.Equal(t, int64(remaining), head.nativeMetricMetadata.series.Load())
+				require.Equal(t, int64(remaining), head.nativeMetricMetadata.versions.Load())
 				require.Equal(t, before, nativeMetadataForTest(retired), "retirement must not mutate captured history")
 			}
 			require.NoError(t, pending.Rollback())
 			deleted, err := head.gcSeries([]storage.SeriesRef{refs["pending"]}, math.MaxInt64, func(*memSeries) bool { return false })
 			require.NoError(t, err)
 			require.Empty(t, deleted)
-			require.Equal(t, int64(3), head.nativeMetricMetadata.versions.Load())
+			require.Equal(t, int64(remaining), head.nativeMetricMetadata.versions.Load())
 			require.NoError(t, head.resetInMemoryState())
 			require.Zero(t, head.nativeMetricMetadata.series.Load())
 			require.Zero(t, head.nativeMetricMetadata.versions.Load())
