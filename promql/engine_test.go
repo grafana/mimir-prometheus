@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/common/promslog"
 	"github.com/stretchr/testify/require"
 
 	"github.com/prometheus/prometheus/model/histogram"
@@ -6667,6 +6668,58 @@ func TestQueryStartTimestampsOverride(t *testing.T) {
 	}
 }
 
+func TestEngine_NativeHistogramsAsClassic(t *testing.T) {
+	const load = `
+load 1m
+	%s {{schema:-53 sum:5 count:4 custom_values:[1 2] buckets:[1 2 1]}}
+`
+	// Secondary storage stands in for a remote-read endpoint behind the fanout,
+	// which is how cmd/prometheus wires local and remote storage.
+	primary := promqltest.LoadedStorage(t, fmt.Sprintf(load, "local_seconds"))
+	secondary := promqltest.LoadedStorage(t, fmt.Sprintf(load, "remote_seconds"))
+	fanout := storage.NewFanout(promslog.NewNopLogger(), primary, secondary)
+
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprintf("enabled=%v", enabled), func(t *testing.T) {
+			opts := promql.EngineOpts{
+				MaxSamples:                      1000,
+				Timeout:                         10 * time.Second,
+				EnableNativeHistogramsAsClassic: enabled,
+			}
+			ng := promqltest.NewTestEngineWithOpts(t, opts)
+
+			q, err := ng.NewInstantQuery(t.Context(), fanout, nil, `local_seconds_count or on(__name__) remote_seconds_count`, time.Unix(0, 0))
+			require.NoError(t, err)
+			t.Cleanup(q.Close)
+			res := q.Exec(t.Context())
+			require.NoError(t, res.Err)
+			vec, err := res.Vector()
+			require.NoError(t, err)
+
+			got := map[string]float64{}
+			for _, s := range vec {
+				got[s.Metric.Get(labels.MetricName)] = s.F
+			}
+			if !enabled {
+				require.Empty(t, got)
+				return
+			}
+			// Both local and remote-read NHCBs are converted, since the conversion
+			// wraps the engine's queryable rather than a single fanout leg.
+			require.Equal(t, map[string]float64{"local_seconds_count": 4, "remote_seconds_count": 4}, got)
+
+			// Other consumers of the same storage (e.g. the remote read API) still
+			// see raw data only.
+			sq, err := fanout.Querier(math.MinInt64, math.MaxInt64)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, sq.Close()) })
+			ss := sq.Select(t.Context(), false, nil, labels.MustNewMatcher(labels.MatchEqual, labels.MetricName, "local_seconds_count"))
+			require.False(t, ss.Next())
+			require.NoError(t, ss.Err())
+		})
+	}
+}
+
 func TestTypeAndUnitMetadataLabelsInFunctionsAndMatching(t *testing.T) {
 	load := `load 1m
   hist_metric{__type__="histogram", __unit__="seconds", job="api"} {{schema:1 sum:10 count:5 buckets:[1 2 2]}}
@@ -6801,5 +6854,63 @@ load 10s
 				require.Equal(t, promql.ErrTooManySamplesRead(env), limited.Exec(context.Background()).Err)
 			})
 		}
+	}
+}
+
+func TestUnquotedUTF8NamesEvaluation(t *testing.T) {
+	store := promqltest.LoadedStorage(t, `
+load 1m
+    {"http.server.requests", "service.name"="api", "resource.k8s.namespace"="system"} 0 60 120
+    {"http.server.requests", "service.name"="web", "resource.k8s.namespace"="system"} 0 120 240
+    service_info{"service.name"="api", "équipe"="infra"} 2 2 2
+    service_info{"service.name"="web", "équipe"="frontend"} 3 3 3
+    {"温度", "場所"="東京"} 10 20 30
+    {"histogram.count"} 1 2 3
+    {"target.info"} 4 5 6
+    {"foo..bar."} 7 8 9
+    a 1 1 1
+    {"а"} 2 2 2
+    {"ö"} 3 3 3
+    {"ö"} 4 4 4
+`)
+	defer store.Close()
+	engine := promqltest.NewTestEngineWithOpts(t, promql.EngineOpts{
+		MaxSamples: 10000,
+		Timeout:    time.Minute,
+		Parser:     parser.NewParser(parser.Options{EnableUnquotedUTF8Names: true}),
+	})
+	for _, tc := range []struct{ unquoted, quoted string }{
+		{`http.server.requests{resource.k8s.namespace="system",service.name="api"}`, `{"http.server.requests","resource.k8s.namespace"="system","service.name"="api"}`},
+		{`温度{場所="東京"}`, `{"温度","場所"="東京"}`},
+		{`sum by (service.name) (http.server.requests)`, `sum by ("service.name") ({"http.server.requests"})`},
+		{`sum without (service.name) (http.server.requests)`, `sum without ("service.name") ({"http.server.requests"})`},
+		{`http.server.requests + on (service.name) group_left (équipe) service_info`, `{"http.server.requests"} + on ("service.name") group_left ("équipe") service_info`},
+		{`service_info + on (service.name) group_right (équipe) http.server.requests`, `service_info + on ("service.name") group_right ("équipe") {"http.server.requests"}`},
+		{`rate(http.server.requests[2m])`, `rate({"http.server.requests"}[2m])`},
+		{`histogram.count`, `{"histogram.count"}`},
+		{`target.info`, `{"target.info"}`},
+		{`foo..bar.`, `{"foo..bar."}`},
+		{`a or on (__name__) а`, `{"a"} or on (__name__) {"а"}`},
+		{`ö or on (__name__) {"ö"}`, `{"ö"} or on (__name__) {"ö"}`},
+	} {
+		t.Run(tc.unquoted, func(t *testing.T) {
+			unquoted, err := engine.NewInstantQuery(t.Context(), store, nil, tc.unquoted, time.Unix(120, 0))
+			require.NoError(t, err)
+			defer unquoted.Close()
+			quoted, err := engine.NewInstantQuery(t.Context(), store, nil, tc.quoted, time.Unix(120, 0))
+			require.NoError(t, err)
+			defer quoted.Close()
+			actual := unquoted.Exec(t.Context())
+			expected := quoted.Exec(t.Context())
+			require.NoError(t, actual.Err)
+			require.NoError(t, expected.Err)
+			require.NotEmpty(t, actual.Value)
+			require.Equal(t, expected.Value, actual.Value)
+			if tc.unquoted == "a or on (__name__) а" || tc.unquoted == `ö or on (__name__) {"ö"}` {
+				vector := actual.Value.(promql.Vector)
+				require.Len(t, vector, 2)
+				require.NotEqual(t, vector[0].F, vector[1].F)
+			}
+		})
 	}
 }

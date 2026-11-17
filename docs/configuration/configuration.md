@@ -170,16 +170,26 @@ global:
   # and underscores.
   [ metric_name_validation_scheme: <string> | default "utf8" ]
 
+  # Specifies the character escaping scheme that will be requested when scraping
+  # for metric and label names that do not conform to the legacy Prometheus
+  # character set. Available options are `allow-utf-8`, `underscores`, `dots`
+  # and `values`; see the `<scrape_config>` section below for what each one does.
+  # If this value is left blank, Prometheus will default to `allow-utf-8` if the
+  # global validation scheme is set to utf8, or `underscores` if it is set to
+  # `legacy`. Scrape configs that set neither option inherit this value.
+  # Scrape configs inheriting `allow-utf-8` must use the utf8 validation scheme.
+  [ metric_name_escaping_scheme: <string> | default "allow-utf-8" ]
+
   # If true, native histograms exposed by a target are recognized during
   # scraping and ingested as such. If false, any native parts of histograms
   # are ignored and only the classic parts are recognized (possibly as
   # a classic histogram with only the +Inf buckets if no explicit classic
   # buckets are part of the histogram).
-  [ scrape_native_histograms: <bool> | default = false ]
+  [ scrape_native_histograms: <boolean> | default = false ]
 
   # Specifies whether to convert scraped classic histograms into native
   # histograms with custom buckets.
-  [ convert_classic_histograms_to_nhcb: <bool> | default = false ]
+  [ convert_classic_histograms_to_nhcb: <boolean> | default = false ]
 
   # Specifies whether to additionally scrape the classic parts of a histogram,
   # even if it is also exposed with native parts or it is converted into a
@@ -554,6 +564,10 @@ triton_sd_configs:
 uyuni_sd_configs:
   [ - <uyuni_sd_config> ... ]
 
+# List of Vultr service discovery configurations.
+vultr_sd_configs:
+  [ - <vultr_sd_config> ... ]
+
 # List of labeled statically configured targets for this job.
 static_configs:
   [ - <static_config> ... ]
@@ -623,7 +637,9 @@ metric_relabel_configs:
 #     e.g. "U__my_2e_dotted_2e_name".
 # If this value is left blank, Prometheus will default to `allow-utf-8` if the
 # validation scheme for the current scrape config is set to utf8, or
-# `underscores` if the validation scheme is set to `legacy`.
+# `underscores` if the validation scheme is set to `legacy`. If neither this nor
+# `metric_name_validation_scheme` is set, the global `metric_name_escaping_scheme`
+# is used.
 [ metric_name_escaping_scheme: <string> | default "allow-utf-8" ]
 
 # Limit on total number of positive and negative buckets allowed in a single
@@ -678,11 +694,11 @@ metric_relabel_configs:
 # are ignored and only the classic parts are recognized (possibly as
 # a classic histogram with only the +Inf buckets if no explicit classic
 # buckets are part of the histogram).
-[ scrape_native_histograms: <bool> | default = <global.scrape_native_histograms> ]
+[ scrape_native_histograms: <boolean> | default = <global.scrape_native_histograms> ]
 
 # Specifies whether to convert classic histograms into native histograms with
 # custom buckets.
-[ convert_classic_histograms_to_nhcb: <bool> | default = <global.convert_classic_histograms_to_nhcb>]
+[ convert_classic_histograms_to_nhcb: <boolean> | default = <global.convert_classic_histograms_to_nhcb> ]
 
 # Specifies whether to additionally scrape the classic parts of a histogram,
 # even if it is also exposed with native parts or it is converted into a
@@ -721,7 +737,7 @@ basic_auth:
 # the configured credentials.
 authorization:
   # Sets the authentication type of the request.
-  [ type: <string> | default: Bearer ]
+  [ type: <string> | default = Bearer ]
   # Sets the credentials of the request. It is mutually exclusive with
   # `credentials_file`.
   [ credentials: <secret> ]
@@ -738,7 +754,7 @@ oauth2:
 [ follow_redirects: <boolean> | default = true ]
 
 # Whether to enable HTTP2.
-[ enable_http2: <boolean> | default: true ]
+[ enable_http2: <boolean> | default = true ]
 
 # Configures the request's TLS settings.
 tls_config:
@@ -751,7 +767,7 @@ tls_config:
 # contain port numbers.
 [ no_proxy: <string> ]
 # Use proxy URL indicated by environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, and their lowercase versions)
-[ proxy_from_environment: <boolean> | default: false ]
+[ proxy_from_environment: <boolean> | default = false ]
 # Specifies headers to send to proxies during CONNECT requests.
 [ proxy_connect_header:
   [ <string>: [<secret>, ...] ] ]
@@ -886,7 +902,7 @@ tls_config:
 # contain port numbers.
 [ no_proxy: <string> ]
 # Use proxy URL indicated by environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, and their lowercase versions)
-[ proxy_from_environment: <boolean> | default: false ]
+[ proxy_from_environment: <boolean> | default = false ]
 # Specifies headers to send to proxies during CONNECT requests.
 [ proxy_connect_header:
   [ <string>: [<secret>, ...] ] ]
@@ -1326,11 +1342,117 @@ The following meta labels are available on targets during [relabeling](#relabel_
 * `__meta_rds_instance_timezone`: the time zone of the DB instance
 * `__meta_rds_instance_upgrade_rollout_order`: the upgrade rollout order
 
+#### `mq`
+
+The `mq` role discovers targets from [AWS MQ](https://aws.amazon.com/amazon-mq/)
+brokers, for both the ActiveMQ and RabbitMQ engines. One target is created for
+each `https` endpoint exposed by a broker's instance(s).
+
+**Important**: [only RabbitMQ 4.2+ brokers support Prometheus
+metrics](https://docs.aws.amazon.com/amazon-mq/latest/developer-guide/rabbitmq-prometheus-metrics.html);
+ActiveMQ brokers do not.
+
+**Important**: how instances map to `https` endpoints differs by deployment mode:
+
+* `SINGLE_INSTANCE` and `ACTIVE_STANDBY_MULTI_AZ` (ActiveMQ) brokers report one
+  broker instance per node, each with its own host and a single `https`
+  endpoint, so one target is created per node. The API does not indicate which
+  instance is currently active, so in `ACTIVE_STANDBY_MULTI_AZ` mode both the
+  active and standby instance are discovered as targets; neither will scrape
+  successfully (see above).
+* `SINGLE_INSTANCE` and `CLUSTER_MULTI_AZ` (RabbitMQ) brokers report all of
+  their nodes as a single broker instance with one or more `https` endpoints
+  (same host, distinct ports, one per node), so one target is still created
+  per node. RabbitMQ brokers do not expose a per-node IP address or identifier
+  through this API, so `__meta_mq_broker_instance_ip_address` is absent on
+  these targets and nodes can only be told apart by their endpoint/port.
+
+A broker with no running instances (for example, while it is still being
+created) yields no targets.
+
+The IAM credentials used must have the following permissions to discover
+scrape targets:
+
+- `mq:ListBrokers`
+- `mq:DescribeBroker`
+
+The following meta labels are available on targets during [relabeling](#relabel_config):
+
+**Broker labels (common to every target of a broker):**
+
+* `__meta_mq_authentication_strategy`: the authentication strategy used by the broker
+* `__meta_mq_auto_minor_version_upgrade`: whether automatic minor version upgrades are enabled
+* `__meta_mq_broker_arn`: the ARN of the broker
+* `__meta_mq_broker_id`: the ID of the broker
+* `__meta_mq_broker_name`: the name of the broker
+* `__meta_mq_broker_state`: the state of the broker (e.g., RUNNING, CREATION_IN_PROGRESS, REBOOT_IN_PROGRESS)
+* `__meta_mq_configurations_current_id`: the ID of the broker's current configuration
+* `__meta_mq_configurations_current_revision`: the revision of the broker's current configuration
+* `__meta_mq_created`: the creation time of the broker in RFC3339 format
+* `__meta_mq_data_replication_mode`: the data replication mode of the broker (NONE or CRDR)
+* `__meta_mq_data_replication_metadata_data_replication_role`: the replication role of the broker (data replication deployments only)
+* `__meta_mq_data_replication_metadata_data_replication_counterpart_broker_id`: the broker ID of the replication counterpart (data replication deployments only)
+* `__meta_mq_data_replication_metadata_data_replication_counterpart_region`: the region of the replication counterpart (data replication deployments only)
+* `__meta_mq_deployment_mode`: the deployment mode of the broker (e.g., SINGLE_INSTANCE, ACTIVE_STANDBY_MULTI_AZ, CLUSTER_MULTI_AZ)
+* `__meta_mq_encryption_options_use_aws_owned_key`: whether the broker uses an AWS-owned encryption key
+* `__meta_mq_encryption_options_kms_key_id`: the ID of the customer-managed KMS key used for encryption, if any
+* `__meta_mq_engine_type`: the broker engine (ACTIVEMQ or RABBITMQ)
+* `__meta_mq_engine_version`: the broker engine version
+* `__meta_mq_host_instance_type`: the broker's instance type (e.g., mq.m5.large)
+* `__meta_mq_ldap_server_metadata_hosts`: comma-separated list of LDAP server hosts used for authentication, if configured
+* `__meta_mq_ldap_server_metadata_role_base`: the LDAP role base DN, if configured
+* `__meta_mq_ldap_server_metadata_role_search_matching`: the LDAP role search filter, if configured
+* `__meta_mq_ldap_server_metadata_role_search_subtree`: whether the LDAP role search is recursive, if configured
+* `__meta_mq_ldap_server_metadata_role_name`: the LDAP role name attribute, if configured
+* `__meta_mq_ldap_server_metadata_service_account_username`: the LDAP service account username, if configured
+* `__meta_mq_ldap_server_metadata_user_base`: the LDAP user base DN, if configured
+* `__meta_mq_ldap_server_metadata_user_role_name`: the LDAP user role name attribute, if configured
+* `__meta_mq_ldap_server_metadata_user_search_matching`: the LDAP user search filter, if configured
+* `__meta_mq_ldap_server_metadata_user_search_subtree`: whether the LDAP user search is recursive, if configured
+* `__meta_mq_logs_audit`: whether audit logging is enabled on the broker
+* `__meta_mq_logs_audit_log_group`: the CloudWatch Logs log group audit logs are sent to, if audit logging is enabled
+* `__meta_mq_logs_general`: whether general logging is enabled on the broker
+* `__meta_mq_logs_general_log_group`: the CloudWatch Logs log group general logs are sent to
+* `__meta_mq_logs_pending_audit`: whether audit logging will be enabled once a pending logging change is applied, if a change is pending
+* `__meta_mq_logs_pending_general`: whether general logging will be enabled once a pending logging change is applied, if a change is pending
+* `__meta_mq_maintenance_window_start_time_day_of_week`: the day of the week of the broker's maintenance window
+* `__meta_mq_maintenance_window_start_time_time_of_day`: the time of day of the broker's maintenance window
+* `__meta_mq_maintenance_window_start_time_time_zone`: the time zone of the broker's maintenance window
+* `__meta_mq_pending_authentication_strategy`: the pending authentication strategy, if a change is pending
+* `__meta_mq_pending_data_replication_mode`: the pending data replication mode, if a change is pending
+* `__meta_mq_pending_data_replication_metadata_data_replication_role`: the pending replication role, if a change is pending
+* `__meta_mq_pending_data_replication_metadata_data_replication_counterpart_broker_id`: the pending replication counterpart broker ID, if a change is pending
+* `__meta_mq_pending_data_replication_metadata_data_replication_counterpart_region`: the pending replication counterpart region, if a change is pending
+* `__meta_mq_pending_engine_version`: the pending engine version, if an upgrade is pending
+* `__meta_mq_pending_host_instance_type`: the pending instance type, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_hosts`: comma-separated list of pending LDAP server hosts, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_role_base`: the pending LDAP role base DN, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_role_search_matching`: the pending LDAP role search filter, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_role_search_subtree`: the pending LDAP role search recursiveness, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_role_name`: the pending LDAP role name attribute, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_service_account_username`: the pending LDAP service account username, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_user_base`: the pending LDAP user base DN, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_user_role_name`: the pending LDAP user role name attribute, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_user_search_matching`: the pending LDAP user search filter, if a change is pending
+* `__meta_mq_pending_ldap_server_metadata_user_search_subtree`: the pending LDAP user search recursiveness, if a change is pending
+* `__meta_mq_pending_security_groups`: comma-separated list of pending security group IDs, if a change is pending
+* `__meta_mq_pending_storage_size`: the pending storage size in gibibytes (GiB), if a change is pending
+* `__meta_mq_publicly_accessible`: whether the broker is publicly accessible
+* `__meta_mq_security_groups`: comma-separated list of security group IDs attached to the broker
+* `__meta_mq_storage_size`: the storage size of the broker in gibibytes (GiB)
+* `__meta_mq_storage_type`: the storage type of the broker (EBS or EFS)
+* `__meta_mq_subnet_ids`: comma-separated list of subnet IDs the broker is deployed into
+* `__meta_mq_tags_<tagkey>`: each tag value of the broker, keyed by tag name
+
+**Broker instance labels (target-specific):**
+
+* `__meta_mq_broker_instance_endpoint`: the `https` endpoint used as the target's scrape address
+
 See below for the configuration options for AWS discovery:
 
 ```yaml
 # The AWS role to use for service discovery.
-# Must be one of: ec2, lightsail, ecs, msk, elasticache, or rds.
+# Must be one of: ec2, lightsail, ecs, msk, elasticache, mq, or rds.
 role: <string>
 
 # The AWS region. If blank, the region from the instance metadata is used.
@@ -1378,6 +1500,11 @@ filters:
 # This can significantly improve performance when you only need to monitor specific clusters/caches.
 [ clusters: [<string>, ...] ]
 
+# Maximum number of AWS API requests issued concurrently while discovering
+# targets (ecs, elasticache, msk, and rds roles only). The defaults are aligned
+# with the sustained request rate limits of the respective AWS APIs.
+[ request_concurrency: <int> | default = 20 for the ecs role, 10 for the elasticache, msk and rds roles ]
+
 # HTTP client settings, including authentication methods (such as basic auth and
 # authorization), proxy configurations, TLS options, custom HTTP headers, etc.
 [ <http_config> ]
@@ -1407,6 +1534,7 @@ The following meta labels are available on targets during [relabeling](#relabel_
 * `__meta_azure_machine_tag_<tagname>`: each tag value of the machine
 * `__meta_azure_machine_scale_set`: the name of the scale set which the vm is part of (this value is only set if you are using a [scale set](https://learn.microsoft.com/en-us/azure/virtual-machine-scale-sets/))
 * `__meta_azure_machine_size`: the machine size
+* `__meta_azure_machine_state`: the machine power state (`running`, `stopped`, `deallocated`, `starting`, `stopping`, `deallocating`, or empty if unavailable). Power states of virtual machines not in a uniform scale set are read with one subscription-wide request, so the label is empty if the credentials cannot list virtual machines in the subscription
 * `__meta_azure_subscription_id`: the subscription ID
 * `__meta_azure_tenant_id`: the tenant ID
 
@@ -1425,7 +1553,7 @@ See below for the configuration options for Azure discovery:
 # by the Azure Workload Identity webhook (AZURE_CLIENT_ID, AZURE_TENANT_ID and
 # AZURE_FEDERATED_TOKEN_FILE).
 # See https://learn.microsoft.com/en-us/azure/aks/workload-identity-overview
-[ authentication_method: <string> | default = OAuth]
+[ authentication_method: <string> | default = OAuth ]
 # The subscription ID. Always required.
 subscription_id: <string>
 # Optional tenant ID. Only required with authentication_method OAuth.
@@ -1833,7 +1961,7 @@ names:
 [ type: <string> | default = 'SRV' ]
 
 # The port number used if the query type is not SRV.
-[ port: <int>]
+[ port: <int> ]
 
 # The time after which the provided names are refreshed.
 [ refresh_interval: <duration> | default = 30s ]
@@ -2036,7 +2164,7 @@ region: <string>
 
 # Whether the service discovery should list all instances for all projects.
 # It is only relevant for the 'instance' role and usually requires admin permissions.
-[ all_tenants: <boolean> | default: false ]
+[ all_tenants: <boolean> | default = false ]
 
 # Refresh interval to re-read the instance list.
 [ refresh_interval: <duration> | default = 60s ]
@@ -2879,7 +3007,7 @@ The following meta labels are available on targets during [relabeling](#relabel_
 ### `<marathon_sd_config>`
 
 Marathon SD configurations allow retrieving scrape targets using the
-[Marathon](https://mesosphere.github.io/marathon/) REST API. Prometheus
+[Marathon](https://github.com/d2iq-archive/marathon) REST API. Prometheus
 will periodically check the REST endpoint for currently running tasks and
 create a target group for every app that has at least one healthy task.
 
@@ -2905,12 +3033,12 @@ servers:
 [ refresh_interval: <duration> | default = 30s ]
 
 # Optional authentication information for token-based authentication
-# https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
+# https://web.archive.org/web/20190718110036/https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
 # It is mutually exclusive with `auth_token_file` and other authentication mechanisms.
 [ auth_token: <secret> ]
 
 # Optional authentication information for token-based authentication
-# https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
+# https://web.archive.org/web/20190718110036/https://docs.mesosphere.com/1.11/security/ent/iam-api/#passing-an-authentication-token
 # It is mutually exclusive with `auth_token` and other authentication mechanisms.
 [ auth_token_file: <filename> ]
 
@@ -2975,8 +3103,8 @@ The following meta labels are available on targets during [relabeling](#relabel_
 [ refresh_interval: <duration> | default = 60s ]
 [ region: <string> | default = global ]
 # The URL to connect to the API.
-[ server: <string> ]
-[ tag_separator: <string> | default = ,]
+[ server: <string> | default = http://localhost:4646 ]
+[ tag_separator: <string> | default = , ]
 
 # HTTP client settings, including authentication methods (such as basic auth and
 # authorization), proxy configurations, TLS options, custom HTTP headers, etc.
@@ -3093,7 +3221,7 @@ region: <string>
 # contain port numbers.
 [ no_proxy: <string> ]
 # Use proxy URL indicated by environment variables (HTTP_PROXY, HTTPS_PROXY, NO_PROXY, and their lowercase versions)
-[ proxy_from_environment: <boolean> | default: false ]
+[ proxy_from_environment: <boolean> | default = false ]
 # Specifies headers to send to proxies during CONNECT requests.
 [ proxy_connect_header:
   [ <string>: [<secret>, ...] ] ]
@@ -3102,7 +3230,7 @@ region: <string>
 [ follow_redirects: <boolean> | default = true ]
 
 # Whether to enable HTTP2.
-[ enable_http2: <boolean> | default: true ]
+[ enable_http2: <boolean> | default = true ]
 
 # Configures the TLS settings.
 tls_config:
@@ -3169,10 +3297,10 @@ See below for the configuration options for STACKIT discovery:
 project: <string>
 
 # STACKIT region to use. No automatic discovery of the region is done.
-[ region : <string> | default = "eu01" ]
+[ region: <string> | default = "eu01" ]
 
 # Custom API endpoint to be used. Format scheme://host:port
-[ endpoint : <string>  ]
+[ endpoint: <string> ]
 
 # The port to scrape metrics from.
 [ port: <int> | default = 80 ]
@@ -3219,7 +3347,7 @@ From a given Service Account json
 properties can be mapped as:
 
 ```yaml
-stackit_sd_config:
+stackit_sd_configs:
 - oauth2:
     client_id: <credentials.sub>
     client_certificate_key: <credentials.privateKey>
@@ -3274,7 +3402,7 @@ account: <string>
 # The type of targets to discover, can be set to:
 # * "container" to discover virtual machines (SmartOS zones, lx/KVM/bhyve branded zones) running on Triton
 # * "cn" to discover compute nodes (servers/global zones) making up the Triton infrastructure
-[ role : <string> | default = "container" ]
+[ role: <string> | default = "container" ]
 
 # The DNS suffix which should be applied to target.
 dns_suffix: <string>
@@ -3732,6 +3860,21 @@ relabeling does not apply to automatically generated timeseries such as `up`.
 
 One use for this is to exclude time series that are too expensive to ingest.
 
+When `--enable-feature=metadata-relabeling` is enabled, the metric's metadata is
+exposed during metric relabeling via the reserved `__type__`, `__unit__`, and
+`__help__` labels. These labels can be read (for example, to drop or filter
+series by type or unit) and modified (for example, using `replace` to set or
+override a metric's type, unit, or help text). Replacing one of these labels
+with an empty value (`""`) clears that metadata field. `labeldrop` and
+`labelkeep` actions do not remove metric metadata. `__type__`, `__unit__`,
+and `__help__` are only exposed during relabeling and are not stored as series
+labels in TSDB unless `--enable-feature=type-and-unit-labels` is also enabled.
+When `--enable-feature=type-and-unit-labels` is set, `__type__` and `__unit__`
+are kept on the series while `__help__` remains metadata-only. While
+you can promote metadata to labels via relabeling (for example, targeting a new
+label without the `__` prefix), it is not recommended. Use the
+`type-and-unit-labels` feature instead.
+
 ### `<alert_relabel_configs>`
 
 Alert relabeling is applied to alerts before they are sent to the Alertmanager.
@@ -3976,6 +4119,23 @@ url: <string>
 # Read more on https://prometheus.io/docs/specs/remote_write_spec_2_0/#io-prometheus-write-v2-request
 [ protobuf_message: <prometheus.WriteRequest | io.prometheus.write.v2.Request> | default = prometheus.WriteRequest ]
 
+# EXPERIMENTAL: Remote-Write 2.0 mode to use when `protobuf_message` is `io.prometheus.write.v2.Request`.
+#
+# * `none`: default Remote-Write 2.0 behavior with no additional restrictions.
+# * `stateless`: appends `;mode=stateless` to the Content-Type header, defaults `send_native_histograms` to `true`,
+#   requires `--enable-feature=metadata-wal-records` or `--enable-feature=type-and-unit-labels`, and drops classic
+#   histogram float series, series with unspecified metadata type, and all exemplars (until sample-exemplar coalescing
+#   is implemented, as `stateless` mode forbids detached exemplars).
+# * `stateless-st`: appends `;mode=stateless-st` to the Content-Type header, includes all `stateless` rules,
+#   additionally requires `--enable-feature=st-storage`, and drops cumulative metrics missing a start timestamp.
+#
+# Support for metadata relabeling (https://github.com/prometheus/proposals/pull/104) is coming to allow relabeling
+# untyped series (such as recording rule outputs) to `counter` or `gauge` (relabeling `__type__` already works when
+# `--enable-feature=type-and-unit-labels` is enabled).
+#
+# Read more on https://prometheus.io/docs/specs/prw/remote_write_spec_2_0/#modes
+[ mode: <none | stateless | stateless-st> | default = none ]
+
 # Timeout for requests to the remote write endpoint.
 [ remote_timeout: <duration> | default = 30s ]
 
@@ -3994,10 +4154,11 @@ write_relabel_configs:
 [ name: <string> ]
 
 # Enables sending of exemplars over remote write. Note that exemplar storage itself must be enabled for exemplars to be scraped in the first place.
+# When `mode` is `stateless` or `stateless-st`, all exemplars are currently dropped until sample-exemplar coalescing is implemented.
 [ send_exemplars: <boolean> | default = false ]
 
 # Enables sending of native histograms, also known as sparse histograms, over remote write.
-# For the `io.prometheus.write.v2.Request` message, this option is noop (always true).
+# When `mode` is `stateless` or `stateless-st`, this is set to `true` and manually setting it to `false` is an error.
 [ send_native_histograms: <boolean> | default = false ]
 
 # When enabled, remote-write will resolve the URL host name via DNS, choose one of the IP addresses at random, and connect to it.
@@ -4121,7 +4282,7 @@ queue_config:
   # Minimum number of shards, i.e. amount of concurrency.
   [ min_shards: <int> | default = 1 ]
   # Maximum number of samples per send.
-  [ max_samples_per_send: <int> | default = 2000]
+  [ max_samples_per_send: <int> | default = 2000 ]
   # Maximum time a sample will wait for a send. The sample might wait less
   # if the buffer is full. Further time might pass due to potential retries.
   [ batch_send_deadline: <duration> | default = 5s ]
@@ -4149,7 +4310,7 @@ metadata_config:
   # How frequently metric metadata is sent to remote storage.
   [ send_interval: <duration> | default = 1m ]
   # Maximum number of samples per send.
-  [ max_samples_per_send: <int> | default = 2000]
+  [ max_samples_per_send: <int> | default = 2000 ]
 
 # EXPERIMENTAL: Converts native histograms with custom buckets (NHCB)
 # to classic histograms after applying write_relabel_configs. This enables

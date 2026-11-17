@@ -73,7 +73,8 @@ func TestHeadNativeMetricMetadataQueryConcurrentDeletion(t *testing.T) {
 			}
 			old := head.series.getByID(chunks.HeadSeriesRef(refs[1]))
 			postings := &nativeMetadataGCPostings{Postings: index.NewListPostings(refs), next: func() {
-				deleted := head.gcSeries(refs[1:], math.MaxInt64, func(*memSeries) bool { return true })
+				deleted, err := head.gcSeries(refs[1:], math.MaxInt64, func(*memSeries) bool { return true })
+				require.NoError(t, err)
 				require.Len(t, deleted, 1)
 				if recreate {
 					app := head.AppenderV2(t.Context())

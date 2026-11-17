@@ -1359,7 +1359,9 @@ func TestHeadAppenderV2NativeMetricMetadataTransactions(t *testing.T) {
 			series := head.series.getByID(chunks.HeadSeriesRef(ref))
 			pending := pendingCommitsForTest(series)
 			require.Equal(t, uint32(1), pending)
-			require.Empty(t, head.gcSeries([]storage.SeriesRef{ref}, math.MaxInt64, func(*memSeries) bool { return true }))
+			deleted, err := head.gcSeries([]storage.SeriesRef{ref}, math.MaxInt64, func(*memSeries) bool { return true })
+			require.NoError(t, err)
+			require.Empty(t, deleted)
 			_, _, ok := head.nativeMetricMetadata.get(chunks.HeadSeriesRef(ref))
 			require.False(t, ok)
 
@@ -1367,7 +1369,9 @@ func TestHeadAppenderV2NativeMetricMetadataTransactions(t *testing.T) {
 				require.NoError(t, app.Rollback())
 				pending = pendingCommitsForTest(series)
 				require.Zero(t, pending)
-				require.Contains(t, head.gcSeries([]storage.SeriesRef{ref}, math.MaxInt64, func(*memSeries) bool { return true }), ref)
+				deleted, err = head.gcSeries([]storage.SeriesRef{ref}, math.MaxInt64, func(*memSeries) bool { return true })
+				require.NoError(t, err)
+				require.Contains(t, deleted, ref)
 				_, _, ok = head.nativeMetricMetadata.get(chunks.HeadSeriesRef(ref))
 				require.False(t, ok)
 				return
@@ -1607,7 +1611,10 @@ func TestHeadAppenderV2NativeMetricMetadataTransactions(t *testing.T) {
 				for all := head.postings.All(); all.Next(); {
 					refs = append(refs, all.At())
 				}
-				head.gcSeries(refs, evictAllTime, func(*memSeries) bool { return true })
+				if _, err := head.gcSeries(refs, evictAllTime, func(*memSeries) bool { return true }); err != nil {
+					t.Errorf("gc failed: %v", err)
+					return
+				}
 			}
 		})
 
