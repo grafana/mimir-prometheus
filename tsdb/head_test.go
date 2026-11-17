@@ -7486,3 +7486,63 @@ func TestHeadAppender_DuplicateSamplesDroppedMetric(t *testing.T) {
 		require.Equal(t, 2.0, prom_testutil.ToFloat64(head.metrics.samplesAppended.WithLabelValues(sampleMetricTypeFloat)))
 	})
 }
+
+func TestHead_SeriesMaxTime(t *testing.T) {
+	head, _ := newTestHead(t, DefaultBlockDuration, compression.None, true)
+	require.NoError(t, head.Init(0))
+
+	appendSample := func(lset labels.Labels, ts int64) {
+		t.Helper()
+		app := head.AppenderV2(t.Context())
+		_, err := app.Append(0, lset, 0, ts, 1, nil, nil, storage.AOptions{})
+		require.NoError(t, err)
+		require.NoError(t, app.Commit())
+	}
+	truncateInOrderChunks := func(lset labels.Labels) {
+		t.Helper()
+		s := head.series.getByHash(lset.Hash(), lset)
+		require.NotNil(t, s)
+		s.Lock()
+		s.truncateChunksBefore(math.MaxInt64, 0)
+		s.Unlock()
+	}
+
+	t.Run("unknown series", func(t *testing.T) {
+		_, ok := head.SeriesMaxTime(labels.FromStrings("series", "unknown"))
+		require.False(t, ok)
+	})
+
+	t.Run("newest in-order sample", func(t *testing.T) {
+		lset := labels.FromStrings("series", "in-order")
+		appendSample(lset, 1000)
+		appendSample(lset, 2000)
+		// An out-of-order sample doesn't move the newest sample back.
+		appendSample(lset, 1500)
+
+		maxt, ok := head.SeriesMaxTime(lset)
+		require.True(t, ok)
+		require.Equal(t, int64(2000), maxt)
+	})
+
+	// Head truncation can remove every in-order chunk of a series while its out-of-order samples remain, until the
+	// out-of-order head is compacted. Those samples are then the newest the head holds.
+	t.Run("only out-of-order samples remain", func(t *testing.T) {
+		lset := labels.FromStrings("series", "out-of-order")
+		appendSample(lset, 3000)
+		appendSample(lset, 2500)
+		truncateInOrderChunks(lset)
+
+		maxt, ok := head.SeriesMaxTime(lset)
+		require.True(t, ok)
+		require.Equal(t, int64(2500), maxt)
+	})
+
+	t.Run("no samples remain", func(t *testing.T) {
+		lset := labels.FromStrings("series", "truncated")
+		appendSample(lset, 4000)
+		truncateInOrderChunks(lset)
+
+		_, ok := head.SeriesMaxTime(lset)
+		require.False(t, ok)
+	})
+}

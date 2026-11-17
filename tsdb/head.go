@@ -2673,6 +2673,29 @@ func (h *Head) MaxTime() int64 {
 	return h.maxTime.Load()
 }
 
+// SeriesMaxTime returns the timestamp of the newest sample the head holds for the series with the given labels, and
+// false when the head has no such series or holds none of its samples.
+func (h *Head) SeriesMaxTime(lset labels.Labels) (int64, bool) {
+	s := h.series.getByHash(lset.Hash(), lset)
+	if s == nil {
+		return 0, false
+	}
+	s.Lock()
+	defer s.Unlock()
+	maxt := s.maxTime()
+	// Out-of-order samples are older than the in-order ones, so they only matter once head truncation has removed
+	// every in-order chunk.
+	if maxt == math.MinInt64 && s.ooo != nil {
+		if s.ooo.oooHeadChunk != nil {
+			maxt = s.ooo.oooHeadChunk.maxTime
+		}
+		for _, c := range s.ooo.oooMmappedChunks {
+			maxt = max(maxt, c.maxTime)
+		}
+	}
+	return maxt, maxt != math.MinInt64
+}
+
 // MinOOOTime returns the lowest time bound on visible data in the out of order
 // head.
 func (h *Head) MinOOOTime() int64 {
