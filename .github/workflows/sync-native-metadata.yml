@@ -1,0 +1,548 @@
+name: Sync native metadata
+on:
+  schedule:
+    - cron: '23 5 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Validate and seal artifacts without publishing the feature branch
+        type: boolean
+        default: true
+        required: true
+permissions:
+  contents: read
+cache-mode: none
+concurrency:
+  group: native-metadata-sync
+  cancel-in-progress: false
+  queue: max
+env:
+  SYNC_BOT_NAME: ${{ vars.SYNC_BOT_NAME }}
+  SYNC_BOT_EMAIL: ${{ vars.SYNC_BOT_EMAIL }}
+  SYNC_SIGNING_PUBLIC_KEY: ${{ vars.SYNC_SIGNING_PUBLIC_KEY }}
+jobs:
+  prepare:
+    if: ${{ !cancelled() && github.repository == 'grafana/mimir-prometheus' && github.ref == 'refs/heads/main' && github.run_attempt == 1 && (github.event_name == 'workflow_dispatch' || vars.NATIVE_METADATA_SYNC_ENABLED == 'true') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-metadata-sync-resolve
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+      noop: ${{ steps.run.outputs.noop }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - name: Get Anthropic API key from Vault
+        id: anthropic
+        uses: grafana/shared-workflows/actions/get-vault-secrets@e46fe1e9a2bf9e618bcf8d8d32f3a7381b45c06d # get-vault-secrets/v2.0.0
+        with:
+          vault_instance: ops
+          ignore_missing: 'false'
+          repo_secrets: |
+            ANTHROPIC_API_KEY=native-metadata-sync-anthropic-key:ANTHROPIC_API_KEY
+      - name: Prepare candidate
+        id: run
+        env:
+          ANTHROPIC_API_KEY: ${{ fromJSON(steps.anthropic.outputs.secrets).ANTHROPIC_API_KEY }}
+        run: |
+          if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+            echo "::error::ANTHROPIC_API_KEY is empty"
+            exit 1
+          fi
+          "$RUNNER_TEMP/native-metadata-sync" prepare --work "$RUNNER_TEMP/candidate" --out output
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        if: steps.run.outputs.noop == 'false'
+        with:
+          name: prepared-0
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: ledger
+        if: failure() && hashFiles('output/ledger.json') != ''
+        with:
+          name: ledger-prepare
+          path: output/ledger.json
+          if-no-files-found: error
+          retention-days: 30
+
+  normalize-0:
+    needs: [prepare]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.prepare.result == 'success' && needs.prepare.outputs.noop == 'false' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - name: Normalize candidate
+        id: run
+        run: '"$RUNNER_TEMP/native-metadata-sync" normalize --work "$RUNNER_TEMP/candidate" --input input --out output'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: normalization-0
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+
+  sign-0:
+    needs: [prepare, normalize-0]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.prepare.result == 'success' && needs.normalize-0.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-metadata-sync-sign
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+      envelope: ${{ steps.run.outputs.envelope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.prepare.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.normalize-0.outputs.artifact }}
+          merge-multiple: true
+          path: normalization
+      - name: Sign candidate
+        id: run
+        env:
+          SYNC_SIGNING_PRIVATE_KEY: ${{ secrets.SYNC_SIGNING_PRIVATE_KEY }}
+        run: '"$RUNNER_TEMP/native-metadata-sync" sign --work "$RUNNER_TEMP/candidate" --input input --normalization normalization/normalization.patch --out output'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: signed-0
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+
+  validate-0:
+    needs: [sign-0]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.sign-0.result == 'success' }}
+    uses: ./.github/workflows/validate-native-metadata-sync.yml
+    with:
+      artifact: ${{ needs.sign-0.outputs.artifact }}
+      envelope: ${{ needs.sign-0.outputs.envelope }}
+      round: 0
+
+  repair-1:
+    needs: [validate-0, sign-0]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.validate-0.result == 'failure' && needs.sign-0.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-metadata-sync-resolve
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.sign-0.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: diagnostics-0-*
+          merge-multiple: true
+          path: diagnostics
+      - name: Get Anthropic API key from Vault
+        id: anthropic
+        uses: grafana/shared-workflows/actions/get-vault-secrets@e46fe1e9a2bf9e618bcf8d8d32f3a7381b45c06d # get-vault-secrets/v2.0.0
+        with:
+          vault_instance: ops
+          ignore_missing: 'false'
+          repo_secrets: |
+            ANTHROPIC_API_KEY=native-metadata-sync-anthropic-key:ANTHROPIC_API_KEY
+      - name: Repair candidate
+        id: run
+        env:
+          ENVELOPE: ${{ needs.sign-0.outputs.envelope }}
+          ANTHROPIC_API_KEY: ${{ fromJSON(steps.anthropic.outputs.secrets).ANTHROPIC_API_KEY }}
+        run: |
+          if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+            echo "::error::ANTHROPIC_API_KEY is empty"
+            exit 1
+          fi
+          "$RUNNER_TEMP/native-metadata-sync" repair --work "$RUNNER_TEMP/candidate" --input input --envelope "$ENVELOPE" --diagnostics diagnostics --out output
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: prepared-1
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: ledger
+        if: failure() && hashFiles('output/ledger.json') != ''
+        with:
+          name: ledger-repair-1
+          path: output/ledger.json
+          if-no-files-found: error
+          retention-days: 30
+
+  normalize-1:
+    needs: [repair-1]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.repair-1.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.repair-1.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - name: Normalize candidate
+        id: run
+        run: '"$RUNNER_TEMP/native-metadata-sync" normalize --work "$RUNNER_TEMP/candidate" --input input --out output'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: normalization-1
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+
+  sign-1:
+    needs: [repair-1, normalize-1]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.repair-1.result == 'success' && needs.normalize-1.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-metadata-sync-sign
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+      envelope: ${{ steps.run.outputs.envelope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.repair-1.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.normalize-1.outputs.artifact }}
+          merge-multiple: true
+          path: normalization
+      - name: Sign candidate
+        id: run
+        env:
+          SYNC_SIGNING_PRIVATE_KEY: ${{ secrets.SYNC_SIGNING_PRIVATE_KEY }}
+        run: '"$RUNNER_TEMP/native-metadata-sync" sign --work "$RUNNER_TEMP/candidate" --input input --normalization normalization/normalization.patch --out output'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: signed-1
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+
+  validate-1:
+    needs: [sign-1]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.sign-1.result == 'success' }}
+    uses: ./.github/workflows/validate-native-metadata-sync.yml
+    with:
+      artifact: ${{ needs.sign-1.outputs.artifact }}
+      envelope: ${{ needs.sign-1.outputs.envelope }}
+      round: 1
+
+  repair-2:
+    needs: [validate-1, sign-1]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.validate-1.result == 'failure' && needs.sign-1.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-metadata-sync-resolve
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.sign-1.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: diagnostics-1-*
+          merge-multiple: true
+          path: diagnostics
+      - name: Get Anthropic API key from Vault
+        id: anthropic
+        uses: grafana/shared-workflows/actions/get-vault-secrets@e46fe1e9a2bf9e618bcf8d8d32f3a7381b45c06d # get-vault-secrets/v2.0.0
+        with:
+          vault_instance: ops
+          ignore_missing: 'false'
+          repo_secrets: |
+            ANTHROPIC_API_KEY=native-metadata-sync-anthropic-key:ANTHROPIC_API_KEY
+      - name: Repair candidate
+        id: run
+        env:
+          ENVELOPE: ${{ needs.sign-1.outputs.envelope }}
+          ANTHROPIC_API_KEY: ${{ fromJSON(steps.anthropic.outputs.secrets).ANTHROPIC_API_KEY }}
+        run: |
+          if [[ -z "$ANTHROPIC_API_KEY" ]]; then
+            echo "::error::ANTHROPIC_API_KEY is empty"
+            exit 1
+          fi
+          "$RUNNER_TEMP/native-metadata-sync" repair --work "$RUNNER_TEMP/candidate" --input input --envelope "$ENVELOPE" --diagnostics diagnostics --out output
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: prepared-2
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: ledger
+        if: failure() && hashFiles('output/ledger.json') != ''
+        with:
+          name: ledger-repair-2
+          path: output/ledger.json
+          if-no-files-found: error
+          retention-days: 30
+
+  normalize-2:
+    needs: [repair-2]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.repair-2.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.repair-2.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - name: Normalize candidate
+        id: run
+        run: '"$RUNNER_TEMP/native-metadata-sync" normalize --work "$RUNNER_TEMP/candidate" --input input --out output'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: normalization-2
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+
+  sign-2:
+    needs: [repair-2, normalize-2]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.repair-2.result == 'success' && needs.normalize-2.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-metadata-sync-sign
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+      envelope: ${{ steps.run.outputs.envelope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.repair-2.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.normalize-2.outputs.artifact }}
+          merge-multiple: true
+          path: normalization
+      - name: Sign candidate
+        id: run
+        env:
+          SYNC_SIGNING_PRIVATE_KEY: ${{ secrets.SYNC_SIGNING_PRIVATE_KEY }}
+        run: '"$RUNNER_TEMP/native-metadata-sync" sign --work "$RUNNER_TEMP/candidate" --input input --normalization normalization/normalization.patch --out output'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: signed-2
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+
+  validate-2:
+    needs: [sign-2]
+    if: ${{ !cancelled() && github.run_attempt == 1 && needs.sign-2.result == 'success' }}
+    uses: ./.github/workflows/validate-native-metadata-sync.yml
+    with:
+      artifact: ${{ needs.sign-2.outputs.artifact }}
+      envelope: ${{ needs.sign-2.outputs.envelope }}
+      round: 2
+
+  seal:
+    needs: [sign-0, sign-1, sign-2, validate-0, validate-1, validate-2]
+    if: ${{ !cancelled() && github.run_attempt == 1 && (needs.validate-0.result == 'success' || needs.validate-1.result == 'success' || needs.validate-2.result == 'success') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-metadata-sync-sign
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact: ${{ steps.artifact.outputs.artifact-id }}
+      envelope: ${{ steps.run.outputs.envelope }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.validate-0.result == 'success' && needs.sign-0.outputs.artifact || needs.validate-1.result == 'success' && needs.sign-1.outputs.artifact || needs.sign-2.outputs.artifact }}
+          merge-multiple: true
+          path: input
+      - name: Seal candidate
+        id: run
+        env:
+          ENVELOPE: ${{ needs.validate-0.result == 'success' && needs.sign-0.outputs.envelope || needs.validate-1.result == 'success' && needs.sign-1.outputs.envelope || needs.sign-2.outputs.envelope }}
+          SYNC_SIGNING_PRIVATE_KEY: ${{ secrets.SYNC_SIGNING_PRIVATE_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/native-metadata-sync" seal --work "$RUNNER_TEMP/candidate" --input input --envelope "$ENVELOPE" --out output'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        id: artifact
+        with:
+          name: sealed-candidate
+          path: output
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: [seal]
+    if: ${{ !cancelled() && needs.seal.result == 'success' && (github.event_name == 'schedule' || !inputs.dry_run) }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: native-metadata-sync-publish
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    outputs:
+      publication: ${{ steps.run.outputs.publication }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: ./.github/actions/native-metadata-sync
+      - name: Require exact sealed input
+        env:
+          ARTIFACT_ID: ${{ needs.seal.outputs.artifact }}
+          ENVELOPE: ${{ needs.seal.outputs.envelope }}
+        run: |
+          [[ "$ARTIFACT_ID" =~ ^[1-9][0-9]*$ ]]
+          [[ "$ENVELOPE" =~ ^[0-9a-f]{40}$ ]]
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.seal.outputs.artifact }}
+          merge-multiple: true
+          path: input
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ github.run_id }}
+      - uses: grafana/shared-workflows/actions/create-github-app-token@46f48da11e78ebdba7a8747ae456b11062fac83e # v0.3.1
+        id: app
+        with:
+          github_app: mimir-github-bot
+          permission_set: native-metadata-sync
+      - name: Publish candidate
+        id: run
+        env:
+          ENVELOPE: ${{ needs.seal.outputs.envelope }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: '"$RUNNER_TEMP/native-metadata-sync" publish --work "$RUNNER_TEMP/candidate" --input input --envelope "$ENVELOPE" --out output'
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always() && hashFiles('output/report.md') != ''
+        with:
+          name: publication-report-${{ github.run_attempt }}
+          path: output/report.md
+          if-no-files-found: error
+          retention-days: 30
+
+  result:
+    needs: [prepare, seal, publish]
+    if: always()
+    runs-on: ubuntu-24.04
+    permissions: {}
+    steps:
+      - name: Report sync outcome
+        env:
+          PREPARE: ${{ needs.prepare.result }}
+          NOOP: ${{ needs.prepare.outputs.noop }}
+          SEAL: ${{ needs.seal.result }}
+          PUBLISH: ${{ needs.publish.result }}
+          PUBLICATION: ${{ needs.publish.outputs.publication }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+          DISABLED: ${{ github.event_name == 'schedule' && vars.NATIVE_METADATA_SYNC_ENABLED != 'true' && github.run_attempt == 1 }}
+          CANCELLED: ${{ contains(needs.*.result, 'cancelled') }}
+        run: |
+          if [[ "$DISABLED" == true && "$PREPARE" == skipped ]]; then
+            echo 'Native metadata synchronization is disabled.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$PREPARE" == success && "$NOOP" == true ]]; then
+            echo 'Source and main are unchanged; no publication was needed.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$DRY_RUN" == true && "$SEAL" == success ]]; then
+            echo 'Dry run validated and sealed the candidate; no refs were published.' >> "$GITHUB_STEP_SUMMARY"
+          elif [[ "$PUBLISH" == success && ( "$PUBLICATION" == published || "$PUBLICATION" == already-published ) ]]; then
+            echo "Publication: $PUBLICATION. See the signed receipt and publication report." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Sync did not finish successfully. Publication: ${PUBLICATION:-unconfirmed}; cancelled: $CANCELLED." >> "$GITHUB_STEP_SUMMARY"
+            echo 'For an interrupted publisher, reconcile its receipt by rerunning only that job. Other failed stages require a new run.' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
