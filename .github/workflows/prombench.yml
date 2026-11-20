@@ -37,7 +37,7 @@ jobs:
           "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$LAST_COMMIT_SHA"
       - name: Run make deploy to start test
         id: make_deploy
-        uses: docker://prominfra/prombench:master
+        uses: docker://prominfra/prombench:master@sha256:1d809cc328f67f5b9ed17a6c9af30c2684e24dcb2d1319c493ca0584e326161a
         with:
           args: >-
             make deploy;
@@ -74,7 +74,7 @@ jobs:
           "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$LAST_COMMIT_SHA"
       - name: Run make clean to stop test
         id: make_clean
-        uses: docker://prominfra/prombench:master
+        uses: docker://prominfra/prombench:master@sha256:1d809cc328f67f5b9ed17a6c9af30c2684e24dcb2d1319c493ca0584e326161a
         with:
           args: >-
             make clean;
@@ -111,7 +111,7 @@ jobs:
           "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$LAST_COMMIT_SHA"
       - name: Run make clean then make deploy to restart test
         id: make_restart
-        uses: docker://prominfra/prombench:master
+        uses: docker://prominfra/prombench:master@sha256:1d809cc328f67f5b9ed17a6c9af30c2684e24dcb2d1319c493ca0584e326161a
         with:
           args: >-
             make clean;
